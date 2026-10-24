@@ -53,12 +53,17 @@ function latestEvent(group: ActivityGroup, t: Translate): string {
   if (entry.isCancelled) return t('cancelled');
   if (group.kind === 'faucet') return t('faucetRequestTitle');
   if (group.kind === 'swap' && entry.token && entry.requestedToken) {
-    return `${t('swap')} ${entry.token} → ${entry.requestedToken}`;
+    const pair = `${t('swap')} ${entry.token} → ${entry.requestedToken}`;
+    if (entry.swapFillProgress !== undefined) {
+      return `${pair} · ${t('amountFilled')}: ${t('swapProgressPercent', { percentage: entry.swapFillProgress })}`;
+    }
+    return pair;
   }
   const amount = amountLabel(entry);
   const message = entry.message.trim();
   if (!message) return amount ?? t('activity');
-  return amount ? `${message} ${amount}` : message;
+  const label = message === 'Transaction failed' ? t('transactionFailedNotificationTitle') : message;
+  return amount ? `${label} ${amount}` : label;
 }
 
 function amountLabel(entry: IHistoryEntry): string | undefined {

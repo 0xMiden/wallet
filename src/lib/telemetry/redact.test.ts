@@ -1,5 +1,7 @@
 import { englishWordlist } from '@miden/hd-key';
+import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 
+import { captureCrash } from './crash';
 import {
   BIP39_RUN_THRESHOLD,
   REDACTED,
@@ -9,6 +11,22 @@ import {
   redactMessage,
   redactText
 } from './redact';
+import {
+  ACCOUNT_AUTH_CODES,
+  AUTH_LAYOUTS,
+  AUTH_PREPARATIONS,
+  CLAIM_FEE_ADMISSIONS,
+  COMMITMENT_MATCHES,
+  CONSUME_DEFERRAL_CAUSES,
+  FAILURE_POINTS,
+  REAP_AGES,
+  REAPED_ATTEMPT_ORIGINS,
+  reportTransactionFailure,
+  type TransactionFailure,
+  type TransactionFailureDiagnostics
+} from './transaction-failure';
+
+jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
 
 /** The three-word list the brief's examples use — keeps those cases readable. */
 const wordlist = ['abandon', 'ability', 'zoo'];
@@ -539,5 +557,185 @@ describe('containsSeedMaterialDeep', () => {
     expect(containsSeedMaterialDeep(null, english)).toBe(false);
     expect(containsSeedMaterialDeep(42, english)).toBe(false);
     expect(containsSeedMaterialDeep(PHRASE_12, english)).toBe(true);
+  });
+});
+
+// BREAD-WALLET-T: source constants of the shipped assertion table whose words read as four wordlist words in a row, so
+// a transaction-failure report naming one lost its whole message.
+describe('a closed identity name', () => {
+  const BLANKED = [
+    'ERR_NETWORK_ACCOUNT_FEE_ASSET_NOT_NATIVE',
+    'ERR_ACCOUNT_UPGRADE_CODE_ALREADY_SET',
+    'ERR_NEW_MAX_SUPPLY_BELOW_TOKEN_SUPPLY',
+    'ERR_LINK_MAP_ENTRY_PTR_IS_OUTSIDE_VALID_MEMORY_REGION',
+    'ERR_TX_COMPUTE_FEE_EXCLUDE_NOTE_INDEX_OUT_OF_BOUNDS',
+    'ERR_AUTH_TX_FEE_COLLECTOR_NOTE_MUST_CARRY_ONE_ASSET',
+    'ERR_TX_COMPUTE_FEE_EXCLUDE_NOTE_INDEX_NOT_U32',
+    'ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS'
+  ];
+  const closed: ReadonlySet<string> = new Set(BLANKED);
+  const NAME = 'ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS';
+  const report = (identity: string) =>
+    'Transaction failed: tx_dapp; stage signing; signing step creating_proposal; realm unknown; proving preference ' +
+    `delegated; platform ios; point pipeline; ${identity}. authentication preparation provided; layout guardian`;
+
+  it.each(BLANKED)('does not read %s, named exactly, as wordlist words', name => {
+    expect(containsSeedMaterial(report(name), english, closed)).toBe(false);
+    expect(redactMessage(report(name), english, closed)).toBe(report(name));
+    expect(redactText(report(name), english, closed)).toBe(report(name));
+    expect(containsSeedMaterialDeep({ exception: { values: [{ value: report(name) }] } }, english, closed)).toBe(false);
+  });
+
+  it('reads the name as words where no closed names are given', () => {
+    expect(containsSeedMaterial(report(NAME), english)).toBe(true);
+    expect(redactMessage(report(NAME), english)).toBeNull();
+  });
+
+  it('reads the name as one word outside the list, so the wordlist words on either side do not join into a run', () => {
+    const words = PHRASE_12.split(' ');
+    const text = [...words.slice(0, 2), NAME, ...words.slice(2, 4)].join(' ');
+    expect(containsSeedMaterial(words.slice(0, 4).join(' '), english)).toBe(true);
+    expect(containsSeedMaterial(text, english, closed)).toBe(false);
+    expect(redactMessage(text, english, closed)).toBe(text);
+  });
+
+  it.each([
+    ['after it', `${report(NAME)} ${PHRASE_12}`],
+    ['before it', `${PHRASE_12} ${report(NAME)}`],
+    ['around it', `${PHRASE_12.split(' ').slice(0, 6).join(' ')} ${NAME} ${PHRASE_12.split(' ').slice(6).join(' ')}`]
+  ])('still drops a twelve-word phrase %s', (_where, text) => {
+    expect(containsSeedMaterial(text, english, closed)).toBe(true);
+    expect(redactMessage(text, english, closed)).toBeNull();
+    expect(containsSeedMaterialDeep({ exception: { values: [{ value: text }] } }, english, closed)).toBe(true);
+  });
+
+  it.each([
+    ['inside a longer token', `X${NAME}`],
+    ['with a suffix', `${NAME}_V2`],
+    ['joined to a word', `${NAME}abandon`],
+    ['lower-cased', NAME.toLowerCase()],
+    ['as its prefix only', 'ERR_INPUT_NOTE_ASSET_INDEX']
+  ])('still counts the words of a closed name %s', (_how, token) => {
+    expect(containsSeedMaterial(report(token), english, closed)).toBe(true);
+    expect(redactMessage(report(token), english, closed)).toBeNull();
+  });
+});
+
+// The caller that hands crash scrubbing a closed set. A value of its report blanked out of the view let the label words
+// on either side join, so `commitment match unavailable; account code current_guardian` read as four wordlist words.
+describe('a transaction-failure report', () => {
+  type Reported = readonly [message: string, closedNames: ReadonlySet<string> | undefined];
+
+  const reported = (failure: TransactionFailure): Reported => {
+    jest.mocked(captureCrash).mockClear();
+    reportTransactionFailure(failure);
+    const call = jest.mocked(captureCrash).mock.calls[0];
+    const error = call?.[0];
+    return [error instanceof Error ? error.message : '', call?.[2]?.closedNames];
+  };
+  const scrubbed = ([message, closedNames]: Reported) => redactMessage(message, english, closedNames);
+  const diagnostics = (
+    commitmentMatch: TransactionFailureDiagnostics['commitmentMatch'],
+    accountAuthCode: TransactionFailureDiagnostics['accountAuthCode']
+  ): TransactionFailureDiagnostics => ({
+    authPreparation: 'provided',
+    authLayout: 'guardian',
+    commitmentMatch,
+    accountAuthCode
+  });
+
+  it.each<[TransactionFailureDiagnostics['commitmentMatch'], TransactionFailureDiagnostics['accountAuthCode']]>([
+    ['unavailable', 'current_guardian'],
+    ['fee', 'current_guardian'],
+    ['neither', 'unrecognized']
+  ])('comes through crash scrubbing with commitment match %s and account code %s', (match, code) => {
+    const report = reported({ type: 'execute', diagnostics: diagnostics(match, code) });
+    expect(report[0]).toContain(`commitment match ${match}; account code ${code}.`);
+    expect(scrubbed(report)).toBe(report[0]);
+  });
+
+  // One product per sentence rather than one across both: `authentication preparation`, which opens the second, holds
+  // no wordlist word, so no run can span them, and their full product would take some two hundred times the scrubs.
+  it('comes through crash scrubbing unchanged for every combination of the fixed values in each sentence', () => {
+    const failures: TransactionFailure[] = [];
+    for (const stage of [...TRANSACTION_STAGES, undefined]) {
+      for (const delegateTransaction of [true, false, undefined]) {
+        for (const error of [new Error("Offscreen call 'newTransaction' failed: refused"), undefined]) {
+          for (const point of FAILURE_POINTS)
+            failures.push({ type: 'execute', stage, delegateTransaction, error, point });
+        }
+      }
+    }
+    for (const authPreparation of AUTH_PREPARATIONS) {
+      for (const authLayout of AUTH_LAYOUTS) {
+        for (const commitmentMatch of COMMITMENT_MATCHES) {
+          for (const accountAuthCode of ACCOUNT_AUTH_CODES) {
+            failures.push({
+              type: 'execute',
+              diagnostics: { authPreparation, authLayout, commitmentMatch, accountAuthCode }
+            });
+          }
+        }
+      }
+    }
+    const reports = failures.map(reported);
+    expect(reports.filter(report => scrubbed(report) !== report[0]).map(([message]) => message)).toEqual([]);
+  });
+
+  it('comes through crash scrubbing unchanged for every queue-failure closed value', () => {
+    const cases: [TransactionFailure, string][] = [];
+    for (const lastDeferral of CONSUME_DEFERRAL_CAUSES) {
+      cases.push([{ type: 'consume', lastDeferral }, `; last deferral ${lastDeferral};`]);
+      cases.push([{ type: 'send', reason: 'queued_expired', lastDeferral }, `; last deferral ${lastDeferral};`]);
+    }
+    for (const feeAdmission of CLAIM_FEE_ADMISSIONS) {
+      cases.push([{ type: 'consume', feeAdmission }, `; claim fee admission ${feeAdmission};`]);
+    }
+    for (const age of REAP_AGES) {
+      for (const attempt of REAPED_ATTEMPT_ORIGINS) {
+        cases.push([
+          { type: 'consume', reason: 'stuck_reaped', reap: { age, attempt } },
+          `; reap age ${age}; reaped attempt ${attempt};`
+        ]);
+      }
+    }
+    for (const [failure, segment] of cases) {
+      const report = reported(failure);
+      expect(report[0]).toContain(segment);
+      expect(scrubbed(report)).toBe(report[0]);
+    }
+  });
+
+  it('comes through crash scrubbing unchanged for absent and unlisted queue-failure fields', () => {
+    const absent = reported({ type: 'consume', reason: 'stuck_reaped' });
+    expect(absent[0]).toContain(
+      '; queued by unrecorded; last deferral none; claim fee admission unrecorded; ' +
+        'reap age unavailable; reaped attempt unavailable; point pipeline;'
+    );
+    expect(scrubbed(absent)).toBe(absent[0]);
+
+    const failure: TransactionFailure = { type: 'consume', reason: 'stuck_reaped' };
+    Reflect.set(failure, 'entryPoint', 'nonsense');
+    Reflect.set(failure, 'lastDeferral', 'nonsense');
+    Reflect.set(failure, 'feeAdmission', 'nonsense');
+    Reflect.set(failure, 'reap', { age: 'nonsense', attempt: 'nonsense' });
+    const unlisted = reported(failure);
+    expect(unlisted[0]).toContain(
+      '; queued by other; last deferral other; claim fee admission other; ' +
+        'reap age unavailable; reaped attempt unavailable; point pipeline;'
+    );
+    expect(scrubbed(unlisted)).toBe(unlisted[0]);
+  });
+
+  it.each([
+    ['after it', (message: string) => `${message} ${PHRASE_12}`],
+    ['between its values', (message: string) => message.replace('; account code', `; ${PHRASE_12}; account code`)]
+  ])('still drops a twelve-word phrase %s', (_where, withPhrase) => {
+    const [message, closedNames] = reported({
+      type: 'execute',
+      diagnostics: diagnostics('unavailable', 'current_guardian')
+    });
+    expect(withPhrase(message)).toContain(PHRASE_12);
+    expect(redactMessage(withPhrase(message), english, closedNames)).toBeNull();
   });
 });

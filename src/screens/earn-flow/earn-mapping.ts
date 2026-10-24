@@ -1,7 +1,15 @@
-import type { EarnPosition as LibEarnPosition, EarnVaultInfo } from 'lib/epoch';
+import {
+  EARN_LENDER_FAMILY_NAMES,
+  earnLenderFamily,
+  type EarnLenderFamily,
+  type EarnPosition as LibEarnPosition,
+  type EarnVaultInfo,
+  earnVaultTakesDeposits
+} from 'lib/epoch';
 import { formatUsd, usdFormatterFor } from 'lib/i18n/numbers';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 
-import type { EarnPosition, EarnSummary, EarnVault } from './types';
+import type { EarnPosition, EarnRiskLevel, EarnSummary, EarnVault } from './types';
 
 export { formatUsd };
 
@@ -17,6 +25,11 @@ export { formatUsd };
 export const EARN_PLACEHOLDER = '—';
 
 const NETWORK_NAMES: Record<string, string> = {
+  '1': 'Ethereum',
+  '10': 'Optimism',
+  '137': 'Polygon',
+  '8453': 'Base',
+  '42161': 'Arbitrum',
   '11155111': 'Sepolia'
 };
 
@@ -48,21 +61,73 @@ export function usdFigureFormatter(
 }
 
 /**
- * Display names per lender key. The only live lender today is Epoch's
- * "DUMMY_LENDING" stand-in — shown by its market-uid name ("Dummy Lending") on
- * USDC until real lenders exist (the whole earn flow is USDC-only, see
- * MIDEN_USDC_FAUCET).
+ * The protocol name of a lender family ("Aave V3", "Compound V3", "Morpho", "Dummy Lending"). A lender outside
+ * the known families shows its own lender name.
  */
-const VAULT_DISPLAY: Record<string, { protocol: string; asset: string }> = {
-  DUMMY_LENDING: { protocol: 'Dummy Lending', asset: 'USDC' }
-};
-
-function protocolName(lenderKey: string, lenderName: string): string {
-  return VAULT_DISPLAY[lenderKey]?.protocol ?? lenderName;
+function protocolName(family: EarnLenderFamily | undefined, lenderName: string): string {
+  return family ? EARN_LENDER_FAMILY_NAMES[family] : lenderName;
 }
 
-function lenderChainSlug(lenderKey: string, chainId: string): string {
-  return `${lenderKey}-${chainId}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+/**
+ * The market name to show beside the protocol, or undefined when the protocol alone identifies the market.
+ * Aave V3 and Compound V3 have one USDC market for each chain, so the protocol and the network identify it.
+ * Morpho Blue has many USDC markets on one chain, so a Morpho market shows its lender name
+ * ("Morpho uniBTC-USDC 77"). Its `marketName` ("Loan USDC") is the same for all of them, so it is not used.
+ */
+function distinguishingMarketName(family: EarnLenderFamily | undefined, lenderName: string): string | undefined {
+  switch (family) {
+    case 'MORPHO_BLUE':
+      return lenderName;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A deterministic URL-safe slug of a market uid: lowercase, each run of other characters changed to one '-', and
+ * no '-' at the start or the end. The market uid comes checksum-cased from a position and lowercase from a vault,
+ * so both give the same slug.
+ */
+export function marketSlug(marketUid: string): string {
+  return marketUid
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** The risk levels the screens can translate, from the service's label. Another label gives undefined. */
+function riskLevelOf(label: string): EarnRiskLevel | undefined {
+  switch (label.trim().toLowerCase()) {
+    case 'low':
+      return 'low';
+    case 'medium':
+      return 'medium';
+    case 'high':
+      return 'high';
+    default:
+      return undefined;
+  }
+}
+
+/** The risk label with a capital first letter ("low" → "Low"), or the placeholder when there is no label. */
+function riskText(label: string | undefined): string {
+  const text = label?.trim();
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : EARN_PLACEHOLDER;
+}
+
+const compactUsd = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  notation: 'compact',
+  maximumFractionDigits: 1
+});
+
+/**
+ * A large USD total in a short form ("$412.3M"), so that it fits in a metric card. A value below $1,000 uses
+ * `formatUsd`, which gives the cents.
+ */
+export function formatUsdTotal(value: number): string {
+  return Math.abs(value) < 1000 ? formatUsd(value) : compactUsd.format(value);
 }
 
 /**
@@ -74,13 +139,34 @@ export function positionSlug(position: LibEarnPosition): string {
   return `${position.owner}-${position.chainId}-${position.marketUid}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
-export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
+/** The absolute URL of a listed vault's document logo (`selectEarnVaultLogoUrl`), or null when it names none. */
+export type EarnVaultLogoUrlOf = (listing: EarnVaultConfig) => string | null;
+
+const NO_LOGO_URL: EarnVaultLogoUrlOf = () => null;
+
+/**
+ * The display position of one lending position. `listed` is the document's vault list (`selectEarnVaults`): a
+ * position in a listed market takes that vault's name, route id and document logo (`logoUrlOf`). A market the
+ * document does not list has no vault id; the id is never derived from the market uid.
+ */
+export function mapEarnPosition(
+  position: LibEarnPosition,
+  listed: readonly EarnVaultConfig[] = [],
+  logoUrlOf: EarnVaultLogoUrlOf = NO_LOGO_URL
+): EarnPosition {
   const network = networkName(position.chainId);
-  const protocol = protocolName(position.lenderKey, position.lenderName);
+  const family = earnLenderFamily(position.lenderKey);
+  const protocol = protocolName(family, position.lenderName);
+  const listing = listed.find(vault => vault.marketUid === position.marketUid.toLowerCase());
+  // A listed market's name identifies it on its own.
+  const marketName = listing ? undefined : distinguishingMarketName(family, position.lenderName);
+  const epochProtocol = listing?.protocol;
+  const logoUrl = listing ? logoUrlOf(listing) : null;
   const yearlyUsd = (position.depositsUSD * position.depositApr) / 100;
   return {
     id: positionSlug(position),
-    vaultId: lenderChainSlug(position.lenderKey, position.chainId),
+    // The document's route id when it lists this market. Deposit more stays off when it does not.
+    vaultId: listing?.id ?? '',
     owner: position.owner,
     marketUid: position.marketUid,
     chainId: position.chainId,
@@ -88,6 +174,10 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
     withdrawable: position.withdrawable,
     decimals: position.decimals,
     protocol,
+    ...(epochProtocol ? { epochProtocol } : {}),
+    ...(listing ? { name: listing.name } : {}),
+    ...(logoUrl ? { logoUrl } : {}),
+    ...(marketName ? { marketName } : {}),
     asset: position.symbol,
     network,
     amount: formatUsd(position.depositsUSD),
@@ -114,29 +204,50 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
   };
 }
 
-/** Deterministic URL-safe id — rendered raw into `/earn/vaults/{id}`. */
+/**
+ * The URL-safe id of a vault: the id the document lists it under. The list screens put it raw into
+ * `/earn/vaults/{id}`, and a position of the same market links to it (`EarnPosition.vaultId`).
+ */
 export function vaultSlug(vault: EarnVaultInfo): string {
-  return lenderChainSlug(vault.lenderKey, vault.chainId);
+  return vault.listing.id;
 }
 
-export function mapEarnVault(vault: EarnVaultInfo): EarnVault {
-  const display = VAULT_DISPLAY[vault.lenderKey] ?? { protocol: vault.lenderName, asset: 'USDC' };
+/**
+ * The display vault of one market, named as the document lists it: its `name`, and its `about` and `risk` in place
+ * of the catalogue's when it sets them. The rate is `aprTotal` (base and rewards). `fundingAsset` is the Miden asset
+ * that funds a deposit (USDCx on testnet); `asset` stays the EVM underlying. `logoUrl` is the absolute URL of the
+ * entry's document logo (`selectEarnVaultLogoUrl`), drawn before the bundled mark.
+ */
+export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string, logoUrl?: string | null): EarnVault {
+  const { listing } = vault;
+  const riskLabel = listing.risk ?? vault.risk?.label;
+  const riskLevel = riskLabel === undefined ? undefined : riskLevelOf(riskLabel);
+  const listedAbout = listing.about?.trim();
+  const about = listedAbout || vault.about?.trim();
   return {
     id: vaultSlug(vault),
-    protocol: display.protocol,
-    asset: display.asset,
+    name: listing.name,
+    protocol: protocolName(vault.lenderFamily, vault.lenderName),
+    ...(logoUrl ? { logoUrl } : {}),
+    ...(listedAbout ? { listedAbout } : {}),
+    asset: vault.underlying.symbol,
+    ...(fundingAsset ? { fundingAsset } : {}),
     network: networkName(vault.chainId),
-    apy: `${vault.depositApr.toFixed(2)}%`,
-    aprPercent: vault.depositApr,
+    apy: formatApy(vault.aprTotal),
+    aprPercent: vault.aprTotal,
     apyChange24h: EARN_PLACEHOLDER,
-    tvl: EARN_PLACEHOLDER,
-    risk: EARN_PLACEHOLDER,
+    tvl: vault.totalDepositsUsd === undefined ? EARN_PLACEHOLDER : formatUsdTotal(vault.totalDepositsUsd),
+    risk: riskText(riskLabel),
+    ...(riskLevel ? { riskLevel } : {}),
     audited: false,
-    about: EARN_PLACEHOLDER,
+    about: about || EARN_PLACEHOLDER,
+    canOpen: earnVaultTakesDeposits(vault),
+    depositsEnabled: listing.depositsEnabled,
+    info: vault,
     // No APY history endpoint — flat, non-empty series keeps the chart defined.
     chartData: [
-      { label: EARN_PLACEHOLDER, value: vault.depositApr },
-      { label: EARN_PLACEHOLDER, value: vault.depositApr }
+      { label: EARN_PLACEHOLDER, value: vault.aprTotal },
+      { label: EARN_PLACEHOLDER, value: vault.aprTotal }
     ]
   };
 }

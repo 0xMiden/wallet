@@ -7,6 +7,7 @@ import { usePageActive } from 'app/layouts/page-active';
 import { ActivityGroupedHistory } from 'app/templates/history/ActivityGroupedHistory';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
 import { ActivityViewMenu } from 'app/templates/history/ActivityViewMenu';
+import { ArcadeActivityHistory } from 'app/templates/history/ArcadeActivityHistory';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
@@ -25,14 +26,16 @@ type AllHistoryProps = {
 /**
  * The filter the location names: the page's own record of a pick, or a link's, e.g.
  * `/history?filter=pending&view=list` - which is where every received-transfer notification and the
- * home prompt now land (`ACTIVITY_PENDING_PATH`). Only an id the segmented control offers is accepted.
+ * home prompt now land (`ACTIVITY_PENDING_PATH`). Arcade adds a contextual chip for its scoped feed;
+ * otherwise only an id the segmented control offers is accepted,
+ * so a link to a removed chip (`sent`, `received`, `faucet`) names no filter and the page shows All.
  */
 function filterFromSearch(
   search: string,
   filters: readonly SegmentedControlItem<ActivityFilter>[]
 ): ActivityFilter | undefined {
   const asked = new URLSearchParams(search).get('filter');
-  return filters.find(candidate => candidate.id === asked)?.id;
+  return asked === 'arcade' ? 'arcade' : filters.find(candidate => candidate.id === asked)?.id;
 }
 
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
@@ -81,9 +84,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     () => [
       { id: 'all', label: t('all') },
       { id: 'pending', label: t('pending') },
-      { id: 'sent', label: t('sent') },
-      { id: 'received', label: t('received') },
-      { id: 'faucet', label: t('faucet') }
+      { id: 'transfer', label: t('transfer') },
+      { id: 'swap', label: t('swap') },
+      { id: 'earn', label: t('earn') },
+      { id: 'others', label: t('others') }
     ],
     [t]
   );
@@ -181,7 +185,12 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         // kept while the user is away in Groups, and the row shows it again on the way back.
         filter={
           view === 'list'
-            ? { items: filters, value: shownFilter, onChange: pickFilter, 'aria-label': t('activityFilters') }
+            ? {
+                items: shownFilter === 'arcade' ? [...filters, { id: 'arcade', label: t('categoryArcade') }] : filters,
+                value: shownFilter,
+                onChange: pickFilter,
+                'aria-label': t('activityFilters')
+              }
             : undefined
         }
       />
@@ -204,6 +213,13 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
       {view === 'groups' ? (
         <ActivityGroupedHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
+      ) : shownFilter === 'arcade' ? (
+        <ArcadeActivityHistory
           key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
           search={search}
           programId={programId}

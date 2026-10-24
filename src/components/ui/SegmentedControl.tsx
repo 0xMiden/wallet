@@ -1,9 +1,10 @@
-import React, { KeyboardEvent, useEffect, useRef } from 'react';
+import React, { KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { cva } from 'class-variance-authority';
 import { motion, useReducedMotion } from 'framer-motion';
 
 import { useTabShownAgain } from 'app/layouts/page-active';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
@@ -34,6 +35,8 @@ export interface SegmentedControlProps<T extends string = string> {
   value: T;
   /** Called once per real change: never for a tap on the item that is already selected. */
   onChange: (id: T) => void;
+  /** Optional flow tint; omitted controls keep the standard brand tint. */
+  accent?: FlowAccent;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
   'aria-label'?: string;
@@ -44,12 +47,15 @@ export interface SegmentedControlProps<T extends string = string> {
 
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
 // bubble's shadow and the focus ring, which a scrolling row would otherwise clip; 8px between the
-// items, because each one is outlined and two hairlines 4px apart read as one seam.
-const container = cva('flex items-center gap-2 py-1', {
+// items, because each one is outlined and two hairlines 4px apart read as one seam. `fill` is a grid
+// because a fill row is often sized to its content (a settings row's trailing slot): under
+// max-content sizing fr columns each take the widest item, while basis-0 flex items split the row
+// into the average and cut the longest label.
+const container = cva('items-center gap-2 py-1', {
   variants: {
     layout: {
-      scroll: 'overflow-x-auto no-scrollbar',
-      fill: 'w-full'
+      scroll: 'flex overflow-x-auto no-scrollbar',
+      fill: 'grid w-full grid-flow-col auto-cols-fr'
     }
   },
   defaultVariants: { layout: 'scroll' }
@@ -74,7 +80,7 @@ const segment = cva(
       },
       layout: {
         scroll: 'shrink-0',
-        fill: 'min-w-0 flex-1'
+        fill: 'min-w-0 px-2'
       },
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width,
@@ -103,6 +109,7 @@ const content = cva('flex min-w-0 items-center', {
 interface SegmentProps<T extends string> {
   item: SegmentedControlItem<T>;
   active: boolean;
+  accent?: FlowAccent;
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
@@ -115,7 +122,7 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
+function Segment<T extends string>({ item, active, accent, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active, swap);
 
@@ -131,7 +138,11 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
         // Shown again, the new selection's colours land at once instead of cross-fading.
-        className={cn(segment({ size, layout, active }), swap && 'transition-none')}
+        className={cn(
+          segment({ size, layout, active }),
+          active && accent && ACCENT_CLASSES[accent].ink,
+          swap && 'transition-none'
+        )}
       >
         <motion.span
           data-pop={pop.phase}
@@ -164,6 +175,7 @@ export function SegmentedControl<T extends string>({
   items,
   value,
   onChange,
+  accent,
   size = 'md',
   layout = 'scroll',
   'aria-label': ariaLabel,
@@ -185,6 +197,21 @@ export function SegmentedControl<T extends string>({
   // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
   // moves the page under it instead, sideways.
   const lastSelectedIndex = useRef(selectedIndex);
+  const initialSelectionRevealed = useRef(false);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (initialSelectionRevealed.current || layout !== 'scroll' || !row || row.clientWidth === 0) return;
+    const node = row.children[selectedIndex];
+    if (!(node instanceof HTMLElement)) return;
+    initialSelectionRevealed.current = true;
+    if (row.scrollWidth <= row.clientWidth) return;
+    // A cold deep link can select a chip beyond the viewport. Move only this row,
+    // never scrollIntoView's ancestors (the retained page or horizontal tab pager).
+    const bounds = row.getBoundingClientRect();
+    const item = node.getBoundingClientRect();
+    if (item.right > bounds.right) row.scrollLeft += item.right - bounds.right;
+    else if (item.left < bounds.left) row.scrollLeft -= bounds.left - item.left;
+  }, [layout, selectedIndex, swap]);
   // The item Tab lands on: the selected one, or the first that can be chosen when none is.
   const focusIndex =
     selectedIndex >= 0 && !items[selectedIndex]?.disabled ? selectedIndex : items.findIndex(item => !item.disabled);
@@ -265,13 +292,14 @@ export function SegmentedControl<T extends string>({
         // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
         style={{ zIndex: 1 }}
-        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-tint')}
+        className={cn('-inset-px', raisedBubbleClassName, accent ? ACCENT_CLASSES[accent].tint : 'bg-accent-tint')}
       >
         {items.map((item, index) => (
           <Segment
             key={item.id}
             item={item}
             active={index === selectedIndex}
+            accent={accent}
             focusable={index === focusIndex}
             size={size}
             layout={layout}

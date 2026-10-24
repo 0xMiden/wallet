@@ -77,12 +77,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
+  const estimateUsdcxBurnFee = useWalletStore(s => s.estimateUsdcxBurnFee);
   const storeConfirmDAppPermission = useWalletStore(s => s.confirmDAppPermission);
   const storeConfirmDAppSign = useWalletStore(s => s.confirmDAppSign);
   const storeConfirmDAppPrivateNotes = useWalletStore(s => s.confirmDAppPrivateNotes);
   const storeConfirmDAppAssets = useWalletStore(s => s.confirmDAppAssets);
   const storeConfirmDAppImportPrivateNote = useWalletStore(s => s.confirmDAppImportPrivateNote);
   const storeConfirmDAppConsumableNotes = useWalletStore(s => s.confirmDAppConsumableNotes);
+  const storeConfirmDAppUnlock = useWalletStore(s => s.confirmDAppUnlock);
   const storeConfirmDAppTransaction = useWalletStore(s => s.confirmDAppTransaction);
   const storeGetAllDAppSessions = useWalletStore(s => s.getAllDAppSessions);
   const storeRemoveDAppSession = useWalletStore(s => s.removeDAppSession);
@@ -101,8 +103,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // AutoSync is now handled by the React SDK's MidenProvider — no manual state push needed.
-
   // Derive convenience booleans
   const idle = status === WalletStatus.Idle;
   const locked = status === WalletStatus.Locked;
@@ -119,9 +119,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       ownMnemonic: boolean,
-      guardianEndpoint?: string
+      guardianEndpoint?: string,
+      accessCode?: string
     ) => {
-      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
+      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode);
     },
     [storeRegisterWallet]
   );
@@ -138,10 +139,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       walletAccounts: WalletAccount[],
-      formatVersion?: number,
-      importedAccounts?: ImportedAccountBackup[]
+      importedAccounts: ImportedAccountBackup[]
     ) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts, formatVersion, importedAccounts);
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts);
     },
     [storeImportWalletFromClient]
   );
@@ -346,6 +346,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeConfirmDAppConsumableNotes]
   );
 
+  const confirmDAppUnlock = useCallback(
+    async (id: string) => {
+      await storeConfirmDAppUnlock(id);
+    },
+    [storeConfirmDAppUnlock]
+  );
+
   const confirmDAppTransaction = useCallback(
     async (id: string, confirmed: boolean, delegate: boolean, spendingLimitAuthenticated?: true) => {
       await storeConfirmDAppTransaction(id, confirmed, delegate, spendingLimitAuthenticated);
@@ -439,6 +446,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,
+    estimateUsdcxBurnFee,
     confirmDAppPermission,
     confirmDAppSign,
     confirmDAppDecrypt,
@@ -446,6 +454,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
     confirmDAppConsumableNotes,
+    confirmDAppUnlock,
     confirmDAppTransaction,
     confirmDAppBulkTransactions,
     confirmDAppDeploy,

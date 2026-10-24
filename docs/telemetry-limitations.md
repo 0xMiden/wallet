@@ -59,6 +59,16 @@ boundaries that were never adjacent, so unrelated legitimate reports start
 getting dropped. It trades a contrived evasion for a real loss of diagnostics.
 Rejected on those grounds.
 
+**A diagnostic report's own fixed values.** `reportTransactionFailure` and
+`reportUserVisibleError` pass their closed identifiers through `captureCrash`
+only while rebuilding their fixed message. The exact rebuilt name and message
+are captured before permission's await and bound to that Error's identity.
+The final recovery-phrase check exempts only the matching outer exception's
+fixed message, then restores it. An event type alone cannot authorize that
+exception. Causes, breadcrumbs, extra data and every other event string are
+checked without closed-name exemptions, so those values cannot split a phrase
+in free text. Contamination still discards the whole event.
+
 A second rule covers the realistic single-word case: a mnemonic-context word
 (`seed`, `phrase`, `recovery`, …) plus any wordlist hit drops the message, with
 the context words excluded from counting as the hit themselves, so "seed phrase

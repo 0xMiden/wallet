@@ -1,4 +1,4 @@
-import { FungibleAsset, Note } from '@miden-sdk/miden-sdk/lazy';
+import { FungibleAsset, Note, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 
@@ -9,11 +9,19 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
   Felt: jest.fn((v: any) => ({ v })),
   Word: { newFromFelts: jest.fn((felts: any) => ({ kind: 'word', felts })) },
+  // As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects a hex
+  // id and an underscore (a routing suffix it cannot decode).
   AccountId: {
-    fromHex: jest.fn((hex: any) => ({ toString: () => `accountId-${hex}` }))
+    fromHex: jest.fn((hex: any) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => `accountId-${hex}` };
+    })
   },
   Address: {
-    fromBech32: jest.fn((str: any) => ({ accountId: () => ({ toString: () => `accountId-${str}` }) })),
+    fromBech32: jest.fn((str: any) => {
+      if (/^0x/i.test(str) || str.includes('_')) throw new Error(`invalid bech32 address: ${str}`);
+      return { accountId: () => ({ toString: () => `accountId-${str}` }) };
+    }),
     fromAccountId: jest.fn((id: any) => ({ toBech32: () => `bech32-${id}` }))
   },
   NetworkId: { testnet: jest.fn(() => 'testnet'), devnet: jest.fn(() => 'devnet') },
@@ -23,7 +31,20 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ),
   Note: {
     createP2IDNote: jest.fn((...args: any[]) => ({ kind: 'p2id', args })),
-    createP2IDENote: jest.fn((...args: any[]) => ({ kind: 'p2ide', args }))
+    createP2IDENote: jest.fn((...args: any[]) => {
+      let taken = false;
+      return {
+        kind: 'p2ide',
+        args,
+        take: () => {
+          taken = true;
+        },
+        id: () => {
+          if (taken) throw new Error('null pointer passed to rust');
+          return { toString: () => 'note-p2ide-id' };
+        }
+      };
+    })
   },
   NoteAssets: jest.fn(function (this: any, assets: any) {
     this.assets = assets;
@@ -31,22 +52,27 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteAttachment: jest.fn(function (this: any, felts: any) {
     this.felts = felts;
   }),
+  // Takes each note by value, as the browser build's glue does, so a later `note.id()` throws.
   NoteArray: jest.fn(function (this: any, notes: any) {
+    for (const note of notes) note.take();
     this.notes = notes;
   }),
   NoteType: { Private: 'Private', Public: 'Public' },
-  TransactionRequestBuilder: jest.fn(function (this: any) {
-    this.withOwnOutputNotes = (notes: any) => {
-      this.ownOutputNotes = notes;
-      return this;
-    };
-    this.withFeeConversionSalt = (salt: any) => {
-      this.feeSalt = salt;
-      return this;
-    };
-    this.build = () => ({ serialize: () => new Uint8Array([1, 2, 3]) });
-  })
+  // The request starts from the fee-aware builder, never a fresh one: constructing this
+  // would mean the multisig fee auth args were dropped.
+  TransactionRequestBuilder: jest.fn()
 }));
+
+// The builder `feeAwareTransactionRequestBuilder` hands back. The request has to be built
+// from THIS object, since it is the one carrying the committed fee auth args.
+const feeAwareBuilder = {
+  withOwnOutputNotes: jest.fn(),
+  withFeeConversionSalt: jest.fn(),
+  build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+};
+const mockFeeAwareTransactionRequestBuilder = jest.fn(
+  async (_account: string, _options: { feeConversionSalt: unknown }) => feeAwareBuilder
+);
 
 // The lock hands its callback a HOLD, and the builder re-checks ownership after
 // the account read (#788 follow-up). Model both here: a hold-less pass-through
@@ -65,6 +91,9 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     if (hold !== null && hold === currentWasmHold) return;
     throw new Error(`operation abandoned ${where}`);
   },
+  getMidenClient: async () => ({
+    client: { feeAwareTransactionRequestBuilder: mockFeeAwareTransactionRequestBuilder }
+  }),
   withWasmClientLock: async (fn: (hold: object) => unknown) => {
     const hold = { mock: 'wasm-lock-hold' };
     currentWasmHold = hold;
@@ -114,6 +143,7 @@ const build = (overrides: Partial<Parameters<typeof buildEpochCollateralRequestB
 
 beforeEach(() => {
   jest.clearAllMocks();
+  feeAwareBuilder.withOwnOutputNotes.mockReturnValue(feeAwareBuilder);
 });
 
 // The collateral note REMOVES the asset from the sender's vault, so it is subject
@@ -153,11 +183,25 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     expect(mockGetAccount).toHaveBeenCalledWith('accountId-0xsender');
   });
 
+  it('builds the note for a sender id written with an uppercase 0X prefix', async () => {
+    mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
+
+    await expect(build({ senderAccountId: '0Xsender' })).resolves.toMatchObject({ noteId: 'note-p2ide-id' });
+
+    expect(mockGetAccount).toHaveBeenCalledWith('accountId-0xsender');
+    const [sender] = (Note.createP2IDENote as jest.Mock).mock.calls[0]!;
+    expect(sender.toString()).toBe('accountId-0xsender');
+  });
+
   it('still builds a request when the vault shows nothing, rather than blocking the bridge', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockGetAccount.mockResolvedValue(accountHolding());
 
-    await expect(build()).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    await expect(build()).resolves.toEqual({
+      requestBytes: new Uint8Array([1, 2, 3]),
+      reclaimHeight: 3016,
+      noteId: 'note-p2ide-id'
+    });
 
     expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
@@ -168,7 +212,11 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockGetAccount.mockResolvedValue(null);
 
-    await expect(build()).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    await expect(build()).resolves.toEqual({
+      requestBytes: new Uint8Array([1, 2, 3]),
+      reclaimHeight: 3016,
+      noteId: 'note-p2ide-id'
+    });
 
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
@@ -201,6 +249,50 @@ describe('the build is abandoned when the WASM lock hold is evicted', () => {
   });
 });
 
+// Since protocol 0.17 a guarded (multisig) sender resolves three words of fee auth args;
+// `withFeeConversionSalt` committed two and the proposal died with `advice stack read failed`.
+// The request therefore starts from the SDK's fee-aware builder for the account that will
+// execute it, and that builder is the one the collateral note lands on.
+describe('the request carries the fee auth args of the executing account', () => {
+  beforeEach(() => {
+    mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
+  });
+
+  it('asks the fee-aware builder for the sender, with the declared salt', async () => {
+    await build({ senderAccountId: '0xsender_guardiansuffix' });
+
+    expect(mockFeeAwareTransactionRequestBuilder).toHaveBeenCalledTimes(1);
+    // The composite guardian form names the account in its address part only; the salt is
+    // the one `randomFeeSalt` drew for this build.
+    expect(mockFeeAwareTransactionRequestBuilder).toHaveBeenCalledWith('accountId-0xsender', {
+      feeConversionSalt: (Word.newFromFelts as jest.Mock).mock.results[0]!.value
+    });
+    expect(Word.newFromFelts).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds the collateral note to that builder and builds from it', async () => {
+    await expect(build()).resolves.toEqual(expect.objectContaining({ requestBytes: new Uint8Array([1, 2, 3]) }));
+
+    const [notes] = feeAwareBuilder.withOwnOutputNotes.mock.calls[0];
+    expect(notes.notes).toEqual([(Note.createP2IDENote as jest.Mock).mock.results[0]!.value]);
+    expect(feeAwareBuilder.build).toHaveBeenCalledTimes(1);
+    expect(feeAwareBuilder.withFeeConversionSalt).not.toHaveBeenCalled();
+    expect(TransactionRequestBuilder).not.toHaveBeenCalled();
+  });
+
+  it('is abandoned when the hold is evicted while the fee-aware builder resolves', async () => {
+    mockFeeAwareTransactionRequestBuilder.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return feeAwareBuilder;
+    });
+
+    await expect(build()).rejects.toThrow('operation abandoned after the fee-aware collateral builder');
+
+    expect(feeAwareBuilder.withOwnOutputNotes).not.toHaveBeenCalled();
+    expect(feeAwareBuilder.build).not.toHaveBeenCalled();
+  });
+});
+
 // Guarding the parts of the note the allocator validates, which the asset change
 // runs alongside and must not disturb.
 describe('the rest of the allocator contract is unchanged', () => {
@@ -218,6 +310,13 @@ describe('the rest of the allocator contract is unchanged', () => {
     expect(timelock).toBeNull();
     // Private would be "not found on-chain" to the allocator.
     expect(noteType).toBe('Public');
+  });
+
+  it("returns the note's own reclaim height and id with the request bytes (#1250)", async () => {
+    const result = await build();
+
+    expect(result).toEqual({ requestBytes: new Uint8Array([1, 2, 3]), reclaimHeight: 3016, noteId: 'note-p2ide-id' });
+    expect(result.reclaimHeight).toBe((Note.createP2IDENote as jest.Mock).mock.calls[0][3]);
   });
 
   it('writes the mandate-binding felts verbatim', async () => {

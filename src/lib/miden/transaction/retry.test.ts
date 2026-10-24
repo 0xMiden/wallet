@@ -6,19 +6,25 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
+import { noteDeliveryWriteCount } from './helper';
+import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import {
   UnverifiableSendRetryError,
   isCancellableTransaction,
   isRequeueableTransaction,
   requeueFailedTransaction
 } from './retry';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { NoteTypeEnum } from '../types';
 
 const mockTransactionsWhere = jest.fn();
+const mockTransactionsFilter = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
+  db: { transaction: (_mode: string, _table: unknown, callback: () => Promise<unknown>) => callback() },
   get transactions() {
-    return { where: mockTransactionsWhere };
+    return { where: mockTransactionsWhere, filter: mockTransactionsFilter };
   }
 }));
 
@@ -30,7 +36,26 @@ jest.mock('./cancel', () => ({
 
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(),
+  assertWasmHoldCurrent: jest.fn(),
+  tryWithWasmClientLock: async () => ({ ran: false }),
   withWasmClientLock: async (fn: () => unknown) => fn()
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: async () => 'native-faucet',
+  getVerificationBaseFee: async () => 10000
+}));
+
+// These rows hold no checkable entry, so the tap-time proof never runs; mocked so this suite never builds a client.
+jest.mock('./reconcile-unconfirmed', () => ({
+  ...jest.requireActual('./reconcile-unconfirmed'),
+  checkEvidenceForRetry: jest.fn()
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  isNoteTransportConfigured: () => true
 }));
 
 // Real module underneath. The landed-verdict branch used to be asserted purely
@@ -46,14 +71,18 @@ jest.mock('./helper', () => ({
   updateTransactionStatus: (...args: unknown[]) => mockUpdateTransactionStatus(...args)
 }));
 
-/** In-memory row + Dexie-shaped where().first()/where().modify() plumbing. */
+/** In-memory row + Dexie-shaped where().first()/where().modify()/where().anyOf().toArray() plumbing. */
 function wireRow(row: ITransaction | undefined) {
+  mockTransactionsFilter.mockImplementation((predicate: (tx: ITransaction) => boolean) => ({
+    toArray: jest.fn().mockResolvedValue(row && predicate(row) ? [row] : [])
+  }));
   mockTransactionsWhere.mockImplementation(() => ({
     first: jest.fn().mockResolvedValue(row),
     modify: jest.fn((fn: (tx: ITransaction) => void) => {
       if (row) fn(row);
       return Promise.resolve(row ? 1 : 0);
-    })
+    }),
+    anyOf: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(row ? [row] : []) })
   }));
 }
 
@@ -68,11 +97,14 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     // a low literal here stands in for "queued long ago".
     queuedSeq: 1,
     processingStartedAt: 1100,
+    attemptId: 'a1',
     completedAt: 1200,
     stage: 'sending',
     nextEligibleAt: 99_999,
     unauthorizedRetryUntil: 99_999,
     requeueStreak: { arm: 'guardian-unreachable', count: 3 },
+    lastDeferral: 'guardian_unreachable',
+    guardianBusy: true,
     error: 'Something broke',
     rawError: 'Error: something broke',
     displayMessage: 'Failed',
@@ -121,10 +153,9 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     expect(row.displayMessage).toBe('Completed earlier');
   });
 
-  it('resubmits (requeues) an execute the node cannot confirm — it replays identical requestBytes', async () => {
-    // `execute` is NOT a rebuilt-request type: a duplicate submit re-creates the
-    // IDENTICAL note, which the node rejects, so an unconfirmable outcome may
-    // still be replayed. (For send/swap it may not — see the backstop below.)
+  it('requeues an execute the node cannot confirm whose run left no entry: that run ended before its submit', async () => {
+    // A run that may have crossed its submit always leaves an entry (#1081), so a row with an attempt id and none
+    // is not in doubt. (A send or swap here may not be replayed: see the backstop below.)
     const row = failedRow({ type: 'execute', transactionId: 'abc123' });
     wireRow(row);
     mockVerifySendLanded.mockResolvedValue('unknown');
@@ -133,6 +164,17 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
 
     expect(mockUpdateTransactionStatus).not.toHaveBeenCalled();
     expect(row.status).toBe(ITransactionStatus.Queued); // requeued for a fresh attempt
+  });
+
+  it('deletes the failed attempt auth diagnostics when explicit retry keeps its request bytes', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    const row = failedRow({ type: 'execute', stage: 'proving', requestBytes: bytes, failureDiagnostics: diagnostics });
+    wireRow(row);
+    await requeueFailedTransaction(row.id);
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row).not.toHaveProperty('failureDiagnostics');
+    expect(row.requestBytes).toBe(bytes);
   });
 
   it('checks landed-state for swap/agglayer bridged-send/execute too', async () => {
@@ -154,6 +196,190 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     wireRow(failedRow({ type: 'consume' }));
     await requeueFailedTransaction('tx-1');
     expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+});
+
+// Evidence the reconciler no longer judges leaves Retry the node check on the captured id, and only
+// `completeSendTransaction` records a send's note at the root, where the delivery sweep reads it (#1473).
+describe('requeueFailedTransaction - a send landed on its verified transaction owes that note', () => {
+  const NOTE = `0x${'ab'.repeat(32)}`;
+  const OTHER_NOTE = `0x${'cd'.repeat(32)}`;
+  const RECIPIENT = 'mtst1recipient';
+  const mockRelay = jest.fn<Promise<void>, [string, string]>();
+  const spies: { mockRestore: () => void }[] = [];
+
+  /** An attempt the reconciler gave up judging, so Retry's tap-time proof never runs. */
+  const unjudged = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+    attemptId: 'a1',
+    capturedAt: 1150,
+    source: 'stage',
+    transactionId: 'abc123',
+    initialCommitment: '0x01',
+    finalCommitment: '0x02',
+    initialNonce: '5',
+    outputNoteIds: [NOTE],
+    nullifiers: [],
+    refBlock: 100,
+    refBlockCommitment: '0x03',
+    verdict: 'unresolvable',
+    ...overrides
+  });
+
+  const privateSend = (submitEvidence: ISubmitEvidence[]) =>
+    failedRow({
+      type: 'send',
+      transactionId: 'abc123',
+      noteType: NoteTypeEnum.Private,
+      secondaryAccountId: RECIPIENT,
+      submitEvidence
+    });
+
+  /** Two sweep passes, the second past the wait the first arms: the pushes the sweep made. */
+  const pushesAfterTheFirstWait = async (landedAt: number) => {
+    await sweepNoteDeliveries();
+    spies.push(jest.spyOn(Date, 'now').mockReturnValue((landedAt + 10 * 60) * 1000));
+    await sweepNoteDeliveries();
+    return mockRelay.mock.calls;
+  };
+
+  beforeEach(() => {
+    __resetNoteDeliverySweepForTests();
+    mockVerifySendLanded.mockResolvedValue('landed');
+    mockRelay.mockResolvedValue(undefined);
+    spies.push(
+      jest.spyOn(midenClientProxy, 'relayPrivateNoteById').mockImplementation((noteId, to) => mockRelay(noteId, to)),
+      jest.spyOn(midenClientProxy, 'isOutputNoteConsumed').mockResolvedValue(false),
+      jest.spyOn(console, 'info').mockImplementation(() => undefined)
+    );
+  });
+
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  it('records the note of the attempt that submitted it at the root, and the sweep pushes it to the recipient', async () => {
+    const row = privateSend([unjudged()]);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'undelivered'
+    });
+    expect(row.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it('starts the note on a clean schedule, not the one the row kept while it had nothing to push', async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([unjudged()]);
+    // The sweep saw the empty root as inert: its attempts ran out and it stopped retries for good.
+    Object.assign(row, {
+      noteDelivery: 'undelivered',
+      relayAttempts: MAX_RELAY_ATTEMPTS,
+      nextRelayAt: landing + 24 * 60 * 60,
+      relayRetriesStopped: true
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: [NOTE] });
+    expect(row).not.toHaveProperty('relayAttempts');
+    expect(row).not.toHaveProperty('nextRelayAt');
+    expect(row).not.toHaveProperty('relayRetriesStopped');
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  /** An earlier attempt the node proved never committed, whose completion recorded its note at the root. */
+  const earlierAttempt = () =>
+    unjudged({ transactionId: 'def456', outputNoteIds: [OTHER_NOTE], verdict: 'never-committed' });
+
+  it("replaces the note an earlier attempt recorded at the root, and that note's outcome, with the verified attempt's", async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([earlierAttempt(), unjudged({ attemptId: 'a2' })]);
+    Object.assign(row, {
+      outputNoteIds: [OTHER_NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [OTHER_NOTE],
+      relayDeadNoteIds: [OTHER_NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      relayAttempts: MAX_RELAY_ATTEMPTS,
+      nextRelayAt: landing + 24 * 60 * 60,
+      relayRetriesStopped: true
+    });
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'undelivered',
+      displayMessage: 'Sent - the private note could not be delivered'
+    });
+    for (const field of [
+      'relayAckedNoteIds',
+      'relayDeadNoteIds',
+      'relayVerifyPushes',
+      'relayOutageDeferred',
+      'relayAttempts',
+      'nextRelayAt',
+      'relayRetriesStopped'
+    ]) {
+      expect(row).not.toHaveProperty(field);
+    }
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it("keeps the outcome and schedule of a root that already holds the verified attempt's note", async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([earlierAttempt(), unjudged({ attemptId: 'a2' })]);
+    const recorded: Partial<ITransaction> = {
+      outputNoteIds: [NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      relayAttempts: 2,
+      nextRelayAt: landing + 30 * 60
+    };
+    Object.assign(row, recorded);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, ...recorded });
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  it.each<[string, ISubmitEvidence[]]>([
+    ['no attempt names the verified transaction', [unjudged({ transactionId: 'def456' })]],
+    [
+      'the attempts that name it record different notes',
+      [unjudged(), unjudged({ attemptId: 'a2', outputNoteIds: [OTHER_NOTE] })]
+    ]
+  ])('records no target when %s, as before', async (_case, submitEvidence) => {
+    const row = privateSend(submitEvidence);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
   });
 });
 
@@ -203,6 +429,20 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('offers Retry on an Unconfirmed row: it is the exit while no verdict exists (#1081)', () => {
+    expect(isRequeueableTransaction({ status: ITransactionStatus.Unconfirmed, type: 'send' })).toBe(true);
+    expect(
+      isRequeueableTransaction({ status: ITransactionStatus.Unconfirmed, type: 'send', restoredFromBackup: true })
+    ).toBe(false);
+  });
+
+  it('requeues an Unconfirmed row whose stage still matches (#1081)', async () => {
+    const row = failedRow({ type: 'consume', status: ITransactionStatus.Unconfirmed, stage: 'sending' });
+    wireRow(row);
+    await requeueFailedTransaction(row.id);
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
   it('applies the same guard to a swap (its PSWAP order would be created twice)', async () => {
     const row = failedRow({ type: 'swap', transactionId: undefined, requestBytes: undefined });
     wireRow(row);
@@ -218,7 +458,7 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
     wireRow(row);
 
-    await requeueFailedTransaction('tx-1', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a1' } });
 
     expect(row.status).toBe(ITransactionStatus.Queued);
     // Retracted, not stepped over: a later failure on this row is judged on its
@@ -437,6 +677,7 @@ describe('requeueFailedTransaction', () => {
     // second, inverting the FIFO order the tie-break exists to impose.
     expect(row.queuedSeq).toBeGreaterThan(1);
     expect(row.processingStartedAt).toBeUndefined();
+    expect(row.attemptId).toBeUndefined();
     expect(row.completedAt).toBeUndefined();
     expect(row.stage).toBeUndefined();
     // Stale requeue-backoff must not delay an explicit user retry.
@@ -447,6 +688,9 @@ describe('requeueFailedTransaction', () => {
     expect(row.unauthorizedRetryUntil).toBeUndefined();
     // Or the guardian backoff the failed attempts built (#1223).
     expect(row.requeueStreak).toBeUndefined();
+    expect(row.lastDeferral).toBeUndefined();
+    // Or the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
+    expect(row.guardianBusy).toBeUndefined();
     expect(row.error).toBeUndefined();
     expect(row.rawError).toBeUndefined();
     expect(row.displayMessage).toBeUndefined();

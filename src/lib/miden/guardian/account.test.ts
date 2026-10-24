@@ -9,6 +9,7 @@
  */
 
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import {
@@ -23,10 +24,11 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
-
-const mockFetchFromStorage = jest.fn();
-jest.mock('../front/storage', () => ({
-  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
+import { bindFeeFaucetClientScope } from '../sdk/sync-and-record-fee-faucet';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: () => 'rpc|testnet',
+  captureNativeAssetSnapshot: () => ({ scope: 'rpc|testnet', revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
 }));
 
 // Mirrors the shape (and a couple of real URLs) of the real GUARDIAN_OPTIONS
@@ -39,8 +41,8 @@ jest.mock('lib/miden-chain/constants', () => ({
     {
       id: 'open-zeppelin',
       endpoint: new Map([
-        ['testnet', 'https://guardian.openzeppelin.com'],
-        ['devnet', 'https://guardian-stg.openzeppelin.com']
+        ['testnet', 'https://guardian-testnet.openzeppelin.com'],
+        ['devnet', 'https://guardian-devnet.openzeppelin.com']
       ])
     },
     {
@@ -66,13 +68,11 @@ jest.mock('lib/miden-chain/constants', () => ({
 // assertions below are unambiguously about the fallback branch, not a
 // coincidental match with a real provider URL. `getEffectiveRpcUrl` isn't
 // asserted on anywhere in this file — any stable string is fine.
+let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
   getEffectiveRpcUrl: () => 'https://rpc.testnet.miden.io',
   getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.test'
-}));
-
-jest.mock('lib/settings/constants', () => ({
-  GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
 
 // AuthSecretKey.ecdsaWithRNG returns a deterministic stub keyed by the seed
@@ -216,14 +216,12 @@ describe('getSignerDetailsFromAccount', () => {
     expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-cold' });
   });
 
-  it('reads the cold signer commitment from index 0 on a legacy single-signer account', async () => {
-    // Legacy Guardian accounts (feature #153) have a single on-chain signer —
-    // the cold/HD key — at index 0. The cold lookup falls back to it (index 1 is
-    // absent) rather than throwing, which would brick activation of a migrated
-    // account.
-    withSigners(['0xcommit-legacy-cold']);
+  it('throws for the cold signer when the account has only one signer', async () => {
+    withSigners(['0xcommit-hot']);
 
-    expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
+    await expect(getSignerDetailsFromAccount({} as never, true)).rejects.toThrow(
+      'No signer commitment found in account storage'
+    );
   });
 
   it('resolves signers through AccountInspector rather than a hard-coded slot name', async () => {
@@ -372,8 +370,12 @@ describe('assertGuardianKeyCommitment', () => {
 });
 
 describe('guardianProviderFromEndpoint', () => {
+  beforeEach(() => {
+    mockEffectiveNetwork = 'testnet';
+  });
+
   it('maps a known OpenZeppelin endpoint to its provider id', () => {
-    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://guardian-testnet.openzeppelin.com')).toBe('open-zeppelin');
   });
 
   it('maps a known Gateway endpoint to its provider id', () => {
@@ -396,6 +398,35 @@ describe('guardianProviderFromEndpoint', () => {
     expect(guardianProviderFromEndpoint('https://unmapped.guardian.test')).toBe('custom');
   });
 
+  it('treats an option id naming an inherited Object member as custom', () => {
+    setDocumentGuardians('testnet', [
+      {
+        id: 'constructor',
+        name: 'Inherited',
+        operatedBy: 'Inherited',
+        location: 'EU',
+        endpoint: 'https://inherited.guardian.test'
+      }
+    ]);
+    try {
+      expect(guardianProviderFromEndpoint('https://inherited.guardian.test')).toBe('custom');
+    } finally {
+      setDocumentGuardians('testnet', undefined);
+    }
+  });
+
+  it('maps ids without Object.hasOwn, which Safari before 15.4 lacks', () => {
+    const original = Object.hasOwn;
+    // @ts-expect-error simulating a WebView that predates Object.hasOwn
+    delete Object.hasOwn;
+    try {
+      expect(guardianProviderFromEndpoint('https://miden-guardian.lambdaclass.com')).toBe('lambda-class');
+      expect(guardianProviderFromEndpoint('https://my-own.example.com')).toBe('custom');
+    } finally {
+      Object.hasOwn = original;
+    }
+  });
+
   it('returns null for a null endpoint', () => {
     expect(guardianProviderFromEndpoint(null)).toBeNull();
   });
@@ -404,7 +435,19 @@ describe('guardianProviderFromEndpoint', () => {
   // or default-port spelling of a built-in must still map to it rather than falling
   // through to 'custom'.
   it('maps a host-case spelling of a known endpoint to its provider id', () => {
-    expect(guardianProviderFromEndpoint('https://Guardian.OpenZeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://Guardian-Testnet.OpenZeppelin.com')).toBe('open-zeppelin');
+  });
+
+  // An account created before the rename still has the old host saved, under its own network.
+  it('maps a renamed OpenZeppelin host to its provider id on its own network', () => {
+    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+    mockEffectiveNetwork = 'devnet';
+    expect(guardianProviderFromEndpoint('https://guardian-stg.openzeppelin.com')).toBe('open-zeppelin');
+  });
+
+  it('treats another network built-in host as custom', () => {
+    expect(guardianProviderFromEndpoint('https://guardian-devnet.openzeppelin.com')).toBe('custom');
+    expect(guardianProviderFromEndpoint('https://guardian-stg.openzeppelin.com')).toBe('custom');
   });
 });
 
@@ -418,10 +461,15 @@ describe('createGuardianAccount', () => {
     registerOnGuardian: jest.fn(async (_state?: string) => {})
   });
 
-  const makeWebClient = () => ({
-    sync: jest.fn(async () => {}),
-    keystore: { insert: jest.fn(async () => {}) }
-  });
+  const makeWebClient = () => {
+    const client = {
+      sync: jest.fn(async () => {}),
+      feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
+      keystore: { insert: jest.fn(async () => {}) }
+    };
+    bindFeeFaucetClientScope(client);
+    return client;
+  };
 
   // Runs the three phases as production does: fetch the key, build the account,
   // then register outside the hold.
@@ -442,7 +490,6 @@ describe('createGuardianAccount', () => {
     resetMockProbes();
     mockIsExtension.mockReturnValue(false);
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: `0x${'ab'.repeat(32)}`, pubkey: 'g-pubkey' });
-    mockFetchFromStorage.mockResolvedValue(undefined);
     mockGenerateHotKey.mockResolvedValue({
       ciphertext: 'hot-ciphertext-hex',
       publicKeyHex: 'hot-pubkey-hex',
@@ -491,8 +538,7 @@ describe('createGuardianAccount', () => {
       coldSecretKeyHex: expect.any(String)
     });
     // Endpoint is returned so vault can persist it per-account. No override was
-    // supplied and the frozen global key is never consulted for a create, so it
-    // resolves to the effective network default.
+    // supplied, so it resolves to the effective network default.
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
@@ -521,18 +567,12 @@ describe('createGuardianAccount', () => {
     expect((seedArg as Uint8Array).length).toBe(32);
   });
 
-  it('falls back to the default (NOT the frozen global key) when no override is supplied', async () => {
-    // #408 stage 3: a NEW account must never inherit the frozen global key.
-    // The key fetch (fetchGuardianCreateKey) resolves the endpoint without reading
-    // GUARDIAN_URL_STORAGE_KEY: the assertion below proves storage is never
-    // consulted. With no override, the endpoint is the effective network default.
+  it('falls back to the effective network default when no override is supplied', async () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
     const result = await createAndRegister(webClient, new Uint8Array(32));
 
-    // The global-key read is gone: storage is never consulted for a create.
-    expect(mockFetchFromStorage).not.toHaveBeenCalled();
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
@@ -542,8 +582,6 @@ describe('createGuardianAccount', () => {
 
     const result = await createAndRegister(webClient, new Uint8Array(32), 'https://override.guardian');
 
-    // Override is used verbatim; storage is never consulted.
-    expect(mockFetchFromStorage).not.toHaveBeenCalled();
     expect(result.guardianEndpoint).toBe('https://override.guardian');
   });
 
@@ -1056,73 +1094,32 @@ describe('createGuardianAccount', () => {
 });
 
 describe('resolveGuardianEndpoint', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+  it('prefers the per-account guardianEndpoint when present', () => {
+    expect(resolveGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' } as never)).toBe(
+      'https://per-account.guardian'
+    );
   });
 
-  it('prefers the per-account guardianEndpoint when present', async () => {
-    const endpoint = await resolveGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' } as never);
-    expect(endpoint).toBe('https://per-account.guardian');
-    // The per-account field short-circuits the global-key lookup.
-    expect(mockFetchFromStorage).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the legacy global key when the account has no endpoint', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
-    const endpoint = await resolveGuardianEndpoint({} as never);
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
-    expect(endpoint).toBe('https://global.guardian');
-  });
-
-  it('falls back to DEFAULT_GUARDIAN_ENDPOINT when neither field nor global key is set', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce(undefined);
-    const endpoint = await resolveGuardianEndpoint({} as never);
-    expect(endpoint).toBe('https://default.guardian.test');
-  });
-
-  it('propagates a failed storage read rather than answering with the default', async () => {
-    // The default arm must be reachable ONLY by a proven-empty pointer. If a read
-    // failure resolved to the default instead, every caller would be handed a
-    // guessed operator dressed as the account's own choice.
-    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
-    await expect(resolveGuardianEndpoint({} as never)).rejects.toThrow('storage unavailable');
+  it('falls back to the effective network default when the account names none', () => {
+    expect(resolveGuardianEndpoint({} as never)).toBe('https://default.guardian.test');
   });
 });
 
 describe('resolveChosenGuardianEndpoint', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('prefers the per-account guardianEndpoint without reading storage', async () => {
-    const endpoint = await resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' });
-    expect(endpoint).toBe('https://per-account.guardian');
-    expect(mockFetchFromStorage).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the legacy global key, the only pointer a pre-per-account account has', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
-    await expect(resolveChosenGuardianEndpoint({})).resolves.toBe('https://global.guardian');
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+  it('returns the per-account guardianEndpoint', () => {
+    expect(resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' })).toBe(
+      'https://per-account.guardian'
+    );
   });
 
   it.each([
     ['unset', undefined],
     ['an empty string', '']
-  ])('returns undefined rather than the network default when the global key is %s', async (_label, stored) => {
+  ])('returns undefined rather than the network default when the field is %s', (_label, guardianEndpoint) => {
     // The distinguishing property against `resolveGuardianEndpoint`: callers that
     // POST private account state, or that accuse an account of naming no
     // operator, must be able to tell "chose nothing" from "was given a guess".
-    mockFetchFromStorage.mockResolvedValueOnce(stored);
-    await expect(resolveChosenGuardianEndpoint({})).resolves.toBeUndefined();
-  });
-
-  it('propagates a failed storage read instead of reporting no chosen endpoint', async () => {
-    // `undefined` is a VERDICT here ("named no operator"). A swallowed read error
-    // would forge that verdict out of a transient failure, which is what lets the
-    // drift reconciler accuse a healthy account.
-    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
-    await expect(resolveChosenGuardianEndpoint({})).rejects.toThrow('storage unavailable');
+    expect(resolveChosenGuardianEndpoint({ guardianEndpoint })).toBeUndefined();
   });
 });
 

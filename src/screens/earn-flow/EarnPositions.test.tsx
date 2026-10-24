@@ -60,8 +60,8 @@ jest.mock('./components', () => ({
     `${subject.asset} on ${subject.network}`
 }));
 jest.mock('./ProviderLogo', () => ({
-  ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
-    <span data-testid="provider-logo" data-protocol={protocol} className={className} />
+  ProviderLogo: ({ protocol, logoUrl, className }: { protocol: string; logoUrl?: string; className?: string }) => (
+    <span data-testid="provider-logo" data-protocol={protocol} data-logo-url={logoUrl} className={className} />
   )
 }));
 
@@ -127,6 +127,26 @@ describe('EarnPositions', () => {
         .getAllByTestId('icon')
         .filter(node => node.getAttribute('data-name') === 'ChevronRightLucide')
     ).toHaveLength(EARN_DATA.positions.length);
+  });
+
+  it("hands each card its listed vault's document logo, and none to a position without one", () => {
+    const logoUrl = 'https://config.test/icons/aave.svg';
+    const [first, ...rest] = EARN_DATA.positions;
+    if (!first || rest.length === 0) throw new Error('the fixture needs two positions');
+    mockUseEarnPositions.mockReturnValue({
+      summary: EARN_DATA.summary,
+      positions: [{ ...first, logoUrl }, ...rest],
+      vaults: EARN_DATA.vaults,
+      isLoading: false,
+      refetch: mockRefetch
+    });
+    render(<EarnPositions />);
+
+    const logos = within(screen.getByRole('region', { name: 'earnPositionsRegionLabel' })).getAllByTestId(
+      'provider-logo'
+    );
+    expect(logos[0]).toHaveAttribute('data-logo-url', logoUrl);
+    expect(logos[1]).not.toHaveAttribute('data-logo-url');
   });
 
   it('renders each card with its protocol/asset, APY, amount, rewards, deposited amount and active duration', () => {
@@ -236,7 +256,7 @@ describe('EarnPositions', () => {
     const empty = screen.getByTestId('earn-positions-empty');
     expect(within(empty).getByText('earnNoActivePositionsTitle')).toBeInTheDocument();
     expect(within(empty).getByText('earnNoActivePositionsBody')).toBeInTheDocument();
-    expect(empty).toHaveClass('border-dashed', 'bg-page');
+    expect(empty).toHaveClass('border-dashed', 'bg-page', 'text-center', 'py-4');
     expect(empty).not.toHaveClass('bg-fill');
     expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();

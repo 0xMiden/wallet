@@ -7,14 +7,25 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: jest.fn(),
+  isUserErrorId: (value: unknown) => jest.requireActual('lib/telemetry/user-visible-error').isUserErrorId(value),
+  get USER_ERROR_SURFACES() {
+    return jest.requireActual('lib/telemetry/user-visible-error').USER_ERROR_SURFACES;
+  }
+}));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -53,13 +64,6 @@ jest.mock('lib/miden/front', () => ({
   MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
 }));
 
-const mockGetAllUncompletedTransactions = jest.fn(async () => [] as unknown[]);
-// `lib/miden/activity` re-exports the whole transaction pipeline (guardian +
-// miden-chain constants); mock it so this UI test doesn't drag that graph in.
-jest.mock('lib/miden/activity', () => ({
-  getAllUncompletedTransactions: () => mockGetAllUncompletedTransactions()
-}));
-
 jest.mock('lib/miden-chain/constants', () => ({
   getNetworkId: jest.fn(() => 'testnet')
 }));
@@ -67,6 +71,15 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: jest.fn(() => false)
 }));
+
+// The build's network unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
 
 jest.mock('lib/store', () => ({
   useWalletStore: { getState: jest.fn(() => ({ openTransactionModal: jest.fn() })) }
@@ -77,8 +90,12 @@ jest.mock('lib/swr', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: jest.fn(),
-  navigate: jest.fn()
+  useLocation: jest.fn()
+}));
+
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 // Layout/boundary wrappers: render children so `ConfirmDAppForm` mounts.
@@ -144,6 +161,20 @@ jest.mock('components/Button', () => ({
   )
 }));
 
+// A recorder in front of the real telemetry: the real `useApprovalPrompt` runs, so the test sees whether the page
+// begins an approval flow, not which arguments it passed to a stand-in.
+const mockBeginFlow = jest.fn();
+jest.mock('lib/telemetry', () => {
+  const actual = jest.requireActual('lib/telemetry');
+  return {
+    ...actual,
+    beginFlow: (...args: unknown[]) => {
+      mockBeginFlow(...args);
+      return actual.beginFlow(...args);
+    }
+  };
+});
+
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
 // Here we only need to assert ConfirmPage routes the sign->TransactionSummary
@@ -168,6 +199,9 @@ jest.mock('./confirm/decode', () => {
     account,
     outgoing: [{ faucetId: 'fA', amount: 10n }],
     incoming,
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
     inputNotesConsumed: incoming.length,
     outputNotesCreated: 1,
     storageChanged: false
@@ -179,6 +213,9 @@ jest.mock('./confirm/decode', () => {
     declaredRequestToView: jest.fn(() => ({
       outgoing: [{ faucetId: 'fA', amount: 10n }],
       incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
       storageChanged: false
@@ -196,17 +233,13 @@ jest.mock('./confirm/decode', () => {
   };
 });
 
-jest.mock('./atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description, onClose }: any) => (
-    <div data-testid="alert">
-      <span>{description}</span>
-      <button type="button" data-testid="alert-close" onClick={onClose}>
-        close
-      </button>
-    </div>
-  )
-}));
+jest.mock('./atoms/Alert', () => {
+  const actual = jest.requireActual<typeof import('./atoms/Alert')>('./atoms/Alert');
+  return {
+    __esModule: true,
+    default: (props: React.ComponentProps<typeof actual.default>) => <actual.default {...props} data-testid="alert" />
+  };
+});
 jest.mock('./icons/v2', () => ({
   Icon: ({ name }: any) => <span data-testid="icon" data-name={name} />,
   IconName: { Globe: 'Globe', WarningFill: 'WarningFill', Download: 'Download' }
@@ -262,6 +295,7 @@ const ctx = {
   confirmDAppAssets: jest.fn(),
   confirmDAppImportPrivateNote: jest.fn(),
   confirmDAppConsumableNotes: jest.fn(),
+  confirmDAppUnlock: jest.fn(),
   simulateCustomTransaction: jest.fn()
 };
 
@@ -368,6 +402,23 @@ describe('ConfirmPage gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('ConfirmDAppForm id derivation', () => {
+  it.each([
+    ['?foo=bar', 'missing'],
+    ['?id=', 'empty']
+  ])('annotates %s without retaining the route or id', (search, confirmationId) => {
+    mockUseLocation.mockReturnValue({ search });
+    setPayload({ type: 'assets', ...baseFields() });
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let failure: unknown;
+    try {
+      render(<ConfirmPage />);
+    } catch (error) {
+      failure = error;
+    }
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'confirm_payload', confirmationId });
+    spy.mockRestore();
+  });
+
   it('throws when the location has no id query param', () => {
     mockUseLocation.mockReturnValue({ search: '?foo=bar' });
     setPayload({ type: 'assets', ...baseFields() });
@@ -411,11 +462,125 @@ describe('connect payload', () => {
     expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
   });
 
-  it('auto-confirms an existing permission during render', () => {
-    setPayload(connectPayload({ existingPermission: true }));
-    render(<ConfirmPage />);
+  describe('network the dApp claims', () => {
+    beforeEach(() => {
+      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      t.mockImplementation((key: string, values?: Record<string, string>) =>
+        values ? `${key}:${Object.values(values).join(',')}` : key
+      );
+    });
+    afterEach(() => {
+      mockWalletNetwork = undefined;
+    });
 
+    it("warns when it is not the wallet's network, naming both", () => {
+      setPayload(connectPayload({ network: MIDEN_NETWORK_NAME.TESTNET }));
+      render(<ConfirmPage />);
+
+      expect(screen.getByTestId('dapp-network-mismatch')).toHaveTextContent('dappNetworkMismatch:testnet,mainnet');
+    });
+
+    it.each<[string, string | undefined]>([
+      ['claims the network the wallet is on', MIDEN_NETWORK_NAME.MAINNET],
+      ['claims no network', undefined]
+    ])('does not warn when the dApp %s', (_label, network) => {
+      setPayload(connectPayload({ network }));
+      render(<ConfirmPage />);
+
+      expect(screen.getByTestId('account-banner')).toBeInTheDocument();
+      expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+    });
+  });
+
+  it('auto-confirms an existing permission once, however often the form renders', () => {
+    setPayload(connectPayload({ existingPermission: true }));
+    const { rerender } = render(<ConfirmPage />);
+    rerender(<ConfirmPage />);
+
+    expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
     expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, ['balance']);
+  });
+
+  it('shows the error with Retry when the automatic answer to an existing permission fails, and Retry answers again', async () => {
+    // The wallet could not read the account's key after the approval (#1471).
+    ctx.confirmDAppPermission.mockRejectedValue(new Error('Account not found'));
+    try {
+      setPayload(connectPayload({ existingPermission: true }));
+      render(<ConfirmPage />);
+
+      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      const retry = screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton);
+      expect(retry).toHaveTextContent('retry');
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+
+      ctx.confirmDAppPermission.mockResolvedValue(undefined);
+      await act(async () => {
+        fireEvent.click(retry);
+      });
+
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
+        'balance'
+      ]);
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
+  });
+
+  it('retries an existing permission with Auto private data on a private account without asking for the consent box', async () => {
+    // The consent was given when the session was saved; a new connect still asks for it (the unchecked-box case below).
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    ctx.confirmDAppPermission.mockRejectedValue(new Error('Account not found'));
+    try {
+      setPayload(connectPayload({ existingPermission: true, privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
+
+      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+
+      ctx.confirmDAppPermission.mockResolvedValue(undefined);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
+      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
+  });
+
+  it('asks a new permission with Auto private data on a private account for the consent box, on Connect and on Retry', async () => {
+    // A forced connect, or one under another app name, reaches the page as a new permission (#1471).
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    ctx.confirmDAppPermission.mockResolvedValue(undefined);
+    try {
+      setPayload(connectPayload({ existingPermission: false, privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
+      expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+      });
+      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
+      expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('pdp-checkbox'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
   });
 
   it('shows the private-data checkbox when permission is Auto and account is non-public', () => {
@@ -483,7 +648,7 @@ describe('connect payload', () => {
     });
     await waitFor(() => expect(screen.getByTestId('alert')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTestId('alert-close'));
+    fireEvent.click(within(screen.getByTestId('alert')).getByRole('button'));
     await waitFor(() => expect(screen.queryByTestId('alert')).not.toBeInTheDocument());
   });
 
@@ -541,6 +706,42 @@ describe('connect payload', () => {
     });
 
     await waitFor(() => expect(screen.getByText('network boom')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'inline');
+  });
+
+  it('keeps one inline report for the real approval error Alert across parent rerenders', async () => {
+    jest.useFakeTimers();
+    ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('private approval detail'));
+    setPayload(connectPayload());
+    const { rerender } = render(<ConfirmPage />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(within(screen.getByTestId('alert')).getByText('private approval detail')).toBeInTheDocument();
+      expect(screen.getByTestId('alert')).toHaveAttribute('role', 'alert');
+      act(() => jest.advanceTimersByTime(999));
+      expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
+        ['raw_confirm_approval_failed', 'inline']
+      ]);
+
+      rerender(<ConfirmPage />);
+      act(() => jest.advanceTimersByTime(5000));
+      expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
+        ['raw_confirm_approval_failed', 'inline']
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('falls back to the generic error message when the thrown error has none', async () => {
@@ -663,11 +864,15 @@ describe('transaction payload', () => {
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', false, false));
   });
 
-  it('renders the payloadError instead of the derived content when present', () => {
+  it('renders the payloadError instead of the derived content when present', async () => {
     setPayload({ ...txPayload(), error: 'preview failed' });
     render(<ConfirmPage />);
 
     expect(screen.getByText('preview failed')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_payload_failed', 'inline');
   });
 });
 
@@ -703,6 +908,14 @@ describe('consume payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, false));
+  });
+
+  it('marks each consume row value for E2E, as the transaction rows are', () => {
+    setPayload({ ...consumePayload(), transactionMessages: ['Consuming note', 'Amount, 7.25', 'Note Type, Public'] });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('confirm-tx-value-amount')).toHaveTextContent('7.25');
+    expect(screen.getByTestId('confirm-tx-value-note-type')).toHaveTextContent('Public');
   });
 });
 
@@ -773,7 +986,7 @@ describe('sign payload — word', () => {
     expect(screen.getByText('0xdeadbeefcafe')).toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', () => {
+  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', async () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });
@@ -784,8 +997,17 @@ describe('sign payload — word', () => {
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('invalidPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('invalidPayload', 'inline');
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
@@ -826,7 +1048,8 @@ describe('sign payload — signingInputs', () => {
     const vault = {
       isEmpty: () => vaultEmpty,
       removedFungibleAssets: () => removed,
-      addedFungibleAssets: () => added
+      addedFungibleAssets: () => added,
+      numAssets: () => removed.length + added.length
     };
     const accountDelta = {
       id: () => 'acc-id',
@@ -835,22 +1058,31 @@ describe('sign payload — signingInputs', () => {
     };
     const ts = {
       accountDelta: () => accountDelta,
-      inputNotes: () => ({ numNotes: () => 2 }),
+      inputNotes: () => ({ numNotes: () => 2, notes: () => [] }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({
         numNotes: () => 3,
         notes: () => [
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) }
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          },
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          },
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          }
         ]
       })
     };
     return { variantType: SigningInputsType.TransactionSummary, transactionSummaryPayload: () => ts };
   };
 
-  it('shows the parse-failure copy when SigningInputs.deserialize throws', () => {
+  it('shows the parse-failure copy when SigningInputs.deserialize throws', async () => {
     mockSigningInputs.deserialize.mockImplementation(() => {
       throw new Error('bad si');
     });
@@ -858,6 +1090,10 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('failedToParseSigningPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('failedToParseSigningPayload', 'inline');
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
@@ -905,6 +1141,9 @@ describe('sign payload — signingInputs', () => {
         { faucetId: 'bech32:add1', amount: 300 },
         { faucetId: 'bech32:add-null', amount: 400 }
       ],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 2,
       outputNotesCreated: 3,
       storageChanged: true
@@ -959,6 +1198,73 @@ describe('sign payload — signingInputs', () => {
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loginSign payload: a sign-in with the account's login key for one site
+// ---------------------------------------------------------------------------
+
+describe('loginSign payload', () => {
+  const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
+  const loginPayload = () => ({
+    type: 'loginSign',
+    ...baseFields('https://example.org'),
+    domain: 'example.org',
+    accountId: LOGIN_ACCOUNT_ID
+  });
+
+  beforeEach(() => {
+    t.mockImplementation((key: string, values?: Record<string, string>) =>
+      values ? `${key}:${Object.values(values).join(',')}` : key
+    );
+  });
+
+  it("shows a login approval with the site's domain", () => {
+    setPayload(loginPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByRole('heading', { name: 'confirmLoginSignature:example.org' })).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
+    // The account the request names, stacked and in full, not the one selected in the wallet.
+    expect(screen.getByTestId('confirm-login-account')).toHaveClass('flex-col');
+    expect(screen.getByText(LOGIN_ACCOUNT_ID)).toBeInTheDocument();
+    expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
+    expect(screen.queryByText('payload')).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
+  });
+
+  it('copies the full signing account from its row', async () => {
+    setPayload(loginPayload());
+    render(<ConfirmPage />);
+
+    const copy = screen.getByTestId('confirm-login-account-copy');
+    expect(screen.getByTestId('confirm-login-account')).toContainElement(copy);
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: LOGIN_ACCOUNT_ID });
+  });
+
+  it('approves and declines through the signature confirmation', async () => {
+    ctx.confirmDAppSign.mockResolvedValue(undefined);
+    setPayload(loginPayload());
+
+    const approval = render(<ConfirmPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.LoginSign_AcceptButton));
+    });
+    await waitFor(() => expect(ctx.confirmDAppSign).toHaveBeenCalledWith('req-1', true));
+    approval.unmount();
+
+    render(<ConfirmPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.LoginSign_RejectButton));
+    });
+    await waitFor(() => expect(ctx.confirmDAppSign).toHaveBeenCalledWith('req-1', false));
+    expect(ctx.confirmDAppSign).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1055,6 +1361,30 @@ describe('consumableNotes payload', () => {
   });
 });
 
+describe('unlock payload', () => {
+  const unlockPayload = () => ({ type: 'unlock', ...baseFields() });
+
+  it('answers once on its own after the unlock, with nothing to approve', async () => {
+    ctx.confirmDAppUnlock.mockResolvedValue(undefined);
+    setPayload(unlockPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(ctx.confirmDAppUnlock).toHaveBeenCalledWith('req-1'));
+    expect(ctx.confirmDAppUnlock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+  });
+
+  it('begins no approval telemetry, since the user is asked nothing', async () => {
+    ctx.confirmDAppUnlock.mockResolvedValue(undefined);
+    setPayload(unlockPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(ctx.confirmDAppUnlock).toHaveBeenCalled());
+    expect(mockBeginFlow).not.toHaveBeenCalled();
+  });
+});
+
 describe('request origin banner', () => {
   const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
 
@@ -1125,15 +1455,23 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
   });
 
-  it('shows could-not-decode when requestBytes is absent', () => {
+  it('shows could-not-decode when requestBytes is absent', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
     setPayload(customPayload({ requestBytes: undefined }));
     render(<ConfirmPage />);
 
     expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotDecodeTransaction', 'inline');
   });
 
   it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
@@ -1172,6 +1510,16 @@ describe('ConfirmPage custom transaction', () => {
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+  });
+
+  it('marks the could-not-simulate line for E2E', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('couldNotVerifyBySimulation')
+    );
   });
 });
 

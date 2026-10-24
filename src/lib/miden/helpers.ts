@@ -1,4 +1,12 @@
-import { Address, InputNoteRecord, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import {
+  type AccountId,
+  Address,
+  type Felt,
+  InputNoteRecord,
+  type Note,
+  NoteScript,
+  NoteType
+} from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteTypeEnum, NoteType as NoteTypeString } from './types';
 
@@ -68,6 +76,25 @@ export const toPersistedNoteType = (noteType: NoteType | NoteTypeString | string
 export const ESTIMATED_MS_PER_BLOCK = 3_000;
 
 /**
+ * Blocks a request the wallet submits on its own may wait for inclusion: about 30 minutes at the estimated cadence
+ * (#1081). A submitted transaction without one never expires, so "it never committed" could be proven only by the
+ * account moving on without it.
+ */
+export const EXPIRATION_DELTA_BLOCKS = 600;
+
+/**
+ * Blocks for a request proposed through a Guardian: 540 s at 3 s blocks, inside the Guardian's ~600 s pending hold,
+ * which starts after the proposal's bound block. Its transaction can then only land before the Guardian could discard
+ * the candidate, while blocks come at least every 3.3 s. A proposal executes at the tip, so a wallet-built one carries
+ * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`).
+ */
+export const GUARDIAN_EXPIRATION_DELTA_BLOCKS = 180;
+
+/** The delta for a request the wallet builds; the caller is the one that knows whether a Guardian proposes it. */
+export const expirationDeltaBlocks = (proposedThroughGuardian: boolean): number =>
+  proposedThroughGuardian ? GUARDIAN_EXPIRATION_DELTA_BLOCKS : EXPIRATION_DELTA_BLOCKS;
+
+/**
  * Largest relative recall offset the wallet will accept from a caller.
  *
  * Block heights are u32 on chain, and the offset is only ever used as
@@ -117,10 +144,22 @@ export const assertValidRecallBlocks = (recallBlocks: number | undefined | null)
 // felt, which is far larger than any plausible block height. Reading the wrong
 // slot therefore fails the range check below and silently suppresses the
 // "returns to sender by" banner on every recallable note.
+const P2IDE_TARGET_SUFFIX_INDEX = 2;
+const P2IDE_TARGET_PREFIX_INDEX = 3;
 const P2IDE_RECLAIM_HEIGHT_INDEX = 4;
 const P2IDE_STORAGE_ITEM_COUNT = 6;
+// P2ID storage (p2id.masm, miden-standards 0.17.1): [target.suffix, target.prefix, salt0, salt1].
+const P2ID_TARGET_SUFFIX_INDEX = 0;
+const P2ID_TARGET_PREFIX_INDEX = 1;
+const P2ID_STORAGE_ITEM_COUNT = 4;
+// FEE_SPONSORSHIP storage (fee_sponsorship.masm, miden-standards 0.17.1):
+// [FEATURE_NOTE_ID (4 felts), reclaimer.suffix, reclaimer.prefix, reclaim_height].
+const FEE_SPONSORSHIP_RECLAIM_HEIGHT_INDEX = 6;
+const FEE_SPONSORSHIP_STORAGE_ITEM_COUNT = 7;
 
+let p2idScriptRootHex: string | undefined;
 let p2ideScriptRootHex: string | undefined;
+let feeSponsorshipScriptRootHex: string | undefined;
 let standardPaymentRoots: ReadonlySet<string> | undefined;
 
 /**
@@ -132,6 +171,23 @@ export function standardPaymentScriptRoots(): ReadonlySet<string> {
   return standardPaymentRoots;
 }
 
+/** A note read as a note, or as the stored record that holds one. */
+type NoteSource = Note | InputNoteRecord;
+
+// Bails rather than index blind when the layout is not the one the constants were
+// written for: a future protocol move that shifts the slots again must read as no
+// such note, never as a felt from an unrelated slot.
+function storageItems(note: NoteSource, scriptRootHex: () => string, count: number): Felt[] | undefined {
+  const recipient = 'details' in note ? note.details().recipient() : note.recipient();
+  if (recipient.script().root().toHex() !== scriptRootHex()) return undefined;
+  const items = recipient.storage().items();
+  return items.length === count ? items : undefined;
+}
+
+const p2idRoot = () => (p2idScriptRootHex ??= NoteScript.p2id().root().toHex());
+const p2ideRoot = () => (p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex());
+const feeSponsorshipRoot = () => (feeSponsorshipScriptRootHex ??= NoteScript.feeSponsorship().root().toHex());
+
 /**
  * Estimated wall-clock time (epoch ms) at which the sender of a P2IDE note
  * becomes able to reclaim it, or undefined for non-recallable notes (plain
@@ -139,15 +195,7 @@ export function standardPaymentScriptRoots(): ReadonlySet<string> {
  */
 export function getNoteRecallableAtMs(note: InputNoteRecord, syncHeight: number): number | undefined {
   try {
-    const recipient = note.details().recipient();
-    p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex();
-    if (recipient.script().root().toHex() !== p2ideScriptRootHex) return undefined;
-    const items = recipient.storage().items();
-    // Bail rather than index blind when the layout is not the one this constant
-    // was written for: a future protocol move that shifts the slot again must
-    // hide the banner, never render a felt from an unrelated slot as a date.
-    if (items.length !== P2IDE_STORAGE_ITEM_COUNT) return undefined;
-    const reclaimFelt = items[P2IDE_RECLAIM_HEIGHT_INDEX];
+    const reclaimFelt = storageItems(note, p2ideRoot, P2IDE_STORAGE_ITEM_COUNT)?.[P2IDE_RECLAIM_HEIGHT_INDEX];
     if (!reclaimFelt) return undefined;
     const reclaimHeight = Number(reclaimFelt.asInt());
     if (reclaimHeight <= 0 || reclaimHeight > 0xffffffff) return undefined;
@@ -155,4 +203,82 @@ export function getNoteRecallableAtMs(note: InputNoteRecord, syncHeight: number)
   } catch {
     return undefined;
   }
+}
+
+/** An account id as its prefix and suffix felts in decimal, so it crosses realms as JSON. */
+export type AccountFelts = { prefix: string; suffix: string };
+
+/** The only account that can ever consume a note, or nobody, when its script settles that from storage alone. */
+export type ConsumeRestriction = AccountFelts | 'nobody';
+
+// Reading a note is no call on the client, so a note that cannot be read restricts nothing. A trap still reaches the
+// caller's lock, which retires the client.
+function readNote<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    return undefined;
+  }
+}
+
+/**
+ * The target of a P2IDE whose reclaim is disabled, the one account that can ever consume it: a non-target enters
+ * p2ide.masm only through its reclaim branch, and a reclaim height of 0 closes that branch at every block
+ * (note_reclaim.masm, miden-standards 0.17.1). Undefined for any other note.
+ *
+ * The SDK's static check reads that 0 as "reclaimable from block 0" and reports the note consumable now to its
+ * reclaimer, usually its sender (0xMiden/protocol#3675), so this follows the script, not that verdict.
+ */
+export function reclaimDisabledP2ideTarget(note: NoteSource): AccountFelts | undefined {
+  return readNote(() => {
+    const items = storageItems(note, p2ideRoot, P2IDE_STORAGE_ITEM_COUNT);
+    if (!items || items[P2IDE_RECLAIM_HEIGHT_INDEX]!.asInt() !== 0n) return undefined;
+    return {
+      prefix: items[P2IDE_TARGET_PREFIX_INDEX]!.asInt().toString(),
+      suffix: items[P2IDE_TARGET_SUFFIX_INDEX]!.asInt().toString()
+    };
+  });
+}
+
+// The target of a P2ID, the one account that can ever consume it: p2id.masm asserts the consuming account is that
+// target (note_target.masm, miden-standards 0.17.1).
+function p2idTarget(note: NoteSource): AccountFelts | undefined {
+  return readNote(() => {
+    const items = storageItems(note, p2idRoot, P2ID_STORAGE_ITEM_COUNT);
+    if (!items) return undefined;
+    return {
+      prefix: items[P2ID_TARGET_PREFIX_INDEX]!.asInt().toString(),
+      suffix: items[P2ID_TARGET_SUFFIX_INDEX]!.asInt().toString()
+    };
+  });
+}
+
+/**
+ * The target of a P2ID, {@link reclaimDisabledP2ideTarget}, or `'nobody'` for a fee sponsorship whose reclaim is
+ * disabled: consumed without its feature note, as the one note of a dApp consume request is, it can only take its
+ * reclaim branch, which a reclaim height of 0 closes (fee_sponsorship.masm, miden-standards 0.17.1).
+ */
+export function noteConsumeRestriction(note: NoteSource): ConsumeRestriction | undefined {
+  const sponsorshipReclaimDisabled = readNote(
+    () =>
+      storageItems(note, feeSponsorshipRoot, FEE_SPONSORSHIP_STORAGE_ITEM_COUNT)?.[
+        FEE_SPONSORSHIP_RECLAIM_HEIGHT_INDEX
+      ]?.asInt() === 0n
+  );
+  return sponsorshipReclaimDisabled ? 'nobody' : (p2idTarget(note) ?? reclaimDisabledP2ideTarget(note));
+}
+
+/**
+ * Whether the account `resolveAccount` returns may consume a note under `restriction`, compared by its prefix and
+ * suffix felts. The account is resolved only for a note restricted to one account.
+ */
+export function mayConsume(restriction: ConsumeRestriction | undefined, resolveAccount: () => AccountId): boolean {
+  if (restriction === undefined) return true;
+  if (restriction === 'nobody') return false;
+  const account = resolveAccount();
+  return (
+    account.prefix().asInt().toString() === restriction.prefix &&
+    account.suffix().asInt().toString() === restriction.suffix
+  );
 }

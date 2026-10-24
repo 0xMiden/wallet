@@ -3,6 +3,7 @@ import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSumma
 import {
   declaredRequestToView,
   executedBytesToView,
+  importedNoteAssets,
   netOutflowByFaucet,
   simulatedBytesToView,
   summaryBytesToView,
@@ -18,7 +19,21 @@ const fa = (faucetId: string, amount: bigint) => ({
   faucetId: () => ({ __faucet: faucetId }),
   amount: () => amount
 });
-const note = (assets: any[]) => ({ assets: () => ({ fungibleAssets: () => assets }) });
+const note = (assets: any[], nfts: any[] = []) => ({
+  assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => nfts })
+});
+// A vault delta that lists its fungible entries and counts `unlisted` more (the NFTs the SDK cannot list).
+const vaultOf = (removed: any[], added: any[], unlisted = 0) => ({
+  removedFungibleAssets: () => removed,
+  addedFungibleAssets: () => added,
+  numAssets: () => removed.length + added.length + unlisted
+});
+// Marker stand-in for an NFT; the mocked `toNft` below turns it into the sheet's identity.
+// `key` is the complete value word; two NFTs can share the short `assetId` and still differ in it.
+const nft = (faucetId: string, assetId: string, key = `${faucetId}|${assetId}`) => ({
+  __nft: { faucetId, assetId },
+  __key: key
+});
 // A note the fee split will actually recognize. The plain `note()` above has no
 // `metadata()`, so every fixture built from it was invisible to `partitionFeeNote` and the
 // fee behaviour on this security screen went untested in both directions: nothing proved
@@ -54,6 +69,10 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   // same asset written two ways, which is the case a raw-string fold silently misses.
   canonicalWalletAccountId: jest.fn((id: string) => id.replace(/^hex:/, ''))
 }));
+jest.mock('lib/miden/sdk/nft-asset', () => ({
+  toNft: jest.fn((a: any) => a.__nft),
+  nftKey: jest.fn((a: any) => a.__key)
+}));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
 }));
@@ -72,10 +91,10 @@ describe('summaryToView', () => {
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ removedFungibleAssets: () => [fa('fA', 10n)], addedFungibleAssets: () => [fa('fB', 3n)] }),
+        vault: () => vaultOf([fa('fA', 10n)], [fa('fB', 3n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       // `notes()` too: the summary's output notes go through the fee split now, since
       // `fee::pay_fee` runs inside auth BEFORE the summary is built, so the kernel's fee
       // note is among them exactly as it is on an executed transaction.
@@ -85,6 +104,9 @@ describe('summaryToView', () => {
       account: 'bech32:acctId',
       outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
       incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
       storageChanged: false
@@ -95,10 +117,10 @@ describe('summaryToView', () => {
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ removedFungibleAssets: () => [fa('fA', 10n)], addedFungibleAssets: () => [fa('fB', 3n)] }),
+        vault: () => vaultOf([fa('fA', 10n)], [fa('fB', 3n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       // `notes()` too: the summary's output notes go through the fee split now, since
       // `fee::pay_fee` runs inside auth BEFORE the summary is built, so the kernel's fee
       // note is among them exactly as it is on an executed transaction.
@@ -111,6 +133,9 @@ describe('summaryToView', () => {
       account: 'bech32:acctId',
       outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
       incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
       storageChanged: false
@@ -141,6 +166,9 @@ describe('executedBytesToView', () => {
       account: 'bech32:acctId',
       outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
       incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 2,
       storageChanged: true
@@ -159,13 +187,10 @@ describe('the network fee, on both decode paths', () => {
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({
-          removedFungibleAssets: () => [fa('fA', 10n), fa(NATIVE_FAUCET, 5n)],
-          addedFungibleAssets: () => []
-        }),
+        vault: () => vaultOf([fa('fA', 10n), fa(NATIVE_FAUCET, 5n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 2, notes: () => [note([fa('fA', 10n)]), feeNote(2n)] })
     };
 
@@ -184,10 +209,10 @@ describe('the network fee, on both decode paths', () => {
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ removedFungibleAssets: () => [fa(NATIVE_FAUCET, 2n)], addedFungibleAssets: () => [] }),
+        vault: () => vaultOf([fa(NATIVE_FAUCET, 2n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] })
     };
 
@@ -205,10 +230,10 @@ describe('the network fee, on both decode paths', () => {
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ removedFungibleAssets: () => [fa(NATIVE_FAUCET, 8n)], addedFungibleAssets: () => [] }),
+        vault: () => vaultOf([fa(NATIVE_FAUCET, 8n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(9n)] })
     };
 
@@ -226,10 +251,10 @@ describe('the network fee, on both decode paths', () => {
     const summary = summaryToView({
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ removedFungibleAssets: () => [], addedFungibleAssets: () => [fa(NATIVE_FAUCET, 8n)] }),
+        vault: () => vaultOf([], [fa(NATIVE_FAUCET, 8n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] })
     } as any);
 
@@ -359,6 +384,9 @@ describe('declaredRequestToView', () => {
       account: undefined,
       outgoing: [{ faucetId: 'bech32:fA', amount: 10n }],
       incoming: [{ faucetId: 'bech32:fB', amount: 3n }],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 1,
       outputNotesCreated: 1,
       storageChanged: false
@@ -415,6 +443,34 @@ describe('declaredRequestToView', () => {
   });
 });
 
+// The custom-transaction simulation decodes inside its WASM hold, where a trap has to reach the lock to retire the
+// client; the confirm sheet's own decode runs outside any hold and keeps skipping the entry.
+describe('importedNoteAssets', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const throwTrap = () => {
+    throw trap;
+  };
+  const traps: Record<string, () => void> = {
+    'NoteFile.deserialize': () => (NoteFile.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
+    'Note.deserialize': () => (Note.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
+    'the asset read': () => (Note.deserialize as jest.Mock).mockReturnValueOnce({ assets: throwTrap })
+  };
+
+  it.each(Object.keys(traps))('rethrows a trap in %s only when asked to', name => {
+    traps[name]!();
+    expect(() => importedNoteAssets('imported', { rethrowTraps: true })).toThrow(trap);
+    traps[name]!();
+    expect(importedNoteAssets('imported')).toEqual([]);
+  });
+
+  it('still skips an entry that fails ordinarily when asked to rethrow traps', () => {
+    (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('bad note bytes');
+    });
+    expect(importedNoteAssets('imported', { rethrowTraps: true })).toEqual([]);
+  });
+});
+
 describe('simulatedBytesToView', () => {
   // The dry run produces exactly one of these, decided by the ACCOUNT's authorization state:
   // a summary while authorization is pending, an executed transaction for every ordinary
@@ -424,10 +480,10 @@ describe('simulatedBytesToView', () => {
     (TransactionSummary.deserialize as jest.Mock).mockReturnValueOnce({
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ addedFungibleAssets: () => [], removedFungibleAssets: () => [fa('fA', 10n)] }),
+        vault: () => vaultOf([fa('fA', 10n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 0 }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [note([])] })
     });
 
@@ -465,6 +521,9 @@ describe('netOutflowByFaucet', () => {
       account: 'acct',
       outgoing,
       incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: outgoing.length,
       fee: undefined,
@@ -528,5 +587,178 @@ describe('netOutflowByFaucet', () => {
       { faucetId: 'f1', amount: 30n },
       { faucetId: 'f2', amount: 30n }
     ]);
+  });
+});
+
+describe('NFTs on the approval view (#1600)', () => {
+  const nftOut = nft('bech32:nftFaucet', '0xaa11bb22…cc33dd');
+  const nftIn = nft('bech32:otherFaucet', '0x01020304…050607');
+
+  it('declared view lists the NFT of an output note and of an imported note, with no fungible amount', () => {
+    (TransactionRequest.deserialize as jest.Mock).mockReturnValueOnce({
+      expectedOutputOwnNotes: () => [note([], [nftOut])]
+    });
+    (Note.deserialize as jest.Mock).mockReturnValueOnce(note([], [nftIn]));
+
+    const view = declaredRequestToView('reqB64', ['imported']);
+
+    expect(view.outgoing).toEqual([]);
+    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22…cc33dd' }]);
+    expect(view.incomingNfts).toEqual([{ faucetId: 'bech32:otherFaucet', assetId: '0x01020304…050607' }]);
+  });
+
+  it('executed view lists the NFT of a created note and of a consumed note', () => {
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftIn]) }] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+      })
+    });
+
+    const view = executedBytesToView('execB64');
+
+    expect(view.outgoing).toEqual([]);
+    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22\u2026cc33dd' }]);
+    expect(view.incomingNfts).toEqual([{ faucetId: 'bech32:otherFaucet', assetId: '0x01020304\u2026050607' }]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view counts a vault change it cannot list instead of dropping it', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        // One fungible entry listed, two more entries (NFTs) the SDK reports only through numAssets.
+        vault: () => vaultOf([fa('fA', 10n)], [], 2),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([fa('fA', 10n)])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.unlistedAssets).toBe(2);
+    expect(view.outgoingNfts).toEqual([]);
+  });
+
+  it('summary view lists the NFT of a created note as leaving, and counts it as explained', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 1),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22\u2026cc33dd' }]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view lists the NFT of a consumed note as entering', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 1),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftIn]) }] }),
+      outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.incomingNfts).toHaveLength(1);
+    expect(view.outgoingNfts).toEqual([]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view shows an NFT consumed and re-created in one transaction on neither side', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 0),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftOut]) }] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toEqual([]);
+    expect(view.incomingNfts).toEqual([]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view does not net two distinct NFTs that share a short asset id', () => {
+    const created = nft('bech32:nftFaucet', '0xaa11bb22\u2026cc33dd', 'word-one');
+    const consumed = nft('bech32:nftFaucet', '0xaa11bb22\u2026cc33dd', 'word-two');
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 2),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [consumed]) }] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [created])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toHaveLength(1);
+    expect(view.incomingNfts).toHaveLength(1);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view still counts a delta entry that no note explains beside a listed NFT', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 2),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toHaveLength(1);
+    expect(view.unlistedAssets).toBe(1);
+  });
+
+  it('summary view reports nothing unlisted when every vault entry is a fungible one it listed', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([fa('fA', 10n)], [fa('fB', 3n)]),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
+    };
+
+    expect(summaryToView(ts as any).unlistedAssets).toBe(0);
+  });
+
+  it('spending-limit outflow stays amount-only: an NFT adds nothing to it (option C)', () => {
+    const view = {
+      outgoing: [{ faucetId: 'f1', amount: 5n }],
+      incoming: [],
+      outgoingNfts: [{ faucetId: 'bech32:nftFaucet', assetId: '0xaa' }],
+      incomingNfts: [],
+      unlistedAssets: 1,
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    };
+
+    expect(netOutflowByFaucet(view)).toEqual([{ faucetId: 'f1', amount: 5n }]);
   });
 });

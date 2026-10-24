@@ -1,9 +1,18 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
-import { fetchTokenPrices } from './binance';
-import { getPriceMicro, isCoveredSymbol, toPriceMicro, writeUsdPriceCache, __resetUsdPriceCacheForTests } from './usd';
+import type { TokenPrices } from './binance';
+import { fetchTokenPrices } from './feed';
+import {
+  getPriceMicro,
+  isCoveredSymbol,
+  prefetchUsdPrices,
+  toPriceMicro,
+  writeUsdPriceCache,
+  __resetUsdPriceCacheForTests
+} from './usd';
 
-jest.mock('./binance', () => ({ fetchTokenPrices: jest.fn() }));
+jest.mock('lib/miden/swap/tokens', () => ({ getPriceSymbols: () => ['ARB'] }));
+jest.mock('./feed', () => ({ fetchTokenPrices: jest.fn() }));
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
 
 const mockedFetch = jest.mocked(fetchTokenPrices);
@@ -102,7 +111,7 @@ describe('getPriceMicro', () => {
     await expect(getPriceMicro('ETH', 1_000)).resolves.toBeUndefined();
   });
 
-  it('shares one refresh across concurrent callers', async () => {
+  it('fetches each requested asset across concurrent callers', async () => {
     mockedFetch.mockResolvedValue({
       ETH: { price: 4100, change24h: 0, percentageChange24h: 0 },
       BTC: { price: 90000, change24h: 0, percentageChange24h: 0 }
@@ -112,7 +121,8 @@ describe('getPriceMicro', () => {
 
     expect(eth).toBe(4_100_000_000n);
     expect(btc).toBe(90_000_000_000n);
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedFetch).toHaveBeenCalledWith(['ETH']);
+    expect(mockedFetch).toHaveBeenCalledWith(['BTC']);
   });
 
   it('persists a refreshed price for the other realm to read', async () => {
@@ -211,5 +221,94 @@ describe('writeUsdPriceCache', () => {
     await writeUsdPriceCache({ DOGE: { price: 1, change24h: 0, percentageChange24h: 0 } }, 20);
 
     expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {});
+  });
+});
+
+describe('fixed USDCX micro-dollar price', () => {
+  it('returns exactly one million micro-dollars without storage or market access', async () => {
+    mockedRead.mockRejectedValue(new Error('storage unavailable'));
+    mockedFetch.mockRejectedValue(new Error('feed unavailable'));
+    await expect(getPriceMicro('USDCX', 1000)).resolves.toBe(1_000_000n);
+    expect(mockedRead).not.toHaveBeenCalled();
+    expect(mockedFetch).not.toHaveBeenCalled();
+    expect(isCoveredSymbol('USDCX')).toBe(true);
+  });
+});
+
+it('fetches and caches a dynamic verified asset without a static feed entry', async () => {
+  mockedFetch.mockResolvedValue({ ARB: { price: 0.75, change24h: 0, percentageChange24h: 0 } });
+  await expect(getPriceMicro('ARB', 100)).resolves.toBe(750_000n);
+  expect(mockedFetch).toHaveBeenCalledWith(['ARB']);
+  expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
+    ARB: { priceMicro: '750000', fetchedAt: 100 }
+  });
+});
+
+it('allows a later cache write after an earlier write fails', async () => {
+  await expect(
+    writeUsdPriceCache({ ETH: { price: Number.MAX_VALUE, change24h: 0, percentageChange24h: 0 } }, 100)
+  ).rejects.toBeInstanceOf(RangeError);
+  await expect(
+    writeUsdPriceCache({ ETH: { price: 1000, change24h: 0, percentageChange24h: 0 } }, 101)
+  ).resolves.toBeUndefined();
+  expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
+    ETH: { priceMicro: '1000000000', fetchedAt: 101 }
+  });
+});
+
+describe('prefetchUsdPrices', () => {
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+
+  it('fetches every cold covered symbol in one request and leaves them cached', async () => {
+    let stored: unknown = null;
+    mockedRead.mockImplementation(async () => stored);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      stored = value;
+    });
+    mockedFetch.mockResolvedValue({ ETH: quote(4100), BTC: quote(90000) });
+
+    await prefetchUsdPrices(['ETH', 'USDCX', 'BTC', 'ETH'], 1_000);
+
+    expect(mockedFetch.mock.calls).toEqual([[['ETH', 'BTC']]]);
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
+    await expect(getPriceMicro('BTC', 1_000)).resolves.toBe(90_000_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches a requested symbol that the current network does not cover', async () => {
+    let stored: unknown = null;
+    mockedRead.mockImplementation(async () => stored);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      stored = value;
+    });
+    mockedFetch.mockResolvedValue({ OP: quote(2), USDT: quote(1) });
+
+    await prefetchUsdPrices(['OP'], 1_000);
+
+    await expect(getPriceMicro('OP', 1_000)).resolves.toBe(2_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(stored).not.toHaveProperty('USDT');
+    stored = null;
+    await writeUsdPriceCache({ OP: quote(2) }, 1_000);
+    expect(stored).toEqual({});
+  });
+
+  it('shares a symbol already in flight with an overlapping call', async () => {
+    let release: (prices: TokenPrices) => void = () => undefined;
+    mockedFetch.mockImplementationOnce(
+      () =>
+        new Promise<TokenPrices>(resolve => {
+          release = resolve;
+        })
+    );
+    const first = prefetchUsdPrices(['ETH', 'BTC'], 1_000);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    mockedFetch.mockResolvedValueOnce({ USDC: quote(1) });
+    const second = prefetchUsdPrices(['BTC', 'USDC'], 1_000);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release({ ETH: quote(4100), BTC: quote(90000) });
+    await Promise.all([first, second]);
+
+    expect(mockedFetch.mock.calls).toEqual([[['ETH', 'BTC']], [['USDC']]]);
   });
 });

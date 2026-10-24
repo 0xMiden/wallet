@@ -9,6 +9,7 @@ import {
   isWalletFailureReason,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
+import { newestRow } from 'lib/miden/transaction/rotation-funding';
 
 export type RotationGateView = 'recovery-seed' | 'funding' | 'failed' | 'rotating';
 export type RotationFundingStatus = 'claiming' | 'activating' | 'claim-failed' | 'too-small' | 'waiting';
@@ -52,16 +53,6 @@ export interface RotationGateViewInput {
 export type RotationGateViewResult =
   | { view: 'recovery-seed' | 'failed' | 'rotating' }
   | { view: 'funding'; status: RotationFundingStatus; reason: RotationFundingReason; failedClaim?: GateRow };
-
-const queuedLater = (a: GateRow, b: GateRow): boolean =>
-  a.initiatedAt > b.initiatedAt || (a.initiatedAt === b.initiatedAt && (a.queuedSeq ?? 0) > (b.queuedSeq ?? 0));
-
-/** The most recently queued of `rows`. */
-export const newestRow = <T extends GateRow>(rows: readonly T[]): T | undefined =>
-  rows.reduce<T | undefined>(
-    (newest, row) => (newest === undefined || queuedLater(row, newest) ? row : newest),
-    undefined
-  );
 
 export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? [];
 
@@ -130,7 +121,8 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
 export type RotationFailureRow = Pick<
   ITransaction,
   'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'
->;
+> &
+  Partial<Pick<ITransaction, 'extraInputs'>>;
 
 export interface RotationFailure {
   /** The row may have reached the network, so its outcome is unknown rather than failed. */

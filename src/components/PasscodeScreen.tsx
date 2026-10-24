@@ -3,9 +3,13 @@ import React from 'react';
 import { Numpad } from 'components/Numpad';
 import { PasscodeDots } from 'components/PasscodeDots';
 import type { BiometricAvailability } from 'lib/biometric';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 export interface PasscodeScreenProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   title: string;
   /** The line under the title: the instruction, or the error / lockout message when `isError`. */
   message: string;
@@ -47,6 +51,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   title,
   message,
   isError = false,
+  errorId,
   filled,
   length,
   errorKey,
@@ -60,15 +65,22 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   action,
   'data-testid': dataTestId
 }) => {
+  useUserVisibleError(isError ? errorId : null, 'passcode');
   const messageClass = cn(
-    'mt-2 min-h-6 text-base text-center wrap-break-word',
+    // Nunito semibold, like an onboarding step's explainer line.
+    'mt-2 min-h-6 text-body-strong text-center wrap-break-word face-heading',
     isError ? 'text-negative-ink' : 'text-muted'
   );
 
   return (
     <div className="bg-page h-full overflow-y-auto select-none" data-testid={dataTestId}>
       <div
-        className={cn('min-h-full flex flex-col items-center px-4', action ? 'pb-2' : 'pb-5')}
+        className={cn(
+          'min-h-full flex flex-col items-center px-4',
+          action
+            ? 'pb-[calc(0.5rem+var(--wallet-control-safe-bottom,0px))]'
+            : 'pb-[calc(1.25rem+var(--wallet-control-safe-bottom,0px))]'
+        )}
         data-testid="passcode-screen-layout"
       >
         {/* The leftover height splits 1:2 above the prompt and below the keypad, so prompt and keypad

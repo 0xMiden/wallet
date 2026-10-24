@@ -11,8 +11,8 @@ export type { ButtonProps, ButtonSize } from './Button';
 
 export { DappOrigin } from './DappOrigin';
 
-export { DetailCard, DetailRow } from './DetailCard';
-export type { DetailRowProps } from './DetailCard';
+export { DetailCard, DetailDisclosure, DetailRow } from './DetailCard';
+export type { DetailDisclosureProps, DetailRowProps } from './DetailCard';
 
 export { Hero } from './Hero';
 export type { HeroProps } from './Hero';
@@ -63,6 +63,9 @@ export { StatusBadge } from './StatusBadge';
 // vocabularies have no importer, so they stay internal until one exists.
 export type { Status, StatusBadgeProps } from './StatusBadge';
 
+export { ProgressMeter } from './ProgressMeter';
+export type { ProgressMeterProps } from './ProgressMeter';
+
 export { PromptCard } from './PromptCard';
 export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 
@@ -93,6 +96,9 @@ export type { TabRootHeaderProps, TabRootFilter } from './TabRootHeader';
 
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
+
+export { ClearFieldButton } from './ClearFieldButton';
+export type { ClearFieldButtonProps } from './ClearFieldButton';
 
 export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
@@ -142,4 +148,6 @@ export type { SubPageLayoutProps } from './SubPageLayout';
 export { ErrorLine } from './ErrorLine';
 export { ErrorDetails } from './ErrorDetails';
 export type { ErrorDetailsProps } from './ErrorDetails';
+export { CodeInput } from './CodeInput';
+export type { CodeInputProps } from './CodeInput';
 export { SeedPhraseGrid } from './SeedPhraseGrid';

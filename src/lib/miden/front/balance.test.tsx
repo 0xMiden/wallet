@@ -5,19 +5,19 @@ import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
+import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 
 import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './balance';
 
-// The placeholder prices under test follow the default rule, no price without a quote; pinned here
-// against Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
-jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 // webextension-polyfill auto-mock causes isExtension() to return true in tests.
 // Override to return false so balance hooks use the WASM polling path.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isExtension: jest.fn(() => false)
@@ -29,6 +29,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => 'miden-faucet-id'),
   // Read by the swap-token registry the placeholder row is priced through.
   getNativeAssetMetadataSync: jest.fn(() => null),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => null),
   getNativeAssetId: jest.fn(async () => 'miden-faucet-id'),
   primeNativeAssetId: jest.fn(),
   onNativeAssetChanged: jest.fn(() => () => {}),
@@ -342,7 +343,7 @@ describe('instant balance loading', () => {
     }
   });
 
-  it('returns default 0 MIDEN balance instantly before any async IndexedDB lookup', async () => {
+  it('returns default 0 native balance instantly before any async IndexedDB lookup', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
@@ -382,18 +383,19 @@ describe('instant balance loading', () => {
       testRoot!.render(<BalanceConsumer />);
     });
 
-    // Verify: on first render, we get the default zero MIDEN row immediately
+    // Verify: on first render, we get the default zero native row immediately
     // (the native-asset mock above pretends discovery is already complete).
     // This happens BEFORE fetchBalances is called.
     expect(firstRenderData).not.toBeNull();
     expect(firstRenderData.data).toHaveLength(1);
-    expect(firstRenderData.data[0].tokenSlug).toBe('MIDEN');
+    expect(firstRenderData.data[0].tokenSlug).toBe('USDCX');
+    expect(firstRenderData.data[0].metadata.scaleIsUnknown).toBe(true);
     expect(firstRenderData.data[0].balance).toBe(0);
     // isLoading should be true since we haven't fetched yet
     expect(firstRenderData.isLoading).toBe(true);
   });
 
-  it('prices the placeholder row by its faucet, never by the MIDEN symbol (#1131)', async () => {
+  it('prices the placeholder row by its faucet, never by the USDCX symbol (#1131)', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
@@ -408,12 +410,12 @@ describe('instant balance loading', () => {
       testRoot!.render(<BalanceConsumer />);
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 0, change24h: 0 });
+    expect(rows[0]).toMatchObject({ tokenSlug: 'USDCX', fiatPrice: 0, change24h: 0 });
 
     await act(async () => {
-      useWalletStore.setState({ tokenPrices: { MIDEN: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+      useWalletStore.setState({ tokenPrices: { USDCX: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
     });
-    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 0, change24h: 0 });
+    expect(rows[0]).toMatchObject({ tokenSlug: 'USDCX', fiatPrice: 0, change24h: 0 });
   });
 
   it("gives the placeholder row its faucet's quote when that faucet is priced", async () => {
@@ -440,6 +442,48 @@ describe('instant balance loading', () => {
       expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 2, change24h: 0.5 });
     } finally {
       jest.mocked(getNativeAssetIdSync).mockImplementation(() => 'miden-faucet-id');
+    }
+  });
+
+  // A reader with an effect on the rows, such as Send's amount check, re-renders forever on a new array per render.
+  it('keeps one placeholder across renders until the prices or the native metadata change', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
+    let rows: TokenBalanceData[] = [];
+    const BalanceConsumer = ({ pass }: { pass: number }) => {
+      rows = useAllBalances('placeholder-identity-address', {}).data;
+      return <div data-pass={pass} />;
+    };
+
+    useWalletStore.setState({ tokenPrices: {} });
+    await act(async () => {
+      testRoot!.render(<BalanceConsumer pass={1} />);
+    });
+    const first = rows;
+    await act(async () => {
+      testRoot!.render(<BalanceConsumer pass={2} />);
+    });
+    expect(rows).toBe(first);
+
+    await act(async () => {
+      useWalletStore.setState({ tokenPrices: { ETH: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+    });
+    const repriced = rows;
+    expect(repriced).not.toBe(first);
+    expect(repriced).toEqual(first);
+
+    // The chain's own record of the native faucet: only the scale flag differs from the provisional metadata.
+    jest.mocked(getNativeAssetMetadataSync).mockImplementation(() => ({ symbol: 'USDCX', decimals: 6 }));
+    try {
+      await act(async () => {
+        testRoot!.render(<BalanceConsumer pass={3} />);
+      });
+      expect(rows).not.toBe(repriced);
+      expect(rows[0]).toMatchObject({ tokenId: 'miden-faucet-id', balance: 0 });
+      expect(rows[0]!.metadata).toEqual({ ...repriced[0]!.metadata, scaleIsUnknown: false });
+    } finally {
+      jest.mocked(getNativeAssetMetadataSync).mockImplementation(() => null);
     }
   });
 
@@ -706,6 +750,140 @@ describe('the first read for an address (#1123)', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('poll ticks while the Home pager is moving', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      _resetInteractionPriorityForTest();
+    });
+    afterEach(() => {
+      _resetInteractionPriorityForTest();
+      jest.useRealTimers();
+    });
+
+    const mountSettled = async (address: string) => {
+      await mount(address);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fetchBalancesMock().mockClear();
+      // The mount read took a dedupe slot; let the next tick read.
+      useWalletStore.setState({ balancesLastFetched: {} });
+    };
+
+    it('reads on the tick when idle', async () => {
+      await mountSettled('idle-address');
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    });
+
+    it('holds the tick read while an interaction is active, then reads once it ends', async () => {
+      await mountSettled('busy-address');
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads at the cap when the interaction never ends', async () => {
+      await mountSettled('held-address');
+      // The interaction begins just before the tick, so the 1500 ms cap lands after it.
+      await act(async () => {
+        jest.advanceTimersByTime(4_000);
+      });
+      beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips a deferred tick when sync was paused during the wait', async () => {
+      await mountSettled('paused-address');
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+      process.env.MIDEN_E2E_TEST = 'true';
+      try {
+        await act(async () => {
+          end();
+          jest.advanceTimersByTime(50);
+        });
+        expect(fetchBalancesMock()).not.toHaveBeenCalled();
+      } finally {
+        delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+        delete process.env.MIDEN_E2E_TEST;
+      }
+    });
+
+    it('does not read after unmount when the tick was deferred', async () => {
+      await mountSettled('gone-address');
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      testRoot!.unmount();
+      testRoot = null;
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+    });
+
+    it('does not fetch the previous address when the address changes during a deferred tick', async () => {
+      testContainer = document.createElement('div');
+      testRoot = createRoot(testContainer);
+      const Consumer = ({ address }: { address: string }) => {
+        useAllBalances(address, {});
+        return <div />;
+      };
+      await act(async () => {
+        testRoot!.render(<Consumer address="first-address" />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fetchBalancesMock().mockClear();
+      useWalletStore.setState({ balancesLastFetched: {} });
+
+      await act(async () => {
+        jest.advanceTimersByTime(4_000);
+      });
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+
+      await act(async () => {
+        testRoot!.render(<Consumer address="second-address" />);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledWith('second-address', expect.anything(), expect.anything());
+
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalledWith('first-address', expect.anything(), expect.anything());
+    });
   });
 
   it('stays loading when the read is skipped by the fuse', async () => {

@@ -147,7 +147,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
         senderAccountId: 's1',
         nullifier: 'nf1',
         state: 0,
-        assets: [{ faucetId: 'faucet-6dp', amount: '1500000' }]
+        assets: [{ faucetId: 'faucet-6dp', amount: '1500000' }],
+        nonFungibleAssets: []
       }
     ],
     on: jest.fn()
@@ -296,7 +297,8 @@ describe('dApp send approval: spending-limit authorization stays inside the wall
         accountId: 'miden-account-1',
         usdAmount: 1_500_000n,
         revision: 'revision-1'
-      })
+      }),
+      DAPP_ORIGIN
     );
     expect(response).not.toHaveProperty('spendingLimitAuthorization');
     expect(response).not.toHaveProperty('spendingLimitAuthenticated');
@@ -641,7 +643,8 @@ describe('dApp send approval: the note type must resolve before the user is aske
       expect.anything(),
       expect.anything(),
       expect.anything(),
-      undefined
+      undefined,
+      DAPP_ORIGIN
     );
   });
 

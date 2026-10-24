@@ -19,6 +19,7 @@ export const ContactNameInput: React.FC<ContactNameInputProps> = ({ value, onCha
   return (
     <TextField
       label={t('name')}
+      labelSize="md"
       value={value}
       onChange={event => onChange(event.target.value)}
       placeholder={t('contactNamePlaceholder')}

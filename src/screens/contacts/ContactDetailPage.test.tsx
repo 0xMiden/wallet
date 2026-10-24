@@ -2,7 +2,14 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ContactDetailPage, sendToContactPath } from './ContactDetailPage';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 const updateContactMock = jest.fn();
 const removeContactMock = jest.fn();
@@ -46,7 +53,7 @@ jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => b
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/ui/SubPageLayout', () => ({
   SubPageLayout: ({ title, headerActions, onBack, onSubmit, children, footer, ...rest }: any) => (
-    <div data-testid={rest['data-testid']}>
+    <div data-testid={rest['data-testid']} data-body-class={rest.bodyClassName}>
       <button type="button" onClick={onBack} data-testid="page-back" />
       <h1>{title}</h1>
       {headerActions}
@@ -69,11 +76,12 @@ jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
 }));
 jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: () => null,
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);
 jest.mock('@capacitor/clipboard', () => ({
@@ -155,7 +163,7 @@ it('keeps Save disabled on a 0x contact stored without a network until something
 it('renames a contact from edit mode', async () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
-  expect(screen.getByRole('heading')).toHaveTextContent('editContact');
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('editContact');
   expect(screen.getByTestId('contact-save')).toBeDisabled();
   // Was `w-full max-w-none rounded-full text-base font-semibold`.
   expect(screen.getByTestId('contact-save').className).not.toMatch(/rounded-full|text-base|font-semibold/);
@@ -167,6 +175,15 @@ it('renames a contact from edit mode', async () => {
 
   expect(updateContactMock).toHaveBeenCalledWith('0xpaul', { name: 'Paul Graham', network: 'sepolia' });
   expect(screen.getByRole('heading')).toHaveTextContent('Paul G');
+});
+
+it('sets both the detail and the edit view wholly in Nunito, the name labelled with the 16px title', () => {
+  render(<ContactDetailPage address="0xpaul" />);
+  expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-body-class', 'face-heading');
+
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-body-class', 'face-heading');
+  expect(screen.getByText('name')).toHaveClass('text-row-title', 'text-muted');
 });
 
 it('leaves edit mode on back without saving', () => {
@@ -523,4 +540,65 @@ it('releases the row when the user leaves edit mode after a failed save', async 
   });
 
   expect(screen.getByTestId('redirect')).toHaveTextContent('/settings/address-book');
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each([
+    ['save', 'raw_contact_save_failed', true],
+    ['save', 'raw_contact_save_failed', false],
+    ['delete', 'raw_contact_delete_failed', true],
+    ['delete', 'raw_contact_delete_failed', false]
+  ])('reports a rejected %s with closed identity %s (Error object: %s)', async (operation, id, errorObject) => {
+    const text = 'private contact 0xsecret amount 123 https://private.invalid';
+    const failure = errorObject ? new Error(text) : text;
+    (operation === 'save' ? updateContactMock : removeContactMock).mockRejectedValueOnce(failure);
+    confirmMock.mockResolvedValue(true);
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    if (operation === 'save') {
+      fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Private replacement' } });
+    }
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`contact-${operation}`));
+    });
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(backMock).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels reporting when a failed edit is acknowledged before dwell', async () => {
+    updateContactMock.mockRejectedValueOnce(new Error('private failure'));
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Changed' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-save'));
+    });
+    expect(screen.getByText('private failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByTestId('page-back'));
+    expect(screen.queryByText('private failure')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report a cancelled delete or the persisted contact details', async () => {
+    confirmMock.mockResolvedValue(false);
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-delete'));
+    });
+    act(() => jest.advanceTimersByTime(2000));
+    expect(removeContactMock).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

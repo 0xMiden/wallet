@@ -8,6 +8,7 @@ import { IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { IconButton } from 'components/ui/IconButton';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
@@ -157,6 +158,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ onSu
 
   const passwordsMatch = isValidPassword && password === verifyPassword;
   const passwordsDiffer = verifyPassword.length >= password.length && password !== verifyPassword;
+  useUserVisibleError(passwordsDiffer ? 'passwordsDoNotMatch' : null, 'inline');
 
   return (
     <OnboardingStepLayout

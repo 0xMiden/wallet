@@ -10,6 +10,9 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { Receive } from './Receive';
@@ -82,7 +85,9 @@ jest.mock('app/icons/v2', () => ({
 
 let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getTestNetworkNameKey: () => mockNetworkKey
+  getTestNetworkNameKey: () => mockNetworkKey,
+  // The network the USDCx route reads: on testnet that route keeps Cross Chain open on its own.
+  getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet'
 }));
 
 jest.mock('app/templates/EvmConnectModal', () => ({
@@ -160,15 +165,56 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 const mockIsMobile = jest.fn(() => false);
+const mockIsExtension = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
-  isExtension: () => false
+  isExtension: () => mockIsExtension()
 }));
 
-jest.mock('lib/feature-flags', () => ({
-  ...jest.requireActual('lib/feature-flags'),
-  isBridgeDepositEnabled: () => true
+let mockUsdcxDepositAvailable = false;
+let mockCrossChain: FeatureAvailability = { state: 'available' };
+const mockAnyFeatureAvailability = jest.fn(
+  (
+    features: readonly string[],
+    _options?: { hold?: boolean | ((availability: FeatureAvailability) => boolean) }
+  ): FeatureAvailability =>
+    (mockLastFeatureAvailability =
+      features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
+        ? mockUsdcxDepositAvailable
+          ? { state: 'available' }
+          : mockCrossChain
+        : { state: 'loading' })
+);
+let mockLastFeatureAvailability: FeatureAvailability = { state: 'available' };
+// The accepted document, null for none. Receive reads only whether there is one.
+const ACCEPTED_DOCUMENT: BridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: false, nearIntents: false }
+};
+let mockBridgeConfig: BridgeConfig | null = ACCEPTED_DOCUMENT;
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useAnyFeatureAvailability: (
+    features: readonly string[],
+    options?: { hold?: boolean | ((availability: FeatureAvailability) => boolean) }
+  ) => mockAnyFeatureAvailability(features, options),
+  useBridgeConfigSnapshot: (): BridgeConfigSnapshot => ({
+    network: 'testnet',
+    status: 'ready',
+    config: mockBridgeConfig,
+    derived: null,
+    lastFetch: null
+  })
 }));
+
+const expectBridgeInHold = (expected: boolean) => {
+  const call = mockAnyFeatureAvailability.mock.calls[mockAnyFeatureAvailability.mock.calls.length - 1];
+  const hold = call?.[1]?.hold;
+  expect(hold).toEqual(expect.any(Function));
+  if (typeof hold === 'function') expect(hold(mockLastFeatureAvailability)).toBe(expected);
+};
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -196,6 +242,7 @@ jest.mock('utils/string', () => ({
 // checks the carousel case sets this to another page for itself.
 beforeEach(() => {
   mockPathname = '/receive';
+  mockIsExtension.mockReturnValue(false);
 });
 
 describe('Receive - Address', () => {
@@ -212,6 +259,9 @@ describe('Receive - Address', () => {
 
   beforeEach(() => {
     mockReduceMotion = false;
+    mockCrossChain = { state: 'available' };
+    mockBridgeConfig = ACCEPTED_DOCUMENT;
+    mockUsdcxDepositAvailable = false;
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
@@ -317,6 +367,16 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-actions"]')!.nextElementSibling).toBe(warning);
   });
 
+  it('opens the bridge page directly when Cross-chain is tapped without an EVM connection', async () => {
+    const container = await renderReceive();
+    const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+    jest.mocked(navigate).mockClear();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!.click();
+    });
+    expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
+  });
+
   it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {
     const container = await renderReceive();
 
@@ -343,6 +403,90 @@ describe('Receive - Address', () => {
       fireEvent.click(crossChain);
     });
     expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  // A configured USDCx route keeps the tile open when the other routes are unavailable.
+  it('keeps Cross Chain enabled on testnet while the Fast and Slow routes cannot start', async () => {
+    mockUsdcxDepositAvailable = true;
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeEnabled();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
+      hold: expect.any(Function)
+    });
+    expectBridgeInHold(true);
+  });
+
+  // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
+  it('greys out Cross Chain under the notice while neither bridge-in route can start', async () => {
+    mockNetworkKey = 'devnet';
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
+    expect(crossChain).toBeDisabled();
+    expect(crossChain).toHaveClass('disabled:opacity-50');
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
+      'bridgeFeatureUnavailableBody'
+    );
+    expectBridgeInHold(true);
+    await act(async () => {
+      fireEvent.click(crossChain);
+    });
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  // Mainnet's document configures no bridge-in route: no tile at all, rather than a greyed one blaming a service.
+  it('draws no Cross Chain and no notice on a network that configures no bridge-in route', async () => {
+    mockNetworkKey = null;
+    mockBridgeConfig = { ...ACCEPTED_DOCUMENT, network: 'mainnet' };
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no listed route' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeNull();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
+    expect(container.querySelector('[data-testid="receive-share"]')).not.toBeNull();
+    expectBridgeInHold(false);
+  });
+
+  // With no accepted document nothing says what the network configures: a config outage keeps the greyed tile.
+  it.each<[string, 'testnet' | null]>([
+    ['testnet', 'testnet'],
+    ['mainnet', null]
+  ])('greys out Cross Chain under the notice on %s when no document has been accepted', async (_network, key) => {
+    mockNetworkKey = key;
+    mockBridgeConfig = null;
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no accepted document' };
+    const container = await renderReceive();
+
+    const crossChain = container.querySelector('[data-testid="receive-cross-chain"]');
+    expect(crossChain).not.toBeNull();
+    expect(crossChain).toBeDisabled();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
+      'bridgeFeatureUnavailableBody'
+    );
+    expectBridgeInHold(true);
+  });
+
+  // Every platform draws Cross Chain, the extension included (its relay socket closed only because
+  // the page's placeholder Buffer broke the relay token), so each one holds the fast poll.
+  it.each([
+    ['off the extension', false],
+    ['on the extension', true]
+  ])('draws Cross Chain and asks for the fast-poll hold: %s', async (_where, extension) => {
+    mockIsExtension.mockReturnValue(extension);
+    mockNetworkKey = 'devnet';
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
+    // The hold applies on every platform.
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
+      hold: expect.any(Function)
+    });
+    expectBridgeInHold(true);
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {
@@ -414,12 +558,13 @@ describe('Receive - Address', () => {
   });
 
   it('leaves the horizontal swipe to the home carousel', async () => {
-    // A pane that can pan sideways takes the carousel's drag before HomeSwipeContainer sees it.
+    // The pager is a native scroller: a body that allowed only `pan-y` would swallow the sideways
+    // pan, and one that scrolled sideways itself would take it.
     const container = await renderReceive();
 
     const page = container.querySelector<HTMLElement>('[data-testid="receive-page"]')!;
-    expect(page.style.touchAction).toBe('pan-y');
-    expect(page).toHaveClass('overflow-x-hidden');
+    expect(page.style.touchAction).toBe('pan-x pan-y');
+    expect(page).toHaveClass('overflow-x-hidden', 'overscroll-y-contain');
   });
 
   describe('the receive green', () => {
@@ -455,11 +600,11 @@ describe('Receive - Address', () => {
       );
     });
 
-    it('names the network with the shared NetworkChip, in the same tint as send and contacts', async () => {
+    it('names the network with the shared NetworkChip, in the same neutral style as send and contacts', async () => {
       const container = await renderReceive();
 
       const chip = container.querySelector('[data-testid="receive-network"]')!;
-      expect(chip).toHaveClass('bg-network-miden-tint', 'text-network-miden-text');
+      expect(chip).toHaveClass('bg-fill', 'text-ink', 'rounded-xl');
       expect(chip.querySelector('[data-testid="miden-logo"]')).not.toBeNull();
     });
   });
@@ -856,12 +1001,13 @@ describe('Receive - Address', () => {
       }
     });
 
-    it('names the source network of the cross-chain route', async () => {
+    // The source chains come from the remote config and differ per network, so the tile names none.
+    it('names no source network on the cross-chain tile', async () => {
       const container = await renderReceive();
 
-      expect(container.querySelector('[data-testid="receive-cross-chain"]')?.textContent).toContain(
-        'crossChainFromNetwork:ethereumSepolia:'
-      );
+      const tile = container.querySelector('[data-testid="receive-cross-chain"]');
+      expect(tile?.textContent).toContain('crossChain');
+      expect(tile?.textContent).not.toContain('crossChainFromNetwork');
     });
   });
 });

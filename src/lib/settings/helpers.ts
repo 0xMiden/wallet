@@ -1,3 +1,4 @@
+import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
@@ -130,9 +131,8 @@ const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
  *
  * Firefox 140+ asks the user whether the extension may collect
  * `technicalAndInteraction` data — at install time, and again in `about:addons`
- * → Permissions and data. That is a second consent sitting beside "Share usage
- * data", and two consents that can disagree is a defect, so both have to say
- * yes before anything is sent.
+ * → Permissions and data. Its answer applies to both usage data and crash
+ * reports, independently of the wallet's "Share usage data" setting.
  *
  * **How "this browser has no such concept" is told apart from "this browser
  * said no".** This is the whole difficulty, and getting it backwards fails
@@ -149,7 +149,7 @@ const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
  *
  * - **Key absent** — the browser does not implement data-collection consent at
  *   all (Chrome, any Firefox below 140). There is no browser-level answer to
- *   honour, so this gate abstains and the wallet's own setting decides.
+ *   honour, so this gate abstains.
  * - **Key present** — the browser implements it and its answer is
  *   authoritative. Granted only if the array actually names our data type. An
  *   empty array is a refusal, not an absence, and that is the distinction the
@@ -161,8 +161,8 @@ const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
  * granted.
  *
  * Off-extension (mobile, desktop) there is no extension permission model to
- * consult, so this abstains rather than failing closed. Abstaining is not
- * failing open: the caller still requires the wallet's own setting to be on.
+ * consult, so this abstains rather than failing closed. Usage data separately
+ * requires the wallet's own setting to be on.
  */
 async function isDataCollectionPermitted(): Promise<boolean> {
   if (!isExtension()) return true;
@@ -183,11 +183,9 @@ async function isDataCollectionPermitted(): Promise<boolean> {
 }
 
 /**
- * Service-worker-safe read of the telemetry consent toggle. The background is
- * the single consent gate for every send, so this is the authoritative read,
- * and it is the one place the browser-level permission is ANDed in — both
- * egress points (`lib/telemetry/sink` and `lib/telemetry/crash`) call this, so
- * there is one gate to audit rather than a discipline applied twice.
+ * Service-worker-safe read of the usage-data consent toggle. The background
+ * sink uses this authoritative read to require both the wallet's setting and
+ * the browser-level permission before sending usage data.
  *
  * Defaults to OFF on read-miss — unlike auto-consume, a missing mirror here
  * must fail closed.
@@ -201,9 +199,17 @@ export async function isTelemetryEnabledAsync(): Promise<boolean> {
 }
 
 /**
+ * Crash reports are independent of the usage-data choice, but Firefox's optional
+ * data-collection permission still applies, so only the browser's answer gates them.
+ */
+export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isDataCollectionPermitted();
+}
+
+/**
  * Whether the user has ever answered the telemetry prompt. Absence of the key
  * means "never asked", which is what drives the first-launch step — and which
- * still sends nothing, since `isTelemetryEnabled()` reads false.
+ * still sends no usage data, since `isTelemetryEnabled()` reads false.
  */
 export function hasTelemetryChoice(): boolean {
   return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
@@ -286,8 +292,32 @@ export function sameGuardianEndpoint(a: string, b: string): boolean {
   return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
 }
 
-/** The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. */
+/**
+ * The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. A
+ * renamed built-in host (`RENAMED_GUARDIAN_ENDPOINTS`) canonicalizes to its current name, so both names are one
+ * endpoint.
+ */
 export function canonicalGuardianEndpoint(raw: string): string {
+  const spelling = canonicalSpelling(raw);
+  const renamed = renamedEndpointsByCanonicalSpelling().get(spelling);
+  return renamed ?? spelling;
+}
+
+let renamedByCanonicalSpelling: Map<string, string> | undefined;
+
+function renamedEndpointsByCanonicalSpelling(): Map<string, string> {
+  if (!renamedByCanonicalSpelling) {
+    renamedByCanonicalSpelling = new Map(
+      [...RENAMED_GUARDIAN_ENDPOINTS].map(([oldName, newName]) => [
+        canonicalSpelling(oldName),
+        canonicalSpelling(newName)
+      ])
+    );
+  }
+  return renamedByCanonicalSpelling;
+}
+
+function canonicalSpelling(raw: string): string {
   const trimmed = sanitizeGuardianUrl(raw);
   try {
     const url = new URL(trimmed);

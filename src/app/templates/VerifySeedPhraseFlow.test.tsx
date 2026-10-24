@@ -6,8 +6,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
@@ -92,30 +95,47 @@ jest.mock('components/PageHeader', () => ({
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock it so we can drive its onChange/onSubmit callbacks.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div>
-      <span data-testid="passcode-error">{error ?? ''}</span>
-      <span data-testid="passcode-submitting">{String(!!isSubmitting)}</span>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div>
+        <span data-testid="passcode-error">{error ?? ''}</span>
+        <span data-testid="passcode-submitting">{String(!!isSubmitting)}</span>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
@@ -138,6 +158,7 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
+  hapticError: jest.fn(),
   hapticLight: () => mockHapticLight(),
   hapticMedium: () => mockHapticMedium()
 }));
@@ -197,6 +218,7 @@ describe('VerifySeedPhraseFlow', () => {
   });
 
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -444,6 +466,7 @@ describe('VerifySeedPhraseFlow', () => {
     clickText('continue');
     const auth = screen.getByTestId('verify-seed-auth');
     expect(auth.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+    expect(screen.getByRole('heading', { name: 'enterPassword' })).toHaveClass('text-row-title');
     expect(screen.getByLabelText('password')).toHaveAttribute('id', 'verify-seed-phrase-password');
 
     fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
@@ -454,6 +477,14 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByTestId('seed-word-0').closest('.bg-fill')).not.toBeNull();
     expect(screen.getByTestId('verify-seed-copy')).toHaveClass('rounded-full');
     expect(review.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+  });
+
+  it('labels the mobile passcode step with the 16px section title (#1279)', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    clickText('continue');
+
+    expect(screen.getByRole('heading', { name: 'enterYourPasscode' })).toHaveClass('text-row-title');
   });
 
   it('exits from the warning header back button', async () => {
@@ -537,6 +568,10 @@ describe('VerifySeedPhraseFlow', () => {
 
     // The catch waits 300ms before setError; waitFor polls until it lands.
     await waitFor(() => expect(screen.getByTestId('verify-seed-password-error')).toHaveTextContent('bad password'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_verification_reveal_failed', 'field');
     // The shared TextField marks the field itself invalid, not just the caption.
     expect(input).toHaveAttribute('aria-invalid', 'true');
     // Still on the auth step; no review words rendered.
@@ -813,6 +848,10 @@ describe('VerifySeedPhraseFlow', () => {
 
     // Stays on warning with the error alert populated.
     expect(screen.getByRole('alert')).toHaveTextContent('device locked');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_verification_reveal_failed', 'notice');
     expect(screen.getByText('viewThisInPrivatePlace')).toBeTruthy();
   });
 
@@ -883,6 +922,7 @@ describe('VerifySeedPhraseFlow', () => {
   });
 
   it('clears the passcode error via the numpad onChange', async () => {
+    mockRenderActualPasscode = true;
     mockIsMobile = true;
     mockRevealMnemonic.mockRejectedValue(new Error('nope'));
     await renderFlow();
@@ -891,6 +931,10 @@ describe('VerifySeedPhraseFlow', () => {
     // Trigger a failed submit so a form error is registered, then clear it.
     fireEvent.click(screen.getByTestId('passcode-submit'));
     await waitFor(() => expect(screen.getByTestId('passcode-error')).toHaveTextContent('nope'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_verification_reveal_failed', 'passcode');
 
     fireEvent.click(screen.getByTestId('passcode-change'));
     await flush();
@@ -929,6 +973,30 @@ describe('seed removal', () => {
   // The sibling of RevealSeedPhrase's notice, carrying the identical mapping and
   // previously untested here. Spelled out as a literal table rather than read
   // from the production map, which would make the assertion tautological.
+  it('reports a seed removal failure after its inline error is shown', async () => {
+    mockSeedState.seedPhraseStatus = 'stored';
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    mockRemoveSeedPhrase.mockRejectedValueOnce(new Error('private removal failure'));
+    render(<VerifySeedPhraseFlow remove />);
+    await waitFor(() => expect(screen.getByText('continue')).not.toBeDisabled());
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('removeSeedPhraseWriteDown');
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByTestId('quiz-submit');
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('removeSeedPhraseConfirmation');
+    fireEvent.click(screen.getByText('removeSeedPhraseConfirm'));
+    await screen.findByText('private removal failure');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_remove_failed', 'inline');
+  });
+
   it.each<[Exclude<SeedPhraseStatus, 'stored'>, string]>([
     ['removing', 'seedRemovalIncomplete'],
     ['removed', 'seedPhraseRemoved'],

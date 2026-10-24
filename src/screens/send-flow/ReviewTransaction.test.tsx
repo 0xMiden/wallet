@@ -2,16 +2,29 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { deserializeError, serializeError } from 'lib/intercom/helpers';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
+import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -19,6 +32,23 @@ import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, settleSendFlow } from './send-telemetry';
+
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // ---------------------------------------------------------------------------
 // Mutable per-test state read by the hook mocks. All prefixed with `mock` so
@@ -30,14 +60,34 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
+let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string } = {
   amount: undefined,
   loading: false,
-  error: null
+  error: null,
+  symbol: 'USDC'
 };
+let mockEpochQuoteArgs: { amount?: bigint } = {};
+let mockBurnMinimum = 5_000_000n;
+let mockUseRealBurnMinimum = false;
+// The native asset's chain metadata; null until a test discovers one, as before discovery.
+let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+jest.mock('lib/usdcx/burn', () => ({
+  initiateUsdcxBurn: jest.fn(async () => 'burn-tx'),
+  readUsdcxMinimumBurn: jest.fn()
+}));
+jest.mock('lib/usdcx/use-burn-minimum', () => ({
+  useBurnMinimum: (enabled: boolean) => {
+    const useMinimum = mockUseRealBurnMinimum
+      ? jest.requireActual<typeof import('lib/usdcx/use-burn-minimum')>('lib/usdcx/use-burn-minimum').useBurnMinimum
+      : () => mockBurnMinimum;
+    return useMinimum(enabled);
+  }
+}));
 
 const mockWalletStoreState = {
-  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number; observedAt?: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -61,14 +111,31 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+let mockBridgeAvailability: FeatureAvailability = { state: 'available' };
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/use-feature-availability')>(
+    'lib/remote-config/use-feature-availability'
+  ),
+  useFeatureAvailability: jest.fn(() => mockBridgeAvailability)
+}));
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => 'https://rpc.review.example',
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
-// The fiat lines under test follow the default rule, no figure without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
-jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const getBlockHeaderByNumber = jest.fn();
@@ -85,7 +152,23 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 });
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    // The recall note names its amount, a fee label its fee asset, a USDCx payout line its amount and network,
+    // and the Advanced options summary its transfer type and expiration; every other key reads as itself.
+    t: (
+      key: string,
+      params?: { amount?: string; symbol?: string; network?: string; transferType?: string; expiration?: string }
+    ) =>
+      key === 'recallReturnsNote' && params?.amount
+        ? `${key} ${params.amount}`
+        : key === 'advancedOptionsSummary'
+          ? `${params?.transferType} · ${params?.expiration}`
+          : params?.symbol !== undefined
+            ? `${key}|${params.symbol}`
+            : params?.amount !== undefined
+              ? [key, params.amount, params.network].filter(part => part !== undefined).join('|')
+              : key
+  })
 }));
 
 jest.mock('app/env', () => ({
@@ -93,11 +176,14 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('./SendStepLayout', () => ({
-  SendStepLayout: ({ title, onBack, children, footer }: any) => (
+  SendStepLayout: ({ title, onBack, onClose, children, footer }: any) => (
     <div data-testid="review-layout">
       <h1>{title}</h1>
       <button data-testid="back-btn" aria-label="back" onClick={onBack}>
         back
+      </button>
+      <button data-testid="close-btn" aria-label="close" onClick={onClose}>
+        close
       </button>
       <div data-testid="hero">{children}</div>
       <div data-testid="footer">{footer}</div>
@@ -144,22 +230,85 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   }
 }));
 
+// The public notice slides in and out on the `reveal` preset; the tests read the DOM, not the
+// motion, and a real exit animation would keep a dismissed notice mounted past the assertion.
+jest.mock('framer-motion', () => {
+  const React = jest.requireActual('react');
+  return {
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    motion: {
+      div: React.forwardRef(
+        ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLDivElement>) => (
+          <div ref={ref} {...props} />
+        )
+      )
+    },
+    useReducedMotion: () => false
+  };
+});
+
 jest.mock('components/ui/DetailCard', () => ({
   DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
-  DetailRow: ({ label, children, action, sub }: any) => (
-    <div data-testid="review-row">
+  DetailRow: ({
+    label,
+    children,
+    action,
+    sub,
+    onClick,
+    disabled,
+    'aria-haspopup': hasPopup,
+    'data-testid': testId
+  }: any) => (
+    <div data-testid={testId ?? 'review-row'}>
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
-        <button data-testid="row-edit" onClick={action.onClick}>
+        <button
+          data-testid={action['data-testid']}
+          aria-haspopup={action['aria-haspopup']}
+          disabled={action.disabled}
+          onClick={action.onClick}
+        >
           {action.label}
+        </button>
+      )}
+      {onClick && (
+        <button data-testid="row-open" aria-haspopup={hasPopup} disabled={disabled} onClick={onClick}>
+          open
         </button>
       )}
       {sub !== undefined && <span data-testid="row-note">{sub}</span>}
     </div>
+  ),
+  // Like the real one, the rows inside render only while open and the summary only while closed.
+  DetailDisclosure: ({ title, summary, summaryEmphasis, open, onOpenChange, children, 'data-testid': testId }: any) => (
+    <div data-testid={testId} data-open={String(open)} data-emphasis={String(Boolean(summaryEmphasis))}>
+      <button data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
+        {title}
+      </button>
+      {!open && summary && <span data-testid={`${testId}-summary`}>{summary}</span>}
+      {open && children}
+    </div>
   )
 }));
-jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
+jest.mock('./TransferTypeDrawer', () => ({
+  TransferTypeDrawer: (props: any) => (
+    <div data-testid="transfer-type-drawer" data-open={String(props.open)} data-value={props.value}>
+      <button data-testid="transfer-type-pick-public" onClick={() => props.onChange('public')}>
+        public
+      </button>
+      <button data-testid="transfer-type-pick-private" onClick={() => props.onChange('private')}>
+        private
+      </button>
+      <button data-testid="transfer-type-close" onClick={() => props.onOpenChange(false)}>
+        close
+      </button>
+    </div>
+  )
+}));
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ faucetId }: { faucetId?: string }) => <span data-testid="token-logo" data-faucet-id={faucetId} />
+}));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
@@ -173,22 +322,33 @@ jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
 }));
 
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
+}));
+
+jest.mock('lib/agglayer/allowed-faucets', () => ({
+  isAgglayerFaucetAllowed: jest.fn()
+}));
+
 jest.mock('lib/agglayer/b2agg', () => ({
   initiateB2AggBridge: jest.fn()
 }));
 
-jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111
-}));
-
 jest.mock('lib/epoch', () => ({
-  bridgeEpochSend: jest.fn(),
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC'
+  EPOCH_DESTINATION_CHAIN_ID: 11155111,
+  bridgeEpochSend: jest.fn()
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
   toAdaptiveFixed: (v: number) => v.toFixed(2),
-  stringToBigInt: jest.fn()
+  stringToBigInt: jest.fn(),
+  // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
+  // return, so the guard has to call the real helper.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -206,25 +366,40 @@ jest.mock('lib/miden/front/client', () => ({
   useMidenContext: () => ({ signTransaction: jest.fn() })
 }));
 
+// Distinct, so an assertion on it fails for any other provider.
 jest.mock('lib/miden/front/guardian-sync', () => ({
-  zustandProvider: {}
-}));
-
-jest.mock('lib/miden/types', () => ({
-  NoteTypeEnum: { Public: 'public', Private: 'private' }
+  zustandProvider: { provider: 'zustand' }
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a === b
 }));
 
+// USDCx is the chain's native asset, so the faucet the review accepts is the discovered one.
+const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => 'mtst1usdcxnative',
+  getNativeAssetMetadataSync: () => mockNativeMetadata
+}));
+
 jest.mock('lib/miden-chain/constants', () => ({
+  // The real network names and default: the network banner's pill pulls in the icon set, which reads
+  // both at import.
+  ...jest.requireActual('lib/miden-chain/constants'),
   ensureSdkWasmReady: jest.fn(),
   getRpcEndpoint: jest.fn(() => 'https://rpc.example')
 }));
 
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn()
+}));
 jest.mock('lib/platform', () => ({
-  isExtension: jest.fn(() => false)
+  isExtension: jest.fn(() => false),
+  isMobile: () => false,
+  isDesktop: () => false,
+  isIOS: () => false,
+  isAndroid: () => false
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -260,7 +435,20 @@ jest.mock('./RecallCalendarDrawer', () => ({
   SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
   RecallCalendarDrawer: (props: any) => (
-    <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime} />
+    <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime}>
+      <button data-testid="recall-pick-never" onClick={() => props.onRecallNever()}>
+        recall-never
+      </button>
+      <button data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
+        recall-blocks
+      </button>
+      <button data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('changed-time')}>
+        recall-time
+      </button>
+      <button data-testid="recall-pick-date" onClick={() => props.onRecallDateChange(new Date(0))}>
+        recall-date
+      </button>
+    </div>
   )
 }));
 
@@ -276,7 +464,10 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => mockEpochQuote
+  useEpochQuote: (args: { amount?: bigint }) => {
+    mockEpochQuoteArgs = args;
+    return mockEpochQuote;
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -307,6 +498,11 @@ const flush = async () => {
   });
 };
 
+/** Advanced options is collapsed by default; the expiration and transfer-type rows live under it. */
+const openAdvancedOptions = async () => {
+  fireEvent.click(screen.getByTestId('review-advanced-options-toggle'));
+  await flush();
+};
 function deferred<T = unknown>() {
   let resolve!: (v?: T) => void;
   let reject!: (e?: unknown) => void;
@@ -350,7 +546,12 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  mockBridgeAvailability = { state: 'available' };
   jest.resetAllMocks();
+  jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
+  mockBurnMinimum = 5_000_000n;
+  jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
   mockAuthorizationAccountOverride = undefined;
 
   // Base implementations (resetAllMocks wipes impls).
@@ -358,6 +559,7 @@ beforeEach(() => {
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
   initiateB2AggBridgeMock.mockResolvedValue('tx-bridge');
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
   bridgeEpochSendMock.mockResolvedValue({ txId: 'tx-epoch' });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
@@ -381,7 +583,9 @@ beforeEach(() => {
   mockBalanceData = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
-  mockEpochQuote = { amount: undefined, loading: false, error: null };
+  mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
+  mockEpochQuoteArgs = {};
+  mockNativeMetadata = null;
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -394,6 +598,132 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Deep-link redirect guards
 // ---------------------------------------------------------------------------
+describe('USDCx burn review', () => {
+  beforeEach(() => {
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
+    mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+  });
+
+  it('submits the exact base-unit burn and shows Circle fee and the least payout', async () => {
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
+    // The review now shows the payout Circle's fee leaves, where it used to show no payout figure at all.
+    expect(screen.getByText('usdcxPayoutFeeUpTo|0.1')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutAtLeast|4.900001')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateUsdcxBurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 5_000_001n,
+          faucetId: USDCX_FAUCET_ID_BECH32,
+          destinationChainId: 5042002,
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        })
+      )
+    );
+    expect(bridgeEpochSend).not.toHaveBeenCalled();
+    expect(initiateB2AggBridge).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sepolia', 11155111],
+    ['base-sepolia', 84532],
+    ['arbitrum-sepolia', 421614]
+  ])('accepts a USDCx deep link targeting %s', async (network, chainId) => {
+    mockSearch = mockSearch.replace('network=arc-testnet', `network=${network}`);
+    render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateUsdcxBurn).toHaveBeenCalledWith(expect.objectContaining({ destinationChainId: chainId }))
+    );
+  });
+
+  it('rejects a USDCx deep link targeting a network that is not a destination', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=mainnet');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+
+  it('disables submission below the minimum burn, naming it', async () => {
+    mockBurnMinimum = 5_000_000n;
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=4.999999');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('5 USDCx')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxBelowMinimumBurn|5');
+  });
+
+  it('accepts a burn at the minimum', async () => {
+    mockBurnMinimum = 5_000_000n;
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=5');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('rejects precision that would otherwise silently round', async () => {
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=5.0000001');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByText('usdcxInvalidAmount')).toBeInTheDocument();
+  });
+
+  it('marks the withdrawal notice for the e2e harness', async () => {
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
+  });
+
+  it('names the native fee asset in the burn fee row, never MIDEN', async () => {
+    mockNativeMetadata = { symbol: 'USDCx', decimals: 6 };
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxSponsorshipFee|USDCx')).toBeInTheDocument();
+  });
+
+  it('rejects a deep link trying to burn a different faucet', async () => {
+    mockBalanceData = [VALID_TOKEN];
+    mockSearch = mockSearch.replace(USDCX_FAUCET_ID_BECH32, 'tok1');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect')).toBeInTheDocument();
+    expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+
+  it('names the allowance and the network a refused burn carries', async () => {
+    jest
+      .mocked(initiateUsdcxBurn)
+      .mockRejectedValueOnce(
+        new UsdcxBurnError('usdcxSendMoreThanPayoutFee', { amount: '0.1', network: 'Arc Testnet' })
+      );
+    render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|0.1|Arc Testnet')
+    );
+  });
+
+  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+  it('shows the Sepolia fee allowance and the payout it leaves', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=5.000001', 'amount=10');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutFeeUpTo|1.5')).toBeInTheDocument();
+    expect(screen.getByText('youReceive')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutAtLeast|8.5')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+});
+
 describe('ReviewTransaction — redirect guards', () => {
   it('redirects to /send when required params are missing', async () => {
     mockSearch = ''; // no tokenId, empty amount, empty to
@@ -442,6 +772,32 @@ describe('ReviewTransaction — redirect guards', () => {
     await flush();
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
+
+  it('redirects when a typed base unit exceeds an 18-decimal token balance', async () => {
+    mockSearch = 'amount=1.000000000000000001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 1, metadata: { ...VALID_TOKEN.metadata, decimals: 18 } }];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
+  // Epoch and Agglayer settle on Sepolia alone; the send flow clears a non-USDCx token on these chains, and this is the
+  // backstop for a link that skips the flow.
+  it.each([
+    ['arc-testnet', 'epoch'],
+    ['base-sepolia', 'epoch'],
+    ['arbitrum-sepolia', 'epoch'],
+    ['arc-testnet', 'agglayer'],
+    ['base-sepolia', 'agglayer'],
+    ['arbitrum-sepolia', 'agglayer']
+  ])('redirects a bridge link to %s on the %s route', async (network, route) => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = `amount=5&to=0xrecipient&tokenId=tok1&network=${network}&route=${route}`;
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -460,17 +816,19 @@ describe('ReviewTransaction — rendering', () => {
   });
 
   it('values a swap token at the asset it stands for', async () => {
-    mockSearch = `amount=5&to=0xrecipient&tokenId=${TOKEN_IETH.faucetId}`;
+    // The document lists IETH, which testnet names Test iETH.
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockSearch = `amount=5&to=0xrecipient&tokenId=${TEST_TOKEN_IETH.faucetId}`;
     mockBalanceData = [
-      { tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
+      { tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
     ];
-    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3, observedAt: Date.now() } };
     try {
       render(<ReviewTransaction />);
       await flush();
 
       const hero = within(screen.getByTestId('review-amount'));
-      expect(hero.getByText('5 IETH')).toBeInTheDocument();
+      expect(hero.getByText('5 Test iETH')).toBeInTheDocument();
       expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     } finally {
       mockWalletStoreState.tokenPrices = { USDC: { price: 2 } };
@@ -478,7 +836,7 @@ describe('ReviewTransaction — rendering', () => {
   });
 
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
-    setValidRoute(MIDEN_USDC_FAUCET);
+    setValidRoute();
     render(<ReviewTransaction />);
     await flush();
 
@@ -487,12 +845,11 @@ describe('ReviewTransaction — rendering', () => {
     // The network is a plain value with its mark, not a chip; the fee has no inline note.
     expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
     expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
-    // Both the amount and its fiat subtitle live inside the review-amount hero —
-    // scoping to it is what proves they render together, not just somewhere on the page.
+    // The amount is inside the hero; the unquoted asset has no inferred fiat value.
     const hero = within(screen.getByTestId('review-amount'));
     expect(hero.getByText('5 MDN')).toBeInTheDocument();
-    // The fiat subtitle renders under the hero value once the token's price is known.
-    expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', VALID_TOKEN.tokenId);
+    expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
@@ -500,9 +857,15 @@ describe('ReviewTransaction — rendering', () => {
     // label + reclaim note both present.
     // The reclaim reassurance is one caption under the card, not a note in the expiration row.
     await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
-    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote');
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 MDN');
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    // Advanced options starts closed, its summary naming the default transfer type and the window.
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toMatch(/^private · In .+/);
+    expect(screen.queryByTestId('review-row-expiration')).not.toBeInTheDocument();
+    await openAdvancedOptions();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
+    expect(screen.getByTestId('row-open')).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
     expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date));
   });
@@ -531,15 +894,30 @@ describe('ReviewTransaction — rendering', () => {
 
     fireEvent.click(screen.getByTestId('back-btn'));
     expect(goBackMock).toHaveBeenCalledTimes(1);
+    // Back keeps the draft, so the form reopens with what was entered.
+    expect(clearSendDraftMock).not.toHaveBeenCalled();
   });
 
-  it('opens the recall calendar drawer via the expiration Edit link', async () => {
+  it('abandons the send from the header X: clears the draft, then goes home', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('close-btn'));
+    expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/');
+    expect(clearSendDraftMock.mock.invocationCallOrder[0]).toBeLessThan(navigateMock.mock.invocationCallOrder[0]!);
+  });
+
+  it('opens the recall calendar drawer via the expiration Edit pill', async () => {
     setValidRoute();
     render(<ReviewTransaction />);
     await flush();
 
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('false');
-    fireEvent.click(screen.getByTestId('row-edit'));
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-expiration-edit')).toHaveAttribute('aria-haspopup', 'dialog');
+    fireEvent.click(screen.getByTestId('review-expiration-edit'));
     await flush();
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('true');
   });
@@ -555,6 +933,8 @@ describe('ReviewTransaction — rendering', () => {
     const { unmount } = render(<ReviewTransaction />);
     await flush();
 
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toBe(`private · ${expectedLabel}`);
+    await openAdvancedOptions();
     expect(screen.getByText(expectedLabel)).toBeInTheDocument();
     unmount();
   });
@@ -567,6 +947,7 @@ describe('ReviewTransaction — rendering', () => {
     setValidRoute();
     const { unmount } = render(<ReviewTransaction />);
     await flush();
+    await openAdvancedOptions();
 
     expect(screen.queryByText('none')).not.toBeInTheDocument();
     expect(screen.getByText('expiresInSeconds')).toBeInTheDocument();
@@ -583,13 +964,17 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    // A bridge has neither a transfer type nor an expiration, so nothing to fold away.
+    expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transfer-type-drawer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
   });
 
   it('renders the fast bridge route loading state from the Epoch quote', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', loading: true, error: null };
+    mockEpochQuote = { amount: '4.8', loading: true, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -603,18 +988,31 @@ describe('ReviewTransaction — rendering', () => {
   // What arrives is the quote at most, so "you receive" rounds it down.
   it('rounds the Fast route quote down in "you receive", never up', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '10.655599', loading: false, error: null };
+    mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
+    expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
+  });
+
+  it('uses the configured testnet label for the output token in "you receive"', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'USDC.e' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 2 Test Epoch USDC')).toBeInTheDocument();
   });
 
   // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.
-  it('shows the Slow route "you receive" as typed, without its trailing zero', async () => {
+  // Agglayer carries the bridgeable token 1:1, so the line names the sent token, never the Fast route's USDC.
+  it('shows the Slow route "you receive" as typed, in the sent token, without its trailing zero', async () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=12.3450&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
     mockBalanceData = [VALID_TOKEN];
@@ -622,7 +1020,102 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByText('≈ 12.345 USDC')).toBeInTheDocument();
+    expect(screen.getByText('≈ 12.345 MDN')).toBeInTheDocument();
+    expect(screen.queryByText(/12\.345 (USDC|Test Epoch USDC)/)).not.toBeInTheDocument();
+  });
+
+  describe('testnet bridge USDC label', () => {
+    beforeEach(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    });
+
+    it('names the Fast route output by the testnet label in "you receive"', async () => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
+    });
+
+    it('names the Fast route output by the testnet label while the token read has not succeeded', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
+    });
+
+    it('holds a review of another token while Testnet config is unavailable, without leaving it', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+      render(<ReviewTransaction />);
+      await flush();
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.getByTestId('review-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(initiateSendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('lets a native-asset review confirm while Testnet config is unavailable', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+      setValidRoute(USDCX_FAUCET_ID_BECH32);
+      render(<ReviewTransaction />);
+      await flush();
+      await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      expect(screen.queryByTestId('review-held-notice')).not.toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(initiateSendTransaction).toHaveBeenCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        USDCX_FAUCET_ID_BECH32,
+        'private',
+        12345n,
+        999,
+        false
+      );
+    });
+
+    it('redirects a retired Epoch USDC deep link to the new send flow', async () => {
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+      expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    });
+
+    it('does not render a new recallable send for the retired faucet', async () => {
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+      expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
+    });
   });
 });
 
@@ -636,6 +1129,28 @@ describe('ReviewTransaction — onSubmit', () => {
     });
     await flush();
   };
+
+  it.each([
+    ['same-chain', 'miden', ''],
+    ['Epoch', 'ethereum', '&network=sepolia&route=epoch'],
+    ['Agglayer', 'ethereum', '&network=sepolia&route=agglayer']
+  ])('refuses a direct %s review URL with digits past token precision', async (_label, chain, suffix) => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockDetectedChain = chain as 'miden' | 'ethereum';
+    mockSearch = `amount=1.001&to=0xrecipient&tokenId=tok1${suffix}`;
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await clickSubmit();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+  });
 
   // This screen is reachable by URL and re-derives its own token, so it cannot
   // rely on the amount screen having refused. Every conversion below it runs
@@ -696,7 +1211,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
@@ -807,13 +1322,13 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('opens the unvalued challenge from a rejection that actually crossed the intercom port', async () => {
     // Unlike the raw-object rejections above (the in-process shape mobile/desktop reject with),
-    // this is what the extension's popup <-> SW port actually delivers: the real `serializeError`
-    // followed by the real `deserializeError`, round-tripping a price-unavailable refusal through
+    // this is what the extension's popup <-> SW port actually delivers: the real `serializeInternalError`
+    // followed by the real `deserializeInternalError`, round-tripping a price-unavailable refusal through
     // the intercom wire format rather than assuming it survives untouched.
     setValidRoute();
     initiateMock.mockRejectedValue(
-      deserializeError(
-        serializeError({
+      deserializeInternalError(
+        serializeInternalError({
           message: 'No current price is available for MDN',
           code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
           symbol: 'MDN'
@@ -868,6 +1383,24 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(screen.getByTestId('review-error')).toBeInTheDocument();
   });
 
+  it.each<[string, BridgeFeature]>([
+    ['agglayer', 'bridgeOut'],
+    ['epoch', 'fastBridgeOut']
+  ])('blocks a direct review link when the selected %s withdrawal is off', async (route, feature) => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = `amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=${route}`;
+    mockBalanceData = [VALID_TOKEN];
+    mockBridgeAvailability = { state: 'unavailable', reason: 'off', detail: 'route is off' };
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(useFeatureAvailability).toHaveBeenLastCalledWith(feature, { hold: true, chainId: 11155111 });
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await clickSubmit();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
   it('bridges over the Slow route with the faucet of the token being sent', async () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
@@ -878,14 +1411,47 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
+    expect(isAgglayerFaucetAllowed).toHaveBeenCalledWith('tok1', 'https://rpc.review.example', 11155111);
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,
         faucetId: 'tok1',
         destinationAddress: '0xrecipient',
-        senderPublicKey: 'pubkey-1'
+        senderPublicKey: 'pubkey-1',
+        guardianProvider: zustandProvider
       })
     );
+    // The bridge build reads the destination network from the config; the review passes none.
+    expect(initiateB2AggBridgeMock.mock.calls[0]![0]).not.toHaveProperty('destinationNetwork');
+    expect(initiateB2AggBridgeMock.mock.calls[0]?.[0].guardianProvider).toBe(zustandProvider);
+  });
+
+  it('refuses a Slow bridge-out of a token the registry does not list (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('agglayerTokenUnsupported');
+  });
+
+  it('refuses a Slow bridge-out when the registry cannot be read (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockRejectedValue(new Error('registry down'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('registry down');
   });
 
   it('uses strict authentication before building an Agglayer bridge request', async () => {
@@ -1005,7 +1571,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1157,6 +1723,28 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(initiateMock).toHaveBeenCalledTimes(1);
   });
 
+  it('confirms with the shared hardware-only protector probe', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', probeHardwareProtector);
+  });
+
+  it("shows the review screen's own error, and sends nothing, when the protector probe rejects", async () => {
+    setValidRoute();
+    confirmMock.mockRejectedValue(new Error('protector check failed'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('protector check failed');
+  });
+
   it('logs and resets when transaction creation throws', async () => {
     setValidRoute();
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -1228,6 +1816,128 @@ describe('ReviewTransaction — onSubmit', () => {
     await act(async () => view.rerender(<ReviewTransaction />));
 
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Advanced options: the transfer type
+// ---------------------------------------------------------------------------
+describe('ReviewTransaction — transfer type', () => {
+  it('opens the transfer-type sheet from the row under Advanced options', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-value', 'private');
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-row-transfer-type')).toBeInTheDocument();
+    expect(screen.getByTestId('row-open')).toHaveAttribute('aria-haspopup', 'dialog');
+    fireEvent.click(screen.getByTestId('row-open'));
+    await flush();
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'true');
+  });
+
+  it('keeps the choice and its consequence visible once Advanced options is closed again', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    // Private by default: the plain CTA, no notice, a quiet summary.
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPayment');
+    expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-emphasis', 'false');
+
+    await openAdvancedOptions();
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    await flush();
+    fireEvent.click(screen.getByTestId('transfer-type-close'));
+    await flush();
+
+    // The row and the sheet agree, the CTA says what it will do and the notice spells out the cost.
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-value', 'public');
+    expect(within(screen.getByTestId('review-row-transfer-type')).getByText('public')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
+    expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('review-public-notice')).toHaveAttribute('data-tone', 'warning');
+    expect(screen.getByText('publicTransferNotice')).toBeInTheDocument();
+
+    // Folding Advanced options away hides the rows but not the choice: the summary names it, in
+    // the emphasised ink, and the notice stays on the page.
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toMatch(/^public · In .+/);
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-emphasis', 'true');
+    expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
+  });
+
+  it('submits a PUBLIC note after the sheet picked Public, and a private one again after Private', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+    await openAdvancedOptions();
+    // A send that goes through leaves the page; a failed one hands the choices back.
+    initiateMock.mockRejectedValueOnce(new Error('send failed'));
+
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+    expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, 999, false);
+
+    fireEvent.click(screen.getByTestId('transfer-type-pick-private'));
+    await flush();
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPayment');
+    expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
+  });
+
+  it('freezes the transfer type and the expiration from the press until the send settles', async () => {
+    setValidRoute();
+    const assessment = deferred<undefined>();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(assessment.promise);
+    render(<ReviewTransaction />);
+    await flush();
+    await openAdvancedOptions();
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    await flush();
+
+    const recallTimeBefore = screen.getByTestId('recall-drawer').getAttribute('data-recall-time');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('row-open')).toBeDisabled();
+    expect(screen.getByTestId('review-expiration-edit')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('row-open'));
+    fireEvent.click(screen.getByTestId('review-expiration-edit'));
+    await flush();
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-open', 'false');
+    // A sheet already on screen, or one closing, can still hand a change back.
+    fireEvent.click(screen.getByTestId('transfer-type-pick-private'));
+    fireEvent.click(screen.getByTestId('recall-pick-never'));
+    fireEvent.click(screen.getByTestId('recall-pick-blocks'));
+    fireEvent.click(screen.getByTestId('recall-pick-time'));
+    fireEvent.click(screen.getByTestId('recall-pick-date'));
+    await flush();
+
+    await act(async () => {
+      assessment.resolve(undefined);
+    });
+    await flush();
+
+    // What went out and what the page shows still agree: public, with the 7-day window.
+    expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, 999, false);
+    expect(screen.getByTestId('recall-drawer').getAttribute('data-recall-time')).toBe(recallTimeBefore);
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toMatch(/^public · In .+/);
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
   });
 });
 
@@ -1510,5 +2220,209 @@ describe('ReviewTransaction — send telemetry', () => {
     expect(handleAt(0).complete).not.toHaveBeenCalled();
     expect(handleAt(0).fail).not.toHaveBeenCalled();
     expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReviewTransaction user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockUseRealBurnMinimum = true;
+    jest.mocked(readUsdcxMinimumBurn).mockResolvedValue(5_000_000n);
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    mockUseRealBurnMinimum = false;
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const expectReport = async (id: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'review']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  const setBurnRoute = (amount = '5.000001') => {
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
+    mockSearch = `amount=${amount}&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+  };
+
+  it('reports a raw burn submit failure by its site code while retaining its message', async () => {
+    setBurnRoute();
+    const message = 'Faucet https://faucet.invalid/private?amount=123.45 failed for mtst1private';
+    jest.mocked(initiateUsdcxBurn).mockRejectedValueOnce(new Error(message));
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports an unrepresentable review amount with its precision error id', async () => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockSearch = 'amount=1.001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    await expectReport('amountExceedsTokenDecimals');
+  });
+
+  it('reports the specific UsdcxBurnError code from a burn submit refusal', async () => {
+    setBurnRoute();
+    jest.mocked(initiateUsdcxBurn).mockRejectedValueOnce(new UsdcxBurnError('usdcxUnsupportedFaucet'));
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxUnsupportedFaucet');
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('usdcxUnsupportedFaucet');
+  });
+
+  it('does not report the immediate minimum or a pending minimum read as a failure', async () => {
+    setBurnRoute();
+    const minimum = deferred<bigint>();
+    jest.mocked(readUsdcxMinimumBurn).mockReturnValueOnce(minimum.promise);
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('5 USDCx')).toBeVisible();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    await act(async () => minimum.resolve(5_000_000n));
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports a raw same-chain submit failure by its site code while retaining the message', async () => {
+    setValidRoute();
+    const message = 'Send 123.45 to mtst1private failed at https://send.invalid/private';
+    initiateMock.mockRejectedValueOnce(new Error(message));
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it.each([
+    new Error('Bridge 123.45 to 0xprivate failed at https://bridge.invalid/private'),
+    'Bridge 123.45 to 0xprivate failed at https://bridge.invalid/private'
+  ])('reports a raw bridge submit failure without forwarding its runtime value (%s)', async reason => {
+    setValidRoute();
+    mockDetectedChain = 'ethereum';
+    mockSearch += '&network=sepolia&route=agglayer';
+    initiateB2AggBridgeMock.mockRejectedValueOnce(reason);
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(reason instanceof Error ? reason.message : reason);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports the locally known Agglayer token refusal by its translation key', async () => {
+    setValidRoute();
+    mockDetectedChain = 'ethereum';
+    mockSearch += '&network=sepolia&route=agglayer';
+    jest.mocked(isAgglayerFaucetAllowed).mockResolvedValueOnce(false);
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('agglayerTokenUnsupported');
+    expect(initiateB2AggBridge).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('agglayerTokenUnsupported');
+  });
+
+  it('reports a raw pre-submit assessment failure on the review surface', async () => {
+    setValidRoute();
+    const message = 'Assessment for mtst1private failed at https://limits.invalid/private?amount=123.45';
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValueOnce(new Error(message));
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(initiateMock).not.toHaveBeenCalled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports a typed burn submit refusal by its code without forwarding translated parameters', async () => {
+    setBurnRoute();
+    jest
+      .mocked(initiateUsdcxBurn)
+      .mockRejectedValueOnce(
+        new UsdcxBurnError('usdcxSendMoreThanPayoutFee', { amount: '0.1', network: 'Arc Testnet' })
+      );
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|0.1|Arc Testnet');
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('usdcxSendMoreThanPayoutFee');
+  });
+
+  it.each([
+    { amount: '5.0000001', minimum: 5_000_000n, id: 'usdcxInvalidAmount', text: 'usdcxInvalidAmount' },
+    { amount: '5.000001', minimum: 6_000_000n, id: 'usdcxBelowMinimumBurn', text: 'usdcxBelowMinimumBurn|6' },
+    { amount: '4.999999', minimum: 5_000_000n, id: 'usdcxBelowMinimumBurn', text: 'usdcxBelowMinimumBurn|5' }
+  ])('reports the displayed $id burn validation refusal after 1000 ms', async ({ amount, minimum, id, text }) => {
+    setBurnRoute(amount);
+    jest.mocked(readUsdcxMinimumBurn).mockResolvedValueOnce(minimum);
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(text);
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await expectReport(id);
+  });
+
+  it('reports unknownTokenScale on the review surface while its send remains blocked', async () => {
+    setValidRoute();
+    mockBalanceData = [UNSCALED_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await expectReport('unknownTokenScale');
   });
 });

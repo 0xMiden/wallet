@@ -45,8 +45,9 @@
  *     `address-book-account-*` and are not links, so they are never mistaken for
  *     a contact here.
  */
-import { type Locator, type Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
+import { selectContactNetwork } from './contact-network';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 // ── Settings sub-pages ──────────────────────────────────────────────────────
@@ -340,7 +341,7 @@ export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeout
 }
 
 export interface SendContactInput extends ContactInput {
-  /** The network the sheet must show: `id` names its chip, `name` its label ("Miden", "Sepolia"). */
+  /** The network the sheet must show: `id` names its network choice, `name` its label ("Miden", "Sepolia"). */
   network: { id: string; name: string };
 }
 
@@ -349,9 +350,8 @@ export interface SendContactInput extends ContactInput {
  * the address book's New contact page: type the recipient, take the "Add to contacts?" pill, check
  * the sheet names the typed address and shows `contact.network`, name the contact and save.
  *
- * With Sepolia the only bridge network, the sheet shows each network as a static label. The helper
- * checks exactly that, and throws if the chip ever becomes a button to pick, since it does not yet
- * pick one.
+ * Select the requested network when the sheet offers a choice. A sheet with only one network
+ * shows a static label.
  *
  * Postcondition: the sheet closed and the recipient step shows the contact by name, so the send
  * flow now knows the address as a contact. Where it lands in the address book is the caller's
@@ -410,25 +410,10 @@ export async function addContactFromSend(
     throw new Error(`${step}: the sheet names ${JSON.stringify(shownAddress)}, not the typed ${contact.address}.`);
   }
 
-  const chip = wallet.page.getByTestId(`add-contact-network-${contact.network.id}`);
   try {
-    await chip.waitFor({ state: 'visible', timeout: timeoutMs });
-  } catch {
-    throw new Error(
-      `${step}: the sheet shows no ${contact.network.name} network ` +
-        `([data-testid="add-contact-network-${contact.network.id}"]). Networks shown: ` +
-        `${await safeText(wallet.page.getByTestId('add-contact-network-options'))}`
-    );
-  }
-  const chipText = (await chip.textContent())?.trim() ?? '';
-  if (chipText !== contact.network.name) {
-    throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
-  }
-  if ((await chip.evaluate(el => el.tagName)) === 'BUTTON') {
-    throw new Error(
-      `${step}: the ${contact.network.name} chip is now a button, so the sheet offers a network choice. ` +
-        `This helper only checks the one-network sheet; teach it to pick the network.`
-    );
+    await selectContactNetwork(wallet.page, contact.network, timeoutMs);
+  } catch (error) {
+    throw new Error(`${step}: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   try {

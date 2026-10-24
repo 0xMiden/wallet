@@ -12,12 +12,13 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { CopyButton } from 'components/ui/CopyButton';
 import { DappOrigin } from 'components/ui/DappOrigin';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
-import { getAllUncompletedTransactions } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
@@ -25,8 +26,11 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
+import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import useSafeState from 'lib/ui/useSafeState';
-import { navigate, useLocation } from 'lib/woozie';
+import { useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
@@ -113,12 +117,22 @@ function downloadBytes(filename: string, data: Uint8Array, mimeType = 'applicati
   }
 }
 
-const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) => {
+const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
+  useUserVisibleError(errorId, 'inline');
+  return <>{value}</>;
+};
+
+const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
+  rawValue,
+  errorId
+}) => {
   const { t } = useTranslation();
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
-      <AdvancedDetails label={t('rawValue')}>{rawValue}</AdvancedDetails>
+      <AdvancedDetails label={t('rawValue')}>
+        <SignatureRawValue value={rawValue} errorId={errorId} />
+      </AdvancedDetails>
     </>
   );
 };
@@ -171,13 +185,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       switch (payload.kind) {
         case 'word': {
           let wordHex = t('invalidPayload');
+          let wordErrorId: UserErrorId | null = null;
           try {
             const word = Word.deserialize(bytes);
             wordHex = word.toHex();
           } catch (e) {
+            wordErrorId = 'invalidPayload';
             console.error('Failed to deserialize payload for sign:', e);
           }
-          content = <OpaqueSignatureWarning rawValue={wordHex} />;
+          content = <OpaqueSignatureWarning rawValue={wordHex} errorId={wordErrorId} />;
           break;
         }
 
@@ -190,6 +206,21 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
       break;
     }
+
+    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
+    case 'loginSign':
+      content = (
+        <>
+          <p className="my-2 text-body-sm text-ink">{t('loginSignatureNote', { domain: payload.domain })}</p>
+          <DetailCard className="my-2">
+            <DetailRow label={t('account')} stacked data-testid="confirm-login-account">
+              <span className="min-w-0 font-sans font-semibold">{payload.accountId}</span>
+              <CopyButton text={payload.accountId} data-testid="confirm-login-account-copy" />
+            </DetailRow>
+          </DetailCard>
+        </>
+      );
+      break;
 
     case 'privateNotes': {
       content = (
@@ -297,7 +328,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-ink">{value}</span>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                  {value}
+                </span>
               </div>
             );
           })}
@@ -306,9 +339,12 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       break;
   }
 
+  useUserVisibleError(error ? 'raw_confirm_payload_failed' : null, 'inline');
+
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
-      {t('payload') && (
+      {/* A login shows the note and the signing account, never a payload, so it gets no payload heading. */}
+      {payload.type !== 'loginSign' && t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
           <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
             {t('payload')}
@@ -331,6 +367,8 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
       return null;
     }
   }, [bytes]);
+
+  useUserVisibleError(signingInputs ? null : 'failedToParseSigningPayload', 'inline');
 
   if (!signingInputs) {
     return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
@@ -380,6 +418,10 @@ const CustomTransactionContent: React.FC<{
 
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
   const [simError, setSimError] = useState(false);
+  useUserVisibleError(
+    verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
+    'inline'
+  );
 
   useEffect(() => {
     if (!payload.requestBytes) return;
@@ -434,7 +476,11 @@ const CustomTransactionContent: React.FC<{
     return (
       <>
         <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && <div className="text-xs text-text-muted my-2">{t('couldNotVerifyBySimulation')}</div>}
+        {simError && (
+          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
+            {t('couldNotVerifyBySimulation')}
+          </div>
+        )}
         {advanced}
       </>
     );
@@ -460,7 +506,8 @@ const ConfirmDAppForm: FC = () => {
     confirmDAppSign,
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
-    confirmDAppConsumableNotes
+    confirmDAppConsumableNotes,
+    confirmDAppUnlock
   } = useMidenContext();
   const account = useAccount();
   const isPublicAccount = account.isPublic;
@@ -470,7 +517,9 @@ const ConfirmDAppForm: FC = () => {
     const usp = new URLSearchParams(loc.search);
     const pageId = usp.get('id');
     if (!pageId) {
-      throw new Error(t('notIdentified'));
+      const error = new Error(t('notIdentified'));
+      annotateCrash(error, { operation: 'confirm_payload', confirmationId: pageId === null ? 'missing' : 'empty' });
+      throw error;
     }
     return pageId;
   }, [loc.search, t]);
@@ -494,9 +543,6 @@ const ConfirmDAppForm: FC = () => {
   let privateDataPermission = PrivateDataPermission.UponRequest;
   if (payload.type === 'connect') {
     privateDataPermission = payload.privateDataPermission;
-    if (payload.existingPermission) {
-      confirmDAppPermission(id, true, account.publicKey, privateDataPermission, payload.allowedPrivateData);
-    }
   }
   requirePrivateDataCheckbox = privateDataPermission === PrivateDataPermission.Auto && !isPublicAccount;
   const [isPrivateDataChecked, setIsPrivateDataChecked] = useState(false);
@@ -522,18 +568,13 @@ const ConfirmDAppForm: FC = () => {
           } else {
             await confirmDAppTransaction(id, confirmed, delegate);
           }
-          if (confirmed) {
-            // The dApp confirm response carries no txId, but the progress page
-            // is addressed by one — resolve the active row from the queue.
-            const uncompleted = await getAllUncompletedTransactions();
-            const active =
-              uncompleted.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? uncompleted[0];
-            navigate(active ? `/generating-transaction-full/${encodeURIComponent(active.id)}` : '/');
-          }
+          // No navigation after an approval: this window never mounts PageRouter, so a route change only
+          // drops `?id=` and crashes this form while the background closes the window.
           return;
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
         case 'sign':
+        case 'loginSign':
           return confirmDAppSign(id, confirmed);
         case 'assets':
           return confirmDAppAssets(id, confirmed);
@@ -541,6 +582,8 @@ const ConfirmDAppForm: FC = () => {
           return confirmDAppImportPrivateNote(id, confirmed);
         case 'consumableNotes':
           return confirmDAppConsumableNotes(id, confirmed);
+        case 'unlock':
+          return confirmDAppUnlock(id);
       }
     },
     [
@@ -555,28 +598,32 @@ const ConfirmDAppForm: FC = () => {
       confirmDAppAssets,
       confirmDAppImportPrivateNote,
       confirmDAppConsumableNotes,
+      confirmDAppUnlock,
       delegate
     ]
   );
 
   const [error, setError] = useSafeState<any>(null);
+  const [errorId, setErrorId] = useSafeState<UserErrorId | null>(null);
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
   // The extension's approval telemetry. The confirmation store the other
   // platforms report from is unreachable here — see `useApprovalPrompt`.
   //
-  // Suppressed for the auto-approved reconnect handled above, where the user is
-  // shown nothing and asked nothing: that path never reaches `confirm`, so a
-  // flow begun for it would never be settled.
-  const autoApproved = payload.type === 'connect' && Boolean(payload.existingPermission);
+  // Suppressed for the auto-approved reconnect answered below, where the user is
+  // shown nothing and asked nothing, so there is no approval to measure.
+  // An unlock-only request (#1414) asks nothing either.
+  const autoApproved = payload.type === 'unlock' || (payload.type === 'connect' && Boolean(payload.existingPermission));
   const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
 
   const confirm = useCallback(
     async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       setError(null);
       try {
-        if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked) {
+        // An existing permission's consent was given when its session was saved, so its answer and Retry skip the box.
+        if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved) {
+          setErrorId('confirmError');
           throw new Error(t('confirmError'));
         }
         await onConfirm(confirmed, spendingLimitAuthenticated);
@@ -590,10 +637,29 @@ const ConfirmDAppForm: FC = () => {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         setError(err);
+        if (!confirmed || !requirePrivateDataCheckbox || isPrivateDataChecked || autoApproved) {
+          setErrorId(err?.message == null ? 'smthWentWrong' : 'raw_confirm_approval_failed');
+        }
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, settleApproval, t]
+    [onConfirm, setError, setErrorId, requirePrivateDataCheckbox, isPrivateDataChecked, autoApproved, settleApproval, t]
   );
+
+  // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
+  const unlockAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'unlock' || unlockAnsweredRef.current) return;
+    unlockAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload.type, confirm]);
+
+  // An existing permission is answered once, unasked, through `confirm` like its Retry (#1471).
+  const existingPermissionAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'connect' || !payload.existingPermission || existingPermissionAnsweredRef.current) return;
+    existingPermissionAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload, confirm]);
 
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
@@ -690,6 +756,19 @@ const ConfirmDAppForm: FC = () => {
             </RequestOriginBanner>
           )
         };
+      case 'loginSign':
+        return {
+          title: t('confirmLoginSignature', { domain: payload.domain }),
+          declineActionTitle: t('cancel'),
+          declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
+          confirmActionTitle: t('confirm'),
+          confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
+          want: (
+            <RequestOriginBanner origin={payload.origin}>
+              <span className="text-muted">{t('requestsYourSignature')}</span>
+            </RequestOriginBanner>
+          )
+        };
       case 'assets':
         return {
           title: t('requestAssets'),
@@ -729,8 +808,18 @@ const ConfirmDAppForm: FC = () => {
             </RequestOriginBanner>
           )
         };
+      case 'unlock':
+        return null;
     }
   }, [error, payload, privateDataPermission, isPublicAccount, t]);
+
+  if (content === null) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-app-bg">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -754,6 +843,7 @@ const ConfirmDAppForm: FC = () => {
             closable
             onClose={handleErrorAlertClose}
             type="error"
+            errorId={errorId}
             title={t('error')}
             description={error?.message ?? t('smthWentWrong')}
             className="my-4"
@@ -762,14 +852,17 @@ const ConfirmDAppForm: FC = () => {
         ) : (
           <>
             {payload.type === 'connect' ? (
-              account && (
-                <AccountBanner
-                  account={account}
-                  networkRpc={payload.networkRpc}
-                  labelIndent="sm"
-                  className="w-full my-2"
-                />
-              )
+              <>
+                {account && (
+                  <AccountBanner
+                    account={account}
+                    networkRpc={payload.networkRpc}
+                    labelIndent="sm"
+                    className="w-full my-2"
+                  />
+                )}
+                <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
+              </>
             ) : (
               <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
             )}

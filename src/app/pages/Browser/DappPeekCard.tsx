@@ -352,7 +352,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         {/* Subtle top highlight + bottom gradient for contrast. The
             bottom gradient is tall enough (40% of card height) to
             guarantee legible white text on any page color. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-pure-black/85 via-pure-black/40 to-transparent" />
 
         {/* Label row — favicon + display name docked at the bottom-left. */}
         <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 px-2 pb-2">
@@ -370,7 +370,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
               </span>
             )}
           </div>
-          <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-pure-white drop-shadow">
+          <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-pure-white [filter:drop-shadow(0_1px_2px_rgb(0_0_0_/_0.1))_drop-shadow(0_1px_1px_rgb(0_0_0_/_0.06))]">
             {displayName}
           </span>
         </div>
@@ -384,7 +384,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleClose}
           aria-label={t('closeDappCard', { name: displayName })}
           data-testid="dapp-peek-card-close"
-          className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition-transform active:scale-90"
+          className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-pure-black/55 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
         </button>
@@ -398,7 +398,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleShowAll}
           aria-label={t('showAllDapps', { count: overflowCount })}
           data-testid="dapp-peek-show-all"
-          className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-black/60 px-2 backdrop-blur-sm transition-transform active:scale-95"
+          className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-pure-black/60 px-2 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-95"
         >
           <span className="text-[10px] font-bold text-pure-white">
             {t('dappPeekCardOverflowBadge', { count: overflowCount })}

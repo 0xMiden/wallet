@@ -11,9 +11,10 @@ _g.__providerTest = {
   getMidenClientCalls: 0
 };
 
+// Read while the provider's imports load, which runs before the state above is assigned.
 jest.mock('lib/platform', () => ({
-  isExtension: () => (globalThis as any).__providerTest.isExtension,
-  isMobile: () => (globalThis as any).__providerTest.isMobile ?? false
+  isExtension: () => (globalThis as any).__providerTest?.isExtension ?? false,
+  isMobile: () => (globalThis as any).__providerTest?.isMobile ?? false
 }));
 
 jest.mock('../sdk/miden-client', () => ({
@@ -63,12 +64,15 @@ jest.mock('./useSyncTrigger', () => ({
 jest.mock('./NativeNoteAutoConsumeManager', () => ({
   NativeNoteAutoConsumeManager: () => null
 }));
+jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));
 
-// The provider gates SdkMidenProvider on WASM readiness via
+jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
+
+// The provider gates its children on WASM readiness via
 // ensureSdkWasmReady(); resolve immediately in jsdom (no WASM here),
 // keep the real constants for everything else.
 jest.mock('lib/miden-chain/constants', () => ({
@@ -141,7 +145,14 @@ describe('MidenProvider', () => {
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
     expect(mockPreloadStorage).toHaveBeenCalledWith(
-      ['tokens_base_metadata', 'fiat_currency', 'last_shown_changelog_version', 'network_id'],
+      [
+        'tokens_base_metadata',
+        'fiat_currency',
+        'last_shown_changelog_version',
+        'network_id',
+        'wallet_badges:v1:mainnet',
+        'wallet_badges_seen:v1:mainnet'
+      ],
       expect.objectContaining({ onSettled: expect.any(Function) })
     );
   });

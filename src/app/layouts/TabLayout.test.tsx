@@ -5,6 +5,7 @@ import type { Transition } from 'framer-motion';
 import fs from 'fs';
 import path from 'path';
 
+import { subscribeFooterClearance } from 'app/pages/Browser/peek-footer';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
@@ -28,6 +29,8 @@ const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, is
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnread = { value: false };
+const mockUnreadBadges = { value: false };
+jest.mock('lib/badges/useWalletBadges', () => ({ useHasUnreadBadges: () => mockUnreadBadges.value }));
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
 // symbols the layout uses: `navigate` (a spy) and `useLocation` (reads state).
@@ -92,7 +95,7 @@ jest.mock('app/icons/v2', () => ({
     Home: 'Home',
     Explore: 'Explore',
     Activity: 'Activity',
-    Settings: 'Settings',
+    User: 'User',
     Wallet: 'Wallet',
     Send: 'Send',
     Receive: 'Receive',
@@ -113,7 +116,7 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
   __esModule: true,
   default: () => {
     homeSwipeRenders.count += 1;
-    return <div data-testid="home-swipe" />;
+    return <div data-testid="home-swipe" data-home-pager="" />;
   }
 }));
 
@@ -141,13 +144,8 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked, clearInset }: any) => (
-    <div
-      data-testid="bottom-nav"
-      data-active={activeId}
-      data-docked={String(!!docked)}
-      data-clear-inset={String(!!clearInset)}
-    >
+  BottomNav: ({ items, activeId, onChange, className }: any) => (
+    <div data-testid="bottom-nav" data-active={activeId} className={className}>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -202,6 +200,7 @@ beforeEach(() => {
   mockEnv.sidePanel = false;
   mockReturning.value = false;
   mockHasUnread.value = false;
+  mockUnreadBadges.value = false;
 });
 
 describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
@@ -229,17 +228,14 @@ describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'activity');
   });
 
-  it('maps /settings to the settings tab', () => {
-    mockLocation.pathname = '/settings';
+  it('maps /me to the me tab', () => {
+    mockLocation.pathname = '/me';
     renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'me');
   });
 
-  it('maps only the bare /settings root, since sub-pages never mount this shell', () => {
-    // `/settings/<slug>` renders in FullScreenPage, so it cannot reach
-    // activeTabFromPath at all — asserting a settings tab for it would be
-    // testing a state the app cannot produce.
-    mockLocation.pathname = '/settings/general-settings';
+  it('does not treat a pushed Me page as the tab root', () => {
+    mockLocation.pathname = '/me/badges';
     renderLayout();
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'home');
   });
@@ -329,36 +325,37 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
     expect(screen.getByTestId('nav-explore')).toBeInTheDocument();
     expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
-    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-me')).toBeInTheDocument();
   });
 
-  it('drops the Explore tab on the extension (3 tabs)', () => {
+  // Explore opens its dApps in new browser tabs there (BrowserScreen).
+  it('includes the Explore tab on the extension too', () => {
     mockPlatform.isExtension = true;
     renderLayout();
-    expect(screen.getByTestId('nav-home')).toBeInTheDocument();
-    expect(screen.queryByTestId('nav-explore')).toBeNull();
-    expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
-    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+    const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
+      el.getAttribute('data-testid')
+    );
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-me', 'nav-unknown']);
   });
 
-  it('orders Settings last, after Activity', () => {
+  it('orders Me last, after Activity', () => {
     mockPlatform.isExtension = false;
     renderLayout();
     const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
       el.getAttribute('data-testid')
     );
-    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-unknown']);
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-me', 'nav-unknown']);
   });
 
   it('localizes every tab label', () => {
     // The `react-i18next` stub echoes the key, so a hardcoded English literal
-    // would show up here as 'Home'/'Settings' rather than 'home'/'settings'.
+    // would show up here as 'Home'/'Me' rather than 'home'/'me'.
     mockPlatform.isExtension = false;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toHaveTextContent('home');
     expect(screen.getByTestId('nav-explore')).toHaveTextContent('explore');
     expect(screen.getByTestId('nav-activity')).toHaveTextContent('activity');
-    expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
+    expect(screen.getByTestId('nav-me')).toHaveTextContent('profile');
   });
 
   it('localizes every action segment label, overview as home', () => {
@@ -380,6 +377,7 @@ describe('TabLayout — tabs list composition', () => {
 
   it('leaves the Activity tab unmarked once nothing is unread', () => {
     mockHasUnread.value = false;
+    mockUnreadBadges.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
   });
@@ -417,13 +415,23 @@ describe('TabLayout — action colours', () => {
     ['overview', 'Wallet'],
     ['send', 'Send'],
     ['receive', 'Receive'],
-    ['earn', 'Earn'],
-    ['swap', 'Convert']
-  ])('draws the %s icon in its action colour', (action, icon) => {
+    ['earn', 'Earn']
+  ])('draws the %s icon in its action colour', (action, icon, colour = `text-action-${action}`) => {
     mockLocation.pathname = '/';
     renderLayout();
     const glyph = within(screen.getByTestId(`action-${action}`)).getByTestId(`icon-${icon}`);
-    expect(glyph).toHaveClass(`text-action-${action}`);
+    expect(glyph).toHaveClass(colour);
+  });
+
+  it.each([
+    ['inactive', '/', 'overview'],
+    ['active', '/swap', 'swap']
+  ])('draws the Swap icon in its contrast-tested action colour in the %s state', (_state, pathname, activeId) => {
+    mockLocation.pathname = pathname;
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', activeId);
+    const glyph = within(screen.getByTestId('action-swap')).getByTestId('icon-Convert');
+    expect(glyph).toHaveClass('text-action-swap');
   });
 });
 
@@ -453,18 +461,18 @@ describe('TabLayout — tab change handling (handleTabChange)', () => {
     expect(mockHaptic).not.toHaveBeenCalled();
   });
 
-  it('navigates to /settings and fires haptics when tapping the Settings tab', () => {
+  it('navigates to /me and fires haptics when tapping the Me tab', () => {
     mockLocation.pathname = '/';
     renderLayout();
-    fireEvent.click(screen.getByTestId('nav-settings'));
+    fireEvent.click(screen.getByTestId('nav-me'));
     expect(mockHaptic).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings');
+    expect(mockNavigate).toHaveBeenCalledWith('/me');
   });
 
-  it('is a silent no-op when re-tapping Settings while already on /settings', () => {
-    mockLocation.pathname = '/settings';
+  it('is a silent no-op when re-tapping Me while already on /me', () => {
+    mockLocation.pathname = '/me';
     renderLayout();
-    fireEvent.click(screen.getByTestId('nav-settings'));
+    fireEvent.click(screen.getByTestId('nav-me'));
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
   });
@@ -531,60 +539,42 @@ describe('TabLayout — container sizing (containerStyles) & clip class', () => 
 });
 
 describe('TabLayout — bottom nav footer padding', () => {
-  it('adds bottom padding to the footer off-mobile', () => {
-    mockPlatform.isMobile = false;
+  it.each([
+    ['off-mobile', false, false],
+    ['on Android', true, true]
+  ])('floats the pill %s: centred, with 16px at the sides and 8px below', (_, mobile, android) => {
+    mockPlatform.isMobile = mobile;
+    mockPlatform.isAndroid = android;
     renderLayout();
-    expect(screen.getByTestId('bottom-nav').parentElement).toHaveClass('pb-2');
+    expect(screen.getByTestId('bottom-nav').parentElement).toHaveClass('justify-center', 'px-4', 'pb-2');
   });
 
-  it('omits footer bottom padding on mobile (safe-area handles it)', () => {
+  // The layout's bottom edge is the top of the body's safe-area padding, so with no padding of its
+  // own the pill sits as low as the home indicator's inset permits.
+  it('sits the pill directly on the safe-area edge on iOS', () => {
     mockPlatform.isMobile = true;
+    mockPlatform.isIOS = true;
     renderLayout();
+    expect(screen.getByTestId('bottom-nav').parentElement).toHaveClass('justify-center', 'px-4');
     expect(screen.getByTestId('bottom-nav').parentElement).not.toHaveClass('pb-2');
   });
 
-  it('floats the pill off-mobile and docks the bar edge to edge on mobile', () => {
-    mockPlatform.isMobile = false;
-    const { unmount } = renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-docked', 'false');
-    expect(screen.getByTestId('bottom-nav').parentElement).toHaveClass('px-4');
-    unmount();
-
-    mockPlatform.isMobile = true;
-    renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-docked', 'true');
-    expect(screen.getByTestId('bottom-nav').parentElement).not.toHaveClass('px-4');
-  });
-
-  // The docked bar has to sink by exactly the body's bottom padding. Repeating that value
-  // here instead of reading mobile.html's --app-safe-bottom is what left the bar 4px above
-  // the screen edge, with its top rule still showing once it slid away.
-  it('sinks the docked footer by the safe-area floor the body declares', () => {
+  // The footer stays on the layout's bottom edge, which on mobile is the top of the body's
+  // safe-area padding. Thus the pill never sits on the home indicator or the system navigation bar.
+  it('never sinks the footer into the safe area', () => {
     mockPlatform.isMobile = true;
     renderLayout();
 
     const footer = screen.getByTestId('bottom-nav').parentElement!.parentElement!;
-    expect(footer.style.bottom).toBe('calc(-1 * var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom))))');
-  });
-
-  // Android's bottom inset is the system navigation bar, which a tab must not sit on; iOS's is the
-  // home indicator, which the tabs may reach into (#1121).
-  it('keeps the docked tabs above the bottom inset on Android', () => {
-    mockPlatform.isMobile = true;
-    mockPlatform.isAndroid = true;
-    renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'true');
-  });
-
-  it('lets the docked tabs reach into the home indicator on iOS', () => {
-    mockPlatform.isMobile = true;
-    mockPlatform.isIOS = true;
-    renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'false');
+    expect(footer).toHaveClass('bottom-0');
+    expect(footer.style.bottom).toBe('');
   });
 });
 
-describe('TabLayout — docked bar hides while scrolling down on mobile', () => {
+// A hidden pill moves down by its own height, the safe-area floor below it and the reach of its shadow.
+const HIDDEN_BAR_CLASS = 'translate-y-[calc(100%+2rem+var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom))))]';
+
+describe('TabLayout — the bar hides while scrolling down on mobile', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
@@ -602,12 +592,12 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
     renderLayout();
     scrollTo(0);
     scrollTo(40);
-    expect(bar()).toHaveClass('translate-y-full');
+    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
 
     act(() => {
       jest.advanceTimersByTime(300);
     });
-    expect(bar()).not.toHaveClass('translate-y-full');
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
   });
 
   it('brings the bar back as soon as the scroll reverses upward', () => {
@@ -615,9 +605,9 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
     renderLayout();
     scrollTo(0);
     scrollTo(80);
-    expect(bar()).toHaveClass('translate-y-full');
+    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
     scrollTo(60);
-    expect(bar()).not.toHaveClass('translate-y-full');
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
   });
 
   // The bar's own state lives in the bar. While it sat in TabLayout, every hide, show and idle
@@ -631,13 +621,34 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
     const before = homeSwipeRenders.count;
 
     scrollTo(40);
-    expect(bar()).toHaveClass('translate-y-full');
+    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
     act(() => {
       jest.advanceTimersByTime(300);
     });
-    expect(bar()).not.toHaveClass('translate-y-full');
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
 
     expect(homeSwipeRenders.count).toBe(before);
+  });
+
+  // The Home pager scrolls sideways every frame of a swipe; its events are no vertical scroll and
+  // must not cost the bar any work, so they neither keep it hidden nor re-arm its idle timer.
+  it("ignores the Home pager's horizontal scroll events", () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    renderLayout();
+    scrollTo(0);
+    scrollTo(40);
+    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
+
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+    fireEvent.scroll(screen.getByTestId('home-swipe'));
+    act(() => {
+      jest.advanceTimersByTime(100);
+    });
+
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
   });
 
   it('never hides the floating pill off-mobile', () => {
@@ -645,7 +656,7 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
     renderLayout();
     scrollTo(0);
     scrollTo(80);
-    expect(bar()).not.toHaveClass('translate-y-full');
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
   });
 });
 
@@ -759,13 +770,13 @@ describe('TabLayout - the root declares the tab bar cushion for its own subtree'
     fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
   it.each([
-    ['docked', true],
-    ['floating', false]
-  ])('marks its root %s', (kind, mobile) => {
+    ['on mobile', true],
+    ['off-mobile', false]
+  ])('marks its root floating %s', (_, mobile) => {
     mockPlatform.isMobile = mobile;
     mockLocation.pathname = '/history';
     const { container } = renderLayout();
-    expect(getRoot(container)).toHaveAttribute('data-tab-layout', kind);
+    expect(getRoot(container)).toHaveAttribute('data-tab-layout', 'floating');
   });
 
   it('renders its page inside the root, so the page inherits the cushion', () => {
@@ -774,41 +785,16 @@ describe('TabLayout - the root declares the tab bar cushion for its own subtree'
     expect(screen.getByTestId('child-content').closest('[data-tab-layout]')).toBe(getRoot(container));
   });
 
-  // Android's bar keeps its tabs above the system navigation bar, so it reaches further into the page (#1121).
-  it('marks its root for a bar that clears the inset on Android', () => {
-    mockPlatform.isMobile = true;
-    mockPlatform.isAndroid = true;
-    mockLocation.pathname = '/history';
-    const { container } = renderLayout();
-    expect(getRoot(container)).toHaveAttribute('data-navbar-clears-inset', '');
-  });
-
-  it('never marks its root for a bar that clears the inset on iOS', () => {
-    mockPlatform.isMobile = true;
-    mockPlatform.isIOS = true;
-    mockLocation.pathname = '/history';
-    const { container } = renderLayout();
-    expect(getRoot(container)).not.toHaveAttribute('data-navbar-clears-inset');
-  });
-
   it('declares the cushion on the tab layout root and nowhere else', () => {
     const css = readCss();
-    expect(css).toMatch(/\[data-tab-layout='docked'\]\s*\{\s*--navbar-cushion:\s*4rem;\s*\}/);
-    expect(css).toMatch(
-      /\[data-tab-layout='docked'\]\[data-navbar-clears-inset\]\s*\{\s*--navbar-cushion:\s*calc\(\s*5\.5rem \+ env\(safe-area-inset-bottom\) - var\(--app-safe-bottom, max\(16px, env\(safe-area-inset-bottom\)\)\)\s*\);\s*\}/
-    );
-    expect(css).toMatch(/\[data-tab-layout='floating'\]\s*\{\s*--navbar-cushion:\s*6rem;\s*\}/);
+    expect(css).toMatch(/\[data-tab-layout='floating'\]\s*\{\s*--navbar-cushion:\s*5rem;\s*\}/);
     const declaredOn = [...css.matchAll(/([^{}]+)\{[^{}]*--navbar-cushion\s*:/g)].map(match => match[1]!.trim());
-    expect(declaredOn).toEqual([
-      "[data-tab-layout='docked']",
-      "[data-tab-layout='docked'][data-navbar-clears-inset]",
-      "[data-tab-layout='floating']"
-    ]);
+    expect(declaredOn).toEqual(["[data-tab-layout='floating']"]);
   });
 
   it('still collapses the cushion to 1rem while the bar is hidden', () => {
     expect(readCss()).toMatch(
-      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*1rem;\s*\}/
+      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*calc\(1rem \+ var\(--wallet-control-safe-bottom, 0px\)\);\s*\}/
     );
   });
 });
@@ -911,7 +897,7 @@ describe('TabLayout — mount fade and tab panes', () => {
     ['/browser', 'explore'],
     ['/history', 'activity'],
     ['/history/program-1', 'activity'],
-    ['/settings', 'settings']
+    ['/me', 'me']
   ])('renders %s in a visible, interactive %s pane', (pathname, tab) => {
     mockLocation.pathname = pathname;
     renderLayout(<div data-testid="routed-content" />);
@@ -929,17 +915,17 @@ describe('TabLayout — mount fade and tab panes', () => {
     const { rerender } = renderLayout(<Probe name="activity" />);
     expect(screen.getByTestId('probe-activity')).toHaveTextContent('on screen');
 
-    mockLocation.pathname = '/settings';
-    rerender(<TabLayout>{<Probe name="settings" />}</TabLayout>);
+    mockLocation.pathname = '/me';
+    rerender(<TabLayout>{<Probe name="me" />}</TabLayout>);
     expect(screen.getByTestId('probe-activity')).toHaveTextContent('off screen');
-    expect(screen.getByTestId('probe-settings')).toHaveTextContent('on screen');
+    expect(screen.getByTestId('probe-me')).toHaveTextContent('on screen');
 
     rerender(
       <PageActiveContext.Provider value={false}>
-        <TabLayout>{<Probe name="settings" />}</TabLayout>
+        <TabLayout>{<Probe name="me" />}</TabLayout>
       </PageActiveContext.Provider>
     );
-    expect(screen.getByTestId('probe-settings')).toHaveTextContent('off screen');
+    expect(screen.getByTestId('probe-me')).toHaveTextContent('off screen');
   });
 
   // The Home pane is not rebuilt while hidden, so the bar keeps its old segment until the commit that
@@ -1014,9 +1000,38 @@ describe('TabLayout — footer scaffolding', () => {
     expect(document.querySelector('[data-tab-pane="activity"]')).not.toContainElement(screen.getByTestId('action-bar'));
   });
 
+  // The wrapper spans the footer's width, so a tap beside the pill must reach the content under it.
+  it('lets only the pill take pointer events, not the full-width wrapper around it', () => {
+    renderLayout();
+    const navbar = screen.getByTestId('bottom-nav');
+    expect(navbar.parentElement).toHaveClass('pointer-events-none');
+    expect(navbar.parentElement).not.toHaveClass('pointer-events-auto');
+    expect(navbar).toHaveClass('pointer-events-auto');
+  });
+
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
+  });
+
+  it('announces the footer once it mounts, so a tray subscribed before it reads its top edge', () => {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement
+    ) {
+      return this.dataset.tabbarFooter === 'true' ? new DOMRect(0, window.innerHeight - 82, 0, 58) : new DOMRect();
+    });
+    const readings: number[] = [];
+    const unsubscribe = subscribeFooterClearance(clearance => readings.push(clearance));
+    try {
+      expect(document.querySelector('[data-tabbar-footer="true"]')).toBeNull();
+      expect(readings).toEqual([]);
+
+      renderLayout();
+      expect(readings).toEqual([82]);
+    } finally {
+      unsubscribe();
+      rectSpy.mockRestore();
+    }
   });
 });
 
@@ -1027,4 +1042,12 @@ describe('TabLayout — the keyboard hides the bottom nav elsewhere', () => {
     expect(useHideNavbarWhileOpen).not.toHaveBeenCalled();
     unmount();
   });
+});
+
+it('marks Profile unread independently from Activity', () => {
+  mockUnreadBadges.value = true;
+  renderLayout();
+  expect(screen.getByTestId('nav-me')).toHaveAttribute('data-dot', 'true');
+  expect(screen.getByTestId('nav-me')).toHaveAttribute('data-dot-label', 'activityUnread');
+  expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
 });

@@ -5,26 +5,29 @@ import {
   SolveIntentParams,
   TaskType
 } from '@epoch-protocol/epoch-intents-sdk';
-import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import type { EarnVaultProtocol } from 'lib/remote-config/schema';
+import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
-import { getEarnCollateralFaucet } from './collateral';
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
+import { readEpochIntentStatus } from './intent-status';
+import { marketUidChainId } from './market-uid';
 import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
 
 /**
- * Epoch "Earn" — open a lending position by depositing Miden-held USDC into a
+ * Epoch "Earn" — open a lending position by depositing reviewed Miden collateral into a
  * protocol market. Structurally this is the Miden→EVM `bridgeEpochSend` flow:
  * collateral is `CollateralType.Miden` (a recallable P2IDE note to the solver's
  * allocator), the EVM lending leg is solver-fulfilled, and the typed EVM address
@@ -33,16 +36,10 @@ import type { IntentResult } from './types';
  * `marketUid`/`action`/`payAsset` extraData, and a non-zero `protocolHashIdentifier`.
  */
 
-export function getEarnCollateralFaucetId(): string {
-  return ifHextoBech32(getEarnCollateralFaucet());
+/** The collateral faucet as the wallet's spending-limit and history code keys it (bech32). */
+export function earnCollateralFaucetId(collateral: MidenUsdc): string {
+  return ifHextoBech32(collateral.faucetId);
 }
-
-// Lending market the deposit targets (testnet `DUMMY_LENDING`). `EARN_UNDERLYING`
-// matches `BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS` (Sepolia USDC).
-export const EARN_MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
-export const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-export const EARN_DESTINATION_CHAIN_ID = 11155111;
-export const EARN_PROTOCOL_HASH = keccak256(toBytes('dummy-lending'));
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -51,7 +48,7 @@ export interface EarnIntentParams {
   midenSourceAccount: string;
   /** Miden faucet of the collateral token. */
   midenFaucetId: string;
-  /** Collateral amount in faucet base units (`MIDEN_USDC_DECIMALS`), as a string. */
+  /** Collateral amount in the collateral faucet's base units, as a string. */
   depositAmount: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: `0x${string}`;
@@ -60,6 +57,8 @@ export interface EarnIntentParams {
    * real reclaim height derives from the SDK callback's `recallBlocks` instead.
    */
   midenReclaimHeight: number;
+  /** The lending market the bridge config names. */
+  market: EarnMarket;
 }
 
 export interface EarnQuote {
@@ -84,19 +83,19 @@ export function buildEarnTaskDataParams(params: EarnIntentParams) {
       isNative: false,
       depositTokenAddress: ZERO_ADDRESS,
       tokenInAmount: params.depositAmount,
-      outputTokenAddress: EARN_UNDERLYING,
+      outputTokenAddress: params.market.underlying,
       minTokenOut: '0',
-      destinationChainId: String(EARN_DESTINATION_CHAIN_ID),
-      protocolHashIdentifier: EARN_PROTOCOL_HASH,
+      destinationChainId: String(params.market.chainId),
+      protocolHashIdentifier: params.market.protocolHash,
       recipient: params.evmRecipient
     },
     extraDataTypestring:
       'string marketUid,string action,string payAsset,uint256 midenReclaimHeight,' +
       'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId',
     extraData: {
-      marketUid: EARN_MARKET_UID,
+      marketUid: params.market.marketUid,
       action: 'deposit',
-      payAsset: EARN_UNDERLYING,
+      payAsset: params.market.underlying,
       midenSourceAccount: midenSourceHex,
       midenFaucetId: midenFaucetHex,
       midenNoteType: 'P2IDE',
@@ -208,7 +207,8 @@ export const EARN_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reve
 export interface EpochLegStatus {
   chainId?: number;
   status?: string;
-  transactionHash?: string;
+  // The SDK reports null for a leg the chain has not recorded yet.
+  transactionHash?: string | null;
 }
 
 export type EarnIntentOutcome = 'pending' | 'done' | 'failed';
@@ -284,27 +284,34 @@ export function pollEarnIntentStatus(args: {
     maxAttempts,
     immediate,
     tick: async context => {
+      // A config that names no chain throws here, before any read, and the poll retries: the row is never failed for it.
+      const row = txId ? await Repo.transactions.where({ id: txId }).first() : undefined;
+      const marketUid = row?.type === 'earn-deposit' ? row.extraInputs.marketUid : undefined;
+      const destinationChainId = (marketUid ? marketUidChainId(marketUid) : undefined) ?? getEvmChainId();
       const stillLive = async () => txId === undefined || isLiveDeposit(txId, expected);
       if (!(await stillLive())) {
         context.markTerminal();
         return;
       }
       if (!context.isCurrent()) return;
-      const sdk = await getSdk(sponsorAddress);
+      const sdk = await getSdk(
+        sponsorAddress,
+        row?.type === 'earn-deposit' ? row.extraInputs.epochAllocatorUrl : undefined
+      );
       if (!context.isCurrent()) return;
       if (!(await stillLive())) {
         context.markTerminal();
         return;
       }
       if (!context.isCurrent()) return;
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+      const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
       if (!context.isCurrent()) return;
       if (!(await stillLive())) {
         context.markTerminal();
         return;
       }
       if (!context.isCurrent()) return;
-      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
+      const { outcome, destination, source } = resolveEarnIntentOutcome(results, destinationChainId);
       if (outcome === 'pending') return;
       context.markTerminal();
       const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
@@ -321,10 +328,16 @@ export function pollEarnIntentStatus(args: {
 }
 
 export interface OpenEarnPositionArgs {
-  /** Collateral amount in `MIDEN_USDC_DECIMALS` base units. */
+  /** Collateral amount in `collateral`'s base units. */
   amount: bigint;
+  /** The collateral the deposit was reviewed with (`selectEarnCollateral` in the frontend). */
+  collateral: MidenUsdc;
   /** 0x EVM address that will own the lending position. */
   evmAddress: string;
+  /** The market of the vault the user chose (`earnMarketForVault`). The deposit names its uid and protocol hash. */
+  market: EarnMarket;
+  /** The protocol string the document lists the vault with, the same string the market's protocol hash is of. */
+  protocol: EarnVaultProtocol;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
   deps: BridgeNoteDeps;
@@ -353,12 +366,14 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   const evmRecipient = args.evmAddress;
 
-  const sdk = await getEpochReadOnlySdk(evmRecipient);
+  const { market } = args;
+  const allocatorUrl = getEpochAllocatorUrl();
+  const sdk = await getEpochReadOnlySdk(evmRecipient, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
 
   const params: EarnIntentParams = {
     midenSourceAccount: args.senderPublicKey,
-    midenFaucetId: getEarnCollateralFaucet(),
+    midenFaucetId: args.collateral.faucetId,
     depositAmount: args.amount.toString(),
     evmRecipient,
     // Mandate-only estimate (hashed into the witness, echoed back by the
@@ -366,7 +381,8 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     // it uses the SDK-supplied `recallBlocks` from the mint callback (allocator
     // minimum + SDK buffer); the allocator validates the note's REMAINING
     // window against its own chain head, not this exact height.
-    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
+    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS,
+    market
   };
 
   let earnTxId: string | undefined;
@@ -395,12 +411,16 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
           recallBlocks,
           bindingAttachmentFelts,
           evmRecipient,
-          marketUid: EARN_MARKET_UID,
+          marketUid: market.marketUid,
+          protocol: args.protocol,
+          chainId: market.chainId,
+          allocatorUrl,
           deps: args.deps,
           onRowCreated: args.onRowCreated,
           spendingLimitAuthorization: args.spendingLimitAuthorization
         });
         earnTxId = res.txId;
+
         return { success: res.success, noteId: res.noteId };
       } catch (error) {
         spendingLimitError = error;

@@ -4,11 +4,14 @@
  * These pin the behaviour the service-worker wrapper's inline copy of these
  * patterns must also satisfy — it runs as source text inside `evaluate()` and so
  * cannot import them, which makes drift between the two silent by construction.
+ * `fetch-instrumentation.test.ts` runs that inline copy itself.
  */
 
 import { classifyUrl, isMidenRelated } from './network-capture';
 
-const SEND_NOTE = 'miden_note_transport.MidenNoteTransport/SendNote';
+const SERVICE = 'miden.note_transport.v1.NoteTransportService';
+const SEND_NOTE = `${SERVICE}/SendNoteWithProof`;
+const FETCH_NOTES = `${SERVICE}/FetchNotes`;
 
 describe('classifyUrl — transport', () => {
   it('classifies the deployed transport host', () => {
@@ -31,9 +34,32 @@ describe('classifyUrl — transport', () => {
     expect(classifyUrl(`https://transport.staging.example.com/${SEND_NOTE}`)).toBe('transport');
   });
 
-  it('classifies every transport RPC, not just SendNote', () => {
-    expect(classifyUrl('http://127.0.0.1:9999/miden_note_transport.MidenNoteTransport/FetchNotes')).toBe('transport');
-    expect(classifyUrl('http://127.0.0.1:9999/miden_note_transport.MidenNoteTransport/Stats')).toBe('transport');
+  it('classifies every transport RPC, not just the push', () => {
+    expect(classifyUrl(`http://127.0.0.1:9999/${FETCH_NOTES}`)).toBe('transport');
+  });
+
+  it('classifies the transport path as transport even on an rpc host', () => {
+    // A node can serve the transport beside its RPC service (`miden.node.v1.NodeService`)
+    // on one host; the path must win, or the push decode (gated on `transport`) never runs.
+    expect(classifyUrl(`http://localhost:57291/${SEND_NOTE}`)).toBe('transport');
+    expect(classifyUrl(`https://rpc.testnet.miden.io/${SEND_NOTE}`)).toBe('transport');
+    expect(classifyUrl(`https://rpc.testnet.miden.io/${FETCH_NOTES}`)).toBe('transport');
+    expect(classifyUrl('https://rpc.testnet.miden.io/rpc.Api/SubmitProvenTransaction')).toBe('rpc');
+  });
+
+  it.each([
+    ["the pre-0.17 node's service", 'http://127.0.0.1:9999/note_transport.Api/SendNote', 'other'],
+    [
+      'the retired standalone service',
+      'http://127.0.0.1:9999/miden_note_transport.MidenNoteTransport/FetchNotes',
+      'other'
+    ],
+    ["the pre-0.17 node's service on an rpc host", 'https://rpc.testnet.miden.io/note_transport.Api/SendNote', 'rpc'],
+    ['a dotted prefix on the service', `http://127.0.0.1:9999/x.${SEND_NOTE}`, 'other']
+  ])('no longer singles out %s', (_, url, expected) => {
+    // SDK 0.17 speaks only `miden.note_transport.v1.NoteTransportService`, so the old
+    // names are ordinary paths now, classified by host like any other.
+    expect(classifyUrl(url)).toBe(expected);
   });
 });
 

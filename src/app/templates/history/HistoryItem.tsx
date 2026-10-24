@@ -9,13 +9,17 @@ import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { Button, ButtonVariant } from 'components/Button';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
 
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -47,7 +51,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 
   // An unconfirmed bridge or earn-withdraw row falls through to the plain not-confirmed row below
   // (#1250 F-024), the same way HistoryView's list keeps it out of the bridge/earn layout.
-  if (!entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  if (!entry.guardianRecovered && !entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -60,12 +64,23 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   // leg while it is still pending or has failed (settled reads as the plain row).
   // Never on a cancelled or Miden-failed row: that failure is the real story.
   const settlement =
-    entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    !entry.isCancelled &&
+    entry.transactionIcon !== 'FAILED'
       ? earnDepositSettlementOf(entry)
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
-  const title = isFaucet ? t('faucetRequest') : entry.isUnconfirmed ? t('notConfirmed') : entry.message;
+  const title = entry.guardianRecovered
+    ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+    : isFaucet
+      ? t('faucetRequest')
+      : entry.isUnconfirmed
+        ? t('notConfirmed')
+        : entry.message === 'Transaction failed'
+          ? t('transactionFailedNotificationTitle')
+          : entry.message;
   return (
     <div
       className={classNames(
@@ -87,19 +102,23 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         <span className="text-ink font-medium truncate text-sm leading-none">{title}</span>
 
         {entry.secondaryAddress && (
-          <span className="text-xs text-text-muted truncate flex gap-0.5">
-            <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
-            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
+          <span className="flex min-w-0 gap-0.5 text-xs text-text-muted">
+            <p className="shrink-0 font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
+            <span className="min-w-0 truncate">
+              <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
+            </span>
           </span>
         )}
       </div>
 
-      {/* Amount */}
+      {/* Amount: capped at half the row, each line truncating, so a long amount or token name cannot
+          push the title out of the row. A truncated line clips to its box, so `leading-tight`, not
+          `leading-none`, which would cut off descenders. */}
       {entry.amount !== undefined && (
-        <div className="flex flex-col items-end shrink-0">
+        <div className="flex shrink-0 max-w-1/2 flex-col items-end">
           <span
             className={classNames(
-              'font-heading text-sm font-medium leading-none',
+              'max-w-full truncate font-heading text-sm font-medium leading-tight',
               isReceive ? 'text-positive-tint-ink' : 'text-negative-tint-ink'
             )}
           >
@@ -108,7 +127,9 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
             {entry.amount.toString()}
           </span>
           {entry.token && (
-            <span className="font-heading text-sm text-ink opacity-64 font-medium leading-none">{entry.token}</span>
+            <span className="max-w-full truncate font-heading text-sm text-ink opacity-64 font-medium leading-tight">
+              {entry.token}
+            </span>
           )}
         </div>
       )}
@@ -146,8 +167,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
-  const { inSymbol, outSymbol, outAmount, providerLabel, network, status } =
-    entry.txType === 'bridged-send' ? bridgeRowDisplay(entry) : bridgeInRowDisplay(entry);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
+    entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
     <div
@@ -166,20 +188,22 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 
       <div className="flex flex-col grow min-w-0">
         <span className="text-ink font-medium truncate text-sm leading-none">
-          {t('bridgeRowTitle', { from: inSymbol, to: outSymbol })}
+          {entry.bridgeProvider === 'usdcx'
+            ? t('usdcxBurnTitle')
+            : t('bridgeRowTitle', { from: inLabel, to: outLabel })}
         </span>
         <span className="text-xs text-grey-500 truncate mt-1">
           {t('bridgeRowVia', { provider: providerLabel, network })}
         </span>
       </div>
 
-      <div className="flex flex-col items-end shrink-0 gap-1">
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {outAmount !== undefined && (
-          <span className="text-sm font-medium leading-none text-ink">
-            {outAmount} {outSymbol}
+          <span className="max-w-full truncate text-sm font-medium leading-tight text-ink">
+            {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={status} />
+        <StatusBadge status={isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status} />
       </div>
     </div>
   );
@@ -219,10 +243,10 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
         <span className="text-xs text-text-muted truncate mt-1">{t('earnWithdrawRowVia')}</span>
       </div>
 
-      <div className="flex flex-col items-end shrink-0 gap-1">
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {/* eslint-disable i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
         {showAmount && (
-          <span className="text-sm font-medium leading-none text-positive-tint-ink">
+          <span className="max-w-full truncate text-sm font-medium leading-tight text-positive-tint-ink">
             +{entry.amount?.toString()} {entry.token}
           </span>
         )}

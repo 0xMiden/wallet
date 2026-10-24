@@ -23,11 +23,13 @@ import { Button, ButtonVariant } from './Button';
 import { Card, CardButton } from './Card';
 import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
+import { ClearFieldButton } from './ClearFieldButton';
+import { CodeInput } from './CodeInput';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
 import { DappOrigin } from './DappOrigin';
-import { DetailCard, DetailRow } from './DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
 import { ErrorDetails } from './ErrorDetails';
 import { ErrorLine } from './ErrorLine';
@@ -42,6 +44,7 @@ import { ListRow } from './ListRow';
 import { Notice } from './Notice';
 import { Pill } from './Pill';
 import { Popover } from './Popover';
+import { ProgressMeter } from './ProgressMeter';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
@@ -93,6 +96,7 @@ describe('components/ui barrel', () => {
     CopyChip,
     AnimatedCopyIcon,
     CopyLabel,
+    ProgressMeter,
     PromptCard,
     PromptCarousel,
     AssetListItem,
@@ -106,6 +110,7 @@ describe('components/ui barrel', () => {
     TabHeaderAction,
     TabRootHeader,
     SearchInput,
+    ClearFieldButton,
     Sparkline,
     ActivityRow,
     EmptyState,
@@ -117,6 +122,7 @@ describe('components/ui barrel', () => {
     UnreadDot,
     Button,
     DetailCard,
+    DetailDisclosure,
     DetailRow,
     Hero,
     ListGroup,
@@ -136,6 +142,7 @@ describe('components/ui barrel', () => {
     SubPageLayout,
     ErrorLine,
     ErrorDetails,
+    CodeInput,
     SeedPhraseGrid,
     DappOrigin
   } as const;

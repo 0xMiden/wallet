@@ -2,7 +2,10 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import {
   clearGuardianNoteRecoveryProgress,
+  dismissGuardianNoteRecoveryProgress,
+  fetchGuardianNoteRecoveryDismissal,
   fetchGuardianNoteRecoveryProgress,
+  GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
   isGuardianNoteRecoveryProgressStale,
@@ -53,6 +56,17 @@ describe('guardian note recovery progress', () => {
       latestBlock: undefined,
       updatedAt: undefined
     });
+  });
+
+  it('keeps a string history generation and drops a numeric one', () => {
+    const entry = (historyGeneration: unknown) =>
+      normalizeGuardianNoteRecoveryProgress(
+        { '0xabc': { accountId: '0xabc', step: 'history', sourcesClean: true, historyGeneration } },
+        '0xabc'
+      );
+    expect(entry('gen-1')?.historyGeneration).toBe('gen-1');
+    expect(entry(7)).not.toBeNull();
+    expect(entry(7)?.historyGeneration).toBeUndefined();
   });
 
   it.each([
@@ -144,8 +158,26 @@ describe('guardian note recovery progress', () => {
     ).toBe(true);
   });
 
+  it('never ages out a terminal history record, while a live history record of the same age is stale', () => {
+    const now = 1_700_000_000_000;
+    const updatedAt = now - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 1;
+
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-partial', updatedAt }, now)).toBe(
+      false
+    );
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-failed', updatedAt }, now)).toBe(
+      false
+    );
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history', updatedAt }, now)).toBe(true);
+  });
+
   it('ages out a record with no timestamp, since every live writer stamps one', () => {
     expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'transport' })).toBe(true);
+  });
+
+  it('ages out a terminal record with no timestamp too, since its dismissal is keyed on one', () => {
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-partial' })).toBe(true);
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-failed' })).toBe(true);
   });
 
   it('clears only the finishing account, leaving the rest of the map', async () => {
@@ -213,5 +245,20 @@ describe('guardian note recovery progress', () => {
 
     expect(warn).toHaveBeenCalledTimes(2);
     warn.mockRestore();
+  });
+
+  it('keeps a card dismissal per account under its own key and drops malformed entries', async () => {
+    mockFetchFromStorage.mockResolvedValue({ '0xother': 5, '0xbad': 'soon' });
+
+    await dismissGuardianNoteRecoveryProgress('0xabc', 1_234);
+
+    expect(mockPutToStorage).toHaveBeenCalledWith(GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY, {
+      '0xother': 5,
+      '0xabc': 1_234
+    });
+    await expect(fetchGuardianNoteRecoveryDismissal('0xother')).resolves.toBe(5);
+    await expect(fetchGuardianNoteRecoveryDismissal('0xbad')).resolves.toBeNull();
+    mockFetchFromStorage.mockResolvedValue(null);
+    await expect(fetchGuardianNoteRecoveryDismissal('0xother')).resolves.toBeNull();
   });
 });

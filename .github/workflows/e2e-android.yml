@@ -5,8 +5,8 @@ name: E2E Android
 # regression that only reproduced on Android could ship without anything going
 # red.
 #
-# This runs the Android emulator suite on every push to main, mirroring what
-# e2e-blockchain.yml does for Chrome and iOS.
+# Release E2E (release-e2e.yml) dispatches the Android emulator suite nightly and
+# on each release, as it does e2e-blockchain.yml for Chrome and iOS.
 #
 # Why ubuntu and NOT macOS: the emulator needs hardware acceleration, and on
 # GitHub-hosted runners only Linux can give it. macos-26-xlarge was tried and the
@@ -43,9 +43,6 @@ name: E2E Android
 # rest and reuses an already-booted pair if one is present.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       network:
@@ -59,6 +56,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: e2e-android-${{ github.ref }}
@@ -71,7 +70,9 @@ jobs:
     # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
     runs-on: ubuntu-latest
     # Two emulator boots + an APK assemble + a live-chain spec.
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 10 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 105 || 60 }}
     env:
       E2E_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
       MIDEN_E2E_TEST: 'true'
@@ -137,8 +138,22 @@ jobs:
             exit 1
           }
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       # Pinned exact, matching every other E2E workflow: this job builds
       # miden-client-cli from source, and the cache key below names the rustc
@@ -151,8 +166,8 @@ jobs:
       # inside the test — and the ~9 minutes of cargo build ate the 15-minute
       # per-test budget: `mint-and-balance.android` failed with "Test timeout of
       # 900000ms exceeded" having spent most of it in `Compiling thiserror`.
-      # Keyed on what actually determines the binaries (rustc pin, the
-      # note-transport ref, the pinned CLI rev), so it hits the entry warmed on
+      # Keyed on what actually determines the binaries (rustc pin and the
+      # pinned CLI rev), so it hits the entry warmed on
       # main rather than rebuilding per run.
       - name: Compute shared cargo cache key
         id: cargo_cache_key
@@ -161,31 +176,19 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
           if [ "${{ runner.arch }}" = X64 ]; then
             namespace=miden-e2e-cargo-v2
           else
             namespace=miden-e2e-cargo-v3-${{ runner.arch }}
           fi
-          echo "key=$namespace-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
 
-      - name: Cache cargo (cli + note-transport)
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           key: ${{ steps.cargo_cache_key.outputs.key }}
 
       - name: Pre-install miden-client-cli (off the per-test clock)
@@ -197,14 +200,67 @@ jobs:
         # a drained chain. No marker, no rebuild, and nothing about this step changes.
         uses: ./.github/actions/install-miden-client-cli
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build debug APK
         run: yarn test:e2e:android:build
+
+      - name: Build native Reown instrumentation APK
+        run: |
+          cd android
+          ./gradlew :app:assembleDebugAndroidTest
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
       # Reclaim the Gradle daemon's heap before two emulators start competing
       # for the runner's 16 GB. The daemon lingers after `assembleDebug` holding
       # a GB or two it will never use again in this job.
       - name: Stop the Gradle daemon
-        run: cd android && ./gradlew --stop || true
+        working-directory: android
+        run: ./gradlew --stop || true
+
+      # The wallet fails closed on its startup eligibility check, so the emulator must
+      # reach the host fixture (the E2E harness reverses the same port) or onboarding never renders.
+      - name: Run native Reown bridge smoke
+        id: reown-native-smoke
+        timeout-minutes: 10
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          avd-name: Pixel_API_34
+          force-avd-creation: false
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: >-
+            bash -euo pipefail -c '
+            mkdir -p test-results-android/reown-native-origin;
+            adb reverse tcp:8551 tcp:8551;
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk;
+            adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk;
+            adb shell pm clear com.miden.wallet;
+            adb shell am instrument -w -r -e class com.miden.wallet.ReownNativeFailureBridgeTest
+            com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner 2>&1
+            | tr -d "\r" | tee test-results-android/reown-native-origin/instrumentation.txt;
+            if grep -Eq "FAILURES|INSTRUMENTATION_FAILED" test-results-android/reown-native-origin/instrumentation.txt;
+            then exit 1; fi;
+            grep -Fxq "OK (2 tests)" test-results-android/reown-native-origin/instrumentation.txt
+            '
+
+      - name: Stop native Reown smoke emulator
+        if: ${{ always() && steps.reown-native-smoke.outcome != 'skipped' }}
+        run: |
+          adb -s emulator-5554 emu kill || true
+          for _ in $(seq 1 30); do
+            if ! adb -s emulator-5554 get-state >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo '::error::Native Reown smoke emulator did not stop'
+          exit 1
 
       - name: Run Android E2E
         run: yarn test:e2e:android:run
@@ -218,21 +274,22 @@ jobs:
       # a raw tail so the step can never come back empty again.
       - name: Collect emulator logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
-          adb devices || true
+          timeout 15s adb devices || true
           for serial in emulator-5554 emulator-5556; do
             echo "::group::$serial — app process"
-            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
             echo "::endgroup::"
             echo "::group::$serial — crash buffer"
-            adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
+            timeout 15s adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
             echo "::endgroup::"
             echo "::group::$serial — wallet/chromium/OOM lines (whole buffer)"
-            adb -s "$serial" logcat -d 2>/dev/null \
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
               | grep -iE "miden|chromium|console|fatal|ANR|lowmemorykiller|Killed" | tail -300 || true
             echo "::endgroup::"
             echo "::group::$serial — raw tail (fallback, never filtered)"
-            adb -s "$serial" logcat -d -t 150 2>/dev/null || true
+            timeout 15s adb -s "$serial" logcat -d -t 150 2>/dev/null || true
             echo "::endgroup::"
           done
 

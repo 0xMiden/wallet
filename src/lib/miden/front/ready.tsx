@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
 import { usePassiveStorage } from 'lib/miden/front/storage';
 import { DEFAULT_NETWORK, NETWORK_STORAGE_ID } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useWalletStore } from 'lib/store';
 
 import { MidenNetwork } from '../types';
@@ -35,7 +37,13 @@ export function useSetNetworkId(): (id: string) => void {
 }
 
 /**
- * Hook to get the currently selected network
+ * Hook to get the network that the wallet runs on.
+ *
+ * The effective network (the endpoint override, else the build default) is
+ * the source of truth: sync, transactions, the bridge config and the Guardian
+ * registry read it. Mainnet invitation onboarding writes only the override, not
+ * the legacy stored network id (#1655). The stored id and the default apply
+ * only when no network in the list has the effective id.
  */
 export function useNetwork(): MidenNetwork {
   const networks = useWalletStore(s => s.networks);
@@ -67,11 +75,18 @@ export function useNetwork(): MidenNetwork {
     }
   }, [networks, selectedNetworkId, storedNetworkId, setSelectedNetworkId, setStoredNetworkId, defaultNetId]);
 
-  const effectiveNetworkId = selectedNetworkId || storedNetworkId;
+  // The bridge config listeners fire from followEffectiveNetwork(), which the
+  // provider startup, prepareMainnet() and the Developer Settings save call.
+  // Thus this hook renders again when the effective network changes.
+  const effectiveNetworkName = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
+  const selectedOrStoredId = selectedNetworkId || storedNetworkId;
   const defaultNet = networks.find(n => n.id === DEFAULT_NETWORK) ?? networks[0]!;
   return useMemo(
-    () => networks.find(n => n.id === effectiveNetworkId) ?? defaultNet,
-    [networks, effectiveNetworkId, defaultNet]
+    () =>
+      networks.find(n => n.id === effectiveNetworkName) ??
+      networks.find(n => n.id === selectedOrStoredId) ??
+      defaultNet,
+    [networks, effectiveNetworkName, selectedOrStoredId, defaultNet]
   );
 }
 

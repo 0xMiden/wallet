@@ -15,6 +15,7 @@ import {
   accountsUpdated,
   assertInited,
   assertUnlocked,
+  isUnlocked,
   withInited,
   withUnlocked,
   StoreState
@@ -51,7 +52,9 @@ describe('back/store', () => {
         inited: true,
         vault: {} as any,
         status: WalletStatus.Ready,
-        accounts: [{ publicKey: 'pk', name: 'A', isPublic: true, type: 'on-chain' as any, hdIndex: 0 }],
+        accounts: [
+          { publicKey: 'pk', name: 'A', isPublic: true, type: 'on-chain' as any, hdIndex: 0, authScheme: 'ecdsa' }
+        ],
         networks: [],
         settings: null,
         currentAccount: null,
@@ -76,7 +79,8 @@ describe('back/store', () => {
             isPublic: true,
             type: WalletType.Guardian,
             hdIndex: 0,
-            guardianEndpoint: 'https://guardian.openzeppelin.com',
+            authScheme: 'ecdsa',
+            guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
             guardianOperatorCommitment: 'abc123',
             guardianSyncStatus: 'in-sync'
           }
@@ -111,7 +115,14 @@ describe('back/store', () => {
   describe('accountsUpdated event', () => {
     it('keeps current account when currentAccount is not provided', () => {
       const mockVault = {} as any;
-      const currentAcc = { publicKey: 'pk1', name: 'Acc1', isPublic: true, type: 'on-chain' as any, hdIndex: 0 };
+      const currentAcc = {
+        publicKey: 'pk1',
+        name: 'Acc1',
+        isPublic: true,
+        type: 'on-chain' as any,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      };
       unlocked({
         vault: mockVault,
         accounts: [currentAcc],
@@ -183,6 +194,26 @@ describe('back/store', () => {
 
     it('still throws "Not initialized" first when the store was never inited', () => {
       expect(() => assertUnlocked({ inited: false, vault: null } as StoreState)).toThrow('Not initialized');
+    });
+  });
+
+  describe('isUnlocked', () => {
+    it.each([
+      ['not initialized', { inited: false, vault: {} as any, status: WalletStatus.Ready }, false],
+      ['Locked with no vault', { inited: true, vault: null, status: WalletStatus.Locked }, false],
+      ['Ready with no vault', { inited: true, vault: null, status: WalletStatus.Ready }, false],
+      ['Ready with a vault', { inited: true, vault: {} as any, status: WalletStatus.Ready }, true]
+    ])('answers %s with %s, false exactly when assertUnlocked throws', (_label, fields, unlocked) => {
+      const state = fields as StoreState;
+      let threw = false;
+      try {
+        assertUnlocked(state);
+      } catch {
+        threw = true;
+      }
+
+      expect(isUnlocked(state)).toBe(unlocked);
+      expect(threw).toBe(!unlocked);
     });
   });
 

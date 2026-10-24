@@ -3,7 +3,7 @@ import type { AddressChain } from 'utils/miden';
 import { BridgeNetworkId } from './bridge-networks';
 
 /** Cross-chain route. Fast = Epoch (any token → USDC, fee), Slow = Agglayer (bridgeable token only, no fee). */
-export type BridgeRoute = 'epoch' | 'agglayer';
+export type BridgeRoute = 'epoch' | 'agglayer' | 'usdcx';
 
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',
@@ -86,6 +86,21 @@ export type UIToken = {
   balance: number;
   fiatPrice: number;
   /**
+   * Whether `fiatPrice` is the nominal $1 an unquoted token takes with Developer Settings' switch
+   * on (`isNominalQuote`) rather than a feed quote, and so fit only for a display figure: a dollar
+   * computation such as the Fast route's fee reads the token as unpriced.
+   *
+   * Optional, not required like `scaleIsKnown`, because only `uiTokenFromBalance` prices through
+   * the quote that can be nominal; an omitted field reads as a feed quote or no price (0), which
+   * that computation already handles.
+   */
+  fiatPriceIsNominal?: boolean;
+  /**
+   * First millisecond `fiatPrice` is too old to quote (`quoteExpiryMs`); omitted for a price that never
+   * expires or is absent. A dollar computation reads the token as unpriced from then on.
+   */
+  fiatPriceExpiresAt?: number;
+  /**
    * Whether `decimals` is what the faucet reported, rather than the unknown-token
    * placeholder's guess of 6.
    *
@@ -97,6 +112,9 @@ export type UIToken = {
    */
   scaleIsKnown: boolean;
 };
+
+/** A `UIToken` whose balance read may still be pending: `null` until it lands, which the amount field shows as loading. */
+export type UITokenWithPendingBalance = Omit<UIToken, 'balance'> & { balance: number | null };
 
 export type UIContact = {
   id: string;

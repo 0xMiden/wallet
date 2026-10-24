@@ -57,6 +57,16 @@ jest.mock('lib/store', () => ({
     selector({ assetsMetadata: mockAssetsMetadata })
 }));
 
+// The collateral the receipt falls back to comes from the bridge config.
+let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+// The vault the document lists for the row's market, if any: none unless a test names one.
+let mockListedVault: { name: string } | null = null;
+jest.mock('lib/remote-config/values', () => ({
+  selectMidenUsdc: () => mockCollateral,
+  selectEarnVault: () => mockListedVault
+}));
+
 // Captures the last props handed to the shared layout. `mock`-prefixed so
 // jest's factory-hoisting allows the out-of-scope reference.
 let mockLastLayoutProps: TransactionSuccessLayoutProps | undefined;
@@ -92,9 +102,9 @@ jest.mock('./TransactionSuccessLayout', () => ({
       </div>
     );
   },
-  ReceiptRows: ({ rows }: { rows: ReceiptRow[] }) => {
+  ReceiptRows: ({ rows, surface }: { rows: ReceiptRow[]; surface?: 'fill' | 'outline' }) => {
     mockLastRows = rows;
-    return <div data-testid="rows" />;
+    return <div data-testid="rows" data-surface={surface} />;
   },
   // Earn derives its own amount (USDC-denominated), so it reaches the fee through
   // this hook rather than `useReceiptAmount`. Returns a value so the fee row is
@@ -121,6 +131,7 @@ describe('EarnSuccess', () => {
     mockLastRows = undefined;
     mockLastPill = undefined;
     mockAssetsMetadata = {};
+    mockCollateral = { faucetId: 'mtst1faucet', symbol: 'USDC', decimals: 6 };
     mockNavigate.mockClear();
   });
 
@@ -143,7 +154,7 @@ describe('EarnSuccess', () => {
 
     expect(screen.getByTestId('title')).toHaveTextContent("You're Earning!");
     expect(mockLastPill?.lhs).toBe('10000000 USDC');
-    expect(mockLastPill?.rhs).toBe('DUMMY-LENDING');
+    expect(mockLastPill?.rhs).toBe('Dummy Lending');
     expect(mockLastPill?.separator).toBeTruthy();
   });
 
@@ -170,9 +181,27 @@ describe('EarnSuccess', () => {
     // so never went through the hook that resolved the fee.
     // `t` is the identity function here, so the fee row asserts on its key.
     expect(labels).toEqual(['Market', 'Total Deposited', 'networkFee', 'Transaction ID']);
-    expect(mockLastRows?.[0]?.value).toBe('DUMMY-LENDING');
+    expect(mockLastRows?.[0]?.value).toBe('Dummy Lending');
     expect(mockLastRows?.[1]?.value).toBe('10000000 USDC');
     expect(mockLastRows?.[2]?.value).toBe('0.17 MIDEN');
+  });
+
+  it('names the market as the document lists its vault, when it lists one', () => {
+    mockListedVault = { name: 'Dummy Lending USDC' };
+    try {
+      render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+      expect(mockLastRows?.[0]?.value).toBe('Dummy Lending USDC');
+      expect(mockLastPill?.rhs).toBe('Dummy Lending USDC');
+    } finally {
+      mockListedVault = null;
+    }
+  });
+
+  it('draws its receipt on the outline surface, like the rest of the earn flow', () => {
+    render(<EarnSuccess transaction={earnDeposit()} txHash="0xabc" onDoneClick={() => {}} />);
+
+    expect(screen.getByTestId('rows')).toHaveAttribute('data-surface', 'outline');
   });
 
   it('omits the fee row on a chain that charges nothing', () => {
@@ -205,5 +234,19 @@ describe('EarnSuccess', () => {
 
     expect(mockLastPill?.lhs).toBeUndefined();
     expect(mockLastPill?.rhs).toBeUndefined();
+  });
+  it('falls back to the symbol of the collateral the config names when the row is that collateral', () => {
+    mockCollateral = { faucetId: 'mtst1faucet', symbol: 'tUSDC', decimals: 2 };
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+    expect(mockLastPill?.lhs).toBe('10000000 tUSDC');
+  });
+
+  it('withholds the amount of a deposit whose faucet the config does not name', () => {
+    mockCollateral = { faucetId: 'mtst1other', symbol: 'USDC', decimals: 6 };
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+    expect(mockLastPill?.lhs).toBeUndefined();
+    expect((mockLastRows ?? []).map(row => row.label)).not.toContain('Total Deposited');
   });
 });

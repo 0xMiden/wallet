@@ -2,16 +2,21 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { AddContactDrawer } from './AddContactDrawer';
 
 const addContactMock = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 // The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
 let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
+  useIsInDrawer: () => true,
   Drawer: ({ open, onOpenChange, closeOnBack, children }: any) => {
-    mockDrawerCloseOnBack = closeOnBack;
+    if (closeOnBack !== undefined) mockDrawerCloseOnBack = closeOnBack;
     return open ? (
       <div>
         {/* vaul routes swipe, backdrop and Escape through onOpenChange; expose it so a dismiss
@@ -37,6 +42,7 @@ jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
 }));
 jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: () => null,
   NetworkChip: ({ label, selected, onClick, ...rest }: any) => (
     <button type="button" aria-pressed={selected} onClick={onClick} data-testid={rest['data-testid']}>
       {label}
@@ -48,7 +54,7 @@ jest.mock('./bridge-networks', () => ({
     { id: 'sepolia', name: 'Sepolia', chainId: 1 },
     { id: 'base', name: 'Base', chainId: 2 }
   ],
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 
 const MIDEN = 'mtst1arl2mg5w4524rsfkvuvvtxtwryfdpp48_qr7qqq9wr6w';
@@ -103,6 +109,7 @@ it('saves a Miden contact with a trimmed name and closes', async () => {
 it('lets a 0x contact choose its network, starting from the one chosen on the send step', async () => {
   renderSheet(EVM, 'sepolia');
 
+  fireEvent.click(screen.getByTestId('add-contact-network-picker'));
   expect(screen.getByTestId('add-contact-network-sepolia')).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(screen.getByTestId('add-contact-network-base'));
   fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Bob' } });
@@ -175,4 +182,65 @@ it('can still be dismissed after a successful save', async () => {
   rerender(<AddContactDrawer open address={EVM} onOpenChange={onOpenChange} />);
   fireEvent.click(screen.getByTestId('drawer-dismiss'));
   expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+describe('AddContactDrawer user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  const saveContact = async () => {
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('address-book-add-contact'));
+    });
+  };
+
+  const expectReport = async (id: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it.each([
+    new Error('Contact Alice at mtst1private failed: https://contacts.invalid/save?amount=123.45'),
+    'Contact Alice at mtst1private failed: https://contacts.invalid/save?amount=123.45'
+  ])('reports a raw save rejection by its site code while retaining the display text (%s)', async reason => {
+    addContactMock.mockRejectedValueOnce(reason);
+    const onOpenChange = renderSheet();
+    await saveContact();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(reason instanceof Error ? reason.message : reason);
+    expect(screen.getByTestId('address-book-add-contact')).toBeEnabled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await expectReport('raw_contact_save_failed');
+  });
+
+  it('reports invalidAddress instead of treating the validation refusal as a raw save failure', async () => {
+    renderSheet('mtst1bad');
+    await saveContact();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('invalidAddress');
+    expect(addContactMock).not.toHaveBeenCalled();
+    await expectReport('invalidAddress');
+  });
+
+  it('does not report a save rejection that editing the name clears before 1000 ms', async () => {
+    addContactMock.mockRejectedValueOnce(new Error('contact store unavailable'));
+    renderSheet();
+    await saveContact();
+    expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice corrected' } });
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

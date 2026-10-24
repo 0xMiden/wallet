@@ -2,14 +2,17 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
+import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPane } from 'app/layouts/HomeGroupPane';
+import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
-import { EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
+import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
 import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
@@ -17,17 +20,39 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
+  const { summary, positions, vaults, isLoading, error, notOnNetwork, refetch } = useEarnPositions();
   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
   // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
+  useUserVisibleError(notOnNetwork ? 'earnUnavailableOnNetwork' : null, 'inline');
+  // The vault view's notice, said here too so the tab does not read as open before a vault is opened.
+  const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !notOnNetwork });
+
+  // A network with no Earn has nothing to load or retry, so it gets neither the summary nor the load error.
+  if (notOnNetwork) {
+    return (
+      <HomeGroupPane paneTestId="earn-page">
+        <h1 data-testid="earn-title" className="sr-only">
+          {t('earnTitle')}
+        </h1>
+        <EmptyState icon={IconName.Earn} title={t('earnUnavailableOnNetwork')} data-testid="earn-unavailable" />
+      </HomeGroupPane>
+    );
+  }
 
   return (
     // The shared home-group pane (HomeGroupPane): the page margin, the offset to the title, the
     // scroll and gesture contract and the clearance over the tab bar, the same as Send, Receive
     // and Swap. 20px between sections is this page's own.
-    <HomeGroupPane paneTestId="earn-page" title={t('earnTitle')} titleTestId="earn-title">
-      <div className="flex flex-col gap-5 pt-5">
+    <HomeGroupPane paneTestId="earn-page">
+      {/* No visible title: the summary's "Total earned" is the pane's first line, at the height Send's
+          and Swap's first lines sit, so nothing moves as you swipe between them. The page is still
+          named for assistive tech, as Receive's is. */}
+      <h1 data-testid="earn-title" className="sr-only">
+        {t('earnTitle')}
+      </h1>
+      <div className="flex flex-col gap-5">
+        <FeatureUnavailableNotice availability={earnDeposit} data-testid="earn-unavailable-notice" />
         {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
         {!(positions.length === 0 && (isLoading || loadFailed)) && (
           <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
@@ -54,6 +79,7 @@ const Earn: FC = () => {
           ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
             <EmptyState
               surface="dashed"
+              size="compact"
               icon={IconName.Earn}
               title={t('earnNoActivePositionsTitle')}
               description={t('earnNoActivePositionsBody')}
@@ -62,13 +88,10 @@ const Earn: FC = () => {
           ) : (
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} />}
-              <div
-                className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
-                onPointerDown={event => event.stopPropagation()}
-              >
+              <div className="-mx-4 overflow-x-auto overscroll-x-contain no-scrollbar touch-pan-x">
                 <div className="flex gap-3 px-4 pb-1">
                   {positions.map(position => (
-                    <PositionCard key={position.id} position={position} />
+                    <PositionCard key={position.id} position={position} fullWidth={positions.length === 1} />
                   ))}
                 </div>
               </div>
@@ -95,7 +118,8 @@ const Earn: FC = () => {
   );
 };
 
-const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
+/** A lone position spans the row; with more than one they keep their own width and scroll. */
+const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ position, fullWidth = false }) => {
   const { t } = useTranslation();
 
   return (
@@ -104,23 +128,24 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
       padding="tile"
       data-testid={`earn-position-card-${position.id}`}
       onClick={() => navigate(`/earn/positions/${position.id}`)}
-      className="shrink-0"
+      className={fullWidth ? 'w-full shrink-0' : 'shrink-0'}
     >
-      <div className="flex items-center gap-10">
-        <div className="flex min-w-0 items-center gap-2">
-          <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="text-row-title text-ink">{earnSubjectTitle(position)}</div>
+      {/* One row, like a Settings row: the asset's mark, the vault over its asset and network, and
+          the position's value over its rate, all in Nunito. */}
+      <div className="face-heading flex items-center gap-3">
+        <EarnAssetMark asset={position.asset} network={position.network} decorative />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-row-title text-ink">{earnSubjectTitle(position)}</div>
+          {/* The position named as the page it opens names it: the protocol, over its asset and network. */}
+          <div className="truncate text-caption text-muted">
+            <EarnSubjectSubtitle subject={position} />
+          </div>
         </div>
-        <div className="text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
-      </div>
-      {/* The position named as the page it opens names it: the protocol, over its asset and network. */}
-      <div className="text-caption text-muted">
-        <EarnSubjectSubtitle subject={position} />
-      </div>
-
-      <div className="mt-3 text-entry-unit text-ink">{position.amount}</div>
-      <div className="mt-2 text-caption text-positive-tint-ink">
-        {position.rewards} &bull; {position.age}
+        <div className="shrink-0 text-right">
+          <div className="text-row-title text-ink">{position.amount}</div>
+          <div className="text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
+        </div>
+        <Icon name={IconName.ChevronRightLucide} size="sm" fill="none" className="shrink-0 text-muted" />
       </div>
     </CardButton>
   );
@@ -128,6 +153,8 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
 
 const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
+  const asset = vault.fundingAsset ?? vault.asset;
+  const network = vault.fundingAsset ? 'Miden' : vault.network;
 
   return (
     <CardButton
@@ -138,14 +165,24 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
     >
       <div className="flex w-full items-center gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fill">
-          <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
+          <ProviderLogo protocol={vault.protocol} logoUrl={vault.logoUrl} className="h-8 w-8" />
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-row-title text-ink">{vault.protocol}</div>
+          {/* The document's name of the vault, as written in every language. */}
+          <div className="truncate text-row-title text-ink">{earnSubjectTitle(vault)}</div>
+          {/* A market with its own name (a Morpho market) says it first, so two markets of one protocol
+              read differently. */}
           <div className="truncate text-caption text-muted">
-            {t('earnVaultAssetOnNetwork', { asset: vault.asset, network: vault.network })}
+            {vault.marketName
+              ? t('earnMarketAssetOnNetwork', { market: vault.marketName, asset, network })
+              : t('earnVaultAssetOnNetwork', { asset, network })}
           </div>
+          {vault.listedAbout && (
+            <div className="line-clamp-2 text-caption text-muted" data-testid={`earn-vault-row-about-${vault.id}`}>
+              {vault.listedAbout}
+            </div>
+          )}
         </div>
 
         <span className="shrink-0 text-value text-positive-tint-ink">{vault.apy}</span>

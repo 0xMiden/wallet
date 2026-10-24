@@ -4,31 +4,43 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Avatar } from 'components/ui/Avatar';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
+import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { balanceFormatterFor } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
-import { UIToken } from './types';
+import { UITokenWithPendingBalance } from './types';
 
 // Placeholder-circle background before a token/network is chosen. Not a design-system token —
 // carried over from the pre-Avatar literal as-is; a later token-cleanup pass maps it to one.
 const PLACEHOLDER_BLUE = '#2F6BED';
 
 export interface SelectAmountProps {
-  token?: UIToken;
+  token?: UITokenWithPendingBalance;
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  errorId?: UserErrorId | null;
+  /**
+   * Keep the field's invalid (red) state for `error` but leave its message to the caller, which
+   * draws it elsewhere (the swap's fee notice sits under the token, with its own action).
+   */
+  hideErrorText?: boolean;
   /** Overrides the amount label (e.g. "Select Amount", "You Pay"). */
   label?: React.ReactNode;
   /** Overrides the Confirm button label in the page variant. */
@@ -54,8 +66,13 @@ export interface SelectAmountProps {
    * carries one colour throughout (design-system.md, "Action colours").
    */
   accent?: FlowAccent;
-  /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
+  /** The mark drawn when `token.name` has none and the verified list gives no logo, e.g. the DEX `logoSymbol`. */
   logoSymbol?: string;
+  /**
+   * The token's name in the selector and the Available line, such as a testnet label. Defaults to `token.name`, which
+   * still keys the logo.
+   */
+  tokenLabel?: string;
   /** Cross-chain deposit — swaps the Miden chip for a destination-network selector. */
   isBridge?: boolean;
   /** Chosen destination network (bridge only). */
@@ -66,6 +83,18 @@ export interface SelectAmountProps {
   title?: React.ReactNode;
   /** Show a skeleton in place of the amount while it is being computed (e.g. the swap receive quote). */
   loading?: boolean;
+  amountDisplayValue?: string;
+  amountDecimalsLimit?: number;
+  amountMaxLength?: number;
+  /**
+   * Inset the page variant at the 16px page margin instead of the send flow's own, and start it at
+   * the height the earn pages start under their header. For a page whose header sits on that margin
+   * (the earn deposit step), so the field lines up under the back button and its first line starts
+   * where the vault page's does.
+   */
+  pageInset?: boolean;
+  /** Draw the accent rule under a typed amount. The earn deposit step turns it off. */
+  showAmountDivider?: boolean;
   onSelectNetwork?: () => void;
 }
 
@@ -84,6 +113,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  errorId,
+  hideErrorText = false,
   label,
   confirmTitle,
   showNetworkPill = true,
@@ -95,18 +126,28 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   embedded = false,
   accent = 'brand',
   logoSymbol,
+  tokenLabel,
   isBridge = false,
   network,
   outputSymbol,
   title,
   loading,
+  amountDisplayValue,
+  amountDecimalsLimit,
+  amountMaxLength,
+  pageInset = false,
+  showAmountDivider = true,
   onSelectNetwork
 }) => {
   const { t } = useTranslation();
   const accentClasses = ACCENT_CLASSES[accent];
 
-  const availableFiat = token ? token.balance * token.fiatPrice : 0;
-  const formatAvailableFiat = adaptiveFormatterFor(availableFiat);
+  const prices = useWalletStore(state => state.tokenPrices);
+  const quote = token ? tokenQuote(prices, token.id, token.name) : undefined;
+  useQuoteClock(quoteExpiryMs(quote));
+  const price = usdQuoteStatus(quote) === 'ready' ? quote?.price : undefined;
+  const availableFiat = token && token.balance !== null && price ? token.balance * price : null;
+  const formatAvailableFiat = adaptiveFormatterFor(availableFiat ?? 0);
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
   // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
@@ -116,6 +157,12 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   // rather than at the confirmation.
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount && (!isBridge || !!network);
+  const amountErrorId = errorId === undefined && isUserErrorId(error) ? error : errorId;
+  const amountError = !hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
+  useUserVisibleError(
+    !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
+    'inline'
+  );
 
   const tokenSelector = (
     <button
@@ -128,11 +175,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={logoSymbol ?? token.name} size="sm" />
+        <TokenLogo symbol={token.name} faucetId={token.id} fallbackSymbol={logoSymbol} size="sm" />
       ) : embedded ? (
         <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+      <span className="font-heading text-xl font-bold text-ink">
+        {token ? (tokenLabel ?? token.name) : t('selectAToken')}
+      </span>
       <Icon name={IconName.ChevronDown} size="xs" className={accentClasses.text} fill="currentColor" />
     </button>
   );
@@ -151,11 +200,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         className="flex items-center gap-3 text-left"
       >
         {token ? (
-          <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+          <TokenLogo symbol={token.name} faucetId={token.id} fallbackSymbol={logoSymbol} size="md" />
         ) : (
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}
-        <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+        <span className="font-heading text-2xl font-bold text-ink">
+          {token ? (tokenLabel ?? token.name) : t('selectAToken')}
+        </span>
         <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
       </button>
 
@@ -200,7 +251,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   let helper: React.ReactNode = null;
   if (token && showBalanceHelper) {
     // Built once per render, not per frame: `token` is only known here, inside the branch.
-    const formatAvailableBalance = balanceFormatterFor(token.balance);
+    const formatAvailableBalance = balanceFormatterFor(token.balance ?? 0);
     helper = (
       <>
         <span className="font-heading text-gray text-base font-bold">
@@ -208,12 +259,14 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
               balance from it would be inviting the user to act on a number the
               wallet cannot stand behind. */}
           {/* Keyed by token, so a different token lands its own balance instead of counting from the
-              last token's; a new balance for the same token still counts. */}
-          {scaleIsKnown ? (
+              last token's; a new balance for the same token still counts. A balance still pending
+              quotes no number, so it reads as loading whatever its scale. */}
+          {scaleIsKnown || token.balance === null ? (
             <AnimatedNumber
               key={token.id}
               value={token.balance}
-              format={value => `${t('available')} ${formatAvailableBalance(value)} ${token.name}`}
+              placeholder={t('loading')}
+              format={value => `${t('available')} ${formatAvailableBalance(value)} ${tokenLabel ?? token.name}`}
             />
           ) : (
             t('unknownTokenScale')
@@ -221,7 +274,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         </span>
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
-        {scaleIsKnown && token.fiatPrice > 0 && (
+        {scaleIsKnown && price !== undefined && (
           <AnimatedNumber
             key={token.id}
             className="font-heading text-gray text-base font-bold"
@@ -234,11 +287,19 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   }
 
   const amountField = (
-    <AmountInput
+    <TokenAmountInput
+      assetId={token?.id ?? ''}
+      symbol={token?.name ?? ''}
+      decimals={token?.decimals ?? 0}
+      scaleIsKnown={!!token?.scaleIsKnown}
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
+      unfocusedDisplayValue={amountDisplayValue}
+      decimalsLimit={amountDecimalsLimit ?? (token ? token.decimals : 6)}
+      maxLength={amountMaxLength}
       invalid={!!error}
-      error={error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
+      errorId={hideErrorText ? null : amountErrorId}
+      error={amountError}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.
@@ -246,10 +307,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       helper={helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
       accent={accent}
-      showDivider={!!amount && !!token}
+      showDivider={showAmountDivider && !!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
-      onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
+      aria-label={typeof label === 'string' ? label : undefined}
+      onValueChange={value => onAmountChange(value || '')}
     />
   );
 
@@ -258,8 +320,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   }
 
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', pageInset ? 'px-4' : isMobile() ? 'px-8' : 'px-6')}>
+      <div className={clsx('flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar', pageInset ? 'pt-7' : 'pt-10')}>
         {title}
         {showNetworkPill && !isBridge && (
           <span

@@ -16,21 +16,32 @@
  * The platform check is preserved from the legacy `Browser.tsx`: on
  * desktop (Tauri) we still hand off to the existing dapp-browser bridge
  * that opens a separate window.
+ *
+ * The extension has no embedded browser and no provider: it shows the same
+ * launcher and opens every pick in a new browser tab.
  */
 
-import React, { type FC, useCallback } from 'react';
+import React, { type FC, useCallback, useLayoutEffect, useRef } from 'react';
 
-import { usePageActive } from 'app/layouts/page-active';
+import { openUrlInNewTab } from 'app/env';
+import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
-import { createDappSession, getDappDisplayName, recordRecentDapp } from 'lib/dapp-browser';
-import { isDesktop } from 'lib/platform';
+import { createDappSession } from 'lib/dapp-browser';
+import type { ExploreFilter } from 'lib/dapp-browser/explore-catalog';
+import { isDesktop, isExtension } from 'lib/platform';
 
 import { DappActive } from './DappActive';
 import { DappLauncher } from './DappLauncher';
-import { isSearchUrl } from './DappLauncher/search-url';
+import { recordOpenedDapp } from './record-opened-dapp';
 
-export const BrowserScreen: FC = () => {
-  const { mode, open } = useDappBrowser();
+export interface BrowserScreenProps {
+  requestedFilter?: ExploreFilter;
+  entryIntent?: number;
+  onChooseFilter?: (filter: ExploreFilter) => void;
+}
+
+const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
+  const { mode, open, reportLauncherCommit, policyPending, presentation } = useDappBrowser();
   // A tab pane or page layer stays mounted off screen, but the dApp surface must not: its unmount clears the slot
   // rect, which is what parks the foreground dApp and hides its native window.
   const onScreen = usePageActive();
@@ -49,29 +60,57 @@ export const BrowserScreen: FC = () => {
       }
 
       // Mobile: build a session and hand it to the provider.
-      const session = createDappSession(url);
-      open(session);
-
-      // The session was just created, so its title is still its origin and
-      // the shared helper returns the URL's hostname: a readable name, not
-      // the raw `https://…` origin. The bubble, switcher card and capsule
-      // derive their names from the same helper.
-      const displayName = getDappDisplayName(session);
-
-      // Recents is a list of dApps the user chose, so a web search this app produced is not one -
-      // the other writer, DappActionsSheet's My-dApps toggle, holds the same rule.
-      if (isSearchUrl(url)) return;
-
-      recordRecentDapp({
-        url,
-        name: displayName,
-        origin: session.origin,
-        favicon: session.favicon ?? undefined
-      }).catch(() => {});
+      open(createDappSession(url));
+      void recordOpenedDapp(url);
     },
     [open]
   );
 
-  if (mode === 'active') return onScreen ? <DappActive /> : null;
-  return <DappLauncher onOpen={handleOpen} />;
+  const launcherVisible = mode !== 'active' || policyPending || presentation === 'fullscreen';
+  const launcher = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = launcher.current;
+    if (!element) return;
+    element.inert = !launcherVisible || !onScreen;
+    if ((!launcherVisible || !onScreen) && element.contains(document.activeElement)) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    }
+  }, [launcherVisible, onScreen]);
+  useLayoutEffect(() => {
+    reportLauncherCommit?.(mode !== 'active' && onScreen);
+    return () => reportLauncherCommit?.(false);
+  });
+
+  return (
+    <>
+      <div
+        ref={launcher}
+        hidden={!launcherVisible}
+        aria-hidden={!launcherVisible || !onScreen}
+        className={launcherVisible ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+      >
+        <PageActiveContext.Provider value={launcherVisible && onScreen}>
+          <DappLauncher {...props} onOpen={handleOpen} />
+        </PageActiveContext.Provider>
+      </div>
+      {mode === 'active' && onScreen && <DappActive />}
+    </>
+  );
 };
+
+const ExtensionBrowserScreen: FC<BrowserScreenProps> = props => {
+  const handleOpen = useCallback(async (url: string) => {
+    // Recorded before the tab opens: the new tab takes focus, which closes the popup and ends this script.
+    await recordOpenedDapp(url);
+    try {
+      await openUrlInNewTab(url);
+    } catch (error) {
+      console.error('[BrowserScreen] Error opening a dApp tab:', error);
+    }
+  }, []);
+
+  return <DappLauncher {...props} onOpen={handleOpen} />;
+};
+
+export const BrowserScreen: FC<BrowserScreenProps> = props =>
+  isExtension() ? <ExtensionBrowserScreen {...props} /> : <EmbeddedBrowserScreen {...props} />;

@@ -9,12 +9,15 @@ export default defineConfig({
   testDir: './playwright/e2e/android/tests',
   // dApp-browser specs run via playwright.android.dapp.config.ts (no chain
   // dependency, so they get their own faster workflow).
-  testIgnore: ['**/dapp-browser.*.spec.ts'],
+  // The dApp in-app browser journey runs via playwright.android.dapp-e2e.config.ts.
+  // Auth Tab acceptance runs via playwright.android.auth-tab.config.ts; its beforeAll requires
+  // AUTH_TAB_KEY_PATH and AUTH_TAB_CERT_PATH.
+  testIgnore: ['**/dapp-browser.*.spec.ts', '**/dapp-inapp.*.spec.ts', '**/auth-tab.android.spec.ts'],
   // Same 15-min ceiling as iOS — Android emulator on Apple Silicon is
   // comparable to iOS sim for our prove workload.
   timeout: 900_000,
   expect: {
-    timeout: 60_000,
+    timeout: 60_000
   },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -24,12 +27,12 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['json', { outputFile: 'test-results-android/results.json' }],
-    ['html', { outputFolder: 'test-results-android/html', open: 'never' }],
+    ['html', { outputFolder: 'test-results-android/html', open: 'never' }]
   ],
   globalSetup: './playwright/e2e/android/fixtures/global-setup.ts',
   globalTeardown: './playwright/e2e/android/fixtures/global-teardown.ts',
   use: {
     actionTimeout: 30_000,
-    navigationTimeout: 90_000,
-  },
+    navigationTimeout: 90_000
+  }
 });

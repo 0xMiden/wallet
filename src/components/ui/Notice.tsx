@@ -2,16 +2,19 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 /**
  * What the notice says about its content:
  * - `neutral` — a quiet aside, `fill` with a `muted` body.
  * - `warning` — something to act on with care (test funds, a pending state).
+ * - `caution` — a calm heads-up before an action (use a test wallet): the sand `pending-tint`, quieter than `warning`.
  * - `negative` — an error or a destructive consequence.
  * - `positive` — a confirmation.
  */
-export type NoticeTone = 'neutral' | 'warning' | 'negative' | 'positive';
+export type NoticeTone = 'neutral' | 'warning' | 'caution' | 'negative' | 'positive';
 
 /**
  * How much room the notice takes:
@@ -22,6 +25,10 @@ export type NoticeTone = 'neutral' | 'warning' | 'negative' | 'positive';
 export type NoticeVariant = 'block' | 'inline';
 
 export interface NoticeProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
+  /** Stable identity for one failure; a new object restarts the same error's visible dwell. */
+  errorOccurrence?: object;
   /**
    * The body copy: one or two short lines. Optional, so a notice whose whole message is its
    * `title` — an explanation with nothing subordinate under it — renders as that one line rather
@@ -38,6 +45,8 @@ export interface NoticeProps {
   role?: 'note' | 'status' | 'alert';
   /** Layout only (margins, width). */
   className?: string;
+  /** Lets a control point at the notice with `aria-describedby`. */
+  id?: string;
   'data-testid'?: string;
 }
 
@@ -61,6 +70,7 @@ const noticeSurfaceVariants = cva('', {
     tone: {
       neutral: 'bg-fill',
       warning: 'bg-status-pending/10',
+      caution: 'bg-pending-tint',
       negative: 'bg-status-negative/10',
       positive: 'bg-status-positive/10'
     } satisfies Record<NoticeTone, string>
@@ -74,6 +84,7 @@ const noticeInkVariants = cva('', {
     tone: {
       neutral: 'text-ink',
       warning: 'text-pending-ink',
+      caution: 'text-pending-tint-ink',
       negative: 'text-negative-ink',
       positive: 'text-positive-ink'
     } satisfies Record<NoticeTone, string>
@@ -87,6 +98,7 @@ const noticeBodyVariants = cva('text-caption', {
       // `muted` on `fill` is 4.7:1.
       neutral: 'text-muted',
       warning: 'text-ink',
+      caution: 'text-pending-tint-ink',
       negative: 'text-ink',
       positive: 'text-ink'
     } satisfies Record<NoticeTone, string>
@@ -106,47 +118,54 @@ export const Notice: React.FC<NoticeProps> = ({
   title,
   icon,
   tone = 'neutral',
+  errorId,
+  errorOccurrence,
   variant = 'block',
   role = 'note',
   className,
+  id,
   'data-testid': dataTestId
-}) => (
-  <div
-    role={role}
-    data-tone={tone}
-    data-variant={variant}
-    data-testid={dataTestId}
-    className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
-  >
-    {icon && (
-      <span
-        aria-hidden="true"
-        data-slot="icon"
-        // 17px line box, 16px glyph: a 0.5px nudge centres it on the first line.
-        className={cn(
-          'mt-px flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
-          noticeInkVariants({ tone })
-        )}
-      >
-        {icon}
-      </span>
-    )}
-    <div className="flex min-w-0 flex-col gap-0.5">
-      {title && (
-        <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
-          {title}
-        </span>
-      )}
-      {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
-          every inline tone takes `muted` (5.3:1 on `page`). */}
-      {children !== undefined && (
+}) => {
+  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence);
+  return (
+    <div
+      id={id}
+      role={role}
+      data-tone={tone}
+      data-variant={variant}
+      data-testid={dataTestId}
+      className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
+    >
+      {icon && (
         <span
-          data-slot="body"
-          className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+          aria-hidden="true"
+          data-slot="icon"
+          // 17px line box, 16px glyph: a 0.5px nudge centres it on the first line.
+          className={cn(
+            'mt-px flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
+            noticeInkVariants({ tone })
+          )}
         >
-          {children}
+          {icon}
         </span>
       )}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {title && (
+          <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
+            {title}
+          </span>
+        )}
+        {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
+          every inline tone takes `muted` (5.3:1 on `page`). */}
+        {children !== undefined && (
+          <span
+            data-slot="body"
+            className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+          >
+            {children}
+          </span>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};

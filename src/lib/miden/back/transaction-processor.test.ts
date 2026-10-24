@@ -46,6 +46,7 @@ const mockGetAllUncompletedTransactions = jest.fn();
 const mockCancelStuckTransactions = jest.fn();
 const mockNextQueuedWakeDelayMs = jest.fn();
 const mockIsQueuedRowReady = jest.fn();
+const mockGuardianCandidateRelease = jest.fn();
 
 // Indirection so a test can simulate the Vite SW build's async-init window
 // (`safeGenerateTransactionsLoop` not yet a function) by setting this to
@@ -66,7 +67,13 @@ jest.mock('lib/miden/transaction', () => ({
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
   cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args),
   nextQueuedWakeDelayMs: (...args: unknown[]) => mockNextQueuedWakeDelayMs(...args),
-  isQueuedRowReady: (...args: unknown[]) => mockIsQueuedRowReady(...args)
+  isQueuedRowReady: (...args: unknown[]) => mockIsQueuedRowReady(...args),
+  guardianCandidateRelease: (...args: unknown[]) => mockGuardianCandidateRelease(...args)
+}));
+
+const mockReconcileUnconfirmedTransactions = jest.fn();
+jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: (...args: unknown[]) => mockReconcileUnconfirmedTransactions(...args)
 }));
 
 const mockDbOpen = jest.fn();
@@ -80,8 +87,13 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockWithUnlocked = jest.fn();
+// The store's unlock predicate, answering as `withUnlocked` does: `lockedWithUnlocked` locks both.
+let mockVaultUnlocked = true;
 jest.mock('./store', () => ({
-  withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
+  withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn),
+  isUnlocked: () => mockVaultUnlocked,
+  store: { getState: () => ({}) },
+  accountsUpdated: jest.fn()
 }));
 
 /**
@@ -91,6 +103,7 @@ jest.mock('./store', () => ({
  * — that shape is unreachable in production now that the gate exists.
  */
 const lockedWithUnlocked = () => {
+  mockVaultUnlocked = false;
   mockWithUnlocked.mockImplementation(() => {
     throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' as const });
   });
@@ -105,6 +118,7 @@ beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
   mockWithUnlocked.mockReset();
+  mockVaultUnlocked = true;
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
@@ -504,6 +518,32 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
   });
 });
 
+describe('vaultGuardianProvider.swapHotKey', () => {
+  const vaultSwapping = () => {
+    const swapHotKey = jest.fn(async () => ({ accounts: [], currentAccount: undefined }));
+    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault: { swapHotKey } }));
+    return swapHotKey;
+  };
+
+  it('passes the expectation to the vault (#1233)', async () => {
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
+
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+  });
+
+  it('passes no expectation when the caller passes none (#1233)', async () => {
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
+
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
+  });
+});
+
 describe('startTransactionProcessing — broadcast and retry loop', () => {
   it('broadcasts SyncCompleted after each loop iteration', async () => {
     mockGetAllUncompletedTransactions.mockResolvedValue([]);
@@ -859,5 +899,20 @@ describe('the wait between passes (#1266)', () => {
     await jest.advanceTimersByTimeAsync(1);
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
     await run;
+  });
+});
+
+describe('reconcileUnconfirmedInWorker (#1081)', () => {
+  it("runs the reconciler pass with a release built on the service worker's vault provider", async () => {
+    const release = { abandon: jest.fn() };
+    mockGuardianCandidateRelease.mockReturnValue(release);
+    mockReconcileUnconfirmedTransactions.mockResolvedValue(undefined);
+    const mod = await import('./transaction-processor');
+
+    await mod.reconcileUnconfirmedInWorker();
+
+    expect(mockGuardianCandidateRelease).toHaveBeenCalledWith(mod.vaultGuardianProvider);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledTimes(1);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledWith({ release });
   });
 });

@@ -48,15 +48,22 @@ jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
 // (assets, note scripts, attachments) and has its own tests — stubbing it keeps
 // these cases from drifting every time the builder gains a dependency.
 jest.mock('./collateral-note', () => ({
-  buildEpochCollateralRequestBytes: jest.fn(async () => new Uint8Array([1, 2, 3]))
+  buildEpochCollateralRequestBytes: jest.fn(async () => ({
+    requestBytes: new Uint8Array([1, 2, 3]),
+    reclaimHeight: 6000,
+    noteId: 'note-stamped'
+  }))
 }));
 
 // Minimal SDK stand-in. `AccountId.fromHex(...).toBech32(net)` is kept working so a
 // regression to the hardcoded `NetworkId.testnet()` encoding fails with a readable
-// `mtst1…` vs `mlcl1…` diff rather than a TypeError.
+// `mtst1…` vs `mlcl1…` diff rather than a TypeError. Like the SDK's, fromHex takes only a literal `0x`.
 jest.mock('@miden-sdk/miden-sdk', () => ({
   AccountId: {
-    fromHex: (hex: string) => ({ hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` })
+    fromHex: (hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` };
+    }
   },
   Address: {
     fromBech32: (addr: string) => ({
@@ -80,6 +87,10 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     expect(ifHextoBech32('0xdeadbeef')).toBe('mlcl1deadbeef');
   });
 
+  it('encodes an id written with an uppercase 0X prefix the same as its 0x form', () => {
+    expect(ifHextoBech32('0Xdeadbeef')).toBe('mlcl1deadbeef');
+  });
+
   it('passes an already-bech32 id through untouched', () => {
     expect(ifHextoBech32('mlcl1alreadyencoded')).toBe('mlcl1alreadyencoded');
   });
@@ -99,11 +110,20 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       deps
     });
 
+    // The SDK gets the committed note id; the stamped one only rides on the row (#1250).
     expect(result).toEqual({ success: true, noteId: 'note-1', txId: 'tx-bridge' });
-    const [senderArg, , faucetArg, , , , , , sendParams] = mockInitiateBridgedSendTransaction.mock.calls[0]!;
+    const [senderArg, , faucetArg, , , , requestBytesArg, , sendParams] =
+      mockInitiateBridgedSendTransaction.mock.calls[0]!;
     expect(faucetArg).toBe('mlcl1faucet');
     expect(senderArg).toBe('mlcl1sender');
-    expect(sendParams).toMatchObject({ recipientId: 'mlcl1allocator' });
+    expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
+    expect(sendParams).toEqual({
+      recipientId: 'mlcl1allocator',
+      noteType: 'public',
+      recallBlocks: 5_000,
+      reclaimHeight: 6000,
+      reclaimNoteId: 'note-stamped'
+    });
   });
 
   it('stores the effective-network faucet + allocator ids on the earn-deposit row', async () => {
@@ -122,10 +142,33 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     });
 
     expect(result).toEqual({ success: true, noteId: 'note-1', txId: 'tx-earn' });
-    const [senderArg, , , , faucetArg, sendParams] = mockInitiateEarnDepositTransaction.mock.calls[0]!;
+    const [senderArg, , , , faucetArg, sendParams, , requestBytesArg] =
+      mockInitiateEarnDepositTransaction.mock.calls[0]!;
     expect(faucetArg).toBe('mlcl1faucet');
     expect(senderArg).toBe('mlcl1sender');
-    expect(sendParams).toMatchObject({ recipientId: 'mlcl1allocator' });
+    expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
+    expect(sendParams).toEqual({ recipientId: 'mlcl1allocator', noteType: 'public', recallBlocks: 5_000 });
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![10]).toBeUndefined();
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBeUndefined();
+  });
+
+  it('passes the deposit protocol and chain through to transaction initiation', async () => {
+    await createEarnP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      evmRecipient: '0xevm',
+      marketUid: 'AAVE_V3:8453:0xusdc',
+      protocol: '1delta',
+      chainId: 8453,
+      deps
+    });
+
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![10]).toBe('1delta');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBe(8453);
   });
 
   it('threads exact spending-limit authorizations to both atomic row insertions', async () => {

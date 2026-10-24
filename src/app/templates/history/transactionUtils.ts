@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
+import type { Status } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
@@ -14,9 +15,13 @@ import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
 
@@ -61,6 +66,33 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
   );
 };
 
+/**
+ * The entry as shown: its token and each extra amount named by its own faucet (`midenTokenLabel`). A fetched entry keeps
+ * the chain symbol, so a list labels it at render and follows the snapshot when it publishes. A swap row names each side
+ * by that side's faucet; an Earn row keeps the chain symbol the Earn screens use.
+ */
+export const labelHistoryEntry = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): IHistoryEntry => {
+  if (entry.txType === 'swap') {
+    return {
+      ...entry,
+      token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+      requestedToken:
+        entry.requestedToken === undefined
+          ? undefined
+          : midenTokenLabel(snapshot, entry.requestedFaucetId, entry.requestedToken)
+    };
+  }
+  if (entry.txType === 'earn-withdraw' || entry.txType === 'earn-deposit') return entry;
+  return {
+    ...entry,
+    token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+    extraAmounts: entry.extraAmounts?.map(extra => ({
+      ...extra,
+      token: midenTokenLabel(snapshot, extra.faucetId, extra.token)
+    }))
+  };
+};
+
 /** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
 interface SwapExtraInputs {
   requestedFaucetId?: string;
@@ -91,10 +123,13 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   // to re-discriminate them — which is how the scale check first went wrong,
   // testing a property (`name`) that a legitimate metadata record may omit.
   const offeredRegistry = getSwapTokenByFaucetId(tx.faucetId);
-  const offeredMetadata = offeredRegistry === undefined ? await getTokenMetadata(tx.faucetId ?? null) : undefined;
+  const offeredMetadata =
+    offeredRegistry === undefined && tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
   const requestedRegistry = getSwapTokenByFaucetId(extra.requestedFaucetId);
   const requestedMetadata =
-    requestedRegistry === undefined ? await getTokenMetadata(extra.requestedFaucetId ?? null) : undefined;
+    requestedRegistry === undefined && extra.requestedFaucetId
+      ? await getTokenMetadata(extra.requestedFaucetId)
+      : undefined;
   // A registry token declares its own decimals, so a registry hit is always
   // scalable. Off the registry, `getTokenMetadata` hands back the unknown-token
   // placeholder for a faucet it could not resolve, and its 6 decimals are a
@@ -144,7 +179,7 @@ export const isCompletedTransaction = (message: string): boolean => {
 /**
  * Settlement state for a completed swap order, driving the swap row's status
  * chip and the receipt's hero pill; `undefined` renders Confirmed. Pending only
- * for auto-consumed orders that carry an explicit expiry (stamped since
+ * for an open Guardian-recovered order, and for auto-consumed orders that carry an explicit expiry (stamped since
  * settlement shipped) and have no settlement stamp yet — settled, legacy, and
  * manual-claim orders all fall through to Confirmed. A settledAt stamp wins over
  * reclaimedAt (a batch containing payback notes delivered funds even if the
@@ -153,11 +188,19 @@ export const isCompletedTransaction = (message: string): boolean => {
  * Shared by the list and the detail screen so one order cannot read "Pending"
  * in the list and "Confirmed" on its own receipt.
  */
-export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | undefined => {
+export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlement'] => {
   if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
   const extra = tx.extraInputs ?? {};
+  // Recovery writes Auto accept off and no expiry, so a recovered order reads open while its lineage has not closed
+  // it, which is what the placing device shows (#1487), and Returning funds once this wallet's Cancel stamped it. Read
+  // before the stamps: a settledAt or reclaimedAt no lineage read recorded is provisional.
+  if (isOpenRecoveredOrder(tx)) return extra.expiryTriggeredAt != null ? 'reclaiming' : 'pending';
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
+  if (tx.recovered === true) return undefined;
+  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
+    return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };
@@ -239,6 +282,11 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
     return 'pending';
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
+  if (entry.bridgeProvider === 'usdcx') {
+    if (entry.usdcxBurn?.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed) return 'confirmed';
+    if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
+    return 'pending';
+  }
   if (entry.bridgeProvider === 'agglayer') {
     if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
     if (entry.bridgeClaimStatus === 'failed') return 'failed';
@@ -247,9 +295,40 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   return entry.bridgeEpochStatus ?? 'pending';
 };
 
+/** A USDCx row in either direction: a deposit through xReserve, or a burn. Its badge is `bridgeBadgeStatusOf`. */
+export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
+  entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
+
+/**
+ * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
+ * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
+ * as a confirmed destination payout.
+ */
+export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
+  if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
+  if (entry.bridgeInProvider === 'usdcx') {
+    const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
+    return received ? 'completed' : bridgeStatusOf(entry);
+  }
+  if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
+  switch (entry.usdcxBurn?.phase) {
+    case 'confirmed':
+      return entry.usdcxBurn.destinationBalanceConfirmed ? 'confirmed' : 'burnConfirmed';
+    case 'discarded':
+      return 'burnDiscarded';
+    case 'consuming':
+      return 'burnConsuming';
+    default:
+      return 'burnPending';
+  }
+}
+
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
+  /** The name each side is shown under (`midenTokenLabel`, `evmUsdcLabel`); the symbols above format the amounts. */
+  inLabel: string;
+  outLabel: string;
   /**
    * What the destination side receives, ready to show. Bridge-out: the stored quote rounded down,
    * or the typed send amount for a row without a quote (Slow). Bridge-in: the typed "you receive"
@@ -266,14 +345,37 @@ export interface BridgeRowDisplay {
  * (`HistoryItem`) and the full Activity row (`HistoryView` → `ActivityRow`) render
  * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
  */
-export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
+  if (entry.bridgeProvider === 'usdcx') {
+    return {
+      inSymbol,
+      outSymbol: inSymbol,
+      inLabel: inSymbol,
+      outLabel: inSymbol,
+      outAmount: entry.amount?.toString(),
+      providerLabel: 'Circle xReserve',
+      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
+      status: bridgeStatusOf(entry)
+    };
+  }
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
+  // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
+  const outLabel = entry.bridgeProvider === 'epoch' ? evmUsdcLabel(snapshot, outSymbol) : outSymbol;
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel: midenTokenLabel(snapshot, entry.faucetId, inSymbol),
+    outLabel,
+    outAmount,
+    providerLabel,
+    network: 'Sepolia',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /**
@@ -283,6 +385,24 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
  */
 const symbolOrUndefined = (symbol: string | undefined): string | undefined =>
   symbol === undefined || /^0x[0-9a-fA-F]{40}$/.test(symbol) ? undefined : symbol;
+
+/** Display name of the bridge-in route. A row with no provider predates the field and was Epoch. */
+const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): string => {
+  switch (provider) {
+    case 'agglayer':
+      return 'Agglayer';
+    case 'usdcx':
+      return 'Circle xReserve';
+    case 'near-intents':
+      return '1Click';
+    case 'epoch':
+      return 'Epoch';
+    case undefined:
+      return 'Epoch';
+    default:
+      return 'Bridge';
+  }
+};
 
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
 export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
@@ -294,7 +414,7 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
  * row is only tagged once the consume is on-chain-final, so status is always
  * confirmed.
  */
-export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
   // Once received (a consume row always is) the row's own amount is what was credited. In flight
@@ -306,8 +426,22 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
       ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
       : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
-  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
+  const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
+  const inLabel = bridgeInSourceLabel(snapshot, {
+    provider: entry.bridgeInProvider,
+    symbol: inSymbol,
+    sourceToken: entry.bridgeInSourceToken
+  });
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel,
+    outLabel: midenTokenLabel(snapshot, entry.faucetId, outSymbol),
+    outAmount,
+    providerLabel,
+    network: 'Miden',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */

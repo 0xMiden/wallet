@@ -8,17 +8,19 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  guardianCandidateRelease,
   isQueuedRowReady,
   nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
+import { reconcileUnconfirmedTransactions } from 'lib/miden/transaction/reconcile-unconfirmed';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
 import { getIntercom } from './defaults';
 import { clearRecoveryAuthorization } from './recovery-authorization';
-import { accountsUpdated, withUnlocked } from './store';
+import { accountsUpdated, isUnlocked, store, withUnlocked } from './store';
 
 // NOTE: `webextension-polyfill` throws at module load time when
 // `globalThis.chrome?.runtime?.id` is undefined (the desktop Tauri host has
@@ -125,7 +127,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
-  swapHotKey: async (accountPublicKey: string, newHotPubKey: string) => {
+  swapHotKey: async (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => {
     // Fire `accountsUpdated` after the vault swap so the SW's Effector store
     // reflects the new hotPublicKey. Without this, storage is correct but the
     // Effector snapshot served via frontStore stays at the pre-rotation
@@ -143,7 +145,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // clearing its flag) would drop one of the two writes.
     return withUnlocked(({ vault }) =>
       getAccountsWriteQueue().add(async () => {
-        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
         accountsUpdated(updated);
       })
     );
@@ -160,6 +162,10 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     );
   }
 };
+
+/** The service worker's reconciler pass (#1081), releasing kept Guardian candidates through the vault. */
+export const reconcileUnconfirmedInWorker = (): Promise<void> =>
+  reconcileUnconfirmedTransactions({ release: guardianCandidateRelease(vaultGuardianProvider) });
 
 /**
  * Start processing queued transactions, in the service worker and, off the
@@ -212,10 +218,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
 
     let attempts = 0;
-    // Loop-pass ceiling, not a wall-clock bound: a single pass can now spend up
-    // to the guardian conflict-retry budget (~60s), so 60 passes is NOT "5
-    // minutes". Terminal per-tx caps live elsewhere (MAX_QUEUED_AGE /
-    // MAX_WAIT_BEFORE_CANCEL).
+    // Loop-pass ceiling, not a wall-clock bound: a single pass can spend a
+    // minute or more (a structural op waiting out a Guardian conflict in process,
+    // ~60s, or a Guardian request running to its GUARDIAN_REQUEST_TIMEOUT_MS
+    // cut-off), so 60 passes is NOT "5 minutes". Terminal per-tx caps live
+    // elsewhere (MAX_QUEUED_AGE / MAX_WAIT_BEFORE_CANCEL).
     const maxAttempts = 60;
 
     while (attempts < maxAttempts) {
@@ -272,22 +279,13 @@ export async function startTransactionProcessing(): Promise<void> {
 }
 
 /**
- * True while the vault is unlocked. Gates both arming and firing the queued-row wake (#1223): a locked vault fails
- * every row at its first step and unlocking restarts processing itself (#924), and a wake would only reap claims
- * while locked, doubling each expired auto-claim's retry backoff (#215).
+ * Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`.
+ * Both arming and firing need an unlocked vault (#1223): a locked vault fails every row at its first step and unlocking
+ * restarts processing itself (#924), and a wake would only reap claims while locked, doubling each expired auto-claim's
+ * retry backoff (#215).
  */
-function isVaultUnlocked(): boolean {
-  try {
-    withUnlocked(() => undefined);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
 async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
-  if (!isVaultUnlocked()) return;
+  if (!isUnlocked(store.getState())) return;
   try {
     const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
     if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
@@ -414,7 +412,7 @@ export function setupTransactionProcessor(): void {
           void healStuckTransactions();
         } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
           // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
-          if (isVaultUnlocked()) void startTransactionProcessing();
+          if (isUnlocked(store.getState())) void startTransactionProcessing();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to

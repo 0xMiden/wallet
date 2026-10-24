@@ -1,20 +1,26 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
-import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import type { WalletAccount } from 'lib/shared/types';
 
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
+  isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
-  isGuardianUnreachableError
+  isGuardianUnreachableError,
+  readChainAccountCommitment,
+  readDirectSwitchCommitState,
+  readLastSyncedVerdict
 } from './direct-switch';
 import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 
 // ---------------------------------------------------------------------------
 // Mocks. `direct-switch` reaches the WASM SDK, the offscreen proxy, the vault
 // signer and the guardian HTTP client; every one of those is stubbed so the
-// classifier, the signer-distinctness guard, the anchor release and the
+// classifier, the signer-distinctness guard and the
 // registration retry loop can be exercised as plain logic.
 //
 // `@openzeppelin/miden-multisig-client` resolves to the manual mock adjacent to
@@ -25,13 +31,17 @@ import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 
 // Mocked by the SAME specifier the source imports them under — a `lib/...`
 // path here would leave the real module in the graph.
-//
-// Models hold OWNERSHIP, as index.test.ts does: every hold re-checks it after its
-// parking awaits, so a pass-through lock with no hold would make each re-check a
-// TypeError, and a no-op assert would make the eviction cases below vacuous. A
-// test evicts by pointing `currentWasmHold` at a successor's hold mid-callback.
+// Models hold OWNERSHIP, not just pass-through: every hold re-checks it after its
+// parking awaits, so a lock mock with no hold would make each re-check a TypeError
+// swallowed by the caller's catch, and a no-op assert would make the eviction cases
+// below vacuous. A test evicts by pointing `currentWasmHold` at a successor's hold
+// mid-callback, or by arming `evictDuringSync` for the commit-state read.
 let currentWasmHold: object | null = null;
-const holdWasmLock = async <T>(fn: (hold: object) => Promise<T>): Promise<T> => {
+// Set by the tests that need the watchdog to land during the sync.
+let evictDuringSync = false;
+const wasmLockOptionsSeen: unknown[] = [];
+const ownedWasmHold = async <T>(fn: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
+  wasmLockOptionsSeen.push(options);
   const hold = {};
   currentWasmHold = hold;
   try {
@@ -43,28 +53,31 @@ const holdWasmLock = async <T>(fn: (hold: object) => Promise<T>): Promise<T> => 
 const evictCurrentHold = () => {
   currentWasmHold = {};
 };
-const mockWithWasmClientLock = jest.fn(holdWasmLock);
+const mockWithWasmClientLock = jest.fn(ownedWasmHold);
 const mockGetMidenClient = jest.fn();
+// `sync-lock` takes the lock through the `lib/...` alias, which the root manual mock would serve
+// with a pass-through that drops the options; delegate it to the mock below.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => {
-  // The real error class, so the rejections below carry the shape production throws.
+  // The real error class, so the code under test's poison classifiers see the
+  // same shape production throws.
   const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
   return {
     getMidenClient: () => mockGetMidenClient(),
     getCurrentWasmLockHold: () => currentWasmHold,
+    // Re-implements the comparison against THIS mock's current hold - a no-op
+    // stub would make the eviction test below vacuously green.
     assertWasmHoldCurrent: (hold: object | null, where: string) => {
       if (hold !== null && currentWasmHold === hold) return;
       throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
     },
-    withWasmClientLock: <T>(fn: (hold: object) => Promise<T>) => mockWithWasmClientLock(fn)
+    withWasmClientLock: <T>(fn: (hold: object) => Promise<T>, options?: unknown) => mockWithWasmClientLock(fn, options)
   };
 });
 
-const mockFreeChainAnchor = jest.fn();
-jest.mock('../sdk/chain-anchor', () => ({
-  freeChainAnchor: (...args: unknown[]) => mockFreeChainAnchor(...args)
-}));
-
-const mockProxySyncState = jest.fn(async () => {});
+const mockProxySyncState = jest.fn(async () => {
+  if (evictDuringSync) currentWasmHold = null;
+});
 const mockProxyGetAccount = jest.fn();
 const mockProxyGetTransactionCommitState = jest.fn();
 jest.mock('../back/miden-client-proxy', () => ({
@@ -163,6 +176,14 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'devnet'
 }));
 
+// The landed commitment read builds its RpcClient on the effective endpoint; a stand-in object, so a
+// test can tell the client was built with exactly what this returned.
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: jest.fn(async () => {}),
+  getRpcEndpoint: jest.fn(() => ({ endpoint: 'https://rpc.test' }))
+}));
+
 // The advice map is the cryptographic payload of a direct switch — by the time
 // the request is submitted it is the ONLY place the hot and cold signatures
 // exist, and nothing downstream re-derives any of it. So `AdviceMap` stands in
@@ -191,8 +212,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   },
   Poseidon2: { hashElements: (felts: { felts: string[] }) => ({ hex: felts.felts.join('|') }) },
   Signature: { deserialize: (bytes: Uint8Array) => ({ toPreparedSignature: () => [...bytes] }) },
-  Word: { fromHex: (hex: string) => ({ hex, toFelts: () => [hex] }) }
+  Word: { fromHex: (hex: string) => ({ hex, toFelts: () => [hex] }) },
+  RpcClient: class {
+    constructor(endpoint: unknown) {
+      mockRpcClientBuiltWith(endpoint);
+    }
+    getAccountProof(...args: unknown[]): unknown {
+      return mockGetAccountProof(...args);
+    }
+  }
 }));
+const mockRpcClientBuiltWith = jest.fn();
+const mockGetAccountProof = jest.fn();
 
 // A real `GET /pubkey` commitment is a 32-byte word. The switch paths validate
 // that before it reaches the transaction script, so the fixture has to be a
@@ -261,7 +292,9 @@ beforeEach(() => {
   walletSignerArgs.length = 0;
   resetMockProbes();
   currentWasmHold = null;
-  mockWithWasmClientLock.mockImplementation(holdWasmLock);
+  evictDuringSync = false;
+  wasmLockOptionsSeen.length = 0;
+  mockWithWasmClientLock.mockImplementation(ownedWasmHold);
   mockGetMidenClient.mockResolvedValue({
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => sdkAccount),
@@ -270,7 +303,9 @@ beforeEach(() => {
   mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
     publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
   );
-  mockProxySyncState.mockResolvedValue(undefined);
+  mockProxySyncState.mockImplementation(async () => {
+    if (evictDuringSync) currentWasmHold = null;
+  });
   mockProxyGetAccount.mockResolvedValue(sdkAccount);
   mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => ({
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
@@ -290,11 +325,10 @@ beforeEach(() => {
     numSigners: 2,
     signerCommitments: ['0xhotcommitment', '0xcoldcommitment']
   });
-  mockedMultisigClient.chainAnchorToBase64.mockReturnValue('chain-anchor-b64');
-  mockedMultisigClient.executeForSummary.mockResolvedValue({
-    summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) },
-    anchor: { kind: 'anchor' }
+  mockedMultisigClient.executeForSummaryAtTip.mockResolvedValue({
+    toCommitment: () => ({ toHex: () => '0xtxcommitment' })
   });
+  mockedMultisigClient.requestBoundBlockNum.mockReturnValue(4242);
   mockedMultisigClient.buildUpdateGuardianTransactionRequest.mockResolvedValue({
     request: { kind: 'update-guardian-request' },
     salt: { toHex: () => '0xsalt' }
@@ -338,6 +372,15 @@ describe('isGuardianUnreachableError', () => {
     expect(aborted.message).toContain('aborted');
     expect(mockedMultisigClient.isLikelyNetworkError(aborted)).toBe(true);
     expect(isGuardianUnreachableError(aborted)).toBe(false);
+  });
+
+  it('does not treat a local offscreen kill wrapped in another error as the guardian being unreachable (#1313)', () => {
+    const error = Object.assign(new Error('proposal request aborted'), {
+      cause: new OperationAbortedError('op-1', 'deadline')
+    });
+
+    expect(mockedMultisigClient.isLikelyNetworkError(error)).toBe(true);
+    expect(isGuardianUnreachableError(error)).toBe(false);
   });
 
   it('does not treat a WASM lock eviction as the guardian being unreachable', () => {
@@ -409,14 +452,9 @@ describe('createDirectSwitchGuardianRequest', () => {
   const COLD_SIGNATURE = '0xd4e5f6';
   const signWord = jest.fn(async (pubkey: string) => (pubkey === 'coldpk' ? COLD_SIGNATURE : HOT_SIGNATURE));
 
-  it('builds a request carrying the summary chain anchor', async () => {
-    const { request, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
-      walletAccount(),
-      'https://new.guardian.test',
-      signWord
-    );
+  it('builds the signed rebuild at the block the summary binds', async () => {
+    const request = await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
-    expect(chainAnchorB64).toBe('chain-anchor-b64');
     expect(request).toEqual({ kind: 'update-guardian-request' });
     // Rebuilt with the SAME salt as the executed-for-summary request, plus the
     // signature advice — that identity is what keeps the rebuilt request's
@@ -505,63 +543,62 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockGuardianGetPubkey).toHaveBeenCalledWith('ecdsa');
   });
 
-  // Both builds have to agree, and both have to be the EFFECTIVE endpoint. The
-  // summary the two device keys sign comes from the first call and the request
-  // that is submitted from the second, so a scheme or endpoint that differs
-  // between them yields a request whose commitment nothing signed — and a
-  // build-baked endpoint winning over a developer override builds the whole
-  // rotation against the wrong network.
-  it('builds the summary and the rebuild alike against the effective RPC endpoint, as ECDSA', async () => {
+  it('builds and rebuilds ECDSA auth args on the supplied client with the same bound block and salt', async () => {
+    const summaryRequest = { kind: 'update-guardian-request' };
+    mockedMultisigClient.buildUpdateGuardianTransactionRequest.mockResolvedValueOnce({
+      request: summaryRequest,
+      salt: { toHex: () => '0xsalt' }
+    });
+    // Only the built request binds a block, so reading the rebuild or any other object pins none.
+    mockedMultisigClient.requestBoundBlockNum.mockImplementationOnce((request: unknown) =>
+      request === summaryRequest ? 4242 : undefined
+    );
+
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
+    expect(mockedMultisigClient.requestBoundBlockNum).toHaveBeenCalledTimes(1);
+    expect(mockedMultisigClient.requestBoundBlockNum.mock.calls[0][0]).toBe(summaryRequest);
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
     expect(summaryBuild[2]).toEqual({
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test'
+      accountId: '0xacct-id',
+      signatureScheme: 'ecdsa'
     });
+    // The auth args bind a block, so the rebuild pins the one the request
+    // binds rather than taking whatever the store synced to while the vault signed.
     expect(rebuild[2]).toEqual({
+      accountId: '0xacct-id',
+      boundBlockNum: 4242,
       salt: { hex: '0xsalt', toFelts: expect.any(Function) },
       signatureAdviceMap: expect.anything(),
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test'
+      signatureScheme: 'ecdsa'
     });
     // The SALT is what has to agree across the two calls now: the builder declares it
     // and miden-client commits `hash(CONVERSION_INFO || SALT)` from it, so a salt that
     // differed between build and rebuild would change the auth arg and invalidate the
     // signatures -- the same failure mode this guards for scheme and endpoint. The
-    // faucet is no longer a caller input; it comes from the anchored block.
+    // faucet is no longer a caller input; it comes from the bound block.
     expect(rebuild[2].salt).toEqual(summaryBuild[2].salt ?? rebuild[2].salt);
-    expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
+    expect(mockedMultisigClient.executeForSummaryAtTip).toHaveBeenCalledWith(
       expect.anything(),
       '0xacct-id',
-      expect.anything(),
-      'https://rpc.test'
+      expect.anything()
     );
   });
 
-  it('releases the chain anchor through freeChainAnchor', async () => {
-    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
-
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
-  });
-
-  // The anchor carries a partial blockchain, so it must not leak when the
-  // serialization after it throws — that is why the release sits in a `finally`.
-  it('still releases the chain anchor when serializing it throws', async () => {
-    mockedMultisigClient.chainAnchorToBase64.mockImplementation(() => {
-      throw new Error('anchor serialize blew up');
-    });
+  it('refuses a request that carries no multisig auth args, before executing it', async () => {
+    mockedMultisigClient.requestBoundBlockNum.mockReturnValueOnce(undefined);
 
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
-    ).rejects.toThrow('anchor serialize blew up');
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
+    ).rejects.toThrow('carries no multisig auth args');
+    expect(mockedMultisigClient.executeForSummaryAtTip).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
   });
 
-  // Cold resolves as `commitments[1] ?? commitments[0]`, so a single-signer
-  // account hands back the hot commitment twice. Both advice entries would then
-  // collide on one Poseidon2 key and the map would hold ONE signature, failing
-  // the threshold-2 `update_guardian` on-chain instead of here.
+  // Hot and cold must be DISTINCT on-chain signers (index 0 and index 1). If they
+  // ever resolve to the same commitment, the two advice entries would collide on
+  // one Poseidon2 key and the map would hold ONE signature, failing the
+  // threshold-2 `update_guardian` on-chain instead of here.
   it('refuses to build when hot and cold resolve to the same signer commitment', async () => {
     mockGetSignerDetails.mockResolvedValue({ commitment: 'the-only-signer' });
 
@@ -717,7 +754,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).toHaveBeenCalledWith(
       expect.anything(),
       NEW_GUARDIAN_COMMITMENT,
-      expect.objectContaining({ signatureScheme: 'ecdsa', midenRpcEndpoint: 'https://rpc.test' })
+      expect.objectContaining({ signatureScheme: 'ecdsa' })
     );
   });
 
@@ -823,17 +860,18 @@ describe('createDirectSwitchGuardianRequest', () => {
           evictCurrentHold();
           return { request: { kind: 'update-guardian-request' }, salt: { toHex: () => '0xsalt' } };
         });
-        return mockedMultisigClient.executeForSummary;
+        return mockedMultisigClient.executeForSummaryAtTip;
       }
     ],
     [
       'the summary execution',
       () => {
-        mockedMultisigClient.executeForSummary.mockImplementationOnce(async () => {
+        const toCommitment = jest.fn(() => ({ toHex: () => '0xtxcommitment' }));
+        mockedMultisigClient.executeForSummaryAtTip.mockImplementationOnce(async () => {
           evictCurrentHold();
-          return { summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) }, anchor: { kind: 'anchor' } };
+          return { toCommitment };
         });
-        return mockedMultisigClient.chainAnchorToBase64;
+        return toCommitment;
       }
     ]
   ])('stops at an eviction during %s, before the next WASM call', async (_label, evictDuring) => {
@@ -847,20 +885,7 @@ describe('createDirectSwitchGuardianRequest', () => {
 
     expect(error).toBeInstanceOf(WasmClientPoisonedError);
     expect(nextCall).not.toHaveBeenCalled();
-    expect(mockedMultisigClient.chainAnchorToBase64).not.toHaveBeenCalled();
     expect(signWord).not.toHaveBeenCalled();
-  });
-
-  it('still releases the chain anchor when evicted during the summary execution', async () => {
-    mockedMultisigClient.executeForSummary.mockImplementationOnce(async () => {
-      evictCurrentHold();
-      return { summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) }, anchor: { kind: 'anchor' } };
-    });
-
-    await expect(
-      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
-    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
   });
 
   it('stops at an eviction during the client build for the signed rebuild', async () => {
@@ -884,16 +909,23 @@ describe('createDirectSwitchGuardianRequest', () => {
 // asserted to be `undefined` rather than merely falsy — `false` here means "the
 // chain rejected it", which callers act on.
 describe('didDirectSwitchLand', () => {
-  it('reads the node-side state of the TRANSACTION, under the WASM lock, after a sync', async () => {
+  it('syncs in a labelled hold at the sync ceiling, then reads the transaction in a hold of its own', async () => {
     mockProxyGetTransactionCommitState.mockResolvedValue('committed');
 
     await didDirectSwitchLand('0xtx');
 
-    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
-    // The sync has to precede the read or the client answers from a stale height,
-    // and both have to sit inside one lock hold.
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(2);
+    expect(mockWithWasmClientLock.mock.calls[0]![1]).toEqual({
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-verdict-sync'
+    });
+    expect(mockWithWasmClientLock.mock.calls[1]![1]).toBeUndefined();
     expect(mockProxySyncState).toHaveBeenCalledTimes(1);
-    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
+    // The sync has to precede the read or the client answers from a stale height.
+    expect(mockProxySyncState.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockProxyGetTransactionCommitState.mock.invocationCallOrder[0]!
+    );
   });
 
   it.each([
@@ -914,6 +946,19 @@ describe('didDirectSwitchLand', () => {
     await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
   });
 
+  // `syncState()` is a long parking await, so the watchdog can hand the mutex to
+  // a successor while this callback keeps running. The commit-state read that
+  // follows would then be a second borrow of somebody else's client - and the
+  // pending-rotation recheck drives this on a timer, so it is reachable on a
+  // schedule rather than once per rotation.
+  it('stops at the post-sync hold re-check when the sync is evicted, instead of reading a borrowed client', async () => {
+    evictDuringSync = true;
+    mockProxyGetTransactionCommitState.mockResolvedValue('committed');
+
+    await expect(readDirectSwitchCommitState('0xtx')).rejects.toThrow(WasmClientPoisonedError);
+    expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
+  });
+
   it('returns no verdict when the read itself fails, rather than reporting "did not land"', async () => {
     mockProxyGetTransactionCommitState.mockRejectedValue(new Error('offscreen returned no result'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -924,27 +969,128 @@ describe('didDirectSwitchLand', () => {
     warn.mockRestore();
   });
 
-  // A sync that throws must not be silently read past either — the account state
-  // behind the read would be at an unknown height.
-  it('returns no verdict when the pre-read sync fails', async () => {
-    mockProxySyncState.mockRejectedValueOnce(new Error('rpc unreachable'));
+  // 'committed' and 'discarded' are final rulings, so a stale record can only turn a verdict into
+  // no verdict, never into a wrong one.
+  it.each([
+    ['rpc unreachable', new Error('rpc unreachable')],
+    ['realm-error', new WasmClientPoisonedError('realm-error')]
+  ])('reads the last-synced record when the sync fails without a watchdog eviction (%s)', async (_label, syncError) => {
+    mockProxySyncState.mockRejectedValueOnce(syncError);
+    mockProxyGetTransactionCommitState.mockResolvedValue('discarded');
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
+    await expect(didDirectSwitchLand('0xtx')).resolves.toBe(false);
 
-    expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledTimes(1);
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
     warn.mockRestore();
   });
 
-  it('returns no verdict when its hold is evicted during the sync, and reads nothing after it', async () => {
-    mockProxySyncState.mockImplementationOnce(async () => evictCurrentHold());
-    mockProxyGetTransactionCommitState.mockResolvedValue('committed');
+  // The read would be the first hold after the eviction and rebuild the client against the node
+  // that just parked.
+  it('returns no verdict, and reads nothing, after a watchdog eviction of its sync', async () => {
+    mockProxySyncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
 
     expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+// What a landed write's poll reads each round (#1233): the record `didDirectSwitchLand` reads after
+// its sync, with no sync of its own.
+describe('readLastSyncedVerdict', () => {
+  it.each([
+    ['committed', true],
+    ['discarded', false],
+    ['pending', undefined],
+    ['not-found', undefined]
+  ])('turns %s into %s', async (state, expected) => {
+    mockProxyGetTransactionCommitState.mockResolvedValue(state);
+
+    await expect(readLastSyncedVerdict('0xtx')).resolves.toBe(expected);
+
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
+  });
+
+  it('returns no verdict when the read fails', async () => {
+    mockProxyGetTransactionCommitState.mockRejectedValue(new Error('offscreen returned no result'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(readLastSyncedVerdict('0xtx')).resolves.toBeUndefined();
+
+    warn.mockRestore();
+  });
+
+  it('reads in one default hold and never syncs', async () => {
+    mockProxyGetTransactionCommitState.mockResolvedValue('pending');
+
+    await readLastSyncedVerdict('0xtx');
+
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(mockWithWasmClientLock.mock.calls[0]![1]).toBeUndefined();
+    expect(mockProxySyncState).not.toHaveBeenCalled();
+  });
+});
+
+describe('readChainAccountCommitment', () => {
+  const proofWithCommitment = (hex: string) => ({ accountCommitment: () => ({ toHex: () => hex }) });
+
+  it("asks the node for the account's proof and returns its commitment hex, holding no WASM lock", async () => {
+    mockGetAccountProof.mockResolvedValue(proofWithCommitment('0xchain'));
+
+    await expect(readChainAccountCommitment('acc-1_suffix', 60_000)).resolves.toBe('0xchain');
+
+    expect(mockRpcClientBuiltWith).toHaveBeenCalledTimes(1);
+    expect(mockRpcClientBuiltWith.mock.calls[0]![0]).toBe(jest.mocked(getRpcEndpoint).mock.results[0]!.value);
+    expect(jest.mocked(accountRefToSdk)).toHaveBeenCalledWith('acc-1_suffix');
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+    expect(mockGetAccountProof.mock.calls[0]).toHaveLength(1);
+    expect(mockGetAccountProof.mock.calls[0]![0]).toBe(jest.mocked(accountRefToSdk).mock.results[0]!.value);
+    expect(mockWithWasmClientLock).not.toHaveBeenCalled();
+  });
+
+  it('returns no commitment when the RPC rejects', async () => {
+    mockGetAccountProof.mockRejectedValue(new Error('node unavailable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(readChainAccountCommitment('acc-1', 60_000)).resolves.toBeUndefined();
+
+    warn.mockRestore();
+  });
+
+  // A poll under a deadline passes the time it has left, so no read outlives it.
+  it('gives up at the time left, at most 15 s, and does not retry', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockGetAccountProof.mockImplementation(() => new Promise(() => {}));
+      let short: string | undefined = 'unsettled';
+      let long: string | undefined = 'unsettled';
+      void readChainAccountCommitment('acc-1', 5_000).then(value => {
+        short = value;
+      });
+      void readChainAccountCommitment('acc-1', 60_000).then(value => {
+        long = value;
+      });
+
+      await jest.advanceTimersByTimeAsync(4_999);
+      expect(short).toBe('unsettled');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(short).toBeUndefined();
+
+      await jest.advanceTimersByTimeAsync(15_000 - 5_000 - 1);
+      expect(long).toBe('unsettled');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(long).toBeUndefined();
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
   });
 });
 
@@ -1061,6 +1207,8 @@ describe('finalizeDirectGuardianSwitch', () => {
     ).catch((e: unknown) => e);
 
     expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(isGuardianKeyMismatchRefusal(error)).toBe(true);
+    expect(error).toMatchObject({ endpointCheck: 'mismatch' });
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
     // Checked against the guardian key of the account this function itself read,
     // and against the endpoint it is about to write to.
@@ -1082,10 +1230,19 @@ describe('finalizeDirectGuardianSwitch', () => {
   it('refuses to register when the endpoint will not answer for its own key', async () => {
     mockCheckEndpointCommitment.mockImplementation(async () => 'unreachable');
 
-    await expect(
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
-    ).rejects.toThrow('did not confirm the guardian key');
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining('did not confirm the guardian key'),
+      endpointCheck: 'unreachable'
+    });
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(isGuardianKeyMismatchRefusal(error)).toBe(false);
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
@@ -1117,6 +1274,84 @@ describe('finalizeDirectGuardianSwitch', () => {
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
+  it('holds its preflight read on the options a caller passes', async () => {
+    mockGuardianConfigure.mockResolvedValue({ success: true });
+    const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-register' };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any, options);
+    expect(wasmLockOptionsSeen).toEqual([options]);
+
+    wasmLockOptionsSeen.length = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any);
+    expect(wasmLockOptionsSeen).toEqual([undefined]);
+  });
+
+  /**
+   * The POST-SYNC guard, which the account-read test below cannot stand in for.
+   *
+   * `evictDuringSync` existed already but was only ever armed for
+   * `readDirectSwitchCommitState`, so this function's copy of the same guard was
+   * deletable with the suite green. The distinction matters: the sync is the
+   * FIRST parking await here, so without this guard `getAccount` on the next line
+   * is itself the double borrow, and the account-read guard never gets a chance to
+   * refuse.
+   */
+  it('stops before the account read when the preflight sync is evicted', async () => {
+    evictDuringSync = true;
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockProxyGetAccount).not.toHaveBeenCalled();
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The ACCOUNT READ is a parking await of its own, and the guard after the sync
+   * does not cover it.
+   *
+   * Everything downstream of this read borrows the returned handle from the
+   * client's RefCell - `AccountInspector.fromAccount`, `account.serialize()`, the
+   * guardian-slot read - so after an eviction those are second borrows of a client
+   * the watchdog has already handed to a successor. And the bytes they produce are
+   * the highest-stakes payload in the change: the account's authoritative state
+   * and its new signer allowlist, POSTed to the operator.
+   *
+   * It escapes as a poison error and deliberately NOT as a preflight error, per
+   * `asPreflight`'s documented exception: the preflight tag means "refused before
+   * contacting the operator, refund and carry on", and carrying on is the one
+   * thing a caller must not do after an eviction.
+   */
+  it('stops at the post-account-read hold re-check instead of deriving the payload from a borrowed handle', async () => {
+    // The read RESOLVES - a handle really does come back - and the watchdog lands
+    // while it was suspended. That is the shape the guard exists for; a rejecting
+    // read is the case the test above already covers.
+    mockProxyGetAccount.mockImplementation(async () => {
+      currentWasmHold = null;
+      return sdkAccount;
+    });
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
+    // The three reads that borrow the handle, none of them reached.
+    expect(mockedMultisigClient.AccountInspector.fromAccount).not.toHaveBeenCalled();
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
   it('tags a failing local sync as preflight too', async () => {
     mockProxySyncState.mockRejectedValue(new Error('rpc unavailable'));
 
@@ -1131,8 +1366,8 @@ describe('finalizeDirectGuardianSwitch', () => {
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
-  // An eviction is preflight too: no `/configure` has gone out, so the caller
-  // refunds the attempt, and the kill stays on `cause`.
+  // An eviction is not preflight. Poison is rethrown unwrapped so the caller
+  // stops instead of refunding and carrying on, and no `/configure` has gone out.
   it('stops at an eviction during the sync, before the account read', async () => {
     const serialize = jest.fn(() => new Uint8Array([1, 2, 3]));
     mockProxyGetAccount.mockResolvedValue({ ...sdkAccount, serialize });
@@ -1145,8 +1380,8 @@ describe('finalizeDirectGuardianSwitch', () => {
       provider() as any
     ).catch((e: unknown) => e);
 
-    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
-    expect(error).toMatchObject({ cause: expect.any(WasmClientPoisonedError) });
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
     expect(mockProxyGetAccount).not.toHaveBeenCalled();
     expect(serialize).not.toHaveBeenCalled();
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
@@ -1166,8 +1401,8 @@ describe('finalizeDirectGuardianSwitch', () => {
       provider() as any
     ).catch((e: unknown) => e);
 
-    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
-    expect(error).toMatchObject({ cause: expect.any(WasmClientPoisonedError) });
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
     expect(mockedMultisigClient.AccountInspector.fromAccount).not.toHaveBeenCalled();
     expect(serialize).not.toHaveBeenCalled();
     expect(mockGuardianConfigure).not.toHaveBeenCalled();

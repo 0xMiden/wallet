@@ -1,0 +1,126 @@
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
+index 623a132..e82437e 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
+@@ -65,6 +65,7 @@ export async function runWithdrawAction(rt, params) {
+         });
+     }
+     return rt.solveMultipleIntents(legs, {
++        onBeforeExecute: params.onBeforeExecute,
+         gasless: params.gasless,
+         forceAtomic: params.forceAtomic,
+         onExecutionStatus: params.onExecutionStatus,
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts
+index 0117828..d9813ac 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts
+@@ -49,7 +49,7 @@ export declare class EpochIntentSDK {
+         isNative?: boolean;
+         routingAndLiquidityOptions?: RoutingAndLiquidityOptions;
+     }): Promise<IntentQuoteResult>;
+-    getIntentStatus(userAddress: string, nonce: string): Promise<IntentTransactionStatus[]>;
++    getIntentStatus(userAddress: string, nonce: string, signal?: AbortSignal): Promise<IntentTransactionStatus[]>;
+     getWalletGaslessStatus(chainId: number): Promise<WalletGaslessStatus>;
+     setupGaslessWallet(params: {
+         chainId: number;
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js
+index f5e09fd..6d14324 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js
+@@ -96,9 +96,9 @@ export class EpochIntentSDK {
+     async getIntentQuote(params) {
+         return fetchIntentQuote(this.config, params);
+     }
+-    async getIntentStatus(userAddress, nonce) {
++    async getIntentStatus(userAddress, nonce, signal) {
+         try {
+-            return await getIntentStatusService(this.config, userAddress, nonce);
++            return await getIntentStatusService(this.config, userAddress, nonce, signal);
+         }
+         catch (error) {
+             if (error instanceof APIError) {
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js
+index bb63276..c1ea9c2 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js
+@@ -197,6 +197,15 @@ export async function solveMultipleIntents(config, intents, deps, opts) {
+         throw new CompactSDKError("Wallet account address is not set");
+     }
+     const { calls, allocationRequests } = await buildMultiIntentBatch(config, intents);
++    if (opts?.onBeforeExecute) {
++        const allocations = Object.freeze(allocationRequests.map((request) => Object.freeze({
++            sponsor: request.compact.sponsor,
++            nonce: request.compact.nonce,
++            expires: request.compact.expires,
++            requestJson: JSON.stringify(request),
++        })));
++        await opts.onBeforeExecute(Object.freeze({ chainId, allocations }));
++    }
+     const useGasless = opts?.gasless ?? shouldUseGaslessRelay(config.walletClient);
+     const transactionHash = useGasless
+         ? await executeGaslessBatch(config, calls, account, chainId, opts)
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.d.ts b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.d.ts
+index 8685729..a703aff 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.d.ts
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.d.ts
+@@ -2,5 +2,5 @@ import { EpochIntentSDKConfig, IntentTransactionStatus } from "../types";
+ /**
+  * Get intent transaction status
+  */
+-export declare const getIntentStatus: (config: EpochIntentSDKConfig, userAddress: string, nonce: string) => Promise<IntentTransactionStatus[]>;
++export declare const getIntentStatus: (config: EpochIntentSDKConfig, userAddress: string, nonce: string, signal?: AbortSignal) => Promise<IntentTransactionStatus[]>;
+ /** Allocator-side Miden collateral config, fetched from `GET /miden-recipient`. */
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.js
+index c0401df..a340500 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/services/intent-status.js
+@@ -3,13 +3,14 @@ import { APIError, } from "../types";
+ /**
+  * Get intent transaction status
+  */
+-export const getIntentStatus = async (config, userAddress, nonce) => {
++export const getIntentStatus = async (config, userAddress, nonce, signal) => {
+     try {
+         const response = await apiFetch(config, `/intentStatus/${userAddress}/${nonce.toString()}`, {
+             method: "GET",
+             headers: {
+                 "Content-Type": "application/json",
+             },
++            signal,
+         });
+         if (!response.ok) {
+             const errorData = (await response
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
+index 10b657c..ce761c1 100644
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
+@@ -346,7 +346,20 @@ export interface MultiIntentBatch {
+     calls: BatchCall[];
+     allocationRequests: CompactRequest[];
+ }
++export interface PreparedAllocation {
++    readonly sponsor: string;
++    readonly nonce: string;
++    readonly expires: string;
++    readonly requestJson: string;
++}
++export interface PreparedExecution {
++    readonly chainId: number;
++    readonly allocations: readonly PreparedAllocation[];
++}
++export type BeforeExecute = (prepared: PreparedExecution) => Promise<void>;
+ export interface SolveMultipleIntentsOptions {
++    /** Called with immutable allocation descriptors after preparation and before execution. */
++    onBeforeExecute?: BeforeExecute;
+     /** Force gasless relay. Default: shouldUseGaslessRelay(walletClient) (local signer). */
+     gasless?: boolean;
+     /** User-paid atomic-batch override; default derives from resolveWalletBatchStrategy. */
+@@ -421,6 +434,8 @@ export interface WithdrawActionParams {
+ }
+ /** Execution options — shared by every {@link ActionType}. */
+ export interface ExecuteActionOptions {
++    /** Called with immutable allocation descriptors after preparation and before execution. */
++    onBeforeExecute?: BeforeExecute;
+     /**
+      * Relayer pays the gas. Requires a LOCAL signer that is already 7702-delegated
+      * (see `setupSmartAccount`); injected wallets must use `false`.

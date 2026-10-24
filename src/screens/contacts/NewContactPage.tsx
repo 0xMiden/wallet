@@ -20,8 +20,9 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error';
 import useIsMounted from 'lib/ui/useIsMounted';
-import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
+import { BridgeNetworkId, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
@@ -47,7 +48,7 @@ export const NewContactPage: React.FC = () => {
   // does not flash on every keystroke of an address still being typed.
   const [addressTouched, setAddressTouched] = useState(false);
   const [name, setName] = useState('');
-  const [network, setNetwork] = useState<BridgeNetworkId>(DEFAULT_BRIDGE_NETWORK.id);
+  const [network, setNetwork] = useState<BridgeNetworkId>(() => defaultBridgeNetwork().id);
   const [scanError, setScanError] = useState<string>();
   const [pasteError, setPasteError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -66,11 +67,23 @@ export const NewContactPage: React.FC = () => {
     : undefined;
 
   let addressError: string | undefined;
-  if (scanError) addressError = t(scanError);
-  else if (pasteError) addressError = t(pasteError);
-  else if (trimmedAddress && !isValid && addressTouched) addressError = t('invalidAddress');
-  else if (existing?.accountInWallet) addressError = t('contactIsYourAccount');
-  else if (existing) addressError = t('contactAlreadySaved', { name: existing.name });
+  let addressErrorId: UserErrorId | null = null;
+  if (scanError) {
+    addressError = t(scanError);
+    addressErrorId = isUserErrorId(scanError) ? scanError : 'raw_contact_scan_failed';
+  } else if (pasteError) {
+    addressError = t(pasteError);
+    addressErrorId = 'nothingToPaste';
+  } else if (trimmedAddress && !isValid && addressTouched) {
+    addressError = t('invalidAddress');
+    addressErrorId = 'invalidAddress';
+  } else if (existing?.accountInWallet) {
+    addressError = t('contactIsYourAccount');
+    addressErrorId = 'contactIsYourAccount';
+  } else if (existing) {
+    addressError = t('contactAlreadySaved', { name: existing.name });
+    addressErrorId = 'contactAlreadySaved';
+  }
 
   const canSave = isValid && !existing && Boolean(trimmedName) && !saving;
 
@@ -133,6 +146,8 @@ export const NewContactPage: React.FC = () => {
     <>
       <SubPageLayout
         data-testid="contact-new"
+        // Set wholly in Nunito, like the Settings sub-pages it opens from.
+        bodyClassName="face-heading"
         title={t('newContact')}
         // `back` is claim-gated once per location, and `save()` calls it again when the write
         // lands. A tap while the save is in flight consumes the claim AND navigates, which resets
@@ -173,6 +188,7 @@ export const NewContactPage: React.FC = () => {
         <TextField
           multiline
           label={t('address')}
+          labelSize="md"
           value={address}
           onChange={event => {
             setAddress(event.target.value);
@@ -188,6 +204,7 @@ export const NewContactPage: React.FC = () => {
           className="break-all"
           data-testid="address-book-address-input"
           error={addressError}
+          errorId={addressErrorId}
           errorTestId="contact-address-error"
           trailing={
             !trimmedAddress && (isMobile() || isScanAvailable()) ? (
@@ -228,7 +245,9 @@ export const NewContactPage: React.FC = () => {
 
         <ContactNameInput value={name} onChange={setName} />
 
-        <ErrorLine className="-mt-2">{saveError}</ErrorLine>
+        <ErrorLine className="-mt-2" errorId="raw_contact_save_failed">
+          {saveError}
+        </ErrorLine>
       </SubPageLayout>
 
       <ScanQrDrawer

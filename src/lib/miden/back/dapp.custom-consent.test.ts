@@ -17,6 +17,11 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import {
+  TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
+  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Scaffold mirrors `dapp.send-preview.test.ts`: `dapp.ts` pulls in the vault,
@@ -137,6 +142,9 @@ const emptyView = {
   account: 'miden-account-1',
   outgoing: [],
   incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
   storageChanged: false
@@ -249,6 +257,36 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
     expect(sheetMessages()).toContain('No assets move');
   });
 
+  // #1600: an NFT has no amount, so the amount rows alone made an NFT-only transfer read as nothing.
+  it('lists an NFT that leaves and one that enters, and never says no assets move', async () => {
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoingNfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa11bb22\u2026cc33dd' }],
+      incomingNfts: [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01020304\u2026050607' }]
+    });
+
+    await raiseSheet(false);
+
+    const messages = sheetMessages();
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^Leaves this account, NFT 0xaa11bb22\u2026cc33dd from faucet mtst1n/),
+        expect.stringMatching(/^Enters this account, NFT 0x01020304\u2026050607 from faucet mtst1o/)
+      ])
+    );
+    expect(messages).not.toContain('No assets move');
+  });
+
+  it('warns about a vault change it cannot list instead of saying no assets move', async () => {
+    mockSummaryBytesToView.mockReturnValue({ ...emptyView, unlistedAssets: 1 });
+
+    await raiseSheet(false);
+
+    const messages = sheetMessages();
+    expect(messages).toEqual(expect.arrayContaining([expect.stringMatching(/^Warning, .*cannot list.*NFT/)]));
+    expect(messages).not.toContain('No assets move');
+  });
+
   it('keeps the existing preview lines, so the recipient is still named', async () => {
     await raiseSheet(false);
 
@@ -289,6 +327,21 @@ describe('a dry run that could not be produced is stated, not omitted', () => {
     expect(sheetMessages()).toContain('Reason, bad summary bytes');
   });
 
+  it('names a terminated client as an interruption, not by its internal text', async () => {
+    mockSummaryBytesToView.mockImplementation(() => {
+      throw new Error('WebClient terminated');
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await raiseSheet(false);
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(sheetMessages()).toContain('Reason, the simulation was interrupted before it finished');
+  });
+
   // The user can still decline, and that is the whole point of the sheet: a
   // preview that throws must not take the request down with it.
   it('still raises the sheet, and still executes on approval', async () => {
@@ -303,6 +356,49 @@ describe('a dry run that could not be produced is stated, not omitted', () => {
 
     expect(sheetMessages()).toContain('Reason, client unavailable');
     expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  // The dry run executes the bytes the write would, so a deterministic kernel code it fails with reads as the copy the
+  // Failed row gets: the hashed code tells the signer nothing (#1475).
+  describe.each([
+    ['missing fee conversion info', '14712559985122731094', TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR],
+    ["dApp's fee commitment mismatch", '15404814807981965102', TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR],
+    ['vault shortfall', '644413868907058392', TRANSACTION_VAULT_SHORTFALL_ERROR]
+  ])('a dry run failing with the %s code', (_name, code, copy) => {
+    const kernelLine = `failed to execute transaction kernel program: assertion failed with error code: ${code}`;
+
+    it('shows the Failed row copy on the Reason line, never the code', async () => {
+      mockSimulate.mockResolvedValue({ error: kernelLine });
+
+      await raiseSheet(false);
+
+      const messages = sheetMessages();
+      expect(messages).toContain(`Reason, ${copy}`);
+      expect(messages.join('\n')).not.toContain(code);
+    });
+
+    it('shows the same copy when the dry run throws', async () => {
+      mockSimulate.mockRejectedValue(new Error(kernelLine));
+      const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      try {
+        await raiseSheet(false);
+      } finally {
+        errSpy.mockRestore();
+      }
+
+      const messages = sheetMessages();
+      expect(messages).toContain(`Reason, ${copy}`);
+      expect(messages.join('\n')).not.toContain(code);
+    });
+  });
+
+  it('keeps the text of a kernel failure whose code the wallet does not name', async () => {
+    mockSimulate.mockResolvedValue({ error: 'assertion failed with error code: 9876543210' });
+
+    await raiseSheet(false);
+
+    expect(sheetMessages()).toContain('Reason, assertion failed with error code: 9876543210');
   });
 });
 

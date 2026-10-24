@@ -21,6 +21,7 @@ import {
 } from 'lib/miden/sdk/wasm-client-poison';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_SYNC_BACKOFF_MS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
+import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 import { WalletType } from 'screens/onboarding/types';
 
 import { __resetSyncFuseStateForTests, requestImmediateSync, useSyncTrigger } from './useSyncTrigger';
@@ -117,8 +118,15 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockSyncGuardianAccounts = jest.fn(async (..._args: unknown[]) => {});
+const mockReconcile = jest.fn(async () => {});
 jest.mock('./guardian-sync', () => ({
-  syncGuardianAccounts: (...args: unknown[]) => mockSyncGuardianAccounts(...args)
+  syncGuardianAccounts: (...args: unknown[]) => mockSyncGuardianAccounts(...args),
+  reconcileUnconfirmedInApp: () => mockReconcile()
+}));
+
+const mockSweep = jest.fn(async () => {});
+jest.mock('lib/miden/transaction/note-delivery-sweep', () => ({
+  sweepNoteDeliveries: () => mockSweep()
 }));
 
 const mockMarkConnectivityIssue = jest.fn();
@@ -136,6 +144,11 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
 }));
 
 const mockRequestNotesRefresh = jest.fn();
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('lib/miden/transaction/trim-result-bytes', () => ({
+  runTrimTick: () => mockTrimResultBytes()
+}));
+
 jest.mock('./note-refresh', () => ({
   requestNotesRefresh: () => mockRequestNotesRefresh()
 }));
@@ -314,6 +327,63 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: fires the unconfirmed reconciler after a successful sync only (#1081)', async () => {
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockReconcile).toHaveBeenCalled());
+    unmount();
+  });
+
+  it('mobile/desktop: does not fire the unconfirmed reconciler after a failed sync (#1081)', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSyncState.mockRejectedValueOnce(new Error('offline'));
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect(mockReconcile).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  // The SDK does not re-send a private note whose relay failed, and off the extension nothing
+  // but this loop would ever run the sweep that does.
+  it('mobile/desktop: runs the private-note delivery sweep after a successful sync', async () => {
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockSweep).toHaveBeenCalled());
+    unmount();
+  });
+
+  it('mobile/desktop: does not run the private-note delivery sweep after a failed sync', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSyncState.mockRejectedValueOnce(new Error('offline'));
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect(mockSweep).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: does not run the private-note delivery sweep when no client was there to sync', async () => {
+    mockGetMidenClient.mockResolvedValueOnce(null as never);
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockSweep).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: does not fire the unconfirmed reconciler when no client was there to sync (#1081)', async () => {
+    mockGetMidenClient.mockResolvedValueOnce(null as never);
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockGetMidenClient).toHaveBeenCalledTimes(1);
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockReconcile).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('mobile/desktop: runs immediately when the banner requests a retry', async () => {
     const { unmount } = render(<HookHost />);
 
@@ -340,6 +410,57 @@ describe('useSyncTrigger', () => {
 
     await flush();
     expect(mockSyncState).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: does not wait for the reaper', async () => {
+    // The fire-and-forget property, which no other test can see: a reaper that RESOLVES leaves
+    // `void` and `await` indistinguishable, and the failing case is equally blind because
+    // runTrimTick swallows. A pass that never settles is the only shape that separates them -
+    // under `await runTrimTick()` the tick would block here and syncState would never run.
+    // (The extension side needs no equivalent: doSync is not async, so `await` cannot compile.)
+    let release: (() => void) | undefined;
+    mockTrimResultBytes.mockImplementationOnce(
+      () =>
+        new Promise<number>(resolve => {
+          release = () => resolve(0);
+        })
+    );
+
+    const { unmount } = render(<HookHost />);
+    await flush();
+
+    // The pass must actually be pending, or the sync assertion below says nothing about waiting.
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+    expect(release).toBeDefined();
+    expect(mockSyncState).toHaveBeenCalled();
+    release?.();
+    unmount();
+  });
+
+  it('mobile/desktop: runs the resultBytes reaper on an ordinary tick', async () => {
+    // The companion to the guard-skip case below. Without this, inverting the call site to
+    // `if (onGeneratingTxPage) trim()` would still pass - the reaper would run only on the one lap
+    // it is least needed and never on the idle path this driver exists for.
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).toHaveBeenCalled();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: runs the resultBytes reaper even on a lap the sync guards skip', async () => {
+    // Mobile and desktop have no other periodic driver for the reaper, and it is pure local Dexie
+    // maintenance - the generating-transaction guard exists to keep a SYNC off the WASM lock, and
+    // has no bearing on reclaiming storage.
+    window.location.hash = '#/generating-transaction-full';
+
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
     unmount();
   });
 
@@ -1427,5 +1548,84 @@ describe('useSyncTrigger', () => {
     });
     expect(mockIntercomRequest.mock.calls.length).toBe(callsBefore);
     jest.useRealTimers();
+  });
+
+  describe('while the Home pager is moving', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      _resetInteractionPriorityForTest();
+    });
+    afterEach(() => _resetInteractionPriorityForTest());
+
+    it('does not start the sync, or flip the sync flag, until the interaction ends', async () => {
+      const end = beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(storeState.setSyncStatus).not.toHaveBeenCalled();
+      expect(wasmLockOptionsSeen).toHaveLength(0);
+
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      expect(storeState.setSyncStatus).toHaveBeenCalledWith(true);
+      unmount();
+    });
+
+    it('skips a tick deferred into the send flow, and syncs on a later Home tick', async () => {
+      const end = beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      window.location.hash = '#/send';
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(storeState.setSyncStatus).not.toHaveBeenCalled();
+
+      window.location.hash = '';
+      await act(async () => {
+        jest.advanceTimersByTime(3500);
+      });
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      unmount();
+    });
+
+    it('syncs at the cap when the interaction never ends', async () => {
+      beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(1400);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+
+      await act(async () => {
+        jest.advanceTimersByTime(200);
+      });
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      unmount();
+    });
+
+    it('never syncs after an unmount that landed during the deferral', async () => {
+      const end = beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      unmount();
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(5000);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(storeState.setSyncStatus).not.toHaveBeenCalled();
+    });
   });
 });

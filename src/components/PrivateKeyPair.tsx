@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 /** Kept separate from address QR encoding: no prefix or plaintext DOM attribute. */
 export function PrivateKeyPair({ payload }: { payload: string }) {
@@ -12,6 +13,7 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
   const [textMode, setTextMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const pair = parsePrivateKeyPair(payload);
+  useUserVisibleError(pair ? null : 'importHotKeyInvalid', 'inline');
 
   useEffect(() => {
     const container = containerRef.current;

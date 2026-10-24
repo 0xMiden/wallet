@@ -1,11 +1,18 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
+import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -176,15 +183,9 @@ export class AndroidWalletPage implements WalletPage {
     // The bypass applies the onboarding state and auto-advances to Confirmation.
     await this.pollForSelector('[data-testid="onboarding-confirmation"]', 120_000);
     // "Open wallet" — runs register(), which creates the vault.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`AndroidWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding now finishes on the one-time telemetry consent prompt rather
     // than on the wallet home, so decline it before handing the caller a wallet
@@ -205,6 +206,16 @@ export class AndroidWalletPage implements WalletPage {
     }
 
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
   }
 
   async getAccountAddress(): Promise<string> {
@@ -258,8 +269,7 @@ export class AndroidWalletPage implements WalletPage {
 
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
-      await this.click('[data-testid="send-network-sepolia"]');
+      await selectSendNetworkByScript(this, SEPOLIA_NETWORK, 15_000, POLL_INTERVAL_MS);
     }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
@@ -278,7 +288,7 @@ export class AndroidWalletPage implements WalletPage {
         `  if (want) { want.click(); return true; } ` +
         `} ` +
         `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
-        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-USDCX']; ` +
         `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
         `if (!pick) pick = rows[0]; ` +
         `if (!pick) return false; pick.click(); return true;`
@@ -322,10 +332,16 @@ export class AndroidWalletPage implements WalletPage {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
       lastBalance = await this.getBalance(tokenSymbol);
 
@@ -333,16 +349,19 @@ export class AndroidWalletPage implements WalletPage {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
-      if (attempt < maxAttempts) await sleep(intervalMs);
-    }
 
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+      await sleep(Math.min(intervalMs, remainingAfter));
+    }
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -431,14 +450,19 @@ export class AndroidWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
+        // A failed eval reads as not yet; what `accept` throws ends the poll.
+        const ok = await this.cdp.eval<T>(jsBody).then(accept, () => false);
         if (ok) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;

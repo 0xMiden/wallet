@@ -20,6 +20,7 @@ import {
   sanitizeGuardianUrl,
   sameGuardianEndpoint,
   isAutoConsumeEnabledAsync,
+  isCrashReportingEnabledAsync,
   isDelegateProofEnabledAsync,
   mirrorBackgroundSettings,
   areBackgroundSettingsMirrored,
@@ -123,6 +124,23 @@ describe('settings helpers', () => {
       expect(sameGuardianEndpoint('https://guardian.example.com#section', 'https://guardian.example.com')).toBe(false);
       expect(sameGuardianEndpoint('https://guardian.example.com#', 'https://guardian.example.com')).toBe(false);
       expect(sameGuardianEndpoint('https://guardian.example.com?', 'https://guardian.example.com')).toBe(false);
+    });
+
+    it('treats a renamed built-in host as its current name', () => {
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com', 'https://guardian-testnet.openzeppelin.com')
+      ).toBe(true);
+      expect(
+        sameGuardianEndpoint('https://Guardian-Stg.OpenZeppelin.com/', 'https://guardian-devnet.openzeppelin.com')
+      ).toBe(true);
+      // The rename is per network: the old testnet name is not the devnet operator.
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com', 'https://guardian-devnet.openzeppelin.com')
+      ).toBe(false);
+      // Only the host is renamed: a path on the old host is not the new host's root.
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com/v1', 'https://guardian-testnet.openzeppelin.com')
+      ).toBe(false);
     });
   });
 
@@ -335,5 +353,27 @@ describe('telemetry consent setting', () => {
 
   it('resolves false from the background mirror on a read miss', async () => {
     await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('permits crash reporting before a usage-sharing choice is stored', async () => {
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('keeps crash reporting enabled after usage sharing is explicitly disabled', async () => {
+    await setTelemetrySetting(false);
+
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('does not read the usage-sharing mirror to permit crash reporting', async () => {
+    mockStorageThrows = true;
+    try {
+      await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+      await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+    } finally {
+      mockStorageThrows = false;
+    }
   });
 });

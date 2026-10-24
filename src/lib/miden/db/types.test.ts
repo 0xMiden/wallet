@@ -103,6 +103,21 @@ describe('transaction models', () => {
       expect(tx.amount).toBe(12n);
     });
 
+    // A consume that lands without a transaction result adopts its bridge deliveries from these alone.
+    it('keeps the sender, faucet and amount of every note, in batch order', () => {
+      const tx = new ConsumeTransaction('acc', [
+        note({ id: 'n1', senderAddress: 'faucet-sender', faucetId: 'faucet-a', amount: '10' }),
+        note({ id: 'n2', senderAddress: 'wallet-sender', faucetId: 'faucet-b', amount: '3' }),
+        note({ id: 'n3', senderAddress: 'faucet-sender', faucetId: 'faucet-a', amount: '' })
+      ]);
+
+      expect(tx.consumedNotes).toEqual([
+        { id: 'n1', senderAddress: 'faucet-sender', faucetId: 'faucet-a', amount: 10n },
+        { id: 'n2', senderAddress: 'wallet-sender', faucetId: 'faucet-b', amount: 3n },
+        { id: 'n3', senderAddress: 'faucet-sender', faucetId: 'faucet-a' }
+      ]);
+    });
+
     it('omits assetTotals entirely when no note carries an identifiable asset', () => {
       const tx = new ConsumeTransaction('acc', [note({ id: 'n1', faucetId: '', amount: '4' })]);
 
@@ -199,6 +214,19 @@ describe('transaction models', () => {
     });
     expect(tx.id).toEqual(expect.any(String));
     expect(tx.initiatedAt).toEqual(expect.any(Number));
+  });
+
+  it("records an Epoch bridge note's reclaim height and id from its send params (#1250)", () => {
+    const tx = new BridgedSendTransaction('acc', 1n, '0xdest', 11155111, 'epoch', 'faucet', new Uint8Array([1]), true, {
+      recipientId: 'allocator',
+      noteType: NoteTypeEnum.Public,
+      recallBlocks: 2016,
+      reclaimHeight: 3016,
+      reclaimNoteId: 'note-stamped'
+    });
+
+    expect(tx.extraInputs).toMatchObject({ recallBlocks: 2016, reclaimHeight: 3016, reclaimNoteId: 'note-stamped' });
+    expect(tx.outputNoteIds).toBeUndefined();
   });
 
   it('creates earn withdrawals as completed tracking-only rows', () => {

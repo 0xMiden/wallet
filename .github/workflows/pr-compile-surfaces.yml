@@ -20,6 +20,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}
@@ -70,7 +72,7 @@ jobs:
       # The JVM logic tests (Play update classification, hot-key rules) run
       # nowhere else: assembleDebug never compiles src/test.
       - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest --console=plain
+        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
 
   desktop:
     name: Compile desktop (Tauri)
@@ -97,13 +99,15 @@ jobs:
       - name: Install Tauri system dependencies
         # Same mirror hardening as the xvfb steps in the e2e workflows: the
         # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget.
+        # update` can eat the whole job budget. Current runners also use a
+        # mirror+file source, so rewrite its mirror list as well as direct sources.
         timeout-minutes: 8
         run: |
           sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
+            /etc/apt/apt-mirrors.txt 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       # These surfaces compile wallet code that imports unreleased APIs from
       # both the web SDK and the guardian multisig client. Without the
       # injections they build against the published packages and fail on the
@@ -131,13 +135,19 @@ jobs:
 
   ios:
     name: Compile iOS
-    # macos-26, matching the iOS E2E jobs in e2e-blockchain.yml. NOT macos-15:
+    # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
+    # 33.8s to launch WebContent for a hosted fixture without changing its source.
+    # macos-26-xlarge also has the required toolchain. NOT macos-15:
     # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
     # `UIGlassEffect`, an iOS 26 API — so the build fails there with
     # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
     # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26
-    timeout-minutes: 75
+    runs-on: macos-26-xlarge
+    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
+    # on the runner. That step finished in 73 minutes, and the 75 minute limit
+    # then cancelled yarn install. The other linked-SDK jobs already use 120.
+    # A run without the marker does not build the SDK, so the extra ceiling is idle.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -178,13 +188,30 @@ jobs:
       # is chosen by id so a runner image that renames its devices still works.
       - name: Run iOS unit tests
         run: |
+          node --test scripts/ios-test-screenshots.test.cjs
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
+          xcrun simctl bootstatus "$UDID" -b
+          mkdir -p artifacts
+          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
+          SCREENSHOT_PID=$!
+          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
             -destination "id=$UDID" \
+            -parallel-testing-enabled NO \
             -only-testing:AppTests \
+            -resultBundlePath artifacts/ios-unit-tests.xcresult \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test
+      - name: Upload iOS test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unit-test-results
+          path: |
+            artifacts/ios-unit-tests.xcresult
+            artifacts/ios-screenshot-helper.log
+          if-no-files-found: ignore

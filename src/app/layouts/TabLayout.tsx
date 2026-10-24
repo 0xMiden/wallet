@@ -24,33 +24,34 @@ import {
   usePageOnScreen,
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
+import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
+import { useHasUnreadBadges } from 'lib/badges/useWalletBadges';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isAndroid, isDesktop, isExtension, isMobile } from 'lib/platform';
+import { isDesktop, isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
- * Layout for tab-based pages (Home, History, Settings, Browser).
+ * Layout for tab-based pages (Home, History, Me, Browser).
  * Provides a persistent footer and animated content area.
  *
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity, Settings) hide it.
+ * Activity, Me) hide it.
  *
- * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
- * sub-pages keep their FullScreenPage drill-in so back behaviour and history
- * depth are unchanged (see PageRouter).
+ * Me is the personal tab destination. It embeds the settings groups, whose rows
+ * keep the FullScreenPage drill-in used by every settings page (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
   activity: '/history',
-  settings: '/settings'
+  me: '/me'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -98,13 +99,7 @@ function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
-  // Exact, unlike the segment matches above: `/history/:programId` renders
-  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
-  // only Settings route that mounts TabLayout is the bare root — every
-  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
-  // Matching the segment here would only ever cover paths that cannot reach
-  // this function.
-  if (pathname === '/settings') return 'settings';
+  if (pathname === '/me') return 'me';
   return 'home';
 }
 
@@ -116,20 +111,16 @@ function activeActionFromPath(pathname: string): string {
   return 'overview';
 }
 
-// Docked-bar hide-on-scroll (mobile): a downward scroll past this many px hides the bar; it
+// Hide-on-scroll (mobile): a downward scroll past this many px hides the bar; it
 // returns once no scroll event has fired for SCROLL_IDLE_MS, or as soon as the scroll reverses.
 const SCROLL_HIDE_THRESHOLD_PX = 4;
 const SCROLL_IDLE_MS = 250;
 
-export interface DockedNavBarHandle {
+export interface FloatingNavBarHandle {
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
 }
 
-// Android's tabs stay above the system navigation bar, so its bar reaches further into the page. The one
-// place that is decided: the bar's `clearInset` and the root mark main.css sizes flow cushions from.
-const barClearsInset = (): boolean => isAndroid();
-
-interface DockedNavBarProps {
+interface FloatingNavBarProps {
   items: BottomNavItem[];
   activeId: string;
   onChange: (id: string) => void;
@@ -143,7 +134,7 @@ interface DockedNavBarProps {
  * Scroll events do not bubble, so TabLayout listens in the capture phase and forwards them here
  * through this handle, which keeps the pages unaware of the bar.
  */
-const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items, activeId, onChange }, ref) => {
+const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(({ items, activeId, onChange }, ref) => {
   const [scrollHidden, setScrollHidden] = useState(false);
   const lastScroll = useRef<{ target: EventTarget | null; top: number }>({ target: null, top: 0 });
   const scrollIdleTimer = useRef<number | undefined>(undefined);
@@ -152,7 +143,8 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
   useImperativeHandle(ref, () => ({
     handleScroll: event => {
       const { target } = event;
-      if (!(target instanceof HTMLElement)) return;
+      // The Home pager scrolls sideways on every frame of a swipe; it is never a vertical scroll.
+      if (!(target instanceof HTMLElement) || target.hasAttribute('data-home-pager')) return;
       const top = target.scrollTop;
       const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
       lastScroll.current = { target, top };
@@ -164,25 +156,19 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
     }
   }));
 
-  /* Off-mobile the pill floats: `px-4` + `justify-center` center it and `pb-2` lifts it off the
-       frame edge. `min-w-0` lets this flex child shrink to the footer width instead of ballooning
-       to the pill's min-content, which otherwise overflowed a 375px-wide viewport. */
+  /* The footer reserves iOS gesture clearance internally while its canvas reaches the screen edge.
+     Other platforms keep the pill's 8px lift. Only the pill takes pointer events; its wrapper keeps
+     adjacent content scrollable and lets a hidden pill move past its shadow and safe-area floor. */
   return (
     <div
       className={classNames(
-        'pointer-events-auto flex-1 min-w-0 flex justify-center',
-        !isMobile() && 'px-4 pb-2',
+        'pointer-events-none flex-1 min-w-0 flex justify-center px-4',
+        !isIOS() && 'pb-2',
         isMobile() && 'transition-transform duration-300 ease-out motion-reduce:transition-none',
-        scrollHidden && 'translate-y-full'
+        scrollHidden && 'translate-y-[calc(100%+2rem+var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom))))]'
       )}
     >
-      <BottomNav
-        items={items}
-        activeId={activeId}
-        onChange={onChange}
-        docked={isMobile()}
-        clearInset={barClearsInset()}
-      />
+      <BottomNav items={items} activeId={activeId} onChange={onChange} className="pointer-events-auto" />
     </div>
   );
 });
@@ -192,6 +178,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const hasUnreadActivity = useHasUnreadActivity();
+  const hasUnreadBadges = useHasUnreadBadges();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
@@ -199,7 +186,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The BottomNav hides while the soft keyboard is up, but that hold is taken by the native keyboard
   // listener (lib/mobile/keyboard-inset), in the same task as the inset, not here a render later.
 
-  const dockedBar = useRef<DockedNavBarHandle>(null);
+  const navBar = useRef<FloatingNavBarHandle>(null);
 
   // The `fade` preset plays once, when the layout mounts. A tab change swaps
   // panes with no animation, like a native tab bar.
@@ -215,17 +202,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: t('home'),
       icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
-    // Explore tab is a dApp browser surface — extension popup has no use
-    // for it (browser-the-product is already the host), so drop it there.
-    ...(isExtension()
-      ? []
-      : [
-          {
-            id: 'explore',
-            label: t('explore'),
-            icon: <Icon name={IconName.Explore} className="w-6 h-6" />
-          }
-        ]),
+    {
+      id: 'explore',
+      label: t('explore'),
+      icon: <Icon name={IconName.Explore} className="w-6 h-6" />
+    },
     {
       id: 'activity',
       label: t('activity'),
@@ -233,9 +214,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
-      id: 'settings',
-      label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
+      id: 'me',
+      label: t('profile'),
+      icon: <Icon name={IconName.User} className="w-6 h-6" fill="currentColor" />,
+      unread: hasUnreadBadges ? { label: t('activityUnread') } : undefined
     }
   ];
 
@@ -292,6 +274,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     return () => document.body.removeAttribute('data-home-band');
   }, [showActionBar, onScreen]);
 
+  // The dApp peek tray can subscribe to the footer's top edge before this layout mounts, and no
+  // resize marks the footer's arrival, so tell it the footer is now in the DOM.
+  useEffect(() => {
+    announceFooterMounted();
+  }, []);
+
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the
   // route we're already on stays a silent no-op.
@@ -311,7 +299,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // Platform-specific sizing:
-  // - Mobile: 100% to inherit from parent chain (body has safe area padding)
+  // - Mobile: inherit the canvas, with gesture clearance reserved by controls.
   // - Desktop: Responsive with max-width for comfortable reading
   // - Extension: Fixed sizes for popup/fullpage modes
   const containerStyles = isMobile()
@@ -331,7 +319,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
-      <div className="shrink-0 relative z-10">
+      <div className="shrink-0 relative z-10" data-home-actions="true">
         <SegmentedActionBar
           items={actionItems}
           activeId={activeAction}
@@ -356,18 +344,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     <div
       // main.css declares the tab bar's room for flow footers on this root, so only a page inside the layout
       // that draws the bar reserves it; a slide page beside a covered tab layer does not (#1109).
-      data-tab-layout={isMobile() ? 'docked' : 'floating'}
-      data-navbar-clears-inset={barClearsInset() ? '' : undefined}
+      data-tab-layout="floating"
       // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
-      // the BottomNav shadow can fade into the body's safe-area padding
-      // strip below the container; fixed-size extension/desktop frames keep
+      // the BottomNav shadow can fade into the safe-area floor below its controls;
+      // fixed-size extension/desktop frames keep
       // full overflow-hidden.
       className={classNames(
         'relative m-auto bg-app-bg flex flex-col',
         isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
       )}
       style={containerStyles}
-      onScrollCapture={isMobile() ? event => dockedBar.current?.handleScroll(event) : undefined}
+      onScrollCapture={isMobile() ? event => navBar.current?.handleScroll(event) : undefined}
     >
       {/* Every visited tab keeps its pane mounted under the same key, so a tab
           change is one visibility swap with no remount and no animation. */}
@@ -384,27 +371,18 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ))}
       </motion.div>
 
-      {/* Bottom nav — overlays content (floating pill off-mobile, docked bar
-          on mobile). The data attribute lets
-          the dApp bubble host measure footer height for corner snap math.
+      {/* Bottom nav — overlays content as a floating pill on every platform.
+          The data attribute lets the dApp peek tray read the footer's top
+          edge, so hiding never moves this box: only the pill inside it slides.
           Forced `display:flex !important` + `z-[60]` guard against legacy
           CSS or stale compiled bundles that try to hide `[data-tabbar-footer]`
           or stack a higher z-index over it. */}
       <div
         className="absolute bottom-0 left-0 right-0 z-60 pointer-events-none"
         data-tabbar-footer="true"
-        style={{
-          display: 'flex',
-          // Mobile docks the bar: sink the footer through the body's safe-area
-          // padding, which mobile.html declares as --app-safe-bottom, so the
-          // bar's background runs under the home indicator while its own
-          // safe-area bottom padding keeps the items above it. Reading the
-          // property rather than repeating its value is what keeps the bar on
-          // the screen edge when the inset is smaller than the floor.
-          ...(isMobile() ? { bottom: 'calc(-1 * var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom))))' } : {})
-        }}
+        style={{ display: 'flex' }}
       >
-        <DockedNavBar ref={dockedBar} items={tabs} activeId={activeTab} onChange={handleTabChange} />
+        <FloatingNavBar ref={navBar} items={tabs} activeId={activeTab} onChange={handleTabChange} />
       </div>
     </div>
   );

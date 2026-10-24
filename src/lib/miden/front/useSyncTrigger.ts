@@ -15,12 +15,15 @@ import {
   MAX_SYNC_BACKOFF_MS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { sweepNoteDeliveries } from 'lib/miden/transaction/note-delivery-sweep';
+import { runTrimTick } from 'lib/miden/transaction/trim-result-bytes';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 import { WalletType } from 'screens/onboarding/types';
 
-import { syncGuardianAccounts } from './guardian-sync';
+import { reconcileUnconfirmedInApp, syncGuardianAccounts } from './guardian-sync';
 import { requestNotesRefresh } from './note-refresh';
 import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction, syncFuseUntilMs } from './sync-fuse';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -149,6 +152,18 @@ export function useSyncTrigger() {
 
       isRunning = true;
       try {
+        // Reclaim finished transactions' result blobs. This is mobile and desktop's ONLY driver
+        // for it, so removing this call stops those platforms reclaiming anything at all.
+        //
+        // Ahead of the guards below and outside the WASM lock on purpose: it is pure local Dexie
+        // maintenance, so the generating-transaction route and the send flow have no business
+        // gating it - this placement escapes those. It does NOT escape the fuse or the breaker:
+        // both feed the delay that schedules this run at all, so on a fused realm the reaper's
+        // cadence stretches with the sync's, a cost trim-result-bytes states. Fire-and-forget, so a
+        // sync never awaits it and a trim failure never fails one - though the select does run on
+        // this thread and this IndexedDB connection, so it is not free.
+        void runTrimTick();
+
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
         // a tx is being generated, to avoid queuing sync behind a long prove.
         const onGeneratingTxPage =
@@ -161,6 +176,12 @@ export function useSyncTrigger() {
         // remaining checks (the generating-transaction route and the send flow) are
         // what actually keep a sync from queueing behind a long prove.
         if (!onGeneratingTxPage && !inSendFlow && !isTestSyncPaused()) {
+          // A sync's WASM work would land mid-swipe; hold it until the pager settles (capped, never dropped).
+          await whenInteractionIdle();
+          if (cancelled) return;
+          // The swipe may have landed on Send (or a prove page) meanwhile; the guards above still apply.
+          if (isTestSyncPaused() || isInsideSendFlow() || window.location.href.includes('generating-transaction'))
+            return;
           // Consumed HERE, not at the top of the run: a run whose guards skip it never
           // reaches the node, so reading the grant before them SPENT it on nothing.
           // A user tapping the banner's Retry from the generating-transaction page got
@@ -241,6 +262,15 @@ export function useSyncTrigger() {
             // waiting out the claimable-notes SWR interval (up to 5s) — the note
             // read runs after the sync's wasm lock has been released (#462).
             requestNotesRefresh();
+            // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten: node reads, and
+            // for each kept Guardian candidate it releases, a short WASM-lock read to build the cold service, a
+            // bounded Guardian abandon and up to 60 s of polling. Only after a sync that ran, like the resets above.
+            // The private-note delivery sweep rides along for the same reason, and because nothing else here
+            // re-sends a note whose relay failed. It runs one pass at a time and does no query while nothing is due.
+            if (synced) {
+              void reconcileUnconfirmedInApp();
+              void sweepNoteDeliveries();
+            }
 
             const guardianAccountKeys = useWalletStore
               .getState()

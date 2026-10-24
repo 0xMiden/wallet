@@ -79,7 +79,7 @@ describe('AlertSheet', () => {
     expect(screen.getByText('Are you sure you want to delete this contact?')).toHaveClass('text-body', 'text-muted');
   });
 
-  it('is a bottom sheet with 28px top corners, stacked above drawers', () => {
+  it('is a bottom sheet with 28px top corners, in the shared host modal tier', () => {
     renderConfirm();
 
     const sheet = screen.getByRole('alertdialog');

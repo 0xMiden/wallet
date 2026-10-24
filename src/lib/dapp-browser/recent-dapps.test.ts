@@ -1,11 +1,14 @@
 /**
  * Tests for the recent-dapps store.
  *
- * The store uses `@capacitor/preferences` for persistence and keeps a
- * module-scoped in-memory cache. We mock the plugin so tests can drive
- * the underlying persistence layer directly, and we `jest.isolateModules`
- * inside each test that needs to reset the module cache.
+ * The store persists through the platform storage adapter and keeps a
+ * module-scoped in-memory cache. The adapter here is the mobile one,
+ * `CapacitorStorage`, over a mocked `@capacitor/preferences`, so the tests
+ * drive the bytes a phone keeps, and `jest.resetModules` before each test
+ * resets the module cache.
  */
+
+import type { StorageProvider } from 'lib/platform/storage-adapter';
 
 const store: Record<string, string> = {};
 const mockGet = jest.fn(async ({ key }: { key: string }) => ({ value: store[key] ?? null }));
@@ -23,6 +26,13 @@ jest.mock('@capacitor/preferences', () => ({
     remove: (...args: unknown[]) => mockRemove(...(args as [{ key: string }]))
   }
 }));
+// Another platform's store, when a test sets one.
+let mockProvider: StorageProvider | null = null;
+jest.mock('lib/platform/storage-adapter', () => {
+  const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>('lib/platform/storage-adapter');
+  const capacitor = new actual.CapacitorStorage();
+  return { ...actual, getStorageProvider: () => mockProvider ?? capacitor };
+});
 
 const STORAGE_KEY = 'miden:dapp-browser:recents';
 
@@ -31,6 +41,7 @@ beforeEach(() => {
   mockGet.mockClear();
   mockSet.mockClear();
   mockRemove.mockClear();
+  mockProvider = null;
   jest.resetModules();
 });
 
@@ -84,11 +95,11 @@ describe('recordRecentDapp', () => {
     expect(recents[0]!.name).toBe('Miden (updated)');
   });
 
-  it('keeps a stored favicon when a refresh carries none, as both writers send it', async () => {
+  it('keeps a stored favicon when a refresh carries none, as DappActionsSheet sends it', async () => {
     const { recordRecentDapp, getRecentDapps } = await import('./recent-dapps');
     const entry = { url: 'https://miden.xyz', name: 'miden.xyz', origin: 'https://miden.xyz' };
     await recordRecentDapp({ ...entry, favicon: 'x' });
-    // BrowserScreen and DappActionsSheet pass the key with an undefined value, not an absent key.
+    // DappActionsSheet passes the key with an undefined value, not an absent key.
     await recordRecentDapp({ ...entry, favicon: undefined });
     expect((await getRecentDapps())[0]!.favicon).toBe('x');
   });
@@ -183,6 +194,33 @@ describe('migration', () => {
     const recents = await getRecentDapps();
     // The entry with the bad URL should still be kept (just without host-based filtering)
     expect(recents).toHaveLength(2);
+  });
+});
+
+describe('storage wipe', () => {
+  // On the extension Preferences falls back to localStorage, which no wallet reset clears.
+  it("keeps the list in the platform's key-value store, which a wallet reset wipes", async () => {
+    const items: Record<string, unknown> = {};
+    mockProvider = {
+      get: async keys => Object.fromEntries(keys.filter(key => key in items).map(key => [key, items[key]])),
+      set: async next => void Object.assign(items, next),
+      remove: async keys => keys.forEach(key => delete items[key])
+    };
+    const { recordRecentDapp } = await import('./recent-dapps');
+    await recordRecentDapp({ url: 'https://miden.xyz', name: 'miden', origin: 'https://miden.xyz' });
+    expect(items[STORAGE_KEY]).toEqual([expect.objectContaining({ url: 'https://miden.xyz' })]);
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  it('reads storage again after a wipe instead of showing the list this realm cached', async () => {
+    const { recordRecentDapp, getRecentDapps } = await import('./recent-dapps');
+    const { rereadStorageCache } = await import('lib/miden/front/storage');
+    await recordRecentDapp({ url: 'https://miden.xyz', name: 'miden', origin: 'https://miden.xyz' });
+    expect(await getRecentDapps()).toHaveLength(1);
+
+    for (const k of Object.keys(store)) delete store[k];
+    await rereadStorageCache();
+    expect(await getRecentDapps()).toEqual([]);
   });
 });
 

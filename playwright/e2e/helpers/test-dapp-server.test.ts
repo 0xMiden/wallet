@@ -1,0 +1,566 @@
+/**
+ * @jest-environment node
+ */
+import type React from 'react';
+
+import type { BrowserContext } from '@playwright/test';
+import { JSDOM } from 'jsdom';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import type { act as Act } from 'react-dom/test-utils';
+import ts from 'typescript';
+
+import { exportedNames, importedSpecifiers, linkProblems } from './module-graph';
+import {
+  buildImportMap,
+  buildReactImportMap,
+  buildReactShims,
+  createDappServer,
+  createReactDappServer,
+  DAPP_ORIGINS,
+  DAPP_PORT,
+  installTestDapp,
+  REACT_DAPP_ORIGIN,
+  resolvePackageRoots,
+  resolveReactPackageRoots,
+  serveTestDappOnLoopback
+} from './test-dapp-server';
+import type { ReactDappWindowApi, ReactTree } from '../test-dapp/react-protocol';
+
+const roots = resolvePackageRoots();
+const PAGE_DIR = path.resolve(__dirname, '../test-dapp');
+
+// A throwaway page directory, so the server is tested before the real page exists.
+function pageFixture(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dapp-page-'));
+  fs.writeFileSync(
+    path.join(dir, 'index.html'),
+    '<!doctype html><html><head><!-- test-dapp:import-map --></head><body></body></html>'
+  );
+  fs.writeFileSync(
+    path.join(dir, 'sample.ts'),
+    "import type { Outcome } from './protocol';\nexport const answer: number = 42;\nexport type Kept = Outcome<number>;\n"
+  );
+  return dir;
+}
+
+const freePort = (): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      probe.close(() => resolve(port));
+    });
+  });
+
+const hold = (port: number, host: string): Promise<net.Server> =>
+  new Promise((resolve, reject) => {
+    const blocker = net.createServer();
+    blocker.once('error', reject);
+    blocker.listen(port, host, () => resolve(blocker));
+  });
+
+const release = (listener: net.Server): Promise<void> => new Promise(resolve => listener.close(() => resolve()));
+
+describe('test dApp server', () => {
+  it('resolves every served package, eventemitter3 from adapter-base itself', () => {
+    for (const [name, root] of Object.entries(roots)) {
+      const manifest: unknown = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+      expect(typeof manifest === 'object' && manifest !== null ? Reflect.get(manifest, 'name') : undefined).toBe(name);
+    }
+    expect(fs.existsSync(path.join(roots.eventemitter3, 'dist', 'eventemitter3.esm.js'))).toBe(true);
+  });
+
+  it('maps every bare specifier to a file the server serves as JavaScript', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const { imports } = buildImportMap(roots);
+    expect(Object.keys(imports).sort()).toEqual([
+      '@miden-sdk/miden-sdk',
+      '@miden-sdk/miden-wallet-adapter-base',
+      '@miden-sdk/miden-wallet-adapter-miden',
+      'eventemitter3'
+    ]);
+    expect(imports['@miden-sdk/miden-sdk']).toBe('/npm/@miden-sdk/miden-sdk/dist/st/eager.js');
+    expect(imports.eventemitter3).toBe('/npm/eventemitter3/dist/eventemitter3.esm.js');
+    for (const url of Object.values(imports)) {
+      const served = server.serve(url);
+      expect({ url, status: served.status, type: served.contentType }).toEqual({
+        url,
+        status: 200,
+        type: 'text/javascript; charset=utf-8'
+      });
+    }
+  });
+
+  it('injects the import map into the page shell', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const html = server.serve('/').body.toString('utf8');
+    expect(html).not.toContain('test-dapp:import-map');
+    expect(html).toContain('<script type="importmap">');
+    expect(html).toContain(
+      '"@miden-sdk/miden-wallet-adapter-miden":"/npm/@miden-sdk/miden-wallet-adapter-miden/dist/index.js"'
+    );
+  });
+
+  it('retries an extensionless import with .js, as the adapters need', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const served = server.serve('/npm/@miden-sdk/miden-wallet-adapter-miden/dist/adapter');
+    expect(served.status).toBe(200);
+    expect(served.body.toString('utf8')).toContain('class MidenWalletAdapter');
+  });
+
+  it('serves the SDK wasm as application/wasm', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const served = server.serve('/npm/@miden-sdk/miden-sdk/dist/st/assets/miden_client_web.wasm');
+    expect(served.status).toBe(200);
+    expect(served.contentType).toBe('application/wasm');
+    expect(served.body.subarray(0, 4)).toEqual(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+  });
+
+  it('refuses path traversal, raw or percent-encoded', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    expect(server.serve('/npm/@miden-sdk/miden-sdk/../../../package.json').status).toBe(400);
+    expect(server.serve('/npm/@miden-sdk/miden-sdk/%2e%2e/%2e%2e/package.json').status).toBe(400);
+  });
+
+  it('answers 404 for an unknown package, file or route', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    expect(server.serve('/npm/left-pad/index.js').status).toBe(404);
+    expect(server.serve('/npm/@miden-sdk/miden-sdk/dist/st/nope.js').status).toBe(404);
+    expect(server.serve('/elsewhere/thing').status).toBe(404);
+  });
+
+  it('transpiles a page module per request and erases type-only imports', () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const served = server.serve('/sample.js');
+    expect(served.status).toBe(200);
+    const js = served.body.toString('utf8');
+    expect(js).toContain('export const answer = 42;');
+    expect(js).not.toContain('protocol');
+  });
+
+  it('serves the same bytes on a loopback listener', async () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const stop = await serveTestDappOnLoopback(server, port);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/npm/eventemitter3/dist/eventemitter3.esm.js`);
+      expect(response.status).toBe(200);
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(
+        server.serve('/npm/eventemitter3/dist/eventemitter3.esm.js').body
+      );
+    } finally {
+      await stop();
+    }
+  });
+
+  it('refuses a page module that does not parse, such as JSX in a .ts file, and names why', () => {
+    const dir = pageFixture();
+    fs.writeFileSync(path.join(dir, 'jsx.ts'), 'export const element = <div id="a">{1}</div>;\n');
+    const served = createDappServer({ pageDir: dir, roots }).serve('/jsx.js');
+    expect({ status: served.status, why: served.body.toString('utf8') }).toEqual({
+      status: 500,
+      why: expect.stringMatching(/^jsx\.ts does not parse: /)
+    });
+  });
+
+  it('serves every page module the test dApps have, so none holds JSX or anything else that does not parse', () => {
+    const server = createDappServer({ roots });
+    const modules = fs.readdirSync(PAGE_DIR).filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts'));
+    expect(modules).toEqual(expect.arrayContaining(['protocol.ts', 'test-dapp.ts']));
+    expect(modules.map(name => [name, server.serve(`/${name.replace(/\.ts$/, '.js')}`).status])).toEqual(
+      modules.map(name => [name, 200])
+    );
+  });
+
+  it('serves another shell, the import map it is given and generated modules', () => {
+    const dir = pageFixture();
+    fs.writeFileSync(path.join(dir, 'other.html'), '<html><head><!-- test-dapp:import-map --></head></html>');
+    const server = createDappServer({
+      pageDir: dir,
+      roots,
+      shell: 'other.html',
+      importMap: { imports: { thing: '/shims/thing.js' } },
+      shims: new Map([['thing.js', 'export const thing = 1;']])
+    });
+    expect(server.serve('/').body.toString('utf8')).toContain(
+      '<script type="importmap">{"imports":{"thing":"/shims/thing.js"}}</script>'
+    );
+    expect([server.serve('/other.html').status, server.serve('/index.html').status]).toEqual([200, 404]);
+    const shim = server.serve('/shims/thing.js');
+    expect({ status: shim.status, type: shim.contentType, body: shim.body.toString('utf8') }).toEqual({
+      status: 200,
+      type: 'text/javascript; charset=utf-8',
+      body: 'export const thing = 1;'
+    });
+    expect(server.serve('/shims/none.js').status).toBe(404);
+  });
+
+  it('routes the origins it is given, dApps one and two by default', async () => {
+    const patterns = async (origins?: readonly string[]): Promise<unknown[]> => {
+      const route = jest.fn(async (_pattern: string, _handler: unknown) => undefined);
+      await installTestDapp(
+        { route } as unknown as BrowserContext,
+        createDappServer({ pageDir: pageFixture(), roots }),
+        origins
+      );
+      return route.mock.calls.map(call => call[0]);
+    };
+    expect(REACT_DAPP_ORIGIN).toBe(`http://localhost:${DAPP_PORT + 1}`);
+    expect(await patterns()).toEqual([`${DAPP_ORIGINS.one}/**`, `${DAPP_ORIGINS.two}/**`]);
+    expect(await patterns([REACT_DAPP_ORIGIN])).toEqual([`${REACT_DAPP_ORIGIN}/**`]);
+  });
+
+  it.each(['::1', '127.0.0.1'])('closes the address it bound when %s is taken, so a retry binds', async taken => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const blocker = await hold(port, taken);
+    try {
+      await expect(serveTestDappOnLoopback(server, port)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally {
+      await release(blocker);
+    }
+    // A listener left on the other address would fail this second bind with EADDRINUSE and keep Jest alive.
+    const stop = await serveTestDappOnLoopback(server, port);
+    await stop();
+  });
+
+  it.each(['EADDRNOTAVAIL', 'EAFNOSUPPORT'])('serves 127.0.0.1 alone when ::1 refuses with %s', async code => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const listen = net.Server.prototype.listen;
+    const refuseIpv6 = jest.spyOn(net.Server.prototype, 'listen').mockImplementation(function (
+      this: net.Server,
+      ...args: unknown[]
+    ) {
+      if (args[1] !== '::1') return Reflect.apply(listen, this, args);
+      process.nextTick(() => this.emit('error', Object.assign(new Error(`listen ${code} ::1`), { code })));
+      return this;
+    });
+    try {
+      const stop = await serveTestDappOnLoopback(server, port);
+      try {
+        expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+      } finally {
+        await stop();
+      }
+    } finally {
+      refuseIpv6.mockRestore();
+    }
+  });
+
+  it('lets the routes it is given answer first, and serves the rest', async () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const stop = await serveTestDappOnLoopback(server, port, (request, response) => {
+      if (request.url !== '/ping') return false;
+      response.writeHead(204);
+      response.end();
+      return true;
+    });
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/ping`)).status).toBe(204);
+      expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    } finally {
+      await stop();
+    }
+  });
+});
+
+describe('React page server', () => {
+  const reactRoots = resolveReactPackageRoots();
+  const manifestOf = (root: string): unknown => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const versionOf = (root: string): unknown => Reflect.get(Object(manifestOf(root)), 'version');
+  const requireKeys = (root: string, specifier: string): string[] => {
+    const loaded: unknown = createRequire(path.join(root, 'package.json'))(specifier);
+    return typeof loaded === 'object' && loaded !== null ? Object.keys(loaded) : [];
+  };
+
+  it('resolves the React packages, adapter-react at its pin and zustand from @miden-sdk/react itself', () => {
+    for (const [name, root] of Object.entries(reactRoots)) {
+      expect(Reflect.get(Object(manifestOf(root)), 'name')).toBe(name);
+    }
+    expect({
+      react: versionOf(reactRoots.react),
+      reactDom: versionOf(reactRoots['react-dom']),
+      adapterReact: versionOf(reactRoots['@miden-sdk/miden-wallet-adapter-react'])
+    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.17.0' });
+    expect(reactRoots.zustand).toBe(
+      path.dirname(
+        createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')
+      )
+    );
+  });
+
+  it('replaces every * of the zustand subpath pattern, as Node resolves package exports', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zustand-fixture-'));
+    try {
+      const target = { import: { default: './esm/*/*.mjs' } };
+      const exports = { '.': { import: { default: './esm/index.mjs' } }, './*': target };
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'zustand', exports }));
+      const { imports } = buildReactImportMap({ ...reactRoots, zustand: dir });
+      expect(imports['zustand/vanilla']).toBe('/npm/zustand/esm/vanilla/vanilla.mjs');
+      expect(imports['zustand/react']).toBe('/npm/zustand/esm/react/react.mjs');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shims export exactly the names require gives in Node, and a default', () => {
+    const shims = buildReactShims(reactRoots);
+    const shimExports = (name: string): string[] => exportedNames(shims.get(name) ?? '');
+    expect({
+      react: shimExports('react.js'),
+      jsxRuntime: shimExports('react-jsx-runtime.js'),
+      client: shimExports('react-dom-client.js')
+    }).toEqual({
+      react: ['default', ...requireKeys(reactRoots.react, 'react')].sort(),
+      jsxRuntime: ['default', ...requireKeys(reactRoots.react, 'react/jsx-runtime')].sort(),
+      client: ['default', ...requireKeys(reactRoots['react-dom'], 'react-dom/client')].sort()
+    });
+  });
+
+  it('loads React before react-dom, whose UMD build reads the global React as it loads', () => {
+    const client = buildReactShims(reactRoots).get('react-dom-client.js') ?? '';
+    expect(importedSpecifiers(client)).toEqual(['/shims/react.js', '/npm/react-dom/umd/react-dom.development.js']);
+  });
+
+  it('links every module the import map reaches: served, mapped, and every named import exported', () => {
+    const server = createReactDappServer({ roots: reactRoots });
+    expect(linkProblems(server, Object.values(server.importMap.imports))).toEqual([]);
+  });
+});
+
+describe('page modules', () => {
+  const served = (server: ReturnType<typeof createDappServer>, url: string): string =>
+    server.serve(url).body.toString('utf8');
+
+  it('links the plain page: every module it reaches is served and every named import exported', () => {
+    expect(linkProblems(createDappServer({ roots }), ['/test-dapp.js'])).toEqual([]);
+  });
+
+  it('takes the error, outcome and output-note helpers from page-common, as the React page does', () => {
+    const shared = ['describeError', 'outcome', 'outputNoteView', 'HarnessCheckError', 'ChainUnavailableError'];
+    const source = fs.readFileSync(path.join(PAGE_DIR, 'test-dapp.ts'), 'utf8');
+    const file = ts.createSourceFile('test-dapp.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const declared = file.statements.flatMap(statement =>
+      (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name
+        ? [statement.name.text]
+        : ts.isVariableStatement(statement)
+          ? statement.declarationList.declarations.map(declaration => declaration.name.getText(file))
+          : []
+    );
+    expect(importedSpecifiers(served(createDappServer({ roots }), '/test-dapp.js'))).toContain('./page-common.js');
+    expect(declared.filter(name => shared.includes(name))).toEqual([]);
+  });
+});
+
+describe('React page module', () => {
+  const reactRoots = resolveReactPackageRoots();
+  // Read in each test, so a missing page fails these tests and not the whole file.
+  const pageSource = (): ts.SourceFile =>
+    ts.createSourceFile(
+      'react-dapp.ts',
+      fs.readFileSync(path.join(PAGE_DIR, 'react-dapp.ts'), 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+
+  it('links: the page and everything it reaches are served, mapped and exported', () => {
+    const server = createReactDappServer({ roots: reactRoots });
+    expect(linkProblems(server, ['/react-dapp.js', ...Object.values(server.importMap.imports)])).toEqual([]);
+  });
+
+  it('builds its two adapters once, at module scope, and never renders under StrictMode', () => {
+    const file = pageSource();
+    const adapters: string[] = [];
+    let strictMode = false;
+    const visit = (node: ts.Node, inFunction: boolean): void => {
+      if (ts.isNewExpression(node) && node.expression.getText(file) === 'MidenWalletAdapter') {
+        adapters.push(inFunction ? 'in a function' : 'module scope');
+      }
+      if (ts.isIdentifier(node) && node.text === 'StrictMode') strictMode = true;
+      ts.forEachChild(node, child => visit(child, inFunction || ts.isFunctionLike(node)));
+    };
+    visit(file, false);
+    expect({ adapters, strictMode }).toEqual({ adapters: ['module scope', 'module scope'], strictMode: false });
+  });
+
+  it("gives each provider a storage key of its own, neither the providers' default", () => {
+    const file = pageSource();
+    const keys: string[] = [];
+    const props: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(file) === 'STORAGE_KEYS' && node.initializer) {
+        if (ts.isObjectLiteralExpression(node.initializer)) {
+          for (const property of node.initializer.properties) {
+            if (ts.isPropertyAssignment(property) && ts.isStringLiteral(property.initializer)) {
+              keys.push(property.initializer.text);
+            }
+          }
+        }
+      }
+      if (ts.isPropertyAssignment(node) && node.name.getText(file) === 'localStorageKey') {
+        props.push(node.initializer.getText(file));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    expect({
+      props,
+      distinct: new Set(keys).size,
+      keys: keys.length,
+      takesDefault: keys.includes('walletName')
+    }).toEqual({
+      props: ['STORAGE_KEYS.wallet', 'STORAGE_KEYS.midenfi'],
+      distinct: 2,
+      keys: 2,
+      takesDefault: false
+    });
+  });
+
+  it('serves the React shell with its import map on its own loopback listener', async () => {
+    const server = createReactDappServer({ roots: reactRoots });
+    // Served once before any listener: a missing shell throws here and fails this test alone, not inside the
+    // listener's handler, where it would leave the request and the listener open and keep Jest running.
+    expect(server.serve('/').status).toBe(200);
+    const port = await freePort();
+    const stop = await serveTestDappOnLoopback(server, port);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      const html = await response.text();
+      expect({
+        status: response.status,
+        module: html.includes('src="/react-dapp.js"'),
+        map: html.includes('"react":"/shims/react.js"')
+      }).toEqual({
+        status: 200,
+        module: true,
+        map: true
+      });
+    } finally {
+      await stop();
+    }
+  });
+
+  it('records a key that is not a Word as data and a probe fault as a page error, and both trees stay up', async () => {
+    const dom = new JSDOM('<!doctype html><div id="root"></div><pre id="log"></pre>', {
+      url: 'http://localhost:4811/?network=testnet'
+    });
+    const globals = {
+      window: dom.window,
+      document: dom.window.document,
+      localStorage: dom.window.localStorage,
+      IS_REACT_ACT_ENVIRONMENT: true
+    };
+    const setters: Partial<Record<ReactTree, (value: object) => void>> = {};
+    const cleanups: ReactTree[] = [];
+    const context = (publicKey: unknown, wallets: unknown = []): object => ({
+      autoConnect: false,
+      connected: true,
+      connecting: false,
+      disconnecting: false,
+      address: 'mtst1fake',
+      publicKey,
+      wallet: null,
+      wallets
+    });
+    // Each fake provider's effect cleanup stands for the real one's `disconnect()`: it runs only if the root unmounts.
+    const fakes: Record<string, () => unknown> = {
+      '@miden-sdk/miden-sdk': () => ({
+        Word: {
+          deserialize: (bytes: unknown) => {
+            if (!(bytes instanceof Uint8Array) || bytes.length !== 32) throw new Error(`not a word: ${String(bytes)}`);
+            return { toHex: () => `0x${'ab'.repeat(32)}` };
+          }
+        }
+      }),
+      '@miden-sdk/miden-wallet-adapter-base': () => ({
+        WalletAdapterNetwork: { Testnet: 'testnet', Devnet: 'devnet' }
+      }),
+      '@miden-sdk/miden-wallet-adapter-miden': () => ({
+        MidenWalletAdapter: class {
+          name = 'Bread Wallet';
+          on = (): void => undefined;
+        }
+      }),
+      '@miden-sdk/miden-wallet-adapter-react': () => {
+        const react: typeof React = require('react');
+        const provider = (tree: ReactTree, initial: object) => {
+          const Context = react.createContext<object>({});
+          const Provider = ({ children }: { children: React.ReactNode }): React.ReactNode => {
+            const [value, setValue] = react.useState(initial);
+            setters[tree] = setValue;
+            react.useEffect(
+              () => () => {
+                cleanups.push(tree);
+              },
+              []
+            );
+            return react.createElement(Context.Provider, { value }, children);
+          };
+          return { Provider, use: () => react.useContext(Context) };
+        };
+        const wallet = provider('wallet', context(new Uint8Array([1, 2, 3])));
+        const midenfi = provider('midenfi', context(undefined));
+        return {
+          WalletProvider: wallet.Provider,
+          useWallet: wallet.use,
+          MidenFiSignerProvider: midenfi.Provider,
+          useMidenFiWallet: midenfi.use,
+          WalletContext: react.createContext({})
+        };
+      },
+      '@miden-sdk/react': () => ({
+        MidenProvider: ({ children }: { children: React.ReactNode }) => children,
+        useMiden: () => ({ isReady: false, isInitializing: false, error: null, signerAccountId: null }),
+        useSigner: () => null
+      }),
+      '../test-dapp/page-common.js': () => jest.requireActual('../test-dapp/page-common')
+    };
+    for (const [name, value] of Object.entries(globals)) {
+      Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+    }
+    for (const [name, factory] of Object.entries(fakes)) jest.doMock(name, factory, { virtual: true });
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const act: typeof Act = require('react-dom/test-utils').act;
+        await act(async () => {
+          require('../test-dapp/react-dapp');
+        });
+        await act(async () => setters.wallet?.(context(new Uint8Array(32))));
+        await act(async () => setters.wallet?.(context(new Uint8Array(32), null)));
+        const api: ReactDappWindowApi = Reflect.get(dom.window, 'testDapp');
+        const view = await api.call('view', {});
+        const keys = (tree: ReactTree): unknown[] =>
+          view.snapshots.filter(entry => entry.tree === tree).map(entry => [entry.publicKeyHex, entry.publicKeyError]);
+        expect({
+          root: dom.window.document.getElementById('root')?.innerHTML,
+          cleanups,
+          wallet: keys('wallet'),
+          midenfi: keys('midenfi'),
+          pageErrors: view.pageErrors
+        }).toEqual({
+          root: '<div></div>',
+          cleanups: [],
+          wallet: [
+            [null, 'Error: not a word: 1,2,3'],
+            [`0x${'ab'.repeat(32)}`, undefined]
+          ],
+          midenfi: [[null, 'Error: not a word: undefined']],
+          pageErrors: [expect.stringMatching(/^probe wallet: TypeError: /)]
+        });
+      });
+    } finally {
+      for (const name of Object.keys(fakes)) jest.dontMock(name);
+      for (const name of Object.keys(globals)) Reflect.deleteProperty(globalThis, name);
+      dom.window.close();
+    }
+  });
+});

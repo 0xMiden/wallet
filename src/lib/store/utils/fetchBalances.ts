@@ -3,17 +3,21 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { fetchFromStorage } from 'lib/miden/front';
+import { beginBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import {
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction
-} from 'lib/miden/front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess, syncFuseUntilMs } from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
-import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
+import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import {
+  applyOverrideFor,
+  getTokenMetadataOverrides,
+  overrideFor,
+  TokenMetadataOverrides
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   getCurrentWasmLockHold,
@@ -22,11 +26,9 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import {
-  isSyncWatchdogEviction,
-  WASM_LOCK_SYNC_WATCHDOG_MS,
-  WasmClientPoisonedError
-} from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
 
@@ -34,8 +36,19 @@ import { balancePrice } from './balancePrice';
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
 export interface FetchBalancesOptions {
+  /** Plain provenance of the vault read; the caller tags the final rows only when they land. */
+  onSnapshot?: (snapshot: BalanceSnapshot) => void;
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
+  /**
+   * The faucet's own record of a token, never an entry an override made: only a faucet with one skips the
+   * metadata fetch. The store passes its accessor; without it, `tokenMetadatas` are taken as the records.
+   */
+  faucetMetadataOf?: (faucetId: string) => AssetMetadata | undefined;
+  /** Called for each faucet whose row this read built with an override, so the landing can apply the current one */
+  onOverrideApplied?: (faucetId: string) => void;
+  /** Called once with the display faucet setting this read builds the MIDEN row for, so the landing records that one */
+  onDisplayFaucetId?: (faucetId: string | null) => void;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
@@ -55,6 +68,19 @@ export interface FetchBalancesOptions {
  * behind another's read. It releases the address in `finally`.
  */
 export const fetchingAddresses = new Set<string>();
+
+/** Plain diagnostics only: observing a skipped E2E read must not take the lock or grant a fused probe. */
+export function balanceReadStateForTest(address: string) {
+  const hold = getCurrentWasmLockHold();
+  return {
+    inFlight: fetchingAddresses.has(address),
+    fused: isSyncFused('balances'),
+    fuseUntilMs: syncFuseUntilMs('balances'),
+    network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+    lock:
+      hold === null ? null : { label: hold.label, pauseCount: hold.pauseCount, normalCeilingMs: hold.normalCeilingMs }
+  };
+}
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
 
@@ -170,11 +196,24 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[] | null> {
-  const { setAssetsMetadata, tokenPrices = {}, waitForLock = false } = options;
+  const {
+    setAssetsMetadata,
+    faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
+    onOverrideApplied,
+    onDisplayFaucetId,
+    onSnapshot,
+    tokenPrices = {},
+    waitForLock = false
+  } = options;
   const balances: TokenBalanceData[] = [];
 
-  // Local copy of metadata that we can add to during this fetch
-  const localMetadatas = { ...tokenMetadatas };
+  // The faucets' own records, never a store entry an override made: the overrides read from storage
+  // apply on top, so a reset that landed while this read was in flight is not undone by it.
+  const localMetadatas: Record<string, AssetMetadata> = {};
+  for (const id of Object.keys(tokenMetadatas)) {
+    const record = faucetMetadataOf(id);
+    if (record) localMetadatas[id] = record;
+  }
 
   // Read the account under the wallet WASM mutex. `getAccount` borrows the
   // WebClient's single RefCell; while a transaction is mid-`_withInnerWebClient`
@@ -198,6 +237,7 @@ export async function fetchBalances(
   if (isSyncFused('balances')) return null;
 
   const readAccount = async (hold: WasmLockHold) => {
+    const finishSnapshot = beginBalanceSnapshot();
     const acc = await midenClientProxy.getAccount(address);
 
     // E2E-only: capture a Guardian account's on-chain auth structure while we
@@ -230,15 +270,14 @@ export async function fetchBalances(
     // `fungibleAssets()` is on the Account object (not the shared WebClient
     // RefCell); extract it here so the rest of the fn works off plain values.
     const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets, snapshot: finishSnapshot(acc) };
   };
   const lockOptions = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' };
   const reportFailure = (e: unknown): never => {
     // Report before rethrowing, so this probe accumulates its own evidence. Bounding the
     // hold capped one park at 120s; only the fuse stops the wallet re-entering that park
     // — and leaking the client it poisoned — on the very next refresh, indefinitely.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('balances');
-    else noteNonEvictionSyncFailure('balances');
+    noteProbeFailure('balances', e);
     throw e;
   };
 
@@ -256,10 +295,23 @@ export async function fetchBalances(
   // The call went through, which is the one observation that puts this probe's fuse out.
   noteSyncSuccess('balances');
   const { account, assets } = read.value;
+  onSnapshot?.(read.value.snapshot);
 
+  // This read writes the cached records back below. Clear an old-shape cache first, so they do not survive the clear.
+  await ensureTokensMetadataSchema(fetchFromStorage, putToStorage).catch(error =>
+    console.warn('Token metadata cache check failed', error)
+  );
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
+  // Read from storage, not from the store: the Ready-time read can run before the provider loads them.
+  // The cached records below replace the store's entries, so the overrides are applied again to each row.
+  const overrides = await getTokenMetadataOverrides().catch((error): TokenMetadataOverrides => {
+    console.warn('Token metadata overrides read failed', error);
+    return {};
+  });
   const midenFaucetId = await getFaucetIdSetting();
+  onDisplayFaucetId?.(midenFaucetId);
+  const actualNativeId = getNativeAssetIdSync();
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
@@ -270,7 +322,12 @@ export async function fetchBalances(
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return assetId !== midenFaucetId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
+        return (
+          assetId !== actualNativeId &&
+          !cachedMetadatas[assetId] &&
+          !faucetMetadataOf(assetId) &&
+          shouldRetryUnresolved(assetId, now)
+        );
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
@@ -292,11 +349,11 @@ export async function fetchBalances(
           const tokenMetadata = await withRpcTimeout(() => fetchTokenMetadata(assetId), 'balance-token-metadata', {
             retries: 0
           });
-          if (hasKnownScale(tokenMetadata.base)) {
-            fetchedMetadatas[assetId] = tokenMetadata.base;
+          if (hasKnownScale(tokenMetadata)) {
+            fetchedMetadatas[assetId] = tokenMetadata;
             unresolvedFaucets.delete(assetId);
           } else {
-            localMetadatas[assetId] = tokenMetadata.base;
+            localMetadatas[assetId] = tokenMetadata;
             recordUnresolved(assetId, now);
           }
         } catch (e) {
@@ -314,13 +371,15 @@ export async function fetchBalances(
     // Can only fabricate a "0 MIDEN" row once discovery has learned the
     // native asset ID. Until then return [] and let the UI render a skeleton.
     if (!midenFaucetId) return [];
+    const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId);
     return [
       {
         tokenId: midenFaucetId,
-        tokenSlug: 'MIDEN',
-        metadata: MIDEN_METADATA,
-        ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
-        balance: 0
+        tokenSlug: nativeMetadata.symbol,
+        metadata: nativeMetadata,
+        ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
+        balance: 0,
+        balanceBaseUnits: '0'
       }
     ];
   }
@@ -334,6 +393,8 @@ export async function fetchBalances(
 
   // Build balance list
   let hasMiden = false;
+  const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId ?? ''], midenFaucetId);
+
   for (const asset of assets) {
     const tokenId = getBech32AddressFromAccountId(asset.faucetId());
     const isMiden = tokenId === midenFaucetId;
@@ -348,7 +409,13 @@ export async function fetchBalances(
     // of a number derived from guessed decimals. This also keeps the token
     // visible while its lookup is in backoff, and matches what the sync path
     // (`updateBalancesFromSyncData`) already does for the same case.
-    const tokenMetadata = isMiden ? MIDEN_METADATA : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
+    const tokenMetadata =
+      tokenId === actualNativeId
+        ? getNativeDisplayMetadataSync(localMetadatas[tokenId], tokenId)
+        : isMiden
+          ? nativeMetadata
+          : applyOverrideFor(tokenId, localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA, overrides);
+    if (tokenId !== actualNativeId && !isMiden && overrideFor(overrides, tokenId)) onOverrideApplied?.(tokenId);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
 
@@ -357,7 +424,8 @@ export async function fetchBalances(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       ...balancePrice(tokenPrices, tokenId, tokenMetadata.symbol),
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      balanceBaseUnits: asset.amount().toString()
     });
   }
 
@@ -368,10 +436,11 @@ export async function fetchBalances(
   if (!hasMiden && midenFaucetId) {
     balances.push({
       tokenId: midenFaucetId,
-      tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
-      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
-      balance: 0
+      tokenSlug: nativeMetadata.symbol,
+      metadata: nativeMetadata,
+      ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
+      balance: 0,
+      balanceBaseUnits: '0'
     });
   }
 

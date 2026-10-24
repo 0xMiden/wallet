@@ -39,9 +39,10 @@ test.describe('dApp Browser (iOS)', () => {
       await walletA.createNewWallet();
       // The wallet asks for notification permission as its shell mounts. Answer that SpringBoard prompt here, so
       // no dApp step runs while the app sits inactive behind it, or resumes from it mid-journey.
-      if (!(await walletA.settleNotificationPrompt())) {
+      const prompt = await walletA.settleNotificationPrompt();
+      if (!prompt.answered) {
         throw new Error(
-          'create_wallet: the wallet did not ask for notification permission, or the prompt was not answered, within 30 s'
+          `create_wallet: the notification permission prompt was not settled (${prompt.reason}): ${prompt.detail}`
         );
       }
     });

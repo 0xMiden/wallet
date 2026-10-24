@@ -2,7 +2,11 @@ import React from 'react';
 
 import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import Unlock, { retireLockoutRecord, useRetireLockoutOnReady } from './Unlock';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mutable platform / env state (mock-prefixed so jest's hoisted factories may
@@ -267,6 +271,7 @@ function submitPassword(container: HTMLElement, value: string) {
 
 beforeEach(() => {
   jest.useFakeTimers();
+  jest.mocked(reportUserVisibleError).mockClear();
   jest.setSystemTime(BASE);
 
   mockIsExtension = false;
@@ -1792,4 +1797,19 @@ describe('retiring the guess record once the wallet is ready (#1192)', () => {
 
     expect(mockLsStore).toEqual({ PasswordAttempts: 1, TimeLock: 0 });
   });
+});
+
+it('a wrong password reports incorrectPassword on passcode once per attempt', async () => {
+  mockIsExtension = true;
+  mockUnlock.mockRejectedValue(new Error('private unlock error'));
+  const { container } = await renderUnlock();
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    submitPassword(container, `wrong-${attempt}`);
+    await advance(300);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(attempt - 1);
+    await advance(1000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(attempt);
+    expect(reportUserVisibleError).toHaveBeenLastCalledWith('incorrectPassword', 'passcode');
+    await advance(700);
+  }
 });

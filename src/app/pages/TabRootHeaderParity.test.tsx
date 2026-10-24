@@ -16,18 +16,25 @@ import React from 'react';
 import { act, render, screen, within } from '@testing-library/react';
 
 import { TabRootHeader } from 'components/ui/TabRootHeader';
-import type { ExploreCatalog } from 'lib/dapp-browser';
 
 import AllHistory from './AllHistory';
 import { DappLauncher } from './Browser/DappLauncher';
 import { resetRevealed } from './Browser/DappLauncher/reveal-once';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key, i18n: { resolvedLanguage: 'en' } })
+}));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 
 jest.mock('lib/dapp-browser', () => ({
   ...jest.requireActual('lib/dapp-browser/explore-catalog'),
   getRecentDapps: () => Promise.resolve([])
+}));
+
+jest.mock('lib/explore-config/runtime', () => ({
+  getExploreCatalogSnapshot: () => null,
+  subscribeExploreCatalog: () => () => undefined,
+  initExploreConfig: () => Promise.resolve()
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: () => undefined }));
@@ -44,11 +51,6 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ pathname: '/history', hash: '', search: '' })
 }));
 
-const catalog: ExploreCatalog = {
-  items: [{ id: 'quest', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example/' }],
-  sections: [{ id: 'games', kind: 'list', titleKey: 'categoryGames', itemIds: ['quest'] }]
-};
-
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 beforeEach(() => {
@@ -62,7 +64,7 @@ afterEach(() => {
 
 /** Renders Explore and lets its recents read settle, so no state lands outside `act`. */
 const renderExplore = async () => {
-  const rendered = render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+  const rendered = render(<DappLauncher onOpen={jest.fn()} />);
   await act(async () => undefined);
   return rendered;
 };
@@ -166,5 +168,5 @@ it('keeps Explore on the category testids and its own accessible name', async ()
   expect(row).toHaveAttribute('role', 'radiogroup');
   expect(row).toHaveAccessibleName('exploreCategoriesLabel');
   expect(screen.getByTestId('explore-chip-all')).toHaveAttribute('aria-checked', 'true');
-  expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getByTestId('explore-chip-arcade')).toHaveAttribute('aria-checked', 'false');
 });

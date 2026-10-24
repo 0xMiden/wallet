@@ -23,7 +23,54 @@
  * synchronously still resolves normally.
  */
 
+import {
+  InvalidParamsMidenWalletError,
+  MidenWalletError,
+  NotFoundMidenWalletError,
+  NotGrantedMidenWalletError
+} from 'lib/adapter/client';
+
 import { INJECTION_SCRIPT } from './injection-script';
+
+const REFUSALS: [string, { error?: unknown; payload?: unknown }, string, string][] = [
+  ['NOT_GRANTED', { error: 'NOT_GRANTED' }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  [
+    'an INVALID_PARAMS message',
+    { error: 'INVALID_PARAMS: Error: noteType is required' },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: Error: noteType is required'
+  ],
+  ['NOT_FOUND', { error: 'NOT_FOUND' }, new NotFoundMidenWalletError().name, 'NOT_FOUND'],
+  [
+    'NETWORK_NOT_GRANTED',
+    { error: 'NETWORK_NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'NETWORK_NOT_GRANTED'
+  ],
+  ['another message', { error: 'boom' }, new MidenWalletError().name, 'boom'],
+  [
+    'an object payload',
+    { payload: { message: 'INVALID_PARAMS: bad' } },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: bad'
+  ],
+  ['an array payload', { payload: ['NOT_GRANTED'] }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  ['an object payload with no message', { payload: {} }, new MidenWalletError().name, new MidenWalletError().message],
+  ['a non-string error', { error: 42 }, new MidenWalletError().name, new MidenWalletError().message],
+  [
+    'NOT_FOUND over INVALID_PARAMS',
+    { error: 'INVALID_PARAMS: NOT_FOUND' },
+    new NotFoundMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND'
+  ],
+  [
+    'NOT_GRANTED over the other codes',
+    { error: 'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED'
+  ],
+  ['no error and no payload', {}, new MidenWalletError().name, 'Unknown error']
+];
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -149,6 +196,7 @@ describe('INJECTION_SCRIPT constant', () => {
       'isAvailable',
       'connect',
       'disconnect',
+      'createAccount',
       'requestSend',
       'requestConsume',
       'requestTransaction',
@@ -314,7 +362,7 @@ describe('native transport', () => {
     void win.midenWallet.requestAssets();
     expect(win.mobileApp!.postMessage).toHaveBeenCalledTimes(1);
     const msg = win.mobileApp!.postMessage.mock.calls[0][0];
-    expect(msg).toMatchObject({ type: 'MIDEN_PAGE_REQUEST', reqId: expect.stringMatching(/^req_\d+$/) });
+    expect(msg).toMatchObject({ type: 'MIDEN_PAGE_REQUEST', reqId: expect.stringMatching(/^req_[0-9a-f]{16}_\d+$/) });
     // The plain-window fallback must NOT be used.
     expect(win.postMessage).not.toHaveBeenCalled();
   });
@@ -329,13 +377,41 @@ describe('native transport', () => {
     expect(targetOrigin).toBe('*');
   });
 
-  it('increments the request id per request', () => {
+  it('increments the request id per request under one prefix', () => {
     const win = makeWindow();
     inject(win);
     void win.midenWallet.requestAssets();
     void win.midenWallet.requestConsumableNotes();
     const ids = sentMessages(win).map(m => m.reqId);
-    expect(ids).toEqual(['req_1', 'req_2']);
+    const prefix = /^(req_[0-9a-f]{16}_)1$/.exec(ids[0]!)?.[1];
+    expect(prefix).toBeDefined();
+    expect(ids).toEqual([`${prefix}1`, `${prefix}2`]);
+  });
+
+  // #1416: the wallet can answer after a same-origin reload, into a document whose own first request is pending.
+  it("numbers each document's requests under its own prefix, so a late answer for the previous one resolves nothing", async () => {
+    const previous = makeWindow();
+    inject(previous);
+    void previous.midenWallet.requestAssets();
+    const current = makeWindow();
+    inject(current);
+    const settled = jest.fn();
+    const pending = current.midenWallet.requestAssets();
+    pending.then(settled, settled);
+    const previousId = lastMessage(previous).reqId;
+    const currentId = lastMessage(current).reqId;
+    expect(previousId).toMatch(/^req_[0-9a-f]{16}_1$/);
+    expect(currentId).toMatch(/^req_[0-9a-f]{16}_1$/);
+    expect(currentId).not.toBe(previousId);
+
+    expect(() =>
+      respond(current, previousId, { type: 'MIDEN_PAGE_RESPONSE', payload: { assets: ['previous'] } })
+    ).not.toThrow();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+
+    respond(current, currentId, { type: 'MIDEN_PAGE_RESPONSE', payload: { assets: ['current'] } });
+    await expect(pending).resolves.toEqual({ assets: ['current'] });
   });
 });
 
@@ -369,6 +445,14 @@ describe('request timeout', () => {
 // ---------------------------------------------------------------------------
 
 describe('__midenWalletResponse', () => {
+  it.each(REFUSALS)('rejects %s with the extension error class and message', async (_, body, name, message) => {
+    const win = makeWindow();
+    inject(win);
+    const promise = win.midenWallet.requestAssets();
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', ...body });
+    await expect(promise).rejects.toMatchObject({ name, message });
+  });
+
   it('resolves the matching pending request from a JSON string', async () => {
     const win = makeWindow();
     inject(win);
@@ -391,7 +475,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', error: 'boom' });
-    await expect(promise).rejects.toThrow('boom');
+    await expect(promise).rejects.toMatchObject({ message: 'boom' });
   });
 
   it('rejects when an error field is present regardless of type', async () => {
@@ -400,7 +484,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_RESPONSE', error: 'nope' });
-    await expect(promise).rejects.toThrow('nope');
+    await expect(promise).rejects.toMatchObject({ message: 'nope' });
   });
 
   it('falls back to payload as the error message when error is absent', async () => {
@@ -409,7 +493,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', payload: 'payload-as-message' });
-    await expect(promise).rejects.toThrow('payload-as-message');
+    await expect(promise).rejects.toMatchObject({ message: 'payload-as-message' });
   });
 
   it('falls back to "Unknown error" when neither error nor payload is present', async () => {
@@ -418,7 +502,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE' });
-    await expect(promise).rejects.toThrow('Unknown error');
+    await expect(promise).rejects.toMatchObject({ message: 'Unknown error' });
   });
 
   it('ignores a response whose reqId is unknown', async () => {
@@ -541,6 +625,20 @@ describe('isAvailable', () => {
     const promise = win.midenWallet.isAvailable();
     respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', error: 'unavailable' });
     await expect(promise).resolves.toBe(false);
+  });
+});
+
+describe('createAccount', () => {
+  it('rejects with the extension refusal without sending a bridge message', async () => {
+    const win = makeWindow({ withMobileApp: true });
+    inject(win);
+
+    await expect(win.midenWallet.createAccount()).rejects.toMatchObject({
+      name: 'Error',
+      message:
+        'createAccount is not supported by the Miden wallet. No provider implements it and there is no wire message for it.'
+    });
+    expect(win.mobileApp!.postMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -800,6 +898,68 @@ function u8ToB64Local(u8: Uint8Array): string {
   return btoa(binary);
 }
 
+describe('login key', () => {
+  it('gives the in-app provider the login key methods', () => {
+    const win = makeWindow();
+    inject(win);
+    expect(typeof win.midenWallet.requestLoginKey).toBe('function');
+    expect(typeof win.midenWallet.signLoginBytes).toBe('function');
+  });
+
+  it('returns the login key as a Uint8Array', async () => {
+    const win = await connectedWallet();
+    const loginKey = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const promise = win.midenWallet.requestLoginKey();
+    const msg = lastMessage(win);
+    expect(msg.payload).toEqual({ type: 'LOGIN_KEY_REQUEST', sourceAccountId: '0xabc' });
+    respond(win, msg.reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { type: 'LOGIN_KEY_RESPONSE', loginKey: u8ToB64Local(loginKey) }
+    });
+    const res = await promise;
+    expect(res.loginKey).toBeInstanceOf(Uint8Array);
+    expect(res.loginKey).toHaveLength(32);
+    expect(Array.from(res.loginKey)).toEqual(Array.from(loginKey));
+  });
+
+  it('signs login bytes as base64 with the kind', async () => {
+    const win = await connectedWallet();
+    const data = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+    const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+    const promise = win.midenWallet.signLoginBytes(data, 'word');
+    const msg = lastMessage(win);
+    expect(msg.payload).toEqual({
+      type: 'LOGIN_SIGN_REQUEST',
+      sourceAccountId: '0xabc',
+      payload: u8ToB64Local(data),
+      kind: 'word'
+    });
+    respond(win, msg.reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { type: 'LOGIN_SIGN_RESPONSE', signature: u8ToB64Local(signature) }
+    });
+    const res = await promise;
+    expect(res.signature).toBeInstanceOf(Uint8Array);
+    expect(res.signature).toHaveLength(66);
+    expect(Array.from(res.signature)).toEqual(Array.from(signature));
+  });
+
+  it('rejects a refusal with the extension error class and message', async () => {
+    const win = await connectedWallet();
+    const refusal = "LOGIN_KEY_UNAVAILABLE: this account's root key is not on this device";
+    const refuse = () =>
+      respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', payload: null, error: refusal });
+
+    const keyRequest = win.midenWallet.requestLoginKey();
+    refuse();
+    await expect(keyRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
+
+    const signRequest = win.midenWallet.signLoginBytes(new Uint8Array(32), 'word');
+    refuse();
+    await expect(signRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
+  });
+});
+
 describe('account switch (#174)', () => {
   // The host names the network by id in the connect answer and by RPC URL in the poll answer
   // (lib/miden/back/dapp.ts), so these tests connect the way the product does.
@@ -1047,7 +1207,7 @@ describe('account switch (#174)', () => {
         win.midenWallet.on('disconnect', onDisconnect);
         const disconnecting = win.midenWallet.disconnect();
         settle(win);
-        await expect(disconnecting).rejects.toThrow(error);
+        await expect(disconnecting).rejects.toMatchObject({ message: error });
         expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
           undefined,
           undefined,
@@ -1070,7 +1230,7 @@ describe('account switch (#174)', () => {
       answerDisconnect(win, lastMessage(win).reqId);
       await disconnecting;
       refuseDisconnect(win, lastMessage(win).reqId);
-      await expect(again[0]).rejects.toThrow('NOT_FOUND');
+      await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
       await flush();
       expect(onDisconnect).toHaveBeenCalledTimes(1);
       expect(disconnects(win)).toHaveLength(2);
@@ -1083,7 +1243,7 @@ describe('account switch (#174)', () => {
       await answerPoll(win, null);
       const disconnecting = win.midenWallet.disconnect();
       refuseDisconnect(win, lastMessage(win).reqId);
-      await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+      await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
       expect(onDisconnect).not.toHaveBeenCalled();
       jest.advanceTimersByTime(60000);
       expect(polls(win)).toHaveLength(1);
@@ -1097,7 +1257,7 @@ describe('account switch (#174)', () => {
       });
       const disconnecting = win.midenWallet.disconnect();
       refuseDisconnect(win, lastMessage(win).reqId);
-      await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+      await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
       expect(win.midenWallet.address).toBeUndefined();
       error.mockRestore();
     });
@@ -1112,7 +1272,7 @@ describe('account switch (#174)', () => {
       answerDisconnect(win, firstReq!);
       await first;
       refuseDisconnect(win, secondReq!);
-      await expect(second).rejects.toThrow('NOT_FOUND');
+      await expect(second).rejects.toMatchObject({ message: 'NOT_FOUND' });
       expect(onDisconnect).toHaveBeenCalledTimes(1);
     });
 
@@ -1207,5 +1367,21 @@ describe('account switch (#174)', () => {
       jest.advanceTimersByTime(60000);
       expect(polls(win)).toHaveLength(1);
     });
+  });
+});
+
+describe('native presentation padding policy', () => {
+  it('removes browser padding for native fullscreen, including warm reinjection', () => {
+    const win = makeWindow();
+    inject(win, document);
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
+    win.__breadPresentationState = Object.freeze({ display: 'fullscreen' });
+    inject(win, document);
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('miden-wallet-bottom-pad')).toBeNull();
+    win.__breadPresentationState = Object.freeze({ display: 'browser' });
+    document.dispatchEvent(new Event('breadpresentationchange'));
+    expect(document.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
   });
 });

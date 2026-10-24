@@ -58,7 +58,7 @@ const AdvancedSettings: FC = () => {
 
   return (
     <SubPageLayout data-testid="advanced-settings">
-      <SubPageSection title={t('account')}>
+      <SubPageSection title={t('account')} titleSize="md">
         <DetailCard>
           <DetailRow label={t('accountPublicKey')} data-testid="advanced-public-key">
             <span className="font-mono text-body-sm select-text">{truncatedPublicKey}</span>
@@ -96,6 +96,7 @@ const AdvancedSettings: FC = () => {
             title={t('devNominalUnquotedPrice')}
             data-testid="advanced-nominal-unquoted-price"
             onClick={() => setNominalUnquotedPriceSetting(!nominalUnquotedPrice)}
+            pressed={nominalUnquotedPrice}
             trailing={<CheckboxIndicator checked={nominalUnquotedPrice} />}
           />
         </ListGroup>

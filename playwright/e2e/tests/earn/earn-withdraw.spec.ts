@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 
 import { getEnvironmentConfig } from '../../config/environments';
-import { expect, test } from '../../fixtures/two-wallets';
+import { expect, test } from '../../fixtures/hermetic-bridge';
 import { suspendScreenCapture } from '../../harness/screen-capture';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
@@ -23,7 +23,10 @@ const CHAIN_ID = 11155111;
 const MIDEN_CHAIN_ID = 999999999;
 const NOTE_AMOUNT = 10_000_000n;
 const WITHDRAW_AMOUNT = '10';
-const SUGGESTED_NONCES = ['101', '102', '11', '103', '22'];
+// The position is seeded at 18 decimals, so Max reviews 10 * 10^18 base units.
+const REVIEWED_AMOUNT_ATOMIC = `${WITHDRAW_AMOUNT}${'0'.repeat(18)}`;
+// The review's own quote takes the first nonce before Confirm; the withdrawal's quotes and allocations take the rest.
+const SUGGESTED_NONCES = ['100', '101', '102', '11', '103', '22'];
 
 interface PreparedWithdrawal extends PreparedExecution {
   attemptId: string;
@@ -179,9 +182,15 @@ function expectPreparedWithdrawal(row: EarnWithdrawView, owner: string): Prepare
   expect(prepared.delivery.owner.toLowerCase()).toBe(owner.toLowerCase());
   for (const allocation of prepared.allocations) {
     expect(allocation.sponsor.toLowerCase()).toBe(owner.toLowerCase());
+    // Both legs spend the reviewed amount: the withdraw redeems it and the delivery swaps it.
     expect(parseRequest(allocation.requestJson)).toMatchObject({
       chainId: String(CHAIN_ID),
-      compact: { sponsor: allocation.sponsor, nonce: allocation.nonce, expires: allocation.expires },
+      compact: {
+        sponsor: allocation.sponsor,
+        nonce: allocation.nonce,
+        expires: allocation.expires,
+        mandate: { tokenInAmount: REVIEWED_AMOUNT_ATOMIC }
+      },
       isRegisteredOnchain: true,
       sponsorSignature: '0x'
     });
@@ -246,16 +255,24 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       const withdrawBtn = walletA.page.getByTestId('earn-withdraw-btn');
       await expect(withdrawBtn).toBeEnabled({ timeout: 30_000 });
       await withdrawBtn.click();
+      const amountStep = walletA.page.getByTestId('earn-withdraw-amount-page');
+      await expect(amountStep).toBeVisible({ timeout: 30_000 });
+      await amountStep.getByRole('button', { name: 'Max', exact: true }).click();
+      await amountStep.getByRole('button', { name: 'Review', exact: true }).click();
       await expect(walletA.page.getByTestId('earn-withdraw-review-page')).toBeVisible({ timeout: 30_000 });
+      expect(new URL(walletA.page.url()).hash, 'Max reviews the whole position').toMatch(
+        new RegExp(`/withdraw/review\\?amount=${WITHDRAW_AMOUNT}$`)
+      );
       const confirm = walletA.page.getByTestId('earn-withdraw-review-confirm');
       await expect(confirm).toBeEnabled({ timeout: 30_000 });
+      const nonceRequests = () => allocator.requests.filter(request => request.path.startsWith('/suggested-nonce/'));
+      expect(nonceRequests(), 'the review quotes once before Confirm').toHaveLength(1);
 
       const statusPath = (nonce: string) => `/intentStatus/${evmOwner}/${nonce}`.toLowerCase();
       const compactRequests = () =>
         allocator.requests.filter(request => request.method === 'POST' && request.path === '/compact');
       const relayRequests = () =>
         allocator.requests.filter(request => request.method === 'POST' && request.path === '/relay-execute');
-      const nonceRequests = () => allocator.requests.filter(request => request.path.startsWith('/suggested-nonce/'));
       const observeTraffic = (wallet: ChromeWalletPageApi) => {
         const statuses: string[] = [];
         const compacts: string[] = [];
@@ -296,12 +313,21 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         proof.prepared = prepared;
         expect(relayRequests(), 'source was accepted once while its response is parked').toHaveLength(1);
         expect(compactRequests(), 'SDK cannot allocate until the parked relay answers').toHaveLength(0);
-        expect(nonceRequests(), 'three quote nonces and two final allocation nonces').toHaveLength(5);
+        expect(
+          nonceRequests(),
+          'one review quote nonce, three execution quote nonces and two final allocation nonces'
+        ).toHaveLength(6);
 
-        const submissionLocks = (await heldEarnLocks(walletA)).filter(lock => lock.name.startsWith('earn-submit:'));
+        // The position lock admits one withdrawal per position; the attempt lock is what recovery defers to.
+        const heldSubmitLocks = (await heldEarnLocks(walletA)).filter(lock => lock.name.startsWith('earn-submit:'));
+        const positionLocks = heldSubmitLocks.filter(lock => lock.name.startsWith('earn-submit:position:'));
+        const submissionLocks = heldSubmitLocks.filter(lock => !lock.name.startsWith('earn-submit:position:'));
         expect(submissionLocks, 'one native submission owner').toHaveLength(1);
         const submissionLock = submissionLocks[0];
         if (!submissionLock) throw new Error('Submission lock is missing');
+        expect(positionLocks, 'the submitting document holds its position').toHaveLength(1);
+        expect(positionLocks[0]?.clientId).toBe(submissionLock.clientId);
+        expect(positionLocks[0]?.name).toMatch(new RegExp(`^earn-submit:position:${evmOwner.toLowerCase()}:`));
         proof.submissionLock = submissionLock;
 
         const survivorPage = await walletA.page.context().newPage();
@@ -419,7 +445,7 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         await expect.poll(async () => (await withdrawState(survivor, txId))?.phase).toBe('redeeming');
         expect((await withdrawState(survivor, txId))?.preparedExecution).toEqual(prepared);
         expect(relayRequests(), 'Retry delivery cannot submit the source again').toHaveLength(1);
-        expect(nonceRequests(), 'recovery cannot construct a new intent').toHaveLength(5);
+        expect(nonceRequests(), 'recovery cannot construct a new intent').toHaveLength(6);
 
         const nativeDelivery = await midenCli.transferNativeFromFunder(addressA, NOTE_AMOUNT);
         expect(nativeDelivery.faucetId).toBe(prepared.delivery.destinationFaucetId);
@@ -479,7 +505,7 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
           deliveryPostsBeforeRetry + 1
         );
         expect(relayRequests()).toHaveLength(1);
-        expect(nonceRequests()).toHaveLength(5);
+        expect(nonceRequests()).toHaveLength(6);
         expect(positions.requests.some(request => request.path === '/positions')).toBe(true);
         await survivor.navigateTo(`/history-details/${txId}`);
         await expect(survivorPage.getByText('Received', { exact: true })).toBeVisible({ timeout: 30_000 });

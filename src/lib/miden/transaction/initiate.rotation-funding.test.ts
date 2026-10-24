@@ -5,13 +5,24 @@
  */
 import * as Repo from 'lib/miden/repo';
 
-import { initiateConsumeNotesTransaction, initiateRotationFundingClaim } from './initiate';
-import { ConsumeTransaction, ITransaction, ITransactionStatus } from '../db/types';
+import { enqueueRotationFundingClaim, initiateConsumeNotesTransaction, initiateRotationFundingClaim } from './initiate';
+import { hotKeyRotationLockName } from './rotation-funding';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { ConsumableNote } from '../types';
 
 let mockNativeFaucetId: string | null = 'native-faucet';
+let mockLegacyFeeIdentity: string | undefined;
+let mockNativeIdentityError: Error | undefined;
+let mockFeeContextBaseFee: number | null = null;
 jest.mock('lib/miden/assets/faucet-id-setting', () => ({
-  getFaucetIdSetting: async () => mockNativeFaucetId
+  getFaucetIdSetting: async () => mockLegacyFeeIdentity ?? (mockNativeIdentityError ? null : mockNativeFaucetId)
+}));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: async () => {
+    if (mockNativeIdentityError) throw mockNativeIdentityError;
+    return mockNativeFaucetId;
+  },
+  getVerificationBaseFee: async () => mockFeeContextBaseFee
 }));
 
 jest.mock('lib/miden/front/guardian-manager', () => ({
@@ -19,8 +30,18 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   getOrCreateMultisigService: jest.fn()
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ isNoteTransportConfigured: () => false }));
-jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getActiveOverride: () => null,
+  isNoteTransportConfigured: () => false,
+  getEffectiveNetworkName: () => 'testnet'
+}));
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: {
+    getAccount: async () => ({ vault: () => ({ fungibleAssets: () => [] }) }),
+    tryGetAccount: async () => ({ ran: true, account: { vault: () => ({ fungibleAssets: () => [] }) } })
+  }
+}));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 const ACCOUNT = 'mtst1account';
@@ -54,10 +75,54 @@ const failedRow = async (noteIds: string[], secondsAgo: number, flagged: boolean
 
 beforeEach(async () => {
   mockNativeFaucetId = 'native-faucet';
+  mockNativeIdentityError = undefined;
+  mockFeeContextBaseFee = null;
   await Repo.transactions.clear();
 });
 
 describe('initiateRotationFundingClaim', () => {
+  it('rotation funding uses the fee gate without bypassing its native-only guard', async () => {
+    mockFeeContextBaseFee = 10000;
+    const native9999 = { ...note('native9999'), amount: '9999', carriesMoreAssets: false };
+    const native10000 = { ...note('native10000'), amount: '10000', carriesMoreAssets: false };
+    const foreign = { ...note('foreign', 'foreign-faucet'), carriesMoreAssets: false };
+    await expect(initiateRotationFundingClaim(ACCOUNT, [native9999])).rejects.toMatchObject({
+      name: 'ClaimFeeRefusedError'
+    });
+    expect(await consumeRows()).toEqual([]);
+    await expect(initiateRotationFundingClaim(ACCOUNT, [native10000])).resolves.toEqual(expect.any(String));
+    await expect(initiateRotationFundingClaim(ACCOUNT, [foreign])).rejects.toThrow('not the native asset');
+  });
+
+  it('fee identity: queues actual native rotation funding with a different legacy display override', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    const id = await initiateRotationFundingClaim(ACCOUNT, [note('actual-note')]);
+    expect(await consumeRows()).toEqual([
+      expect.objectContaining({ id, noteIds: ['actual-note'], rotationFunding: true })
+    ]);
+  });
+
+  it('fee identity: refuses a legacy display note before entering the rotation queue', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    await expect(initiateRotationFundingClaim(ACCOUNT, [note('legacy-note', 'legacy-B')])).rejects.toThrow(
+      'not the native asset'
+    );
+    expect(await consumeRows()).toEqual([]);
+  });
+
+  it('fee identity: ordinary discovery rejection retains the typed unknown-asset refusal before queueing', async () => {
+    mockNativeIdentityError = new Error('discovery failed');
+    await expect(initiateRotationFundingClaim(ACCOUNT, [note('a')])).rejects.toThrow('native asset is not known');
+    expect(await consumeRows()).toEqual([]);
+  });
+
+  it('fee identity: a fatal native lookup escapes with its original error before queueing', async () => {
+    const fatal = new WebAssembly.RuntimeError('native identity trap');
+    mockNativeIdentityError = fatal;
+    await expect(initiateRotationFundingClaim(ACCOUNT, [note('a')])).rejects.toBe(fatal);
+    expect(await consumeRows()).toEqual([]);
+  });
+
   it('stamps rotationFunding on the one batch row it creates', async () => {
     const id = await initiateRotationFundingClaim(ACCOUNT, [note('a'), note('b')], { verificationBaseFee: BASE_FEE });
 
@@ -66,6 +131,7 @@ describe('initiateRotationFundingClaim', () => {
     expect(rows[0]!.id).toBe(id);
     expect(rows[0]!.noteIds).toEqual(['a', 'b']);
     expect(rows[0]!.rotationFunding).toBe(true);
+    expect(rows[0]!.consumeEntryPoint).toBe('rotation_funding');
   });
 
   it('stamps every row when a failed flagged batch splits the notes into rows of their own', async () => {
@@ -161,6 +227,69 @@ describe('initiateRotationFundingClaim', () => {
   });
 });
 
+describe('enqueueRotationFundingClaim', () => {
+  const lockNames: string[] = [];
+  // The consume rows as they stood when the lock stub released, so a rewrite that queues
+  // the claim after the rotation lock is released fails the calling test.
+  let rowsAtRelease: ITransaction[] = [];
+  beforeAll(() => {
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: async (name: string, callback: () => Promise<unknown>) => {
+          lockNames.push(name);
+          try {
+            return await callback();
+          } finally {
+            rowsAtRelease = await consumeRows();
+          }
+        }
+      }
+    });
+  });
+
+  beforeEach(() => {
+    lockNames.length = 0;
+    rowsAtRelease = [];
+  });
+
+  it('queues the claim under the rotation lock when no rotation is live', async () => {
+    const id = await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {
+      delegate: true,
+      verificationBaseFee: BASE_FEE
+    });
+
+    expect(lockNames).toEqual([hotKeyRotationLockName(ACCOUNT)]);
+    expect(hotKeyRotationLockName(ACCOUNT)).toBe('hot-key-rotation:mtst1account');
+    expect(rowsAtRelease).toEqual([
+      expect.objectContaining({ id, noteIds: ['a'], rotationFunding: true, delegateTransaction: true })
+    ]);
+  });
+
+  it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])(
+    'writes nothing while a rotation row is live (status %i)',
+    async status => {
+      await Repo.transactions.add({ ...new ReplaceHotKeyTransaction(ACCOUNT, false), status });
+
+      const id = await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {});
+
+      expect(id).toBeNull();
+      expect(await consumeRows()).toEqual([]);
+    }
+  );
+
+  it('is not held back by a failed rotation, or by a live rotation of another account', async () => {
+    await Repo.transactions.bulkAdd([
+      { ...new ReplaceHotKeyTransaction(ACCOUNT, false), status: ITransactionStatus.Failed },
+      new ReplaceHotKeyTransaction('mtst1other', false)
+    ]);
+
+    await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {});
+
+    expect(await consumeRows()).toHaveLength(1);
+  });
+});
+
 describe('initiateConsumeNotesTransaction after the extraction', () => {
   it('still writes unflagged rows', async () => {
     await initiateConsumeNotesTransaction(ACCOUNT, [note('a'), note('b')], false, false, true, BASE_FEE);
@@ -183,4 +312,8 @@ describe('initiateConsumeNotesTransaction after the extraction', () => {
       'initiateConsumeNotesTransaction requires at least one note'
     );
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

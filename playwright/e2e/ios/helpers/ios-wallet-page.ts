@@ -1,11 +1,63 @@
+import fs from 'fs';
+import path from 'path';
+
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
+import { toBaseUnits } from '../../helpers/balance-truth';
+import {
+  bridgedSendRowOf,
+  burnSubmitFailure,
+  enText,
+  reviewQueryParam,
+  USDCX_DESTINATION_CHIPS,
+  usdcxPayoutRowsText,
+  type BridgedSendRow,
+  type NetworkChipState
+} from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
+import {
+  readTransactionRowsInPage,
+  TxStatus,
+  type TransactionRowSnapshot,
+  type TransactionRowsQuery
+} from '../../helpers/history';
+import {
+  CURRENT_ACCOUNT_ROWS_JS,
+  NATIVE_ASSET_CACHE_EXPR,
+  nativeAssetOf,
+  ridingOut,
+  stashAndPoll,
+  TX_DB,
+  TX_STORE,
+  type CurrentAccountRows,
+  type MobileNativeAsset
+} from '../../helpers/mobile-store-reads';
+import {
+  BRIDGE_DEPOSIT_LAYER,
+  BRIDGE_SOURCE_NETWORK_JS,
+  OPEN_SHEET,
+  scopedJs,
+  SEND_FLOW,
+  SEND_NETWORK_JS,
+  selectSendNetworkByScript,
+  USDCX_ROUTE_JS,
+  type SendNetworkView,
+  type UsdcxRouteView
+} from '../../helpers/send-flow-scripts';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import { ARC_PAYOUT, type PayoutChain } from '../../helpers/usdcx-constants';
+import { burnFailureMessage } from '../../helpers/usdcx-guardian';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -31,6 +83,134 @@ const UNLOCKED_CONDITION_JS =
   `var st = s.getState(); ` +
   `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
 
+/** The chain's native (fee) asset as the wallet discovered it; the mobile dApp harness reads it the same way. */
+export type IosNativeAsset = MobileNativeAsset;
+
+/** A page route without its search: the onboarding bypass keeps `?password=` in `location.href` all session. */
+export function routeOf(href: string): string {
+  return new URL(href).hash;
+}
+
+/** Whether the bridge From row's value names `name` exactly: "Sepolia" is part of "Base Sepolia". */
+export function networkRowNames(value: string | null, name: string): boolean {
+  return value === name;
+}
+
+/** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
+function withoutUrlQueries(text: string): string {
+  return text.replace(/\?[^\s#"]+/g, '');
+}
+
+interface EvalTally {
+  returned: number;
+  lastError?: unknown;
+}
+
+/**
+ * A poll none of whose evals returned never checked anything: a CDP session that died at attach failed this way as
+ * "did not appear", which sent the diagnosis to the app.
+ */
+function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: EvalTally): Error {
+  const { lastError } = tally;
+  const last =
+    lastError === undefined
+      ? 'none'
+      : withoutUrlQueries(lastError instanceof Error ? lastError.message : String(lastError)).slice(0, 500);
+  return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
+}
+
+// The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
+const SEND_REVIEW = '[data-page-layer="/send/review"]';
+// Mobile mounts the app as a full page, so the in-progress route is the -full variant.
+const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
+
+// The href drops its search: the onboarding bypass's ?password= stays there all session, and a timed-out poll prints
+// its last read.
+const REVIEW_LANDING_JS =
+  `return { href: location.href.replace(location.search, ''), hash: location.hash, ` +
+  `submit: !!document.querySelector(${JSON.stringify(`${SEND_REVIEW} [data-testid="send-review-submit"]`)}) };`;
+
+/** The review's labelled rows: a label span whose next sibling is the value div (DetailRow). */
+function usdcxReviewJs(networkLabel: string, networkFeeLabel: string): string {
+  return scopedJs(
+    SEND_REVIEW,
+    `function row(label) { var s = Array.from(root.querySelectorAll('span')).find(function (x) { ` +
+      `return (x.textContent || '').trim() === label && x.nextElementSibling && x.nextElementSibling.tagName === 'DIV'; }); ` +
+      `return s ? (s.nextElementSibling.textContent || '').trim() : null; } ` +
+      `return { network: row(${JSON.stringify(networkLabel)}), networkFee: row(${JSON.stringify(networkFeeLabel)}), ` +
+      `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+  );
+}
+
+const REVIEW_READY_JS = scopedJs(
+  SEND_REVIEW,
+  `var e = root.querySelector('[data-testid="review-error"]'); ` +
+    `if (e) return { state: 'error', text: (e.textContent || '').trim() }; ` +
+    `var b = root.querySelector('[data-testid="send-review-submit"]'); ` +
+    `return b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' ? { state: 'enabled' } : { state: 'waiting' };`
+);
+
+// Not scopedJs: the review layer is gone once the submit lands on the generating page.
+const SUBMIT_OUTCOME_JS =
+  `var root = document.querySelector(${JSON.stringify(SEND_REVIEW)}); ` +
+  `var e = root && root.querySelector('[data-testid="review-error"]'); ` +
+  `var b = root && root.querySelector('[data-testid="send-review-submit"]'); ` +
+  `return { hash: location.hash, error: e ? (e.textContent || '').trim() : null, ` +
+  `loading: !!(b && (b.disabled || b.getAttribute('aria-busy') === 'true')) };`;
+
+interface UsdcxReviewView {
+  network: string | null;
+  networkFee: string | null;
+  fee: string | null;
+  net: string | null;
+  notice: string | null;
+}
+
+function sameChipSet(chips: readonly NetworkChipState[]): boolean {
+  return (
+    chips
+      .map(chip => chip.testId)
+      .sort()
+      .join(',') === [...USDCX_DESTINATION_CHIPS].sort().join(',')
+  );
+}
+
+/** The details page's own layer: it slides over the retained tabs. */
+function detailsLayer(rowId: string): string {
+  return `[data-page-layer="/history-details/${rowId}"]`;
+}
+
+export interface UsdcxBurnViaSendOptions {
+  /** The address Circle pays on the payout chain. Never a private key: appium-remote-debugger logs every eval body. */
+  destAddress: `0x${string}`;
+  /** As typed: a whole number, since the amount field follows the simulator's locale for decimals. */
+  amount: string;
+  nativeTokenId: string;
+  nativeSymbol: string;
+  /** The chain Circle pays on; Arc Testnet when absent. */
+  payout?: PayoutChain;
+  /** Where usdcx-route.png and the two review screenshots go. */
+  screenshotDir: string;
+  /** The step's abort signal (`namedSteps`): once it has fired, the driver never clicks submit. */
+  signal?: AbortSignal;
+}
+
+export interface UsdcxBurnSubmission {
+  /** The Dexie row id, the `:txId` of the generating and history-details routes. */
+  rowId: string;
+  /** `location.hash` only (routeOf). */
+  reviewRoute: string;
+  generatingRoute: string;
+  /** Network sheet rows pressed when the address validated, before the payout chain's pick (R16 evidence). */
+  defaultPressed: string[];
+}
+
+export interface BurnStageSample {
+  status: number;
+  stage?: string;
+  atMs: number;
+}
+
 interface IosWalletPageOpts {
   cdp: CdpSession;
   sim: SimulatorControl;
@@ -43,9 +223,9 @@ interface IosWalletPageOpts {
   beforeCapture?: () => Promise<void>;
   /**
    * Waits until the app has asked for notification permission and the prompt is answered, tapping Allow the way
-   * the capture gate does. Resolves whether that happened in time.
+   * the capture gate does. Resolves how that ended, and why when the prompt was not answered.
    */
-  settleNotificationPrompt?: () => Promise<boolean>;
+  settleNotificationPrompt?: () => Promise<PromptSettlement>;
 }
 
 /**
@@ -72,7 +252,7 @@ export class IosWalletPage implements WalletPage {
   private cdp: CdpSession;
   private sim: SimulatorControl;
   private beforeCapture?: () => Promise<void>;
-  private settlePrompt?: () => Promise<boolean>;
+  private settlePrompt?: () => Promise<PromptSettlement>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
@@ -96,9 +276,15 @@ export class IosWalletPage implements WalletPage {
     await this.sim.screenshot(this.udid, opts.path);
   }
 
-  /** Whether the app asked for notification permission and the prompt was answered; false with no gate wired. */
-  async settleNotificationPrompt(): Promise<boolean> {
-    return (await this.settlePrompt?.()) ?? false;
+  /** Whether the app asked for notification permission and the prompt was answered, and why not when it was not. */
+  async settleNotificationPrompt(): Promise<PromptSettlement> {
+    return (
+      (await this.settlePrompt?.()) ?? {
+        answered: false,
+        reason: 'no-gate',
+        detail: 'no notification alert gate is wired to this wallet page'
+      }
+    );
   }
 
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {
@@ -148,21 +334,6 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /** Create a `bridged-receive` tracking row; returns its txId. */
-  async createBridgeReceive(args: {
-    accountId: string;
-    amount: string;
-    faucetId: string;
-    provider: 'epoch' | 'agglayer';
-    sourceAddress: string;
-    sourceAmount: string;
-    sourceSymbol: string;
-    outputAmount?: string;
-    outputSymbol?: string;
-  }): Promise<string> {
-    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
-  }
-
   /** Read a `bridged-receive` row's current phase/displayMessage for assertions. */
   async getBridgeReceiveState(txId: string): Promise<{
     found: boolean;
@@ -189,12 +360,13 @@ export class IosWalletPage implements WalletPage {
    * creates the row inside `handleConfirm` and never surfaces its txId to the
    * DOM, so the harness reads it back here after confirming the deposit.
    */
-  async latestBridgeReceive(provider?: 'epoch' | 'agglayer'): Promise<{
+  async latestBridgeReceive(provider?: 'epoch' | 'agglayer' | 'usdcx'): Promise<{
     id: string;
     amount?: string;
     faucetId: string;
     phase?: string;
     displayMessage?: string;
+    error?: string;
   } | null> {
     const arg = provider ? JSON.stringify(provider) : '';
     return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
@@ -205,39 +377,57 @@ export class IosWalletPage implements WalletPage {
   // separately via reownConnectUri() + the headless counterparty (the native
   // WC modal is outside the WebView and un-tappable via CDP).
 
+  /**
+   * The deposit form's own layer. /bridge/deposit slides over the Home tabs, which stay mounted (inert) earlier in the
+   * DOM, and their Swap pane reuses the form's send-token-selector and send-amount-* test ids: an unscoped lookup
+   * finds the hidden Swap controls first. The token drawer portals to <body>, so its rows stay unscoped.
+   */
+  private static readonly BRIDGE_PAGE = BRIDGE_DEPOSIT_LAYER;
+
   /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
   async openBridgeDeposit(): Promise<void> {
     await this.navigateTo('/receive');
     await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
     await this.click('[data-testid="receive-cross-chain"]');
-    // The cross-chain tap reads the EVM `connected` state at click time. The
-    // native WC session is established (getState() reports connected), but that
-    // propagates to React via useNativeReown's async on-mount refresh — so a tap
-    // fired before it lands opens the (un-tappable native) connect modal instead
-    // of navigating. Fall back to the real /bridge/deposit route, which renders
-    // the deposit screen reactively once `connected` propagates: same
-    // destination, no tap-timing race.
+    // Cross Chain navigates to /bridge/deposit. Should the tap not land, navigating there directly reaches the same
+    // screen.
     try {
-      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 8_000 });
+      await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 8_000 });
       return;
     } catch {
       await this.navigateTo('/bridge/deposit');
-      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 30_000 });
+      await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 30_000 });
     }
   }
 
-  /** Open the bridge token drawer and pick ETH or USDC. */
-  async selectBridgeToken(symbol: 'ETH' | 'USDC'): Promise<void> {
-    await this.click('[data-testid="send-token-selector"]');
+  /** Open the bridge token drawer and pick a source token: ETH (AggLayer) or Circle's USDC (xReserve). */
+  async selectBridgeToken(symbol: 'ETH' | 'CIRCLE_USDC'): Promise<void> {
+    await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`);
     await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
     await this.click(`[data-testid="bridge-token-${symbol}"]`);
   }
 
+  /**
+   * Open the network drawer from the amount step's From row and pick the source chain `slug` (bridge-networks.ts), then
+   * wait until the row names it: a Reown session that approves that chain alone refuses any other chain's prompt.
+   */
+  async selectBridgeNetwork(slug: string, name: string): Promise<void> {
+    await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="bridge-source-network"]`);
+    await this.waitFor(`[data-testid="bridge-network-${slug}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-network-${slug}"]`);
+    await this.pollEval<string | null>(
+      `the bridge From row naming ${name}`,
+      BRIDGE_SOURCE_NETWORK_JS,
+      value => networkRowNames(value, name),
+      10_000
+    );
+  }
+
   /** Type the deposit amount and confirm to advance to the route step. */
   async enterBridgeAmount(amount: string): Promise<void> {
-    await this.pollForSelector('[data-testid="send-amount-input"]', 15_000);
-    await this.fillInput('[data-testid="send-amount-input"]', amount);
-    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 15_000);
+    await this.pollForSelector(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-input"]`, 15_000);
+    await this.fillInput(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-input"]`, amount);
+    await this.clickWhenEnabled(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-confirm"]`, 15_000);
   }
 
   /** Pick the AggLayer "Slow" route (ETH only) and continue to review. */
@@ -247,13 +437,13 @@ export class IosWalletPage implements WalletPage {
   }
 
   /**
-   * Pick the Epoch "Fast" route (USDC) and continue to review. The route-confirm
-   * button is gated on the Epoch quote landing (epochStatus === 'quoted'), so the
-   * wider clickWhenEnabled window absorbs the allocator round-trip.
+   * Confirm the Circle USDC route and continue to review. The route step shows one card, already selected, so the step
+   * only confirms; Continue waits for the balance read and stays disabled while the amount, with any fee Circle has
+   * quoted, exceeds the balance.
    */
-  async selectBridgeRouteFast(): Promise<void> {
-    await this.clickWhenEnabled('[data-testid="bridge-route-fast"]', 30_000);
-    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 30_000);
+  async confirmBridgeRouteUsdcx(timeoutMs = 15_000): Promise<void> {
+    await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', timeoutMs);
   }
 
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
@@ -263,25 +453,331 @@ export class IosWalletPage implements WalletPage {
 
   /** Run a Promise-returning hook expression and poll its stashed result. */
   private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
-    const key = `${prefix}_${Date.now()}`;
-    const k = JSON.stringify(key);
-    await this.cdp.eval(
-      `window[${k}] = undefined; ` +
-        `Promise.resolve(${promiseExpr})` +
-        `.then(function (v) { window[${k}] = { ok: true, v: v }; })` +
-        `.catch(function (e) { window[${k}] = { ok: false, e: String((e && e.message) || e) }; }); ` +
-        `return null;`
+    return stashAndPoll<T>(js => this.cdp.eval(js), prefix, promiseExpr, timeoutMs);
+  }
+
+  // ── Row, native-asset and vault reads (the live USDCx spec) ─────────────
+
+  /**
+   * Transaction rows straight from the WebView's IndexedDB through history.ts's projection, the extension harness's
+   * own reader: its source closes over nothing, so it runs here as is (3 of 3 live spike runs). `withBytes` adds
+   * `outputNoteIds`, `requestBytes` and `resultBytes`; poll without them and read them once.
+   */
+  async readTransactionRows(query: { type?: string; withBytes?: boolean } = {}): Promise<TransactionRowSnapshot[]> {
+    const full: TransactionRowsQuery = { dbName: TX_DB, storeName: TX_STORE, ...query };
+    const rows = await ridingOut(() =>
+      this.stashAndPoll<TransactionRowSnapshot[] | null>(
+        '__tx_rows',
+        `(${readTransactionRowsInPage.toString()})(${JSON.stringify(full)})`,
+        60_000
+      )
     );
+    return rows ?? [];
+  }
+
+  /** The `bridged-send` rows, typed as the extension harness types them. */
+  async readBridgedSendRows(withBytes = false): Promise<BridgedSendRow[]> {
+    return (await this.readTransactionRows({ type: 'bridged-send', withBytes })).map(bridgedSendRowOf);
+  }
+
+  /**
+   * The native asset from the wallet's Preferences cache, checked against the store's display id and the current
+   * account's balance row. Both land shortly after Ready, so it re-reads until `timeoutMs` and then reports the last
+   * problem.
+   */
+  async nativeAsset(timeoutMs = 60_000): Promise<IosNativeAsset> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(`return window[${k}] || null;`);
-      if (r) {
-        if (r.ok) return r.v as T;
-        throw new Error(`stashAndPoll(${prefix}): ${r.e}`);
+      try {
+        const entries = await this.stashAndPoll<Record<string, string | null>>(
+          '__native_asset',
+          NATIVE_ASSET_CACHE_EXPR
+        );
+        return nativeAssetOf(entries, await this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
+      } catch (error) {
+        if (Date.now() >= deadline) throw error;
       }
-      if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
-      await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
+      await sleep(2_000);
     }
+  }
+
+  /**
+   * Exact spendable base units of `faucetId` in the current account, as the store last fetched them. Read it through
+   * `homeVaultBaseUnits`: the balance poll runs only on Home.
+   */
+  async readVaultBaseUnits(faucetId: string): Promise<bigint> {
+    const view = await ridingOut(() => this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
+    if (!view) throw new Error('readVaultBaseUnits: the store has no current account');
+    let total = 0n;
+    for (const row of view.rows.filter(candidate => candidate.tokenId === faucetId)) {
+      // toBaseUnits refuses more digits than the decimals hold: a float that does not round-trip.
+      total += toBaseUnits(String(row.balance), row.decimals);
+    }
+    return total;
+  }
+
+  /**
+   * Goes Home, where the balance poll runs, and re-reads the vault every second until `holds` accepts it. The store
+   * caught up within 5.1 s of the move in the spike.
+   */
+  async homeVaultBaseUnits(
+    faucetId: string,
+    holds: (units: bigint) => boolean,
+    timeoutMs: number,
+    want: string
+  ): Promise<bigint> {
+    await this.navigateHome();
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const units = await this.readVaultBaseUnits(faucetId);
+      if (holds(units)) return units;
+      if (Date.now() >= deadline) {
+        throw new Error(`the vault of ${faucetId} on Home never read ${want} within ${timeoutMs} ms; last ${units}`);
+      }
+      await sleep(1_000);
+    }
+  }
+
+  // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
+
+  /**
+   * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
+   * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
+   * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
+   * route card, the payout rows and the notice on the route and the review, and the review's network and fee rows; a
+   * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
+   */
+  async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
+    const chain = opts.payout ?? ARC_PAYOUT;
+    const symbol = opts.nativeSymbol.trim();
+    if (symbol === '' || symbol.toUpperCase() === 'MIDEN') {
+      throw new Error(`burnUsdcxViaSendFlow: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
+    }
+    // Throws before any UI when the amount does not exceed the payout chain's fee allowance (R14a).
+    const payout = usdcxPayoutRowsText(chain.chainId, opts.amount);
+    const routeFees = enText('usdcxMidenFees', { symbol });
+    const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol });
+    const notice = enText('usdcxWithdrawalNotice');
+    const rowsBefore = new Set((await this.readBridgedSendRows()).map(row => row.id));
+    fs.mkdirSync(opts.screenshotDir, { recursive: true });
+
+    await this.navigateTo(`/send?tokenId=${encodeURIComponent(opts.nativeTokenId)}`);
+    await this.waitFor(SEND_FLOW, { timeoutMs: 15_000 });
+    // The carousel keeps Send mounted with its step and network; only the recipient step has no back button.
+    for (let pop = 0; pop < 3 && (await this.exists(`${SEND_FLOW} [data-testid="flow-back"]`)); pop++) {
+      await this.click(`${SEND_FLOW} [data-testid="flow-back"]`);
+      await sleep(1_000);
+    }
+    await this.waitFor(`${SEND_FLOW} [data-testid="send-recipient-input"]`, { timeoutMs: 15_000 });
+    await this.fillInput(`${SEND_FLOW} [data-testid="send-recipient-input"]`, opts.destAddress);
+    const picker = `${SEND_FLOW} [data-testid="send-network-picker"]`;
+    await this.waitFor(picker, { timeoutMs: 15_000 });
+    await this.click(picker);
+    const offered = await this.pollEval<SendNetworkView | null>(
+      'the four USDCx destinations in the network sheet',
+      SEND_NETWORK_JS,
+      view => view !== null && sameChipSet(view.rows),
+      15_000
+    );
+    const defaultPressed = (offered?.rows ?? []).filter(row => row.pressed === 'true').map(row => row.testId);
+    // A network kept from an earlier attempt overrides the default, so the payout chain is picked every time.
+    await this.click(`${OPEN_SHEET} [data-testid="send-network-${chain.reviewNetwork}"]`);
+    await this.pollEval<SendNetworkView | null>(
+      `the closed network field naming ${chain.networkName}`,
+      SEND_NETWORK_JS,
+      view => view !== null && view.rows.length === 0 && view.summary === chain.networkName,
+      15_000
+    );
+    await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-recipient-confirm"]`, 30_000);
+    await this.waitFor(`${SEND_FLOW} [data-testid="send-amount-input"]`, { timeoutMs: 30_000 });
+    // `available` renders only once a token is set: the ?tokenId= preselect landed (every spike run).
+    await this.waitFor(`${SEND_FLOW} [data-testid="send-amount-available"]`, { timeoutMs: 10_000 });
+    await this.fillInput(`${SEND_FLOW} [data-testid="send-amount-input"]`, opts.amount);
+    await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-amount-confirm"]`, 45_000);
+
+    await this.pollEval<UsdcxRouteView | null>(
+      'the USDCx route card, payout rows and burn notice',
+      USDCX_ROUTE_JS,
+      view =>
+        view !== null &&
+        view.pressed === 'true' &&
+        view.cardText.includes(routeFees) &&
+        view.fee === payout.fee &&
+        view.net === payout.net &&
+        view.notice === notice,
+      30_000
+    );
+    await this.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-route.png') });
+    await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="bridge-route-confirm"]`, 15_000);
+
+    const landing = await this.pollEval<{ href: string; hash: string; submit: boolean }>(
+      'the burn review',
+      REVIEW_LANDING_JS,
+      view => view.hash.startsWith('#/send/review?') && view.submit,
+      30_000
+    );
+    const wanted: Record<string, string> = {
+      network: chain.reviewNetwork,
+      route: 'usdcx',
+      tokenId: opts.nativeTokenId
+    };
+    for (const [name, value] of Object.entries(wanted)) {
+      const actual = reviewQueryParam(landing.href, name);
+      if (actual !== value) {
+        throw new Error(`the review route ${routeOf(landing.href)} has ${name}=${actual}, expected ${value}`);
+      }
+    }
+    await this.pollEval<UsdcxReviewView | null>(
+      'the burn review rows',
+      usdcxReviewJs(enText('network'), enText('networkFee')),
+      view =>
+        view !== null &&
+        view.network === chain.networkName &&
+        view.networkFee === sponsorshipFee &&
+        view.fee === payout.fee &&
+        view.net === payout.net &&
+        view.notice === notice,
+      15_000
+    );
+    const ready = await this.pollEval<{ state: string; text?: string } | null>(
+      'send-review-submit enables, or review-error names the refusal',
+      REVIEW_READY_JS,
+      view => view !== null && view.state !== 'waiting',
+      60_000
+    );
+    if (ready?.state === 'error') {
+      throw new Error(`the review refused the burn before submit: review-error "${ready.text ?? ''}"`);
+    }
+    await this.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-light.png') });
+    await this.cdp.eval(`document.documentElement.classList.add('dark'); return null;`);
+    await sleep(400);
+    await this.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-dark.png') });
+    await this.cdp.eval(`document.documentElement.classList.remove('dark'); return null;`);
+
+    // An overrun step runs on after its test failed (R26): a burn submitted then pays out into a later run's window.
+    if (opts.signal?.aborted) {
+      const reason: unknown = opts.signal.reason;
+      throw new Error(`the burn was not submitted: ${reason instanceof Error ? reason.message : String(reason)}`, {
+        cause: reason
+      });
+    }
+    await this.click(`${SEND_REVIEW} [data-testid="send-review-submit"]`);
+    // Submit reads the minimum burn and the Arc snapshot (15 s budget, burn.ts) before it queues the row.
+    const outcome = await this.pollEval<{ hash: string; error: string | null; loading: boolean }>(
+      'the burn submit reaching the generating page or review-error',
+      SUBMIT_OUTCOME_JS,
+      view => GENERATING_ROUTE.test(view.hash) || (view.error !== null && !view.loading),
+      60_000
+    );
+    const rowId = GENERATING_ROUTE.exec(outcome.hash)?.[1];
+    if (!rowId) {
+      const fresh = (await this.readBridgedSendRows()).filter(
+        row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
+      );
+      throw new Error(burnSubmitFailure(chain, outcome.error ?? '', fresh.length));
+    }
+    return {
+      rowId: decodeURIComponent(rowId),
+      reviewRoute: routeOf(landing.href),
+      generatingRoute: outcome.hash,
+      defaultPressed
+    };
+  }
+
+  /**
+   * Stays on the generating page until the burn row is Completed: on mobile that page drives the transaction loop
+   * (GeneratingTransaction.tsx), so leaving it before the first tick leaves the row queued. Unconfirmed (4) waits
+   * for the node's verdict and is waited out. The bytes are read once, right after Completed: the reaper releases
+   * `resultBytes` 10 min after `completedAt`.
+   */
+  async waitForBurnCompleted(
+    rowId: string,
+    timeoutMs: number,
+    pollMs = 2_000
+  ): Promise<{ row: BridgedSendRow; stages: BurnStageSample[] }> {
+    const started = Date.now();
+    const stages: BurnStageSample[] = [];
+    for (;;) {
+      const hash = await ridingOut(() => this.cdp.eval<string>('return location.hash;'));
+      if (decodeURIComponent(GENERATING_ROUTE.exec(hash)?.[1] ?? '') !== rowId) {
+        throw new Error(`left the generating page for ${hash} before burn row ${rowId} completed`);
+      }
+      const row = (await this.readBridgedSendRows()).find(candidate => candidate.id === rowId);
+      const last = stages[stages.length - 1];
+      if (row && (last?.status !== row.status || last?.stage !== row.stage)) {
+        stages.push({ status: row.status, stage: row.stage, atMs: Date.now() - started });
+      }
+      if (row?.status === TxStatus.Completed) break;
+      if (row?.status === TxStatus.Failed) throw new Error(burnFailureMessage(row));
+      if (Date.now() - started >= timeoutMs) {
+        throw new Error(
+          `burn row ${rowId} not Completed within ${timeoutMs} ms (stages ${JSON.stringify(stages)}): ` +
+            (row ? burnFailureMessage(row) : 'no such row')
+        );
+      }
+      await sleep(pollMs);
+    }
+    const row = (await this.readBridgedSendRows(true)).find(candidate => candidate.id === rowId);
+    if (!row) throw new Error(`burn row ${rowId} vanished after it completed`);
+    return { row, stages };
+  }
+
+  /** Opens a transaction's history details and waits for its status pill. */
+  async openTransactionDetails(rowId: string): Promise<void> {
+    await this.navigateTo(`/history-details/${rowId}`);
+    await this.waitFor(`${detailsLayer(rowId)} [data-testid="history-status-pill"]`, { timeoutMs: 30_000 });
+  }
+
+  /** The open details page's status pill and every transaction link it renders to `explorer`, Arc Testnet's by default. */
+  async transactionDetailsView(
+    rowId: string,
+    explorer: string = ARC_PAYOUT.explorer
+  ): Promise<{ pill: string | null; txLinks: string[] }> {
+    const prefix = `${explorer}/tx/`;
+    const view = await ridingOut(() =>
+      this.cdp.eval<{ pill: string | null; txLinks: string[] } | null>(
+        `var root = document.querySelector(${JSON.stringify(detailsLayer(rowId))}); if (!root) return null; ` +
+          `var pill = root.querySelector('[data-testid="history-status-pill"]'); ` +
+          `return { pill: pill ? (pill.textContent || '').trim() : null, ` +
+          `txLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
+          `.filter(function (h) { return h.indexOf(${JSON.stringify(prefix)}) === 0; }) };`
+      )
+    );
+    return view ?? { pill: null, txLinks: [] };
+  }
+
+  /**
+   * Re-runs a script body until `done` accepts its value; a failed eval (an inspector reattach) counts as not yet, and
+   * the timeout names the last one.
+   */
+  private async pollEval<T>(label: string, js: string, done: (value: T) => boolean, timeoutMs: number): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    let last: { value: T } | undefined;
+    let lastError: string | undefined;
+    for (;;) {
+      let read: { value: T } | undefined;
+      try {
+        read = { value: await this.cdp.eval<T>(js) };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      if (read !== undefined) {
+        if (done(read.value)) return read.value;
+        last = read;
+      }
+      if (Date.now() >= deadline) {
+        const seen = last === undefined ? 'none' : (JSON.stringify(last.value) ?? 'undefined').slice(0, 1_500);
+        // An eval error can quote location.href, whose search holds the onboarding ?password= all session.
+        const failed =
+          lastError === undefined ? '' : `; last failed eval ${withoutUrlQueries(lastError).slice(0, 500)}`;
+        throw new Error(`${label}: not met within ${timeoutMs} ms; last read ${seen}${failed}`);
+      }
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+
+  private async exists(selector: string): Promise<boolean> {
+    return this.cdp.eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`);
   }
 
   // ── iOS-only helpers (used inline by .ios.spec.ts where Chrome reaches
@@ -409,16 +905,10 @@ export class IosWalletPage implements WalletPage {
 
     // Click "Open wallet" — this triggers register() which creates the vault.
     // The old "Get started" text is gone; the button is now keyed by testid.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`IosWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding's last screen is now the one-time telemetry consent prompt, not
     // the wallet home — decline it so the caller gets a wallet it can navigate.
@@ -441,6 +931,16 @@ export class IosWalletPage implements WalletPage {
     // For created wallets the bypass synthesizes the seed phrase internally
     // (we don't read it back); for imported wallets the caller already has it.
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
   }
 
   /**
@@ -677,8 +1177,7 @@ export class IosWalletPage implements WalletPage {
     // Confirm is gated on a valid address, so wait for it to enable.
     await this.fillInput(`${sendFlow} [data-testid="send-recipient-input"]`, params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
-      await this.click('[data-testid="send-network-sepolia"]');
+      await selectSendNetworkByScript(this, SEPOLIA_NETWORK, 15_000, POLL_INTERVAL_MS);
     }
     await this.clickWhenEnabled(`${sendFlow} [data-testid="send-recipient-confirm"]`, 30_000);
 
@@ -693,7 +1192,7 @@ export class IosWalletPage implements WalletPage {
     const tokenSymbol = params.tokenSymbol;
     if (tokenSymbol) {
       // Wait for the FUNDED token row specifically — balance sync can lag, and
-      // if only the 0-balance MIDEN row has rendered, the fallback would grab it
+      // if only the 0-balance USDCX row has rendered, the fallback would grab it
       // and the amount Confirm would never enable.
       await this.pollForSelector(`[data-testid="send-token-${tokenSymbol}"]`, 30_000);
     } else {
@@ -706,7 +1205,7 @@ export class IosWalletPage implements WalletPage {
         `  if (want) { want.click(); return true; } ` +
         `} ` +
         `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
-        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-USDCX']; ` +
         `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
         `if (!pick) pick = rows[0]; ` +
         `if (!pick) return false; pick.click(); return true;`
@@ -777,10 +1276,16 @@ export class IosWalletPage implements WalletPage {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
       lastBalance = await this.getBalance(tokenSymbol);
 
@@ -788,16 +1293,19 @@ export class IosWalletPage implements WalletPage {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
-      if (attempt < maxAttempts) await sleep(intervalMs);
-    }
 
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+      await sleep(Math.min(intervalMs, remainingAfter));
+    }
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -955,17 +1463,20 @@ export class IosWalletPage implements WalletPage {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
         // Catch eval errors (page reload mid-poll, inspector reattach race).
-        const found = await this.cdp
-          .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
-          .catch(() => false);
-        if (found) return;
+        const found = await this.tallied<boolean>(
+          `return !!document.querySelector(${JSON.stringify(selector)});`,
+          tally
+        );
+        if (found?.value) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForSelector', selector, timeoutMs, tally);
       throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
     } finally {
       this.pollStats.pollCount++;
@@ -975,24 +1486,42 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
-        if (ok) return;
+        const read = await this.tallied<T>(jsBody, tally);
+        if (read && (await accept(read.value))) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForCondition', jsBody.slice(0, 80), timeoutMs, tally);
       throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
     } finally {
       this.pollStats.pollCount++;
       this.pollStats.pollIterations += iterations;
       this.pollStats.pollMs += Date.now() - wallStart;
       this.pollStats.pollSleepMs += totalSleepMs;
+    }
+  }
+
+  /** One poll read: a failed eval counts as not yet, and the tally keeps what a timeout must say about the session. */
+  private async tallied<T>(js: string, tally: EvalTally): Promise<{ value: T } | undefined> {
+    try {
+      const value = await this.cdp.eval<T>(js);
+      tally.returned++;
+      return { value };
+    } catch (error) {
+      tally.lastError = error;
+      return undefined;
     }
   }
 

@@ -84,7 +84,12 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
           aria-modal="true"
           aria-label={t('dappSwitcher')}
           className="fixed inset-0 flex flex-col items-center justify-start"
-          style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(24px)' }}
+          style={{
+            zIndex: 80,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)'
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -238,7 +243,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         <button
           type="button"
           aria-label={t('dappSwitcherCloseCard', { name: displayName })}
-          className="pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40"
+          className="pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-pure-black/40"
           onClick={e => onClose(e, session)}
           onKeyDown={e => {
             // Stop the card's keyboard activation from firing when the
@@ -257,7 +262,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
 
       {/* Loading indicator (bottom-left) */}
       {state.isLoading && (
-        <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-pure-white">
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-pure-black/50 px-2 py-0.5 text-[10px] text-pure-white">
           {t('dappSwitcherLoading')}
         </div>
       )}

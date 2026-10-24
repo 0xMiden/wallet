@@ -1,15 +1,28 @@
 name: Local E2E (Chrome)
 on:
   pull_request:
+  workflow_dispatch: {}
 concurrency:
   group: local-e2e-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
+  # Name and work read the same base value (#1071): only a pull request based on
+  # main or next gets the full suite and this required name; a stacked pull
+  # request reports a name no branch requires, which can never satisfy a check
+  # on that commit, so a retarget with no push leaves the required name missing
+  # until a push, or a close and reopen, runs the pull request's own event for
+  # real. A by-hand workflow_dispatch run reports the required name on the
+  # branch head (not the merge ref), built against the linked PRs that the
+  # branch's open pull request names, as its pull_request run is (none on main
+  # or next). Branch protection accepts that check for a pull request at the
+  # same commit, which is the spec's by-hand escape hatch.
   chrome-local:
-    # Required-check name: keep this exact string.
-    name: local-e2e (chrome)
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
     # The full suite imports the published Linux napi module, which has no ARM64
     # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
     # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x
@@ -33,12 +46,10 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
-      # One job, 500ms blocks: the deleted fast-blocks matrix existed so
-      # send-private saw a block in the commit-relay window. That cadence now
-      # lives here, and the rest of the suite spends less wall clock waiting
-      # on 3s blocks. run-local-node patches start-test-node.sh from this env.
-      MIDEN_NODE_BLOCK_INTERVAL: 500ms
-      MIDEN_NODE_BATCH_INTERVAL: 500ms
+      # No block-interval override, so the node runs start-test-node.sh's 3s default. Since 0.17 a
+      # transaction expires 20 blocks after its reference block, and at the 500ms this job used
+      # that is 10s, less than a CLI or in-browser proof plus sync lag: the node accepted mints
+      # and consumes, then dropped them from the mempool, and the accounts rolled back.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,8 +61,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -61,30 +72,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
           if [ "${{ runner.arch }}" = X64 ]; then
             namespace=miden-e2e-cargo-v2
           else
             namespace=miden-e2e-cargo-v3-${{ runner.arch }}
           fi
-          echo "key=$namespace-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
@@ -133,6 +132,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Install xvfb
@@ -151,6 +153,7 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Run core specs
+        id: core
         # --retries=1 (spec §7 budget; base config is retries:0, shared with the live
         # E2E): a small margin for a rare balance->send-UI sync hiccup on a loaded
         # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
@@ -163,6 +166,20 @@ jobs:
         # read off the log / tracked over time. Diagnostic only -- never fails.
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
+      # The build above ignores stored endpoint overrides, as every E2E build but this one does, so a realm that
+      # ignores one passes all of them (#1482). This build reads them, and its spec stores one through Developer
+      # Settings. It runs once the core specs ran, passed or failed, so their failure cannot hide its result.
+      - name: Build extension (localnet, reads stored endpoint overrides)
+        id: stored_override_build
+        if: ${{ !cancelled() && (steps.core.outcome == 'success' || steps.core.outcome == 'failure') }}
+        run: yarn test:e2e:stored-override:build
+      - name: Run stored-override spec
+        id: stored_override
+        if: ${{ !cancelled() && steps.stored_override_build.outcome == 'success' }}
+        run: xvfb-run -a yarn test:e2e:stored-override:run --retries=1
+      - name: Report flaky (retried-then-passed) stored-override specs
+        if: ${{ !cancelled() && steps.stored_override.outcome != 'skipped' }}
+        run: node scripts/report-flaky-e2e.mjs test-results/stored-override/results.json
       # Guardian (`guardian-*.spec.ts`) coverage lives in its own workflow,
       # pr-e2e-guardian-lifecycle.yml, which brings up BOTH guardians (A :3000 +
       # B :3001, `guardian-switch` compose profile) and runs the full suite via

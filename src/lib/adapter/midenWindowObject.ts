@@ -22,11 +22,13 @@ import {
   requestConsume,
   requestDisconnect,
   requestGuardianInfo,
+  requestLoginKey,
   requestPermission,
   requestPrivateNotes,
   requestSend,
   requestTransaction,
   signBytes,
+  signLoginBytes,
   waitForTransaction
 } from 'lib/adapter/client';
 import { MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
@@ -80,6 +82,20 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     const messageAsB64 = u8ToB64(data);
 
     const signatureAsB64 = await signBytes(this.address!, publicKeyAsHex, messageAsB64, kind);
+    const signatureAsU8Array = b64ToU8(signatureAsB64);
+    return { signature: signatureAsU8Array };
+  }
+
+  async requestLoginKey(): Promise<{ loginKey: Uint8Array }> {
+    const loginKeyAsB64 = await requestLoginKey(this.address!);
+    const loginKeyAsU8Array = b64ToU8(loginKeyAsB64);
+    return { loginKey: loginKeyAsU8Array };
+  }
+
+  async signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array }> {
+    const messageAsB64 = u8ToB64(data);
+
+    const signatureAsB64 = await signLoginBytes(this.address!, messageAsB64, kind);
     const signatureAsU8Array = b64ToU8(signatureAsB64);
     return { signature: signatureAsU8Array };
   }
@@ -190,10 +206,10 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
    * Not supported by this wallet.
    *
    * `createAccount` has been on the published `MidenWallet` interface since
-   * adapter 0.13.2, but no Miden wallet provider implements it: the extension,
-   * the mobile injection script and the Tauri provider all lack it, and there
-   * is no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. Before this the
-   * method was simply absent, so a dApp calling it got
+   * adapter 0.13.2, but no Miden wallet provider implements it, and there is
+   * no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. The extension and
+   * the mobile injection script reject it with this message; the Tauri
+   * provider lacks the method, so a dApp there still gets
    * `TypeError: wallet.createAccount is not a function`.
    *
    * Rejecting with a named error is not a fix — it is a clearer failure. The

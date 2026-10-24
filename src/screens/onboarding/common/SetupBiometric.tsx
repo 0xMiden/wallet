@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as FaceIcon } from 'app/icons/onboarding/face.svg';
 import { ReactComponent as FingerprintIcon } from 'app/icons/onboarding/fingerprint.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { authenticate, checkBiometricAvailability } from 'lib/biometric';
+import { authenticate, type BiometricSetup, checkBiometricSetup, openBiometricSettings } from 'lib/biometric';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isIOS, isMobile } from 'lib/platform';
+import { isAndroid, isIOS, isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { cn } from 'lib/ui/util';
 
 type Phase = 'prompt' | 'success';
@@ -56,11 +59,47 @@ const ScanFrame: React.FC<{ color: FrameColor; children: React.ReactNode }> = ({
   );
 };
 
+// Literal t() calls, so the i18n key-coverage test sees every key.
+const unavailableMessage = (
+  { reason, managedProfile }: BiometricSetup,
+  t: TFunction
+): { id: UserErrorId; message: string } => {
+  switch (reason) {
+    case 'none-enrolled':
+      return managedProfile
+        ? { id: 'biometricNotEnrolledWork', message: t('biometricNotEnrolledWork') }
+        : { id: 'biometricNotEnrolled', message: t('biometricNotEnrolled') };
+    case 'strong-not-enrolled':
+      return managedProfile
+        ? { id: 'biometricStrongNotEnrolledWork', message: t('biometricStrongNotEnrolledWork') }
+        : { id: 'biometricStrongNotEnrolled', message: t('biometricStrongNotEnrolled') };
+    case 'no-strong-biometric':
+      return { id: 'biometricNotStrong', message: t('biometricNotStrong') };
+    case 'hardware-unavailable':
+      // iOS reports biometryNotAvailable both for missing hardware and for a Face ID the
+      // user denied this app, so the generic Android message would send an iOS user to a
+      // sensor that was never broken.
+      return isIOS()
+        ? { id: 'biometricUnavailableIOS', message: t('biometricUnavailableIOS') }
+        : { id: 'biometricHardwareUnavailable', message: t('biometricHardwareUnavailable') };
+    case 'security-update-required':
+      return { id: 'biometricSecurityUpdate', message: t('biometricSecurityUpdate') };
+    case 'passcode-not-set':
+      return { id: 'biometricPasscodeNotSet', message: t('biometricPasscodeNotSet') };
+    case 'locked-out':
+      return { id: 'biometricLockedOut', message: t('biometricLockedOut') };
+    default:
+      return { id: 'biometricUnavailable', message: t('biometricUnavailable') };
+  }
+};
+
 export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSwitchToPasscode, onContinue }) => {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('prompt');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ id: UserErrorId; message: string } | null>(null);
+  const [blocked, setBlocked] = useState<BiometricSetup | null>(null);
   const inFlightRef = useRef(false);
+  useUserVisibleError(phase === 'prompt' ? error?.id : null, 'inline');
 
   const isFaceId = isIOS();
   const InnerIcon = isFaceId ? FaceIcon : FingerprintIcon;
@@ -70,23 +109,25 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setError(null);
+    setBlocked(null);
     try {
       // Non-mobile (extension/desktop) can't trigger the Capacitor biometric
       // plugin — surface a switch-to-passcode prompt instead.
       if (!isMobile()) {
-        setError(t('biometricUnavailable'));
+        setError({ id: 'biometricUnavailable', message: t('biometricUnavailable') });
         return;
       }
-      const availability = await checkBiometricAvailability();
-      if (!availability.isAvailable) {
-        setError(t('biometricUnavailable'));
+      const setup = await checkBiometricSetup();
+      if (!setup.available) {
+        setError(unavailableMessage(setup, t));
+        setBlocked(setup);
         return;
       }
       const ok = await authenticate(t('biometricSetupReason'));
       if (ok) {
         setPhase('success');
       } else {
-        setError(t('biometricFailed'));
+        setError({ id: 'biometricFailed', message: t('biometricFailed') });
       }
     } finally {
       inFlightRef.current = false;
@@ -102,6 +143,19 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
     }
   }, [phase, tryAuthenticate]);
 
+  // Only an availability failure re-checks on return; re-running after a cancelled prompt would loop it.
+  useEffect(() => {
+    if (!blocked) return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void tryAuthenticate();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [blocked, tryAuthenticate]);
+
+  const showOpenSettings =
+    (blocked?.reason === 'none-enrolled' || blocked?.reason === 'strong-not-enrolled') && isAndroid();
+
   const handleRetry = () => {
     hapticLight();
     void tryAuthenticate();
@@ -109,7 +163,7 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
 
   return (
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-setup-biometric">
-      <div className="min-h-full flex flex-col items-center px-6 pb-6">
+      <div className="min-h-full flex flex-col items-center px-6 pb-[calc(1.5rem+var(--wallet-control-safe-bottom,0px))]">
         <div className="flex-1 flex flex-col items-center justify-center w-full">
           {phase === 'prompt' ? (
             <>
@@ -119,7 +173,7 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
                 </ScanFrame>
               </button>
               <h1 className="text-2xl font-semibold font-heading text-ink text-center mt-8">{promptTitle}</h1>
-              {error && <p className="text-sm text-status-negative text-center mt-3 px-4">{error}</p>}
+              {error && <p className="text-sm text-status-negative text-center mt-3 px-4">{error.message}</p>}
             </>
           ) : (
             <>
@@ -140,7 +194,10 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
 
         <div className="w-full flex flex-col items-center gap-2 shrink-0">
           {phase === 'prompt' ? (
-            <Button title={t('usePasscodeInstead')} variant={ButtonVariant.Ghost} onClick={onSwitchToPasscode} />
+            <>
+              {showOpenSettings && <Button title={t('openSettings')} onClick={() => void openBiometricSettings()} />}
+              <Button title={t('usePasscodeInstead')} variant={ButtonVariant.Ghost} onClick={onSwitchToPasscode} />
+            </>
           ) : (
             <Button title={t('continue')} onClick={onContinue} />
           )}

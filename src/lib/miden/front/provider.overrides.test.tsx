@@ -8,7 +8,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   loadEndpointOverrides: () => loadEndpointOverrides(),
   getEffectiveRpcUrl: () => 'https://rpc.test',
   getEffectiveProverUrl: () => 'https://prover.test',
-  getEffectiveNoteTransportUrl: () => 'https://ntl.test'
+  getEffectiveNoteTransportUrl: () => 'https://ntl.test',
+  getEffectiveFeeFaucetId: () => '0xfee'
 }));
 
 const ensureSdkWasmReady = jest.fn().mockResolvedValue(undefined);
@@ -20,9 +21,12 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
-jest.mock('@miden-sdk/react/lazy', () => ({ MidenProvider: ({ children }: any) => <>{children}</> }));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
+jest.mock('lib/remote-config/runtime', () => ({
+  followEffectiveNetwork: jest.fn(),
+  initBridgeConfig: jest.fn().mockResolvedValue(undefined)
+}));
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
 jest.mock('./useSyncTrigger', () => ({ useSyncTrigger: jest.fn() }));
 jest.mock('./assets', () => ({
@@ -39,8 +43,10 @@ jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
+jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 
 import { MidenProvider } from './provider';
 
@@ -96,5 +102,23 @@ it('primes native-asset discovery only AFTER endpoint overrides resolve (not aga
   resolveLoad();
   await waitFor(() => expect(primeNativeAssetId).toHaveBeenCalledTimes(1));
   // The preload is mocked to resolve here; a warning would mean a real storage read ran (an unmocked preload).
+  expect(warn).not.toHaveBeenCalled();
+});
+
+it('makes the bridge config follow the effective network only AFTER endpoint overrides resolve', async () => {
+  let resolveLoad!: () => void;
+  loadEndpointOverrides.mockImplementationOnce(() => new Promise<void>(res => (resolveLoad = () => res())));
+
+  render(
+    <MidenProvider>
+      <div data-testid="child" />
+    </MidenProvider>
+  );
+
+  await Promise.resolve();
+  expect(followEffectiveNetwork).not.toHaveBeenCalled();
+
+  resolveLoad();
+  await waitFor(() => expect(followEffectiveNetwork).toHaveBeenCalledTimes(1));
   expect(warn).not.toHaveBeenCalled();
 });

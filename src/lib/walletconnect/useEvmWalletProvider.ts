@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 
-import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
+import { useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { EIP1193Provider } from 'viem';
 
 import { DEFAULT_CHAIN_ID, getChain } from './config';
@@ -14,7 +14,7 @@ export interface EvmWallet {
   /** EIP-1193 provider for signing/claiming — works on web AND native. */
   provider?: EIP1193Provider;
   /** Open the connect UI (AppKit modal on web, native sheet on iOS/Android). */
-  connect: () => Promise<void>;
+  connect: (recoveryChainId?: number) => Promise<void>;
 }
 
 /**
@@ -34,7 +34,6 @@ export function useEvmWalletProvider(): EvmWallet {
   const native = useNativeReown();
   const { address: webAddress, isConnected: webConnected } = useAppKitAccount({ namespace: 'eip155' });
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
-  const { open } = useAppKit();
 
   const nativeAddress = native.state.address;
   const nativeChainId = native.state.chainId ?? DEFAULT_CHAIN_ID;
@@ -45,9 +44,11 @@ export function useEvmWalletProvider(): EvmWallet {
     return buildNativeReownProvider({ chainId: nativeChainId, address: nativeAddress, rpcUrl }) as EIP1193Provider;
   }, [isNative, nativeAddress, nativeChainId]);
 
-  const connectWeb = useCallback(async () => {
-    await open({ view: 'Connect', namespace: 'eip155' });
-  }, [open]);
+  const connectWeb = useCallback(async (recoveryChainId?: number) => {
+    const { openConnectModal, prepareAppKitConnection } = await import('./appkit');
+    await prepareAppKitConnection(recoveryChainId);
+    await openConnectModal();
+  }, []);
 
   if (isNative) {
     return {

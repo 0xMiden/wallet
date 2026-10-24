@@ -32,27 +32,18 @@ export const parseImportedAccountBackupFailure = (message: string): string | nul
     ? message.slice(IMPORTED_ACCOUNT_BACKUP_FAILED_CODE.length + 1)
     : null;
 
-// Absence of a version is the legacy discriminator. Do not rewrite it to
-// version 1: older files were never stamped and must keep parsing unchanged.
-export type LegacyDecryptedWalletFile = {
-  formatVersion?: undefined;
-  seedPhrase: string;
-  midenClientDbContent: string;
-  walletDbContent: string;
-  accounts: WalletAccount[];
-  omittedImportedAccountCount?: number;
-};
-
-export type VersionTwoDecryptedWalletFile = {
+export type DecryptedWalletFile = {
   formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION;
+  // The network the file was written on. Absent from older files, which are
+  // placed by their genesis alone; a string, as a name this wallet does not
+  // know is another network, not a damaged file.
+  network?: string;
   seedPhrase: string;
   midenClientDbContent: string;
   walletDbContent: string;
   accounts: WalletAccount[];
   importedAccounts: ImportedAccountBackup[];
 };
-
-export type DecryptedWalletFile = LegacyDecryptedWalletFile | VersionTwoDecryptedWalletFile;
 
 export class MalformedBackupFileError extends Error {
   constructor() {
@@ -69,13 +60,20 @@ export class UnsupportedBackupVersionError extends Error {
   }
 }
 
+export class WrongNetworkBackupError extends Error {
+  constructor() {
+    super('This encrypted wallet file belongs to another network.');
+    this.name = 'WrongNetworkBackupError';
+  }
+}
+
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isAuthScheme = (value: unknown): value is ImportedAccountBackup['authScheme'] =>
   value === 'falcon' || value === 'ecdsa';
 
-const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'legacy' || value === 'v1';
+const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'v1';
 
 const isWalletType = (value: unknown): value is WalletType =>
   value === WalletType.OffChain || value === WalletType.OnChain || value === WalletType.Guardian;
@@ -103,7 +101,7 @@ export const isWalletAccount = (value: unknown): value is WalletAccount => {
     typeof value.isPublic === 'boolean' &&
     isWalletType(value.type) &&
     Number.isSafeInteger(value.hdIndex) &&
-    (value.authScheme === undefined || isAuthScheme(value.authScheme)) &&
+    isAuthScheme(value.authScheme) &&
     (value.keyDerivation === undefined || isKeyDerivation(value.keyDerivation))
   );
 };
@@ -143,6 +141,7 @@ const requireCommonPayload = (value: Record<string, unknown>): WalletAccount[] =
     // wallet can still back up its imported secrets; the pairing rule below is
     // what keeps that case honest.
     (value.seedPhrase !== '' && !MNEMONIC_PATTERN.test(value.seedPhrase)) ||
+    (value.network !== undefined && typeof value.network !== 'string') ||
     typeof value.midenClientDbContent !== 'string' ||
     typeof value.walletDbContent !== 'string' ||
     !Array.isArray(value.accounts) ||
@@ -163,26 +162,18 @@ export const normalizeBackupHex = (value: string): string =>
 
 export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
   if (!isRecord(value)) throw new MalformedBackupFileError();
-  requireCommonPayload(value);
 
-  if (value.formatVersion === undefined) {
-    // Imported secrets without the v2 discriminator are ambiguous to older
-    // readers, so an unversioned payload can only use the legacy omission form.
-    if (
-      value.importedAccounts !== undefined ||
-      (value.omittedImportedAccountCount !== undefined &&
-        (!Number.isSafeInteger(value.omittedImportedAccountCount) || Number(value.omittedImportedAccountCount) < 0))
-    ) {
-      throw new MalformedBackupFileError();
-    }
-    return value as LegacyDecryptedWalletFile;
-  }
+  // An unversioned file predates version 2; `UnsupportedBackupVersionError` would call it newer.
+  if (value.formatVersion === undefined) throw new MalformedBackupFileError();
 
   if (value.formatVersion !== CURRENT_BACKUP_FORMAT_VERSION) {
-    // Unknown versions fail before any database import. Forward compatibility
-    // must be explicit because new versions may strengthen secret bindings.
+    // Unknown versions fail before any database import, and before the shape
+    // checks: a newer format may change the records those checks judge.
+    // Forward compatibility must be explicit because new versions may
+    // strengthen secret bindings.
     throw new UnsupportedBackupVersionError();
   }
+  requireCommonPayload(value);
   if (!Array.isArray(value.importedAccounts)) throw new MalformedBackupFileError();
 
   const importedAccounts = value.importedAccounts.map(parseImportedAccount);
@@ -202,5 +193,50 @@ export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
     secrets.add(secret);
   }
 
-  return value as VersionTwoDecryptedWalletFile;
+  return value as DecryptedWalletFile;
 }
+
+/** Refuses a file recorded on another network. One written before the network was recorded passes. */
+export const assertBackupNetwork = (file: DecryptedWalletFile, effectiveNetwork: string): void => {
+  if (file.network !== undefined && file.network !== effectiveNetwork) throw new WrongNetworkBackupError();
+};
+
+/**
+ * The genesis block header in an SDK store dump (`exportStore` format: one list
+ * of rows per table, binary fields as tagged base64), as the bytes the import
+ * would write over the active store's own genesis.
+ *
+ * A dump without exactly one genesis row is malformed: every client build
+ * writes genesis into an empty store and the SDK never prunes block 0, so no
+ * backup this wallet wrote lacks one.
+ */
+export function backupGenesisHeader(midenClientDbContent: string): Uint8Array {
+  let dump: unknown;
+  try {
+    dump = JSON.parse(midenClientDbContent);
+    // The SDK's importer also accepts a dump encoded twice, so it is read the same way here.
+    if (typeof dump === 'string') dump = JSON.parse(dump);
+  } catch {
+    throw new MalformedBackupFileError();
+  }
+  const rows: unknown[] = isRecord(dump) && Array.isArray(dump.blockHeaders) ? dump.blockHeaders : [];
+  const genesisRows = rows.filter(row => isRecord(row) && row.blockNum === 0);
+  const genesisRow = genesisRows.length === 1 ? genesisRows[0] : undefined;
+  const header = isRecord(genesisRow) ? genesisRow.header : undefined;
+  if (!isRecord(header) || header.__type !== 'Uint8Array' || typeof header.data !== 'string') {
+    throw new MalformedBackupFileError();
+  }
+  try {
+    // Decoded with `atob`, as the SDK's importer decodes it.
+    return Uint8Array.from(atob(header.data), character => character.charCodeAt(0));
+  } catch {
+    throw new MalformedBackupFileError();
+  }
+}
+
+/** Refuses a backup whose genesis header is not the active store's: its dump is of another chain. */
+export const assertSameGenesis = (fileGenesis: Uint8Array, activeGenesis: Uint8Array): void => {
+  if (fileGenesis.length !== activeGenesis.length || fileGenesis.some((byte, index) => byte !== activeGenesis[index])) {
+    throw new WrongNetworkBackupError();
+  }
+};

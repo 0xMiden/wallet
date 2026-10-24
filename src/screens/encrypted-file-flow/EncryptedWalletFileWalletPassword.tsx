@@ -18,6 +18,7 @@ import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -59,6 +60,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // The exporter drops these records by the same rule, so the notice matches the file.
   const accounts = useWalletStore(s => s.accounts);
   const excludedAccounts = useMemo(() => accounts.filter(isExcludedFromWalletFile), [accounts]);
+  const guardianAccounts = useMemo(
+    () => accounts.filter(account => account.type === WalletType.Guardian && !isExcludedFromWalletFile(account)),
+    [accounts]
+  );
   const {
     setError,
     clearErrors,
@@ -203,6 +208,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
             onKeyDown={handleEnterKey}
             autoFocus={!isMobile()}
             error={errors.password?.message}
+            errorId="raw_encrypted_file_unlock_failed"
             data-testid="encrypted-file-wallet-password-input"
           />
         )}
@@ -220,6 +226,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         </Notice>
       )}
 
+      {guardianAccounts.length > 0 && (
+        <Notice
+          tone="warning"
+          title={t('encryptedWalletFileGuardianTitle', {
+            accountNames: formatNameList(guardianAccounts.map(account => account.name))
+          })}
+          data-testid="encrypted-file-guardian-accounts"
+        >
+          {t('encryptedWalletFileGuardianDesc')}
+        </Notice>
+      )}
+
       <CheckboxConsent
         checked={confirmed}
         onCheckedChange={setConfirmed}
@@ -229,12 +247,12 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
       </CheckboxConsent>
 
       {!hasHardwareProtector && isDisabled && (
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId="unlockPasswordErrorDelay" tone="negative" role="alert" title={t('error')}>
           {`${t('unlockPasswordErrorDelay')} ${timeleft}`}
         </Notice>
       )}
       {hasHardwareProtector && errors.password && (
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId="raw_encrypted_file_unlock_failed" tone="negative" role="alert" title={t('error')}>
           {errors.password.message || ''}
         </Notice>
       )}
@@ -247,6 +265,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
             clearErrors('password');
           }}
           error={errors.password?.message ?? null}
+          errorId="raw_encrypted_file_unlock_failed"
           disabled={isDisabled || !confirmed}
           isSubmitting={isSubmitting}
           className="mt-auto pb-2"

@@ -77,9 +77,8 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
                 initialLoading={view.initialLoading}
                 loadError={view.loadError}
                 onRetry={view.onRetry}
-                // History's first read already holds the whole history (get.ts), so a count is final and
-                // there is nothing more to page.
-                hasMore={false}
+                // History pages the settled feed, so a count stays partial until that read is exhausted.
+                hasMore={view.hasMore}
                 loadMore={view.loadMore}
                 scrollParentRef={scrollRef}
                 searchQuery={search}

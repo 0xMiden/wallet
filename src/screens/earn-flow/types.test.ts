@@ -16,7 +16,8 @@
 // The `import type` below is elided at runtime; the bare `import './types'`
 // keeps the module in the runtime graph so coverage sees it.
 import './types';
-import type { EarnSummary, EarnPosition, EarnChartPoint, EarnVault } from './types';
+import { EARN_DATA, EARN_VAULT_INFOS } from './data';
+import type { EarnSummary, EarnPosition, EarnChartPoint, EarnRiskLevel, EarnVault } from './types';
 
 describe('earn-flow/types', () => {
   it('EarnChartPoint accepts a label/value point', () => {
@@ -188,6 +189,27 @@ describe('earn-flow/types', () => {
     // A non-audited vault is equally valid — exercise the other boolean branch.
     const unaudited: EarnVault = { ...vault, audited: false };
     expect(unaudited.audited).toBe(false);
+  });
+
+  it('EarnVault takes the optional market fields: its name, whether it is open, its risk level and its info', () => {
+    const info = EARN_VAULT_INFOS[0]!;
+    const vault: EarnVault = {
+      ...EARN_DATA.vaults[0]!,
+      marketName: 'Morpho uniBTC-USDC 77',
+      canOpen: false,
+      riskLevel: 'high',
+      info
+    };
+    const level: EarnRiskLevel | undefined = vault.riskLevel;
+
+    expect(vault).toMatchObject({ marketName: 'Morpho uniBTC-USDC 77', canOpen: false, info });
+    expect(level).toBe('high');
+  });
+
+  it('EarnPosition takes an optional market name', () => {
+    const position: EarnPosition = { ...EARN_DATA.positions[0]!, marketName: 'Morpho cbBTC-USDC 86' };
+    expect(position.marketName).toBe('Morpho cbBTC-USDC 86');
+    expect(EARN_DATA.positions[0]).not.toHaveProperty('marketName');
   });
 
   it('EarnChartPoint is reusable across both EarnPosition and EarnVault', () => {

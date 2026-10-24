@@ -1,4 +1,8 @@
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { dedupeIntegration } from '@sentry/browser';
+
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import {
   CRASH_INTEGRATION_ALLOWLIST,
@@ -8,13 +12,26 @@ import {
   selectIntegrations,
   stopCrashReporting
 } from './crash';
+import { annotateCrash } from './crash-diagnostics';
 import { REDACTED } from './redact';
+import { __resetRelayDiagnosticsForTest } from './relay-diagnostics';
+import packageJson from '../../../package.json';
 
-jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(),
+  isTelemetryEnabledAsync: jest.fn()
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName) };
+});
 
 interface ClientOptions {
   dsn?: string;
-  beforeSend?: (event: unknown) => unknown;
+  beforeSend?: (event: unknown, hint?: { originalException?: unknown }) => unknown;
   integrations?: { name: string }[];
   sendDefaultPii?: boolean;
   release?: string;
@@ -24,8 +41,11 @@ interface ClientOptions {
 
 const clientOptions: ClientOptions[] = [];
 const captured: unknown[] = [];
+const capturedHints: unknown[] = [];
 const close = jest.fn();
 const setClient = jest.fn();
+const setTag = jest.fn();
+const setTags = jest.fn();
 let constructorThrows = false;
 
 jest.mock('@sentry/browser', () => ({
@@ -34,7 +54,16 @@ jest.mock('@sentry/browser', () => ({
     clientOptions.push(options);
     return { init: jest.fn(), close };
   }),
-  Scope: jest.fn(() => ({ setClient, captureException: (error: unknown) => captured.push(error) })),
+  Scope: jest.fn(() => ({
+    setClient,
+    setTag,
+    setTags,
+    getPropagationContext: () => ({ traceId: 'a'.repeat(32), sampleRand: 0 }),
+    captureException: (error: unknown, hint: unknown) => {
+      captured.push(error);
+      capturedHints.push(hint);
+    }
+  })),
   makeFetchTransport: jest.fn(),
   defaultStackParser: jest.fn(),
   inboundFiltersIntegration: jest.fn(() => ({ name: 'InboundFilters' })),
@@ -57,6 +86,20 @@ const SENTRY_DEFAULT_INTEGRATIONS = [
   'BrowserSession'
 ];
 
+it('bypasses Dedupe for user-visible errors while keeping ordinary crash deduplication', () => {
+  const dedupe = {
+    name: 'Dedupe',
+    processEvent: (_event: unknown, _hint: unknown, _client: unknown): null => null
+  } satisfies ReturnType<typeof dedupeIntegration>;
+  jest.mocked(dedupeIntegration).mockReturnValueOnce(dedupe);
+  initCrashReporting();
+  const event = { exception: { values: [{ type: 'WalletUserVisibleError', value: 'closed message' }] } };
+  expect(dedupe.processEvent(event, {}, {})).toBe(event);
+  expect(
+    dedupe.processEvent({ exception: { values: [{ type: 'Error', value: 'ordinary crash' }] } }, {}, {})
+  ).toBeNull();
+});
+
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
 
 const PHRASE_12 = 'avoid leave side crush call gasp confirm deal student link chunk interest';
@@ -72,14 +115,44 @@ const capturedText = () =>
 
 const serializeError = (error: Error) => ({ name: error.name, message: error.message, stack: error.stack });
 
-const consentOn = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
-const consentOff = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+const grantBrowserPermission = () => jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
+const denyBrowserPermission = () => jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(false);
+
+/** An Error that counts each read of its own name, message and stack. */
+function countingFieldReads(message: string): { error: Error; reads: Record<'name' | 'message' | 'stack', number> } {
+  const error = new Error(message);
+  const reads = { name: 0, message: 0, stack: 0 };
+  Object.defineProperties(error, {
+    name: {
+      get() {
+        reads.name++;
+        return 'Error';
+      }
+    },
+    message: {
+      get() {
+        reads.message++;
+        return message;
+      }
+    },
+    stack: {
+      get() {
+        reads.stack++;
+        return `Error: ${message}\n    at source (capacitor://localhost/mobile.js:1:5000)`;
+      }
+    }
+  });
+  return { error, reads };
+}
 
 beforeEach(() => {
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
   clientOptions.length = 0;
   captured.length = 0;
+  capturedHints.length = 0;
   constructorThrows = false;
+  jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+  grantBrowserPermission();
 });
 
 afterEach(() => {
@@ -88,6 +161,48 @@ afterEach(() => {
 });
 
 describe('integration selection', () => {
+  it('does not resurrect a pending lazy report after reporting is stopped', async () => {
+    let allow: (value: boolean) => void = () => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          allow = resolve;
+        })
+    );
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    stopCrashReporting();
+    allow(true);
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  it('initializes handled-only reporting without new global error listeners', async () => {
+    grantBrowserPermission();
+    const listener = jest.spyOn(globalThis, 'addEventListener');
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    expect(listener).not.toHaveBeenCalled();
+    listener.mockRestore();
+  });
+  it('initializes once when a handled failure arrives without any frontend scope', async () => {
+    grantBrowserPermission();
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    captureCrash(new Error('another transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(1);
+    expect(captured).toHaveLength(2);
+  });
+
+  it('does not initialize a lazy crash client when browser permission is denied', async () => {
+    denyBrowserPermission();
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
   it('pins the allowlist contents, so nothing can be added without a test change', () => {
     expect(CRASH_INTEGRATION_ALLOWLIST).toEqual(['InboundFilters', 'LinkedErrors', 'Dedupe']);
   });
@@ -163,7 +278,7 @@ describe('client construction', () => {
   });
 
   it('reports an uncaught global error through the handler it registered', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error(`boom ${ADDRESS}`) }));
     await flushMicrotasks();
@@ -173,7 +288,7 @@ describe('client construction', () => {
   });
 
   it('reports an unhandled rejection through the handler it registered', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error(`boom ${ADDRESS}`) }));
     await flushMicrotasks();
@@ -183,13 +298,17 @@ describe('client construction', () => {
   });
 
   it('stops reporting global errors once crash reporting stops', async () => {
-    consentOn();
+    grantBrowserPermission();
+    const add = jest.spyOn(globalThis, 'addEventListener');
     initCrashReporting();
+    const handler = add.mock.calls.find(([type]) => type === 'error')?.[1] as EventListener;
+    expect(typeof handler).toBe('function');
     stopCrashReporting();
-    globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error('boom') }));
+    handler(new ErrorEvent('error', { error: new Error('boom') }));
     await flushMicrotasks();
 
     expect(captured).toHaveLength(0);
+    add.mockRestore();
   });
 
   it('does not throw when closing the client fails', () => {
@@ -211,9 +330,9 @@ describe('client construction', () => {
   });
 });
 
-describe('consent', () => {
-  it('sends nothing when consent is off', async () => {
-    consentOff();
+describe('browser permission and reporting lifecycle', () => {
+  it('sends nothing when browser permission is denied', async () => {
+    denyBrowserPermission();
     initCrashReporting();
     captureCrash(new Error('boom'));
     await flushMicrotasks();
@@ -221,47 +340,64 @@ describe('consent', () => {
   });
 
   it('sends nothing before the client exists', async () => {
-    consentOn();
+    grantBrowserPermission();
     captureCrash(new Error('boom'));
     await flushMicrotasks();
     expect(captured).toHaveLength(0);
   });
 
-  it('captures when consent is on', async () => {
-    consentOn();
+  it('captures with browser permission even when usage sharing is off', async () => {
+    grantBrowserPermission();
     initCrashReporting();
     captureCrash(new Error('boom'));
     await flushMicrotasks();
     expect(captured).toHaveLength(1);
     expect(capturedText()).toContain('boom');
+    expect(isTelemetryEnabledAsync).not.toHaveBeenCalled();
   });
 
-  it('discards a crash whose consent check resolves after consent is withdrawn', async () => {
-    let allowConsent = (_value: boolean) => {};
-    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+  it('discards a crash whose permission check resolves after reporting stops', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
       new Promise<boolean>(resolve => {
-        allowConsent = resolve;
+        allowPermission = resolve;
       })
     );
     initCrashReporting();
     captureCrash(new Error('boom'));
 
-    // Consent is withdrawn while the check is still in flight.
+    // Reporting stops while the browser permission check is still in flight.
     stopCrashReporting();
-    allowConsent(true);
+    allowPermission(true);
     await flushMicrotasks();
 
     expect(captured).toHaveLength(0);
   });
 
-  it('closes the client so anything buffered is discarded on withdrawal', () => {
+  it('does not resume an old pending report when reporting is enabled again', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
+      new Promise<boolean>(resolve => {
+        allowPermission = resolve;
+      })
+    );
+    initCrashReporting();
+    captureCrash(new Error('old pending failure'));
+    stopCrashReporting();
+    initCrashReporting();
+    allowPermission(true);
+    await flushMicrotasks();
+    expect(captured).toEqual([]);
+  });
+
+  it('closes the client so anything buffered is discarded when reporting stops', () => {
     initCrashReporting();
     stopCrashReporting();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a non-Error throwable rather than serializing an unknown shape', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     captureCrash({ secret: PHRASE_12 });
     captureCrash('a string');
@@ -269,9 +405,9 @@ describe('consent', () => {
     expect(captured).toHaveLength(0);
   });
 
-  it('never throws when the scope rejects the capture', async () => {
-    consentOn();
-    jest.mocked(isTelemetryEnabledAsync).mockRejectedValue(new Error('storage gone'));
+  it('never throws when reading browser permission fails', async () => {
+    grantBrowserPermission();
+    jest.mocked(isCrashReportingEnabledAsync).mockRejectedValue(new Error('permissions unavailable'));
     initCrashReporting();
     expect(() => captureCrash(new Error('boom'))).not.toThrow();
     await flushMicrotasks();
@@ -281,7 +417,7 @@ describe('consent', () => {
 
 describe('captureCrash scrubs before the event reaches Sentry', () => {
   beforeEach(() => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
   });
 
@@ -447,6 +583,27 @@ describe('scrubEvent — the beforeSend hook', () => {
     expect(text).toContain('import failed');
   });
 
+  it("keeps only the client scope's own trace id and scrubs anything else under the trace context", () => {
+    const traceEvent = (traceId: string) => ({
+      contexts: {
+        trace: { trace_id: traceId, span_id: 'b'.repeat(16), parent_span_id: 'c'.repeat(16), note: PRIVATE_KEY_HEX }
+      }
+    });
+    const allRedacted = { trace_id: REDACTED, span_id: REDACTED, parent_span_id: REDACTED, note: REDACTED };
+    expect(scrubEvent(traceEvent('a'.repeat(32)))?.contexts.trace).toEqual(allRedacted);
+    initCrashReporting();
+    expect(scrubEvent(traceEvent('a'.repeat(32)))?.contexts.trace).toEqual({
+      ...allRedacted,
+      trace_id: 'a'.repeat(32)
+    });
+    expect(scrubEvent(traceEvent('d'.repeat(32)))?.contexts.trace).toEqual(allRedacted);
+    const forged = scrubEvent({
+      contexts: { trace: { trace_id: `${PRIVATE_KEY_HEX} ${COMPOSITE_ADDRESS}`, span_id: PRIVATE_KEY_HEX } }
+    });
+    expect(JSON.stringify(forged)).not.toContain('9f86d081');
+    expect(JSON.stringify(forged)).not.toContain('qr7qqq9wr6w');
+  });
+
   it('scrubs secrets nested deep in extra, contexts, and breadcrumbs', () => {
     const event = {
       extra: { request: { body: { password: 'hunter2' } } },
@@ -504,5 +661,454 @@ describe('scrubEvent — the beforeSend hook', () => {
   it('never returns the marker in place of a whole clean event', () => {
     const event = { extra: { note: 'sync finished' } };
     expect(JSON.stringify(scrubEvent(event))).not.toContain(REDACTED);
+  });
+});
+
+describe('diagnostic snapshots', () => {
+  it('snapshotsBeforePermissionAndDoesNotReuseNativeTags', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allowPermission = resolve;
+      })
+    );
+    initCrashReporting();
+    const error = new Error('native failure');
+    const nativeGroup = {
+      reownNativeOrigin: 'wallet_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: '120_to_300s',
+      reownPublished: 'confirmed',
+      reownBackgrounded: 'yes'
+    };
+    annotateCrash(error, nativeGroup);
+    captureCrash(error);
+    annotateCrash(error, {
+      reownNativeOrigin: 'publish_error',
+      reownRequestAge: 'under_30s',
+      reownPublished: 'unobserved'
+    });
+    allowPermission(true);
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    const firstEvent = { tags: { kept: 'yes' }, extra: { arbitrary: 'private' } };
+    expect(scrubEvent(firstEvent, { originalException: captured[0] })).toBe(firstEvent);
+    expect(firstEvent.extra).toEqual({ walletDiagnostics: expect.objectContaining(nativeGroup) });
+    expect(firstEvent.tags).toEqual({
+      kept: 'yes',
+      network: 'testnet',
+      reown_native_origin: 'wallet_error',
+      reown_wallet_response_code: 'internal_error',
+      reown_request_age: '120_to_300s',
+      reown_published: 'confirmed',
+      reown_backgrounded: 'yes'
+    });
+    grantBrowserPermission();
+    captureCrash(new Error('unrelated failure'));
+    await flushMicrotasks();
+    expect(captured).toHaveLength(2);
+    const secondEvent = {
+      tags: {
+        reown_native_origin: 'wallet_error',
+        reown_wallet_response_code: 'internal_error',
+        reown_request_age: 'under_30s',
+        reown_published: 'confirmed',
+        reown_backgrounded: 'no'
+      },
+      extra: { walletDiagnostics: {} }
+    };
+    scrubEvent(secondEvent, { originalException: captured[1] });
+    for (const [field, tag] of [
+      ['reownNativeOrigin', 'reown_native_origin'],
+      ['reownWalletResponseCode', 'reown_wallet_response_code'],
+      ['reownRequestAge', 'reown_request_age'],
+      ['reownPublished', 'reown_published'],
+      ['reownBackgrounded', 'reown_backgrounded']
+    ]) {
+      expect(secondEvent.tags).not.toHaveProperty(tag!);
+      expect(secondEvent.extra.walletDiagnostics).not.toHaveProperty(field!);
+    }
+  });
+
+  it('restoresOnlyThePresentValidatedNativeTags', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    const error = new Error('publisher failed');
+    annotateCrash(error, {
+      reownNativeOrigin: 'publish_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: 'unknown',
+      reownPublished: 'unobserved',
+      reownBackgrounded: 'unavailable'
+    });
+    captureCrash(error);
+    await flushMicrotasks();
+    const event = { tags: { reown_wallet_response_code: 'internal_error', reown_backgrounded: 'yes' }, extra: {} };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      reown_native_origin: 'publish_error',
+      reown_request_age: 'unknown',
+      reown_published: 'unobserved'
+    });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        reownNativeOrigin: 'publish_error',
+        reownRequestAge: 'unknown',
+        reownPublished: 'unobserved'
+      })
+    });
+    expect(event.extra).not.toHaveProperty('walletDiagnostics.reownWalletResponseCode');
+    expect(event.extra).not.toHaveProperty('walletDiagnostics.reownBackgrounded');
+  });
+
+  it('snapshots storage and live page visibility before permission resolves', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allowPermission = resolve;
+      })
+    );
+    initCrashReporting();
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      const error = Object.assign(new Error('cursor failed'), {
+        pageVisibility: 'visible',
+        storageDiagnostics: { pageVisibility: 'visible' }
+      });
+      annotateCrash(error, {
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor',
+        pageVisibility: 'visible'
+      });
+      captureCrash(error);
+      expect(captured).toHaveLength(0);
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      annotateCrash(error, { storageOwner: 'wallet_limits', storageOperation: 'get', pageVisibility: 'unknown' });
+      captureCrash(new Error('later failure'));
+      allowPermission(true);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(2);
+      const reportable = captured.find(error => error instanceof Error && error.message === 'cursor failed');
+      expect(reportable).toBeInstanceOf(Error);
+      const event: Record<string, unknown> = {
+        extra: { walletDiagnostics: { pageVisibility: 'visible' } }
+      };
+      scrubEvent(event, { originalException: reportable });
+      const extra = event.extra;
+      if (typeof extra !== 'object' || extra === null || !('walletDiagnostics' in extra))
+        throw new Error('missing diagnostics');
+      expect(extra.walletDiagnostics).toMatchObject({
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor',
+        pageVisibility: 'hidden'
+      });
+      const later: Record<string, unknown> = {};
+      scrubEvent(later, {
+        originalException: captured.find(error => error instanceof Error && error.message === 'later failure')
+      });
+      expect(later.tags).toEqual({ network: 'testnet' });
+      expect(later.tags).not.toHaveProperty('page_visibility');
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('restores closed storage fields as per-event extra and tags', async () => {
+    initCrashReporting();
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
+      const error = new Error('cursor failed');
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      captureCrash(error);
+      await flushMicrotasks();
+      const event: Record<string, unknown> = {
+        tags: { kept: 'yes' },
+        extra: { arbitrary: ADDRESS, walletDiagnostics: { pageVisibility: 'visible' } },
+        exception: { values: [{ type: 'Error' }] }
+      };
+      const beforeSend = clientOptions[0]?.beforeSend;
+      expect(beforeSend).toBe(scrubEvent);
+      expect(beforeSend?.(event, { originalException: captured[0] })).toBe(event);
+      expect(event.tags).toEqual({
+        kept: 'yes',
+        network: 'mainnet',
+        storage_owner: 'wallet_transactions',
+        storage_operation: 'cursor'
+      });
+      expect(event.tags).not.toHaveProperty('page_visibility');
+      expect(event.extra).toEqual({
+        walletDiagnostics: expect.objectContaining({
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'cursor',
+          pageVisibility: 'hidden'
+        })
+      });
+      expect(JSON.stringify(event)).not.toContain(ADDRESS);
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('keeps stackless global rejections unhandled with storage metadata', async () => {
+    initCrashReporting();
+    const error = new Error('cursor failed');
+    error.name = 'UnknownError';
+    error.stack = undefined;
+    annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+    globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: error }));
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    expect(capturedHints).toEqual([
+      expect.objectContaining({ mechanism: { type: 'onunhandledrejection', handled: false } })
+    ]);
+    const reportable = captured[0];
+    if (!(reportable instanceof Error)) throw new Error('missing error');
+    expect(serializeError(reportable)).toEqual({
+      name: 'UnknownError',
+      message: 'cursor failed',
+      stack: 'UnknownError: cursor failed'
+    });
+    const event: Record<string, unknown> = {};
+    clientOptions[0]?.beforeSend?.(event, { originalException: reportable });
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      storage_owner: 'wallet_transactions',
+      storage_operation: 'cursor'
+    });
+    expect(event.tags).not.toHaveProperty('page_visibility');
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({ storageOwner: 'wallet_transactions', storageOperation: 'cursor' })
+    });
+  });
+
+  it('does not inherit storage metadata or change grouping', async () => {
+    initCrashReporting();
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      const error = new Error('cursor failed');
+      error.name = 'UnknownError';
+      error.stack = 'UnknownError: cursor failed\n    at scan (capacitor://localhost/mobile.js:1:5000)';
+      captureCrash(error, 'onunhandledrejection', { level: 'warning' });
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      captureCrash(error, 'onunhandledrejection', { level: 'warning' });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      captureCrash(new Error('unrelated failure'));
+      await flushMicrotasks();
+      expect(captured).toHaveLength(3);
+      const [plain, annotated, unrelated] = captured;
+      if (!(plain instanceof Error) || !(annotated instanceof Error) || !(unrelated instanceof Error))
+        throw new Error('missing errors');
+      expect(serializeError(annotated)).toEqual(serializeError(plain));
+      expect(capturedHints[1]).toEqual(capturedHints[0]);
+      expect(capturedHints[1]).toEqual({
+        mechanism: { type: 'onunhandledrejection', handled: false },
+        captureContext: { level: 'warning' }
+      });
+      const events = [plain, annotated, unrelated].map(reportable => {
+        const event: Record<string, unknown> = {
+          message: reportable.message,
+          exception: { values: [{ type: reportable.name, value: reportable.message }] }
+        };
+        clientOptions[0]?.beforeSend?.(event, { originalException: reportable });
+        return event;
+      });
+      expect(events[1]).toMatchObject({ message: events[0]?.message, exception: events[0]?.exception });
+      expect(events.map(event => event.fingerprint)).toEqual([undefined, undefined, undefined]);
+      expect(events[1]?.tags).toEqual({
+        network: 'testnet',
+        storage_owner: 'wallet_transactions',
+        storage_operation: 'cursor'
+      });
+      expect(events[1]?.tags).not.toHaveProperty('page_visibility');
+      expect(events[2]?.tags).toEqual({ network: 'testnet' });
+      expect(events[2]?.tags).not.toHaveProperty('page_visibility');
+      expect(events[2]?.extra).toEqual({
+        walletDiagnostics: expect.objectContaining({ pageVisibility: 'visible' })
+      });
+      expect(JSON.stringify(events[2])).not.toMatch(/storageOwner|storageOperation|wallet_transactions|cursor/);
+      expect(unrelated.message).toBe('unrelated failure');
+      expect(setTag).not.toHaveBeenCalled();
+      expect(setTags).not.toHaveBeenCalled();
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('captures scrubbed bounded cause chains synchronously before browser permission resolves', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
+      new Promise<boolean>(resolve => {
+        allowPermission = resolve;
+      })
+    );
+    initCrashReporting();
+    const cause = new Error(`network failed for ${ADDRESS}`);
+    const error = new Error('initialize failed', { cause });
+    annotateCrash(error, { operation: 'sdk_initialize', stage: 'client_create', workerMode: 'disabled' });
+    captureCrash(error);
+    error.message = 'changed after capture';
+    cause.message = 'changed cause';
+    annotateCrash(error, { stage: 'mock_create' });
+    allowPermission(true);
+    await flushMicrotasks();
+    const reportable = captured[0];
+    expect(reportable).toBeInstanceOf(Error);
+    if (!(reportable instanceof Error)) throw new Error('missing error');
+    expect(reportable.message).toBe('initialize failed');
+    expect(reportable.cause).toBeInstanceOf(Error);
+    if (!(reportable.cause instanceof Error)) throw new Error('missing cause');
+    expect(reportable.cause.message).toContain('network failed');
+    expect(reportable.cause.message).not.toContain(ADDRESS);
+    const event = { extra: { arbitrary: ADDRESS }, exception: { values: [{ type: 'Error' }] } };
+    scrubEvent(event, { originalException: reportable });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        appVersion: packageJson.version
+      })
+    });
+  });
+
+  it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    // Only the capture sees mainnet: the report is sent after a switch back, and still says where it happened.
+    jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
+    captureCrash(new Error('sync failed'));
+    await flushMicrotasks();
+    const event: Record<string, unknown> = { tags: { kept: 'yes' }, exception: { values: [{ type: 'Error' }] } };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ network: 'mainnet' }) });
+    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
+    expect(event.tags).not.toHaveProperty('page_visibility');
+  });
+
+  it('reads each raw error field only once before asynchronous browser permission', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    const { error, reads } = countingFieldReads('body');
+    captureCrash(error);
+    await flushMicrotasks();
+    expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+  });
+
+  describe('reads each raw field of a relay failure only once, whether or not it is reported', () => {
+    const RELAY_FAILURE = 'WebSocket connection failed for host: wss://relay.walletconnect.org';
+
+    beforeEach(() => {
+      __resetRelayDiagnosticsForTest();
+      grantBrowserPermission();
+      initCrashReporting();
+    });
+
+    it('when it is reported', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(1);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when the same Error is captured again, and counts it once', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      Object.assign(reads, { name: 0, message: 0, stack: 0 });
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(1);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when a new Error falls in a range already reported', async () => {
+      captureCrash(new Error(RELAY_FAILURE));
+      await flushMicrotasks();
+      captureCrash(new Error(RELAY_FAILURE));
+      await flushMicrotasks();
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(2);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when it is classified while offline', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      const offline = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      captureCrash(error);
+      offline.mockRestore();
+      await flushMicrotasks();
+      expect(captured).toHaveLength(0);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+  });
+
+  it('replaces SDK-created frames with the trusted empty frame snapshot', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    jest.requireMock<{ defaultStackParser: jest.Mock }>('@sentry/browser').defaultStackParser.mockReturnValueOnce([]);
+    const failure = new Error('message\n    at injected (https://unknown.example/path:7:777)');
+    failure.stack = undefined;
+    captureCrash(failure);
+    await flushMicrotasks();
+    const event = {
+      exception: {
+        values: [{ stacktrace: { frames: [{ filename: 'https://unknown.example/path', lineno: 7, colno: 777 }] } }]
+      }
+    };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.exception.values[0]?.stacktrace.frames).toEqual([]);
+  });
+
+  it('bounds causes to three links and terminates cyclic chains', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    const fifth = new Error('fifth');
+    const fourth = new Error('fourth', { cause: fifth });
+    const third = new Error('third', { cause: fourth });
+    const second = new Error('second', { cause: third });
+    const first = new Error('first', { cause: second });
+    captureCrash(first);
+    Object.defineProperty(second, 'cause', { value: first });
+    captureCrash(second);
+    await flushMicrotasks();
+    let next: unknown = captured[0];
+    const names: string[] = [];
+    while (next instanceof Error) {
+      names.push(next.message);
+      next = next.cause;
+    }
+    expect(names).toEqual(['first', 'second', 'third', 'fourth']);
+    next = captured[1];
+    const cyclic: string[] = [];
+    while (next instanceof Error) {
+      cyclic.push(next.message);
+      next = next.cause;
+    }
+    expect(cyclic).toEqual(['second', 'first']);
+  });
+
+  it('classifies uncaught errors and rejections accurately without global metadata', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error('uncaught') }));
+    globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error('rejected') }));
+    captureCrash(new Error('manual'));
+    await flushMicrotasks();
+    expect(capturedHints).toEqual([
+      expect.objectContaining({ mechanism: { type: 'onerror', handled: false } }),
+      expect.objectContaining({ mechanism: { type: 'onunhandledrejection', handled: false } }),
+      expect.objectContaining({ mechanism: { type: 'generic', handled: true } })
+    ]);
   });
 });

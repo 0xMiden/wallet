@@ -9,9 +9,11 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
-import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
-import { NoteTypeEnum } from '../types';
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+
 import {
   completeCustomTransaction,
   generateTransaction,
@@ -23,6 +25,10 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ITransactionStatus } from '../db/types';
+import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { NoteTypeEnum } from '../types';
 
 // The lock's HOLD, owned for the duration of the callback: the guardian pipeline
 // re-checks ownership before proving and before submit (#777).
@@ -100,6 +106,13 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn(async () => {});
 const mockWaitForCommit = jest.fn(async () => {});
 const mockSendPrivateNote = jest.fn(async () => {});
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 // The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
 // the `lib/...` alias of miden-client, which jest mocks separately from the
 // relative specifier below; delegate the alias to the same mock so the proxy's
@@ -229,6 +242,9 @@ beforeEach(() => {
   _gh.__noteTypeForTest = 'private';
 });
 
+// The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+afterEach(() => clearGuardianAccountLocks());
+
 describe('getUncompletedTransactions', () => {
   it('returns Queued + GeneratingTransaction rows for the given account, sorted by initiatedAt', async () => {
     txStore.push(
@@ -287,6 +303,7 @@ describe('completeCustomTransaction outer init-error path', () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
       const fakeNote = {
+        id: () => ({ toString: () => '0xnote' }),
         metadata: () => ({ noteType: () => 'private' }),
         intoFull: () => ({ valid: true })
       };
@@ -310,6 +327,45 @@ describe('completeCustomTransaction outer init-error path', () => {
   });
 });
 
+// The private and public apply-after-submit cases below share these: the loop runs one queued send
+// whose client rejects with `makeError()`.
+const applyAfterSubmitError = () =>
+  new Error(
+    "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed. Sync to reconcile."
+  );
+
+const installLocks = () => {
+  const nav = (globalThis as any).navigator || {};
+  Object.defineProperty(nav, 'locks', {
+    value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
+    writable: true,
+    configurable: true
+  });
+};
+
+const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmitError) => {
+  installLocks();
+  const sdk = require('../sdk/miden-client');
+  const origGetClient = sdk.getMidenClient;
+  sdk.getMidenClient = async () => ({
+    syncState: jest.fn(),
+    sendTransaction: jest.fn(async () => {
+      throw makeError();
+    }),
+    // An execute row's write.
+    newTransaction: jest.fn(async () => {
+      throw makeError();
+    })
+  });
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+  try {
+    await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+  } finally {
+    sdk.getMidenClient = origGetClient;
+    warnSpy.mockRestore();
+  }
+};
+
 describe('apply-after-submit on a private send', () => {
   // "Submit landed, local apply threw." The row must stay Completed — the
   // transaction is on chain and re-queueing it would spend again — but for a
@@ -318,39 +374,6 @@ describe('apply-after-submit on a private send', () => {
   // that hands the note to the transport. So the note was never relayed, and no
   // amount of syncing fixes it — sync reconciles what the chain knows, and the chain
   // holds a commitment, not the note body the recipient needs.
-  const applyAfterSubmitError = () =>
-    new Error(
-      "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed. Sync to reconcile."
-    );
-
-  const installLocks = () => {
-    const nav = (globalThis as any).navigator || {};
-    Object.defineProperty(nav, 'locks', {
-      value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
-      writable: true,
-      configurable: true
-    });
-  };
-
-  const runLoopWithFailingSend = async () => {
-    installLocks();
-    const sdk = require('../sdk/miden-client');
-    const origGetClient = sdk.getMidenClient;
-    sdk.getMidenClient = async () => ({
-      syncState: jest.fn(),
-      sendTransaction: jest.fn(async () => {
-        throw applyAfterSubmitError();
-      })
-    });
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-    try {
-      await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
-    } finally {
-      sdk.getMidenClient = origGetClient;
-      warnSpy.mockRestore();
-    }
-  };
-
   it('marks a private send Completed but records the note as undelivered', async () => {
     txStore.push({
       id: 'tx-apply-priv',
@@ -373,9 +396,53 @@ describe('apply-after-submit on a private send', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     // ...but not as an unqualified success.
     expect(txStore[0]!.noteDelivery).toBe('undelivered');
-    expect(txStore[0]!.displayMessage).toBe('Completed — the private note could not be delivered');
+    expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
   });
 
+  // The SDK's numeric note type reads as public to a string compare, and an unreadable one says
+  // nothing; either must be flagged, since under-reporting costs the recipient the funds (#1233).
+  const queueSendWithNoteType = (noteType: unknown) =>
+    txStore.push({
+      id: 'tx-apply-odd-type',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+  it("a landed send whose note type is the SDK's numeric enum is flagged undelivered (#1233)", async () => {
+    // The shared SDK mock spells NoteType as strings, under which 0 reaches only the unreadable
+    // fallback; the real enum's values put it on the numeric match.
+    const realEnum = [jest.replaceProperty(NoteType, 'Private', 0), jest.replaceProperty(NoteType, 'Public', 1)];
+    try {
+      queueSendWithNoteType(0);
+      await runLoopWithFailingSend();
+    } finally {
+      realEnum.forEach(property => property.restore());
+    }
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+  });
+
+  it('a landed send whose note type is an unreadable value is flagged undelivered (#1233)', async () => {
+    queueSendWithNoteType('sealed');
+
+    await runLoopWithFailingSend();
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+  });
+});
+
+describe('apply-after-submit on a public send', () => {
+  // A landed public send is a clean Completed however the landing reached the loop: as the SDK's
+  // mempool text or as the site's own wrap.
   it('leaves a PUBLIC send reporting a clean Completed', async () => {
     // A public send carries its whole note on chain, so there was never a relay to
     // miss and a delivery warning here would be pure noise.
@@ -396,8 +463,86 @@ describe('apply-after-submit on a private send', () => {
 
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
-    expect(txStore[0]!.displayMessage).toBe('Completed');
+    expect(txStore[0]!.displayMessage).toBe('Sent');
   });
+
+  // The receiver the send site's own wrap reaches (#1233): a raw store failure carries neither the
+  // SDK's code nor its mempool text, so only the wrap says the node has it.
+  it('completes a PUBLIC send whose site reported a raw store failure after submit as landed (#1233)', async () => {
+    txStore.push({
+      id: 'tx-apply-wrapped',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend(
+      () =>
+        new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted while applying the transaction update'), {
+          transactionId: 'landed-send-hash'
+        })
+    );
+
+    // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+    expect(txStore[0]!.displayMessage).toBe('Sent');
+    expect(txStore[0]!.transactionId).toBe('landed-send-hash');
+  });
+});
+
+describe('apply-after-submit on an execute', () => {
+  // Only `completeCustomTransaction` relays an execute's private notes, and a landed execute never
+  // ran it (#1233).
+  it.each([
+    {
+      privateOutputNotes: 2,
+      recipient: undefined,
+      delivery: 'undelivered',
+      message: 'Executed - 2 private notes could not be delivered'
+    },
+    { privateOutputNotes: 0, recipient: 'recipient', delivery: undefined, message: 'Executed' },
+    {
+      privateOutputNotes: undefined,
+      recipient: 'recipient',
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
+    },
+    { privateOutputNotes: undefined, recipient: undefined, delivery: undefined, message: 'Executed' }
+  ])(
+    'a landed execute with $privateOutputNotes private output notes and recipient $recipient reads $message (#1233)',
+    async ({ privateOutputNotes, recipient, delivery, message }) => {
+      txStore.push({
+        id: 'tx-apply-execute',
+        type: 'execute',
+        accountId: 'acc-1',
+        secondaryAccountId: recipient,
+        requestBytes: new Uint8Array([7]),
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        displayIcon: 'DEFAULT'
+      });
+
+      await runLoopWithFailingSend(
+        () =>
+          new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+            transactionId: 'landed-execute-hash',
+            privateOutputNotes
+          })
+      );
+
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe(delivery);
+      expect(txStore[0]!.displayMessage).toBe(message);
+      expect(txStore[0]!.transactionId).toBe('landed-execute-hash');
+    }
+  );
 });
 
 describe('completeCustomTransaction private-note delivery', () => {
@@ -410,6 +555,7 @@ describe('completeCustomTransaction private-note delivery', () => {
     }) as any;
 
   const privateNote = (marker: string) => ({
+    id: () => ({ toString: () => marker }),
     metadata: () => ({ noteType: () => 'private' }),
     intoFull: () => ({ __note: marker })
   });
@@ -486,7 +632,13 @@ describe('completeCustomTransaction private-note delivery', () => {
     try {
       await completeCustomTransaction(
         txStore[0]!,
-        makeResultWith([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+        makeResultWith([
+          {
+            id: () => ({ toString: () => '0xnote' }),
+            metadata: () => ({ noteType: () => 'private' }),
+            intoFull: () => undefined
+          }
+        ])
       );
 
       expect(mockSendPrivateNote).not.toHaveBeenCalled();
@@ -514,6 +666,120 @@ describe('completeCustomTransaction private-note delivery', () => {
     expect(mockWaitForCommit).not.toHaveBeenCalled();
     expect(txStore[0]!.noteDelivery).toBeUndefined();
   });
+
+  const pushExecuteRow = () =>
+    txStore.push({
+      id: 'tx-stages',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+  const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
+
+  // Fails the first row write `matches` picks, judged on a copy of the row with the write applied, once, and records
+  // how many commit waits had run by then.
+  const failWriteOnce = (matches: (before: any, after: any) => boolean) => {
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    const outcome: { failed: boolean; waitsBefore?: number } = { failed: false };
+    where.mockImplementation((arg: any) => {
+      const real = realWhere(arg);
+      if (typeof arg === 'string') return real;
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          const row = txStore.find(t => t.id === arg.id);
+          if (!outcome.failed && row) {
+            const after = { ...row, stageTimestamps: { ...row.stageTimestamps } };
+            fn(after);
+            if (matches(row, after)) {
+              outcome.failed = true;
+              outcome.waitsBefore = mockWaitForCommit.mock.calls.length;
+              throw new Error('dexie write failed');
+            }
+          }
+          return real.modify(fn);
+        }
+      };
+    });
+    return { outcome, restore: () => where.mockImplementation(realWhere) };
+  };
+
+  // Like a private send, an execute's private notes wait for the commit and are relayed after the Guardian sync, so
+  // the row says which of the two it is waiting on (#1492).
+  it('stamps confirming for the commit wait and delivering for the relays', async () => {
+    pushExecuteRow();
+    let rowDuringWait: any;
+    let rowDuringRelay: any;
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+
+    await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+
+    expect(rowDuringWait.stage).toBe('confirming');
+    expect(rowDuringWait.stageTimestamps.delivering).toBeUndefined();
+    expect(rowDuringWait.noteDelivery).toBe('pending');
+    expect(rowDuringRelay.stage).toBe('delivering');
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // Display state only: the relay needs the proof the commit wait produces, and the notes are owed either way. The
+  // wait count at the failed write pins each stamp to its side of the wait.
+  it.each([
+    ['confirming', 0],
+    ['delivering', 1]
+  ])('still waits for the commit and relays when the %s stamp cannot be written', async (stage, waitsBefore) => {
+    pushExecuteRow();
+    const failing = failWriteOnce((before, after) => after.stage === stage && before.stage !== stage);
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
+    } finally {
+      failing.restore();
+    }
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(failing.outcome.waitsBefore).toBe(waitsBefore);
+    expect(txStore[0]!.stageTimestamps?.[stage]).toBeUndefined();
+    expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // The screen reads the stamps when the best-effort delivery record is missing, so they cannot depend on it.
+  it('stamps both stages when the pending delivery record cannot be written', async () => {
+    pushExecuteRow();
+    const failing = failWriteOnce(
+      (before, after) => after.noteDelivery === 'pending' && before.noteDelivery !== 'pending'
+    );
+    let rowDuringWait: any;
+    let rowDuringRelay: any;
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+    } finally {
+      failing.restore();
+    }
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(rowDuringWait.noteDelivery).toBeUndefined();
+    expect(rowDuringWait.stage).toBe('confirming');
+    expect(rowDuringRelay.stage).toBe('delivering');
+  });
 });
 
 describe('a custom transaction that strands a private note says so', () => {
@@ -538,7 +804,11 @@ describe('a custom transaction that strands a private note says so', () => {
       })
     }) as any;
 
-  const privateNote = { metadata: () => ({ noteType: () => 'private' }), intoFull: () => ({ valid: true }) };
+  const privateNote = {
+    id: () => ({ toString: () => '0xnote' }),
+    metadata: () => ({ noteType: () => 'private' }),
+    intoFull: () => ({ valid: true })
+  };
 
   it('flags the row when no recipient was ever named, and does not pretend to deliver', async () => {
     _gh.__noteTypeForTest = 'private';
@@ -554,7 +824,7 @@ describe('a custom transaction that strands a private note says so', () => {
     // On chain, so Completed — failing it would be untrue and would offer a Retry
     // that spends the assets a second time.
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
 
@@ -569,7 +839,7 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
-    expect(row.displayMessage).toBe('Completed — 3 private notes could not be delivered');
+    expect(row.displayMessage).toBe('Completed - 3 private notes could not be delivered');
   });
 
   it('flags a note that cannot be turned into deliverable bytes', async () => {
@@ -580,13 +850,21 @@ describe('a custom transaction that strands a private note says so', () => {
     try {
       await completeCustomTransaction(
         row as any,
-        resultWithNotes([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+        resultWithNotes([
+          {
+            id: () => ({ toString: () => '0xnote' }),
+            metadata: () => ({ noteType: () => 'private' }),
+            intoFull: () => undefined
+          }
+        ])
       );
     } finally {
       errSpy.mockRestore();
     }
 
-    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
+    // Nothing reached the relay, yet the note is still owed one, so the sweep can target it.
+    expect(row.relayNoteIds).toEqual(['0xnote']);
   });
 
   it('says nothing when the note was handed over', async () => {
@@ -599,17 +877,8 @@ describe('a custom transaction that strands a private note says so', () => {
     expect(row.displayMessage).not.toContain('could not be delivered');
   });
 
-  // A relay throw IS treated as undelivered, and this case used to assert the
-  // opposite on the premise that the note is already in the client's store by the
-  // time the transport is called, so the SDK's retry outbox would deliver it.
-  //
-  // That premise does not survive contact with where the outbox is written. Rust
-  // writes the entry INSIDE the relay and only after it has resolved the transport
-  // API, so every failure upstream of that write queues nothing while throwing
-  // exactly like a mid-transport timeout that DID queue: transport not configured,
-  // a realm torn down before the op ran, and — new under 0.16 — `sendPrivateOutput`
-  // failing to resolve the note by id in this client's store. The two are
-  // indistinguishable from here, so the row records the pessimistic one:
+  // A relay throw IS treated as undelivered: the SDK does not re-send a failed
+  // relay, so the row's state is what the delivery sweep retries from, and
   // over-reporting a note that arrives anyway costs a stale warning, while
   // under-reporting costs the funds.
   it('flags a relay that threw, because the transport may never have received it', async () => {
@@ -1131,22 +1400,28 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
+  const deadlineKill = () => new OperationAbortedError('op-kill', 'deadline');
+  const watchdogKill = () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    return new WasmClientPoisonedError('watchdog');
+  };
+
   it.each([
-    ['the pre-flight sync itself is killed', true, 1],
-    ['the consume is killed after pickup', false, 2]
+    ['the pre-flight sync itself is killed', deadlineKill, true, 1],
+    ['the consume is killed after pickup', watchdogKill, false, 2]
   ])(
     're-syncs before adjudicating only when the sync was not what died — %s (#777)',
-    async (_label, killDuringSync, expectedSyncs) => {
+    async (_label, kill, killDuringSync, expectedSyncs) => {
       // The adjudication normally opens with a fresh sync so the note state is
       // current. When the thing that just died IS the pre-flight sync, that fresh
       // sync is the worst possible next move: the SDK coalesces concurrent syncs
-      // onto one in-flight promise, and after a watchdog eviction the promise it
-      // abandoned is still the in-flight one — so the "fresh" sync re-attaches to a
-      // dead promise and parks the wallet's only WASM lock for another full
-      // ceiling. The committed stage is what distinguishes the two cases; the kill
-      // shape is not, which is why an evicted PROVE still gets its fresh sync.
-      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
-      const kill = () => new WasmClientPoisonedError('watchdog');
+      // onto one in-flight promise, and a killed sync's promise is still the
+      // in-flight one, so the "fresh" sync re-attaches to a dead promise and
+      // parks the wallet's only WASM lock for another full ceiling. The committed
+      // stage is what distinguishes the two cases; the kill shape is not, which is
+      // why an evicted PROVE still gets its fresh sync. A watchdog-evicted
+      // pre-flight sync reads nothing at all (#1233, below), so the sync kill here
+      // is the offscreen deadline's.
       const syncState = jest.fn(async () => {
         if (killDuringSync) throw kill();
       });
@@ -1175,6 +1450,33 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
     }
   );
+
+  // Nothing executed in that attempt, and the read would be the first hold after the eviction.
+  it('fails a consume whose pre-flight sync the watchdog evicted, without reading the note (#1233)', async () => {
+    const syncState = jest.fn(async () => {
+      throw watchdogKill();
+    });
+    const getInputNoteDetails = jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }]);
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState,
+      consumeNoteId: jest.fn(async () => {
+        throw watchdogKill();
+      }),
+      getInputNoteDetails
+    });
+    pushConsume('nk-sync-evicted');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(getInputNoteDetails).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === 'nk-sync-evicted')!.status).toBe(ITransactionStatus.Failed);
+  });
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
     // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).
@@ -1270,6 +1572,80 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
+  // After a watchdog eviction of the verdict's own sync the read would be the first hold after it, and
+  // would rebuild the client against the node that just parked.
+  it('verifySendLanded: a watchdog-evicted sync gives no verdict and reads nothing (#1233)', async () => {
+    const { verifySendLanded } = require('./cancel');
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const getTransactionCommitState = jest.fn(async () => 'pending');
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      getTransactionCommitState
+    });
+    try {
+      expect(await verifySendLanded({ id: 'v-send-evicted', transactionId: '0xtx' })).toBe('unknown');
+      expect(getTransactionCommitState).not.toHaveBeenCalled();
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
+  it.each([
+    ['sync unreachable', () => new Error('sync unreachable')],
+    [
+      'realm-error',
+      () => {
+        const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+        return new WasmClientPoisonedError('realm-error');
+      }
+    ]
+  ])(
+    'verifySendLanded: a sync that fails without a watchdog eviction still reads the last-synced record (%s)',
+    async (_label, syncError) => {
+      const { verifySendLanded } = require('./cancel');
+      const getTransactionCommitState = jest.fn(async () => 'pending');
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState: jest.fn(async () => {
+          throw syncError();
+        }),
+        getTransactionCommitState
+      });
+      try {
+        expect(await verifySendLanded({ id: 'v-send-syncfail', transactionId: '0xtx' })).toBe('landed');
+        expect(getTransactionCommitState).toHaveBeenCalledTimes(1);
+        expect(getTransactionCommitState).toHaveBeenCalledWith('0xtx');
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+    }
+  );
+
+  it('verifyConsumeLanded(sync=true): a watchdog-evicted sync gives no verdict and reads nothing (#1233)', async () => {
+    const { verifyConsumeLanded } = require('./cancel');
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const getInputNoteDetails = jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }]);
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      getInputNoteDetails
+    });
+    try {
+      expect(await verifyConsumeLanded({ id: 'v-consume-evicted', noteId: 'note-kill' }, true)).toBe('unknown');
+      expect(getInputNoteDetails).not.toHaveBeenCalled();
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
   it('node still reports the note Committed → Failed, no false Completed, no requeue', async () => {
     pushConsume('nk-committed');
     const restore = patchClient('Committed');
@@ -1353,9 +1729,16 @@ describe('generateTransaction execute + consume default switch arms', () => {
         })
       }))
     };
+    const guardianClient = {
+      transactions: guardianTxApi,
+      syncChain: jest.fn(async () => {}),
+      getSyncHeight: jest.fn(() => 1),
+      feeFaucetId: jest.fn(async () => ({ toString: () => '0xfee0000000000000000000000000000000' }))
+    };
+    bindFeeFaucetClientScope(guardianClient, 'fixture-rpc|testnet');
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
-      client: { transactions: guardianTxApi }
+      client: guardianClient
     });
     try {
       // A real GuardianAccountProvider always implements getAccounts (the
@@ -1401,13 +1784,16 @@ describe('generateTransaction execute + consume default switch arms', () => {
     };
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    const consumeNoteId = jest.fn(async (_tx: unknown, _onStage: unknown) => fakeResult);
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(),
-      consumeNoteId: jest.fn(async () => fakeResult)
+      consumeNoteId
     });
     try {
       await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // The leaf reads its own expiration delta, so the consume carries only its stage stamp (#1081).
+      expect(consumeNoteId).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-consume' }), expect.any(Function));
     } finally {
       sdk.getMidenClient = origGetClient;
     }
@@ -1541,16 +1927,20 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     const service = seedGuardianService();
     const plainHeightRead = jest.fn(() => 100);
     const getAccount = jest.fn();
+    // The initial bounded sync succeeds; the request's fresh-height sync parks
+    // and loses its hold before rejecting. Its cached-height fallback must stop.
+    const syncState = jest
+      .fn(async () => ({ blockNum: () => 100 }))
+      .mockImplementationOnce(async () => ({ blockNum: () => 100 }))
+      .mockImplementationOnce(async () => {
+        gapsHold = null;
+        throw new Error('node parked');
+      });
     await withPatchedClient(
       {
         getAccount,
+        syncState,
         client: {
-          // The fresh sync parks, the watchdog evicts, and the parked call then
-          // fails — the fallback height read must NOT be taken unmutexed.
-          sync: jest.fn(async () => {
-            gapsHold = null;
-            throw new Error('node parked');
-          }),
           getSyncHeight: plainHeightRead
         }
       },
@@ -1558,6 +1948,7 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
         await generateTransaction(row, jest.fn(), false, provider as any);
       }
     );
+    expect(syncState).toHaveBeenCalledTimes(2);
     expect(plainHeightRead).not.toHaveBeenCalled();
     expect(getAccount).not.toHaveBeenCalled();
     expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
@@ -1620,3 +2011,10 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     expect(row.requestBytes).toBeUndefined();
   });
 });
+
+// Vault admission is tested separately; retain these fixtures' WASM eviction boundaries.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

@@ -55,7 +55,7 @@ export const InputAmount: React.FC<InputAmountProps> = ({
 
   const textColor = useMemo(() => (error ? 'text-red-500' : 'text-ink'), [error]);
 
-  const currencyLabel = label || 'MIDEN';
+  const currencyLabel = label || 'USDCX';
 
   return (
     <div {...props} className={classNames('flex flex-col items-center gap-y-1', className)}>

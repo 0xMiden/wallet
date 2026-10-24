@@ -2,13 +2,23 @@ import { format } from 'date-fns';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_USDC,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeBadgeStatusOf,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
@@ -25,6 +35,7 @@ import {
   isFaucetMintTransaction,
   isFaucetRequest,
   isReceiveEntry,
+  labelHistoryEntry,
   MoneyKind,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
@@ -53,7 +64,8 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokenByFaucetId: jest.fn()
+  getSwapTokenByFaucetId: jest.fn(),
+  normalizedFaucetId: (faucetId: string) => faucetId
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
@@ -68,6 +80,29 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 jest.mock('lib/shared/format', () => ({
   formatAmount: jest.fn((amount: bigint, decimals: number | undefined) => `fmt(${amount},${decimals})`)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
+// The placeholder a bridge row shows for a token it cannot name (U+2014), built so no dash is typed here.
+const NO_TOKEN = String.fromCharCode(0x2014);
+
+// The bridge config as a page holds it before the document loads: nothing is labelled.
+const UNLOADED: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
 
 const mockGetTokenMetadata = getTokenMetadata as jest.MockedFunction<typeof getTokenMetadata>;
 const mockGetSwapTokenByFaucetId = getSwapTokenByFaucetId as jest.MockedFunction<typeof getSwapTokenByFaucetId>;
@@ -97,6 +132,21 @@ describe('resolveConsumeExtraAmounts', () => {
 
   it('returns nothing for a legacy consume row without assetTotals', async () => {
     await expect(resolveConsumeExtraAmounts(consumeTx(undefined))).resolves.toEqual([]);
+  });
+
+  // The row names it at render (`labelHistoryEntry`), so a stored line never holds a label the config may move off.
+  it('keeps the chain symbol of a claimed line of the testnet bridge faucet', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', name: 'USDC', decimals: 6 });
+
+    await expect(
+      resolveConsumeExtraAmounts(
+        consumeTx([
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: MIDEN_USDC_FAUCET, amount: 5n }
+        ])
+      )
+    ).resolves.toEqual([{ faucetId: MIDEN_USDC_FAUCET, amount: 'fmt(5,6)', token: 'USDC' }]);
   });
 
   it('excludes the primary faucet and formats each secondary with its own decimals', async () => {
@@ -211,30 +261,21 @@ describe('resolveSwapHistoryFields', () => {
     expect(result.requestedToken).toBe('Unknown');
   });
 
-  it('falls back to wallet metadata, defaults missing faucet ids to null, and omits absent amounts', async () => {
-    // Registry misses on both sides => the `?? await getTokenMetadata(...)` path.
+  it('does not label missing swap assets as the native token', async () => {
     mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
-    mockGetTokenMetadata.mockImplementation(async (tokenId: string | null) => {
-      if (tokenId === null) return swapToken('NATIVE', 5) as any;
-      return swapToken('WALLET', 3) as any;
-    });
-
-    // No extraInputs (=> {}), no faucetId (=> null), no amount, no requestedAmount.
-    const tx: any = { amount: undefined };
-
+    const tx: ITransaction = {
+      id: 'recovered-swap',
+      accountId: 'account',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SWAP'
+    };
     const result = await resolveSwapHistoryFields(tx);
-
-    expect(result).toEqual({
-      amount: undefined,
-      token: 'NATIVE',
-      requestedAmount: undefined,
-      requestedToken: 'NATIVE',
-      requestedFaucetId: undefined
-    });
-    // Both faucet ids were undefined => coalesced to null for the metadata lookup.
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(1, null);
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(2, null);
-    expect(mockFormatAmount).not.toHaveBeenCalled();
+    expect(result.token).toBeUndefined();
+    expect(result.requestedToken).toBeUndefined();
+    expect(result.requestedAmount).toBeUndefined();
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('mixes a registry-resolved offered side with a wallet-metadata requested side', async () => {
@@ -620,6 +661,56 @@ describe('creditedAmount', () => {
   });
 });
 
+describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
+  const deposit = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'usdcx', ...overrides });
+
+  it('reads Pending until Circle attests, Confirmed once it does and Completed once the note is received', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'delivering' }))).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'received' }))).toBe('completed');
+  });
+
+  it('reads Completed on the consume of the minted note', () => {
+    expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
+  });
+
+  it('reads Failed for a failed deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
+  });
+
+  it('keeps Confirmed for a received deposit of another route', () => {
+    expect(
+      bridgeBadgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
+      )
+    ).toBe('confirmed');
+  });
+});
+
+describe('USDCx withdrawal stages', () => {
+  it('keeps Burn confirmed until the destination balance check confirms arrival', () => {
+    const entry = bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      usdcxBurn: { noteId: 'note', destinationDomain: 26, phase: 'confirmed' }
+    });
+    expect(bridgeBadgeStatusOf(entry)).toBe('burnConfirmed');
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    const arrived: IHistoryEntry = {
+      ...entry,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+      }
+    };
+    expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
+    expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
 describe('bridgeStatusOf', () => {
   // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
   // so its terminal status must beat the route's own (initially pending) metadata.
@@ -666,6 +757,7 @@ describe('bridgeRowDisplay', () => {
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(
+        UNLOADED,
         bridgeEntry({
           token: 'MIDEN',
           amount: '5',
@@ -678,6 +770,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       // Truncated, not rounded up: a quote must not promise more than it pays.
       outAmount: '4.98',
       providerLabel: 'Epoch',
@@ -688,8 +782,10 @@ describe('bridgeRowDisplay', () => {
 
   it('rounds a stored quote down and drops the padding of a legacy display string', () => {
     const quoted = (bridgeOutputAmount: string) =>
-      bridgeRowDisplay(bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount }))
-        .outAmount;
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount })
+      ).outAmount;
 
     expect(quoted('10.655599')).toBe('10.65');
     expect(quoted('12.00')).toBe('12');
@@ -699,11 +795,14 @@ describe('bridgeRowDisplay', () => {
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
+        UNLOADED,
         bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'ETH',
+      inLabel: 'MIDEN',
+      outLabel: 'ETH',
       outAmount: '7',
       providerLabel: 'Agglayer',
       network: 'Sepolia',
@@ -712,9 +811,11 @@ describe('bridgeRowDisplay', () => {
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
-    expect(bridgeRowDisplay(bridgeEntry({}))).toEqual({
+    expect(bridgeRowDisplay(UNLOADED, bridgeEntry({}))).toEqual({
       inSymbol: '—',
       outSymbol: 'USDC',
+      inLabel: NO_TOKEN,
+      outLabel: 'USDC',
       outAmount: undefined,
       providerLabel: 'Bridge',
       network: 'Sepolia',
@@ -727,9 +828,9 @@ describe('bridgeRowDisplay', () => {
   // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
   // typed Miden-side send amount and must show as entered, not cut to two decimals.
   it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
-    expect(bridgeRowDisplay(bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount).toBe(
-      '0.015'
-    );
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount
+    ).toBe('0.015');
   });
 });
 
@@ -751,6 +852,7 @@ describe('bridgeInRowDisplay', () => {
   it('flips the direction: EVM source token in, Miden token out', () => {
     expect(
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'consume',
           token: 'MIDEN',
@@ -762,6 +864,8 @@ describe('bridgeInRowDisplay', () => {
     ).toEqual({
       inSymbol: 'ETH',
       outSymbol: 'MIDEN',
+      inLabel: 'ETH',
+      outLabel: 'MIDEN',
       outAmount: '3',
       providerLabel: 'Agglayer',
       network: 'Miden',
@@ -774,6 +878,7 @@ describe('bridgeInRowDisplay', () => {
   it('prefers the row amount over the quoted output once the phase is received', () => {
     expect(
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
@@ -789,6 +894,7 @@ describe('bridgeInRowDisplay', () => {
   it("rounds a received bridge-in's credited amount down at the asset precision", () => {
     const received = (amount: string, symbol: string) =>
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
@@ -806,6 +912,7 @@ describe('bridgeInRowDisplay', () => {
   it('shows an in-flight "you receive" amount as typed, without padding', () => {
     const inFlight = (bridgeInOutputAmount: string) =>
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'delivering',
@@ -824,6 +931,7 @@ describe('bridgeInRowDisplay', () => {
   it('shows an in-flight "you receive" a restored backup left as a number or a BigInt', () => {
     const inFlight = (bridgeInOutputAmount: unknown) =>
       bridgeInRowDisplay(
+        UNLOADED,
         restoredEntry(
           { txType: 'bridged-receive', bridgeInPhase: 'delivering', amount: '10', bridgeInProvider: 'epoch' },
           { bridgeInOutputAmount }
@@ -839,6 +947,7 @@ describe('bridgeInRowDisplay', () => {
   describe('an in-flight bridge-in with no stored "you receive"', () => {
     const fallback = (bridgeInProvider: IHistoryEntry['bridgeInProvider'], amount: string) =>
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'delivering',
@@ -866,6 +975,7 @@ describe('bridgeInRowDisplay', () => {
   it('ignores a stored symbol that is an EVM contract address', () => {
     const address = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
     const display = bridgeInRowDisplay(
+      UNLOADED,
       bridgeEntry({
         txType: 'bridged-receive',
         bridgeInPhase: 'received',
@@ -880,14 +990,220 @@ describe('bridgeInRowDisplay', () => {
   });
 
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
-    expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
+    expect(bridgeInRowDisplay(UNLOADED, bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',
       outSymbol: '—',
+      inLabel: 'USDC',
+      outLabel: NO_TOKEN,
       outAmount: undefined,
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
     });
+  });
+
+  it('labels a Circle xReserve deposit and keeps USDC in, USDCx out', () => {
+    expect(
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'usdcx',
+          bridgeInSourceSymbol: 'USDC',
+          bridgeInOutputSymbol: 'USDCx',
+          bridgeInOutputAmount: '5'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'USDC',
+      outLabel: 'USDCx',
+      outAmount: '5',
+      providerLabel: 'Circle xReserve',
+      network: 'Miden',
+      status: 'pending'
+    });
+  });
+});
+
+describe('bridge rows testnet bridge USDC label', () => {
+  beforeEach(() => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  });
+
+  // The document names the EVM USDC before its Sepolia read succeeds; the Miden side is named from the document too.
+  it('labels the EVM USDC side from the document alone while its token read has not succeeded', () => {
+    const documentOnly: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+    mockBridgeSnapshot = documentOnly;
+
+    const out = bridgeRowDisplay(
+      documentOnly,
+      bridgeEntry({ token: 'USDC', faucetId: MIDEN_USDC_FAUCET, amount: '5', bridgeProvider: 'epoch' })
+    );
+    const usdcIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'USDC', faucetId: MIDEN_USDC_FAUCET, bridgeInProvider: 'epoch' })
+    );
+    const ethIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'ETH', bridgeInProvider: 'agglayer', bridgeInSourceSymbol: 'ETH' })
+    );
+
+    expect([out.outLabel, usdcIn.inLabel, ethIn.inLabel]).toEqual(['Test Epoch USDC', 'Test Epoch USDC', 'ETH']);
+  });
+
+  it('labels both sides of an Epoch bridge-out of the bridge faucet', () => {
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '5',
+          bridgeProvider: 'epoch',
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.987654'
+        })
+      )
+    ).toMatchObject({
+      inSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outSymbol: 'USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98'
+    });
+  });
+
+  // An AggLayer row saves the ERC-20 it deposited: only the bridge's own USDC takes the testnet label.
+  it('names an AggLayer ERC-20 bridge-in by its own symbol unless it is the bridge USDC', () => {
+    const agglayerIn = (symbol: string, token: string) =>
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: symbol,
+          bridgeInSourceToken: token
+        })
+      ).inLabel;
+    expect(agglayerIn('WBTC', '0x00000000000000000000000000000000000000d1')).toBe('WBTC');
+    expect(agglayerIn('USDC', TEST_EVM_USDC.address.toLowerCase())).toBe('Test Epoch USDC');
+  });
+
+  it.each(['USDC', TEST_EVM_USDC.address])(
+    'labels an old Epoch bridge-in row saved with USDC or with the token address (%s)',
+    saved => {
+      expect(
+        bridgeInRowDisplay(
+          TEST_BRIDGE_CONFIG_SNAPSHOT,
+          bridgeEntry({
+            txType: 'consume',
+            token: 'USDC',
+            faucetId: MIDEN_USDC_FAUCET,
+            amount: '3',
+            bridgeInProvider: 'epoch',
+            bridgeInSourceSymbol: saved
+          })
+        )
+      ).toMatchObject({ inSymbol: 'USDC', inLabel: 'Test Epoch USDC', outSymbol: 'USDC', outLabel: 'Test Epoch USDC' });
+    }
+  );
+
+  it('labels a Slow-route bridge-in of the configured USDC like the review does', () => {
+    expect(
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'consume',
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '3',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'USDC'
+        })
+      )
+    ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('leaves an Agglayer ETH row on ETH', () => {
+    expect(
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'consume',
+          token: 'ETH',
+          faucetId: TEST_NATIVE_ETH_FAUCET,
+          amount: '0.015',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'ETH'
+        })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ token: 'ETH', faucetId: TEST_NATIVE_ETH_FAUCET, amount: '0.015', bridgeProvider: 'agglayer' })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+  });
+});
+
+describe('labelHistoryEntry', () => {
+  const claim = bridgeEntry({
+    txType: 'consume',
+    faucetId: MIDEN_USDC_FAUCET,
+    token: 'USDC',
+    amount: '5',
+    extraAmounts: [
+      { faucetId: MIDEN_USDC_FAUCET, amount: '2', token: 'USDC' },
+      { faucetId: TEST_NATIVE_ETH_FAUCET, amount: '1', token: 'ETH' }
+    ]
+  });
+
+  it("labels a row's token and each extra amount by its own faucet", () => {
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, claim)).toEqual({
+      ...claim,
+      token: 'Test Epoch USDC',
+      extraAmounts: [
+        { faucetId: MIDEN_USDC_FAUCET, amount: '2', token: 'Test Epoch USDC' },
+        { faucetId: TEST_NATIVE_ETH_FAUCET, amount: '1', token: 'ETH' }
+      ]
+    });
+  });
+
+  it('keeps every symbol before the bridge config loads', () => {
+    expect(labelHistoryEntry(UNLOADED, claim)).toEqual(claim);
+  });
+
+  it('labels each side of a swap row by its own faucet, so iETH reads "Test iETH" on either side (#477)', () => {
+    const swapRow = bridgeEntry({
+      txType: 'swap',
+      faucetId: TEST_TOKEN_IMIDEN.faucetId,
+      token: 'MIDEN',
+      requestedFaucetId: TEST_TOKEN_IETH.faucetId,
+      requestedToken: 'IETH'
+    });
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, swapRow)).toMatchObject({
+      token: 'MIDEN',
+      requestedToken: 'Test iETH'
+    });
+    expect(
+      labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, {
+        ...swapRow,
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        token: 'IETH',
+        requestedFaucetId: TEST_TOKEN_IMIDEN.faucetId,
+        requestedToken: 'MIDEN'
+      })
+    ).toMatchObject({ token: 'Test iETH', requestedToken: 'MIDEN' });
+  });
+
+  it.each(['earn-withdraw', 'earn-deposit'] as const)('leaves a %s row on the token its own fields chose', txType => {
+    const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
   });
 });
 
@@ -897,6 +1213,21 @@ describe('swap settlement state', () => {
   // order that settled, which is the confusion this shared helper exists to end.
   // Same minimal-shape casting as the helpers above; only these fields are read.
   const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
+
+  it('reports the queued return instead of continuing to advertise matching', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 }))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101, reclaimedAt: 110 }))).toBe(
+      'reclaimed'
+    );
+  });
+
+  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
+  it('reports the return only for an order the settlement acts on', () => {
+    const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
+  });
 
   it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
@@ -931,6 +1262,88 @@ describe('swap settlement state', () => {
     expect(swapSettlementOf(swap({ expiresAt: 1_700_000_120 }))).toBeUndefined();
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
     expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
+  });
+
+  describe('a Guardian-recovered order', () => {
+    // Recovery records every order with Auto accept off and no expiry, so the rule above read each one Confirmed
+    // while the placing device read it Pending (#1487).
+    const recovered = (
+      extraInputs: Record<string, unknown> = {},
+      overrides: Partial<ITransaction> = {}
+    ): ITransaction => ({
+      id: 'guardian-history:testnet:account:0xcommitment',
+      type: 'swap',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      displayIcon: 'DEFAULT',
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, ...extraInputs },
+      ...overrides
+    });
+
+    it('reads open while no fill or reclaim was found', () => {
+      expect(swapSettlementOf(recovered())).toBe('pending');
+    });
+
+    it('reads open while a fill has left a remainder on offer', () => {
+      expect(
+        swapSettlementOf(recovered({ recoveredTip: { noteId: 'remainder', depth: 1, remainingOffered: 20n } }))
+      ).toBe('pending');
+    });
+
+    it('reads Returning funds once this wallet asked for its return', () => {
+      expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
+    });
+
+    it('reads the settlement or reclaim its lineage closed it with, as any order does', () => {
+      expect(swapSettlementOf(recovered({ settledAt: 160, lineageClosedAt: 160 }))).toBeUndefined();
+      expect(swapSettlementOf(recovered({ reclaimedAt: 160, lineageClosedAt: 160 }))).toBe('reclaimed');
+      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160, lineageClosedAt: 160 }))).toBe(
+        'reclaimed'
+      );
+    });
+
+    // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim with no lineage read, so a
+    // partial fill's payout read Confirmed while the remainder was still on offer (#1487).
+    it.each([
+      ['settledAt', { settledAt: 160 }, undefined],
+      ['reclaimedAt', { reclaimedAt: 160 }, 'reclaimed']
+    ])('reads open over a %s no lineage read recorded, until a read decides', (_label, stamp, closed) => {
+      expect(swapSettlementOf(recovered(stamp))).toBe('pending');
+      // An open read cleared it.
+      expect(swapSettlementOf(recovered())).toBe('pending');
+      // A finished read recorded it.
+      expect(swapSettlementOf(recovered({ ...stamp, lineageClosedAt: 170 }))).toBe(closed);
+    });
+
+    it('reads Confirmed once the node showed its order note spent with nothing of this wallet behind it', () => {
+      expect(swapSettlementOf(recovered({ orderNoteSpentAt: 170 }))).toBeUndefined();
+    });
+
+    it('reads Confirmed for a recovered order whose order note it cannot name, which it cannot track', () => {
+      expect(swapSettlementOf(recovered({}, { outputNoteIds: [] }))).toBeUndefined();
+    });
   });
 });
 

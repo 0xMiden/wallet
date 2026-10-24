@@ -20,7 +20,14 @@ import { ReactComponent as ArrowUpDown } from './arrow-up-down.svg';
 import { ReactComponent as ArrowUp } from './arrow-up.svg';
 import { ReactComponent as BackArrow } from './back-arrow.svg';
 import { ReactComponent as Backspace } from './backspace.svg';
+import { ReactComponent as BadgeDeposit } from './badge-deposit.svg';
+import { ReactComponent as BadgeReceive } from './badge-receive.svg';
+import { ReactComponent as BadgeRecovery } from './badge-recovery.svg';
+import { ReactComponent as BadgeSend } from './badge-send.svg';
+import { ReactComponent as BadgeSwap } from './badge-swap.svg';
 import { ReactComponent as Bin } from './bin.svg';
+import { ReactComponent as BridgeIn } from './bridge-in.svg';
+import { ReactComponent as BridgeOut } from './bridge-out.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
 import { ReactComponent as CheckboxCircleFill } from './checkbox-circle-fill.svg';
 import { ReactComponent as CheckboxCircle } from './checkbox-circle.svg';
@@ -78,6 +85,8 @@ import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
 import { ReactComponent as MidenLogo } from './miden-logo.svg';
 import { ReactComponent as More } from './more.svg';
 import { ReactComponent as PendingNotes } from './pending-notes.svg';
+import { ReactComponent as ProfileApps } from './profile-apps.svg';
+import { ReactComponent as ProfileBadge } from './profile-badge.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
 import { ReactComponent as Receive } from './receive-new.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
@@ -89,6 +98,7 @@ import { ReactComponent as Settings2 } from './settings-2.svg';
 import { ReactComponent as SettingsNew } from './settings-new.svg';
 import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
+import { ReactComponent as ShieldCheck } from './shield-check.svg';
 import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as Success } from './success.svg';
 import { ReactComponent as Switch } from './switch.svg';
@@ -106,6 +116,13 @@ import { ReactComponent as Fingerprint } from '../onboarding/fingerprint.svg';
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
 export enum IconName {
+  BadgeDeposit = 'badge-deposit',
+  BadgeReceive = 'badge-receive',
+  BadgeSend = 'badge-send',
+  BadgeSwap = 'badge-swap',
+  BadgeRecovery = 'badge-recovery',
+  ProfileApps = 'profile-apps',
+  ProfileBadge = 'profile-badge',
   Activity = 'activity',
   AddCircle = 'add-circle',
   Add = 'add',
@@ -145,6 +162,8 @@ export enum IconName {
   Convert = 'convert',
   Copy = 'copy',
   CopyNew = 'copy-new',
+  BridgeIn = 'bridge-in',
+  BridgeOut = 'bridge-out',
   CrossChain = 'cross-chain',
   Download = 'download',
   Earn = 'earn',
@@ -175,6 +194,7 @@ export enum IconName {
   List = 'list',
   Loader = 'loader',
   Lock = 'lock',
+  ShieldCheck = 'shield-check',
   More = 'more',
   PendingNotes = 'pending-notes',
   QrScan = 'qr-scan',
@@ -214,6 +234,20 @@ export interface IconProps extends React.SVGAttributes<SVGElement> {
 
 const IconSwitch = (props: IconProps) => {
   switch (props.name) {
+    case IconName.BadgeDeposit:
+      return <BadgeDeposit {...props} />;
+    case IconName.BadgeReceive:
+      return <BadgeReceive {...props} />;
+    case IconName.BadgeSend:
+      return <BadgeSend {...props} />;
+    case IconName.BadgeSwap:
+      return <BadgeSwap {...props} />;
+    case IconName.BadgeRecovery:
+      return <BadgeRecovery {...props} />;
+    case IconName.ProfileApps:
+      return <ProfileApps {...props} />;
+    case IconName.ProfileBadge:
+      return <ProfileBadge {...props} />;
     case IconName.Activity:
       return <Activity {...props} />;
     case IconName.AddCircle:
@@ -292,6 +326,10 @@ const IconSwitch = (props: IconProps) => {
       return <Copy {...props} />;
     case IconName.CopyNew:
       return <CopyNew {...props} />;
+    case IconName.BridgeIn:
+      return <BridgeIn {...props} />;
+    case IconName.BridgeOut:
+      return <BridgeOut {...props} />;
     case IconName.CrossChain:
       return <CrossChain {...props} />;
     case IconName.Download:
@@ -354,6 +392,8 @@ const IconSwitch = (props: IconProps) => {
       return <Loader {...props} />;
     case IconName.Lock:
       return <Lock {...props} />;
+    case IconName.ShieldCheck:
+      return <ShieldCheck {...props} />;
     case IconName.More:
       return <More {...props} />;
     case IconName.QrScan:

@@ -3,7 +3,7 @@
  *
  * After PR-3's `<DappBrowserProvider>` hoist, this component is purely
  * VISUAL — it doesn't own the webview lifecycle anymore. It just:
- *  - Renders the `<CapsuleBar>` (drag handle + favicon + title + ✕)
+ *  - Renders the `<CapsuleBar>` (favicon + title + Minimize, Reload and ✕)
  *  - Renders the `<NativeWebViewSlot>` whose rect drives the provider's
  *    `setSlotRect` callback
  *  - Reads the active session and isLoading state from `useDappBrowser()`
@@ -13,16 +13,16 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { InAppBrowser } from '@miden/dapp-browser';
-import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { useDappBrowser, useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvider';
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { CapsuleBar } from './CapsuleBar';
 import { DappActionsSheet } from './DappActionsSheet';
@@ -48,7 +48,8 @@ const SETTLE_RETRY_MS = 50;
 const SETTLE_TIMEOUT_MS = 3000;
 
 export const DappActive: FC = () => {
-  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
+  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates, reportPresentationLayout } =
+    useDappBrowser();
   const { t } = useTranslation();
   const slotRef = useRef<HTMLDivElement>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -59,13 +60,28 @@ export const DappActive: FC = () => {
     () => (session ? sessionStates.find(s => s.session.id === session.id) : undefined),
     [session, sessionStates]
   );
+  const hiddenHost = sessionState?.policyResolved === false || sessionState?.presentation === 'fullscreen';
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    surface.inert = hiddenHost;
+    if (hiddenHost && surface.contains(document.activeElement) && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, [hiddenHost]);
+  const policyRevision = sessionState?.policyRevision;
+  const policyResolved = sessionState?.policyResolved;
+  const policyLifetime = sessionState?.policyLifetime;
+  const sessionId = session?.id;
   const error = sessionState?.error ?? null;
+  useUserVisibleError(error && !hiddenHost ? 'dappLoadFailed' : null, 'inline');
   const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
   // Hardware back from `<DappActive>`: park (not close) so the session
-  // stays alive as a bubble. The user can drag-down or tap ✕ for a hard
-  // close. The confirmation modal registers its back handler in the overlay
-  // tier, so it takes precedence whenever it is shown.
+  // stays alive as a bubble. The user can tap ✕ for a hard close. The
+  // confirmation modal registers its back handler in the overlay tier, so it
+  // takes precedence whenever it is shown.
   useMobileBackHandler(() => {
     void park();
     return true;
@@ -92,29 +108,7 @@ export const DappActive: FC = () => {
     });
   }, [session, close, open]);
 
-  // When the actions sheet opens, hide the dApp WKWebView so the
-  // React-rendered drawer can sit above it, and mark the drawer as open
-  // so parked dApp trays move out of the way. The webview's JS context,
-  // scroll position, and in-flight requests survive the hide/show cycle.
-  //
-  // IMPORTANT: this effect is a NO-OP while the sheet is closed — it only
-  // runs side effects on "open" and reverses them via the cleanup. An
-  // earlier revision also ran the reverse branch on close, which meant
-  // DappActive's first mount (actionsOpen=false) would call
-  // `setVisible(true)` even when it was not needed.
-  // That race with the provider's own restore flow (which also calls
-  // `setVisible(true)` + `setRect()` on bubble-tap) caused restored dApps
-  // to briefly appear and then get re-parked on the first click.
-  useEffect(() => {
-    if (!isMobile() || !session || !actionsOpen) return;
-    const sessionId = session.id;
-    document.body.setAttribute('data-drawer-open', '');
-    InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
-    return () => {
-      document.body.removeAttribute('data-drawer-open');
-      InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
-    };
-  }, [actionsOpen, session]);
+  useHideForegroundDappWhileOpen(actionsOpen);
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
   //
@@ -227,12 +221,16 @@ export const DappActive: FC = () => {
       settleDeadline = null;
       clearSettleRetry();
       const r = el.getBoundingClientRect();
-      setSlotRect({
+      const rect = {
         x: Math.round(r.left),
         y: Math.round(r.top),
         width: Math.round(r.width),
         height: Math.round(r.height)
-      });
+      };
+      setSlotRect(rect);
+      if (sessionId && policyResolved && policyLifetime && policyRevision !== undefined) {
+        reportPresentationLayout?.(sessionId, policyLifetime, policyRevision, rect);
+      }
     };
     update();
     // Extra timers beyond the transform's expected ~150ms duration,
@@ -250,7 +248,7 @@ export const DappActive: FC = () => {
       clearSettleRetry();
       ro.disconnect();
     };
-  }, [setSlotRect]);
+  }, [setSlotRect, sessionId, policyRevision, policyResolved, policyLifetime, reportPresentationLayout]);
 
   // Clear slot rect on unmount so the provider knows the visual surface
   // is gone (e.g. user navigated to another tab while parked).
@@ -264,7 +262,13 @@ export const DappActive: FC = () => {
   if (!session) return null;
 
   return (
-    <div className="flex h-full flex-col" data-testid="dapp-active">
+    <div
+      ref={surfaceRef}
+      className="flex h-full flex-col"
+      data-testid="dapp-active"
+      aria-hidden={hiddenHost || undefined}
+      style={hiddenHost ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' } : undefined}
+    >
       <CapsuleBar
         session={session}
         onClose={() => void close()}

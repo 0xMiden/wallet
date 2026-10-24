@@ -7,7 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
 
 /** The thin bar over an Activity view that runs while incoming notes are still being read. */
-export const ClaimsLoadingBar = ({ loading }: { loading: boolean }) => {
+export const ClaimsLoadingBar = ({ loading, label }: { loading: boolean; label?: string }) => {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
   const loadingTransition = useMotion({
@@ -21,7 +21,7 @@ export const ClaimsLoadingBar = ({ loading }: { loading: boolean }) => {
       {loading && (
         <motion.div
           role="progressbar"
-          aria-label={t('loading')}
+          aria-label={label ?? t('loading')}
           className={reducedMotion ? 'h-full w-full bg-accent-primary' : 'h-full w-1/3 bg-accent-primary'}
           initial={false}
           animate={{ x: reducedMotion ? '0%' : ['-100%', '300%'] }}

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { ModuleKind, ScriptTarget, transpileModule } from 'typescript';
 
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { DEFAULT_TELEMETRY, TELEMETRY_STORAGE_KEY } from 'lib/settings/constants';
@@ -29,7 +30,7 @@ import { sendEvent } from './sink';
  * - Nothing sold or shared with data brokers — `no analytics, tracking, or
  *   advertising SDK`, at all three dependency levels.
  * - No persistent user identifier — `no persistent identifier`.
- * - Off by default and opt-in — `telemetry is off until the user turns it on`.
+ * - Usage sharing is off by default and opt-in; crash reports are independent.
  * - One product-event egress point and one crash egress point — `no stray
  *   egress`, alongside `egress-boundary.test.ts`.
  *
@@ -347,7 +348,12 @@ describe('the guard reads the tree it claims to read', () => {
   it('extracts package names it knows are present, so a broken parser cannot read as a clean tree', () => {
     expect(declaredPackages()).toContain('@sentry/browser');
     expect(lockfilePackages().has('@sentry/browser')).toBe(true);
-    expect([...(importedPackages().get('@sentry/browser') ?? [])]).toEqual(['src/lib/telemetry/crash.ts']);
+    expect([...(importedPackages().get('@sentry/browser') ?? [])]).toEqual([
+      'src/lib/telemetry/crash.test.ts',
+      'src/lib/telemetry/crash.ts',
+      'src/lib/telemetry/diagnostic-log.wire.test.ts',
+      'src/lib/telemetry/egress-boundary.test.ts'
+    ]);
   });
 });
 
@@ -1025,36 +1031,49 @@ function resolveSpecifier(specifier: string, fromFile: string): string | null {
   return null;
 }
 
-interface BackgroundGraph {
+interface RuntimeGraph {
   modules: ReadonlySet<string>;
   /** Module → a module that imports it, so a failure names the route in rather than just the file. */
   importedBy: ReadonlyMap<string, string>;
 }
 
-let cachedGraph: BackgroundGraph | undefined;
-/** Everything the MV3 service worker pulls in, following runtime imports only. */
-function backgroundGraph(): BackgroundGraph {
-  if (cachedGraph === undefined) {
-    const modules = new Set<string>();
-    const importedBy = new Map<string, string>();
-    const pending = [BACKGROUND_ENTRY];
+function runtimeGraph(
+  entry: string,
+  options: { stubbedModules?: ReadonlySet<string>; eraseTypes?: boolean } = {}
+): RuntimeGraph {
+  const modules = new Set<string>();
+  const importedBy = new Map<string, string>();
+  const pending = [entry];
 
-    while (pending.length > 0) {
-      const current = pending.pop();
-      if (current === undefined || modules.has(current)) continue;
-      modules.add(current);
-      if (!/\.(ts|tsx|js)$/.test(current)) continue;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || modules.has(current)) continue;
+    modules.add(current);
+    if (!/\.(ts|tsx|js)$/.test(current)) continue;
 
-      for (const specifier of specifiersOf(readFileSync(resolve(REPO_ROOT, current), 'utf8'))) {
-        if (specifier.typeOnly) continue;
-        const resolved = resolveSpecifier(specifier.value, current);
-        if (resolved === null) continue;
-        if (!importedBy.has(resolved)) importedBy.set(resolved, current);
-        if (!modules.has(resolved)) pending.push(resolved);
-      }
+    const source = readFileSync(resolve(REPO_ROOT, current), 'utf8');
+    const runtimeSource = options.eraseTypes
+      ? transpileModule(source, {
+          fileName: current,
+          compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 }
+        }).outputText
+      : source;
+    for (const specifier of specifiersOf(runtimeSource)) {
+      if (specifier.typeOnly) continue;
+      const resolved = resolveSpecifier(specifier.value, current);
+      if (resolved !== null && options.stubbedModules?.has(resolved)) continue;
+      const dependency = resolved ?? specifier.value;
+      if (!importedBy.has(dependency)) importedBy.set(dependency, current);
+      if (resolved !== null && !modules.has(resolved)) pending.push(resolved);
     }
-    cachedGraph = { modules, importedBy };
   }
+  return { modules, importedBy };
+}
+
+let cachedGraph: RuntimeGraph | undefined;
+/** Everything the MV3 service worker pulls in, following runtime imports only. */
+function backgroundGraph(): RuntimeGraph {
+  cachedGraph ??= runtimeGraph(BACKGROUND_ENTRY);
   return cachedGraph;
 }
 
@@ -1083,9 +1102,8 @@ describe('the background service worker never imports the telemetry barrel', () 
   });
 
   it('reaches only the telemetry modules a worker can load, and no more', () => {
-    // Widen this list only on purpose. `crash.ts`, `redact.ts` and
-    // `report-flow.ts` are frontend code: the worker has no window, and
-    // `report-flow` is the module the barrel pulls React in through.
+    // Handled transaction failures need crash reporting while the popup is closed.
+    // The crash client and redactor use worker-safe globals; report-flow still pulls React in.
     //
     // `sdk-observer.ts` is here deliberately: the Miden client is constructed
     // in the worker, so the module that binds its observation sink has to be
@@ -1106,18 +1124,88 @@ describe('the background service worker never imports the telemetry barrel', () 
     // why `classify.ts` and `run.ts` exist apart from `report-flow.ts` rather
     // than inside it. If `lib/miden/front` or React ever appears in this graph,
     // the assertion above about the barrel is what will say so.
+    //
+    // `wasm-startup.ts` imports nothing: the SDK's startup catches read it in
+    // every realm that starts the SDK, the worker among them.
+    // `bridge-receive-failure.ts` imports nothing either: the transaction-failure
+    // reporter reads it to name a failed inbound bridge's route, step and error.
+    // `crash-diagnostics.ts` uses the worker-safe user-visible error allowlists to validate diagnostics.
+    // `diagnostic-log.ts` records the swap steps the pipeline runs here, and its contract imports nothing.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
+      'src/lib/telemetry/bridge-receive-failure.ts',
       'src/lib/telemetry/classify.ts',
       'src/lib/telemetry/context.ts',
+      'src/lib/telemetry/crash-artifacts.ts',
+      'src/lib/telemetry/crash-build.ts',
+      'src/lib/telemetry/crash-diagnostics.ts',
+      'src/lib/telemetry/crash-frames.ts',
+      'src/lib/telemetry/crash.ts',
+      'src/lib/telemetry/diagnostic-log-contract.ts',
+      'src/lib/telemetry/diagnostic-log.ts',
+      'src/lib/telemetry/protocol-assertions.json',
+      'src/lib/telemetry/redact.ts',
+      // Imports nothing: `crash.ts` classifies relay failures with it, and the pages feed it without the crash client.
+      'src/lib/telemetry/relay-diagnostics.ts',
       'src/lib/telemetry/report-operation.ts',
       'src/lib/telemetry/run.ts',
       'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
       'src/lib/telemetry/sink.ts',
+      'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
-      'src/lib/telemetry/types.ts'
+      'src/lib/telemetry/types.ts',
+      'src/lib/telemetry/user-visible-error-contract.ts',
+      'src/lib/telemetry/user-visible-error.ts',
+      'src/lib/telemetry/wasm-startup.ts'
     ]);
+  });
+
+  it('keeps the relay diagnostics import-free, so App and AppKit feed them without loading the crash client', () => {
+    const source = readFileSync(resolve(REPO_ROOT, 'src/lib/telemetry/relay-diagnostics.ts'), 'utf8');
+    expect(specifiersOf(source)).toEqual([]);
+  });
+});
+
+const CONTENT_SCRIPT_ENTRY = 'src/contentScript.ts';
+// vite.contentScripts.config.ts replaces these adapters before inlining dynamic imports.
+const CONTENT_SCRIPT_STUBS = new Set(['src/lib/intercom/mobile-adapter.ts', 'src/lib/intercom/desktop-adapter.ts']);
+
+describe('the classic content script loads diagnostics without the crash or SDK runtimes', () => {
+  it('follows the real intercom path while excluding build-stubbed adapters and erased type imports', () => {
+    const graph = runtimeGraph(CONTENT_SCRIPT_ENTRY, { stubbedModules: CONTENT_SCRIPT_STUBS, eraseTypes: true });
+    expect([...graph.modules]).toEqual(
+      expect.arrayContaining([
+        CONTENT_SCRIPT_ENTRY,
+        'src/lib/intercom/client.ts',
+        'src/lib/intercom/helpers.ts',
+        'src/lib/telemetry/crash-diagnostics.ts',
+        'src/lib/telemetry/user-visible-error-contract.ts',
+        'src/lib/telemetry/wasm-startup.ts'
+      ])
+    );
+    expect(graph.importedBy.get('webextension-polyfill')).toBeDefined();
+
+    const forbidden = [...graph.importedBy.keys()].filter(
+      dependency =>
+        dependency === 'src/lib/telemetry/user-visible-error.ts' ||
+        dependency === 'src/lib/telemetry/crash.ts' ||
+        /^@sentry\//.test(dependency) ||
+        /^@miden-sdk\/miden-sdk(?:\/|$)/.test(dependency)
+    );
+    expect(
+      forbidden.sort().map(dependency => {
+        const path = [dependency];
+        const seen = new Set(path);
+        let importer = graph.importedBy.get(dependency);
+        while (importer !== undefined && !seen.has(importer)) {
+          path.unshift(importer);
+          seen.add(importer);
+          importer = graph.importedBy.get(importer);
+        }
+        return path.join(' -> ');
+      })
+    ).toEqual([]);
   });
 });
 
@@ -1127,13 +1215,15 @@ describe('the background service worker never imports the telemetry barrel', () 
 // ---------------------------------------------------------------------------
 
 const SINK = 'src/lib/telemetry/sink.ts';
+const CRASH_SINK = 'src/lib/telemetry/crash.ts';
 const APTABASE = 'src/lib/telemetry/aptabase.ts';
 
 const EGRESS_APIS: readonly Api[] = [
   { label: 'fetch()', pattern: /\bfetch\s*\(/ },
   { label: 'navigator.sendBeacon()', pattern: /\bsendBeacon\s*\(/ },
   { label: 'XMLHttpRequest', pattern: /\bXMLHttpRequest\b/ },
-  { label: 'WebSocket', pattern: /\bWebSocket\b/ },
+  // The relay classifier matches WalletConnect's fixed text for a failed relay socket, which opens nothing.
+  { label: 'WebSocket', pattern: /\bWebSocket\b(?! connection failed for host: )/ },
   { label: 'EventSource', pattern: /\bEventSource\b/ },
   { label: 'new Image()', pattern: /\bnew Image\s*\(/ },
   { label: 'axios', pattern: /\baxios\b/ }
@@ -1166,22 +1256,22 @@ const DOCUMENT_URL = /(?:src|href)\s*=\s*"([^"]+)"/g;
 const isThirdParty = (url: string): boolean => /^(https?:)?\/\//.test(url);
 
 describe('no stray egress', () => {
-  it('makes every network call in the telemetry module from the sink', () => {
+  it('confines network calls to the consent-gated product and crash sinks', () => {
     expect(
       EGRESS_APIS.flatMap(({ label, pattern }) =>
         matches(telemetryFiles(), pattern)
-          .filter(hit => !(hit.file === SINK && label === 'fetch()'))
-          .map(
-            hit =>
-              `${at(hit)} reaches the network with ${label}. The telemetry module has exactly one egress point, ${SINK}, because that is what makes the consent gate a single auditable check instead of a discipline applied at every call site.`
-          )
+          .filter(hit => !([SINK, CRASH_SINK].includes(hit.file) && label === 'fetch()'))
+          .map(hit => `${at(hit)} reaches the network with ${label} outside the consent-gated product and crash sinks.`)
       )
     ).toEqual([]);
   });
 
-  it('holds exactly one fetch call in the sink, so a second endpoint cannot hide beside the first', () => {
-    // A one-element array asserts the count and the location at once.
-    expect(matches(telemetryFiles(), /\bfetch\s*\(/).map(hit => hit.file)).toEqual([SINK]);
+  it('holds exactly one fetch call per sink, so another endpoint cannot hide beside them', () => {
+    expect(
+      matches(telemetryFiles(), /\bfetch\s*\(/)
+        .map(hit => hit.file)
+        .sort()
+    ).toEqual([CRASH_SINK, SINK]);
   });
 
   it.each([
@@ -1239,7 +1329,7 @@ describe('no stray egress', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Promise: telemetry is off by default and opt-in.
+// Promise: usage sharing is opt-in and crash reporting is independent.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1297,7 +1387,7 @@ async function flushEgress(): Promise<void> {
   for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 5));
 }
 
-describe('telemetry is off until the user turns it on', () => {
+describe('usage sharing is opt-in and crash reporting is independent', () => {
   beforeEach(async () => {
     requests.length = 0;
     process.env.APTABASE_APP_KEY = APTABASE_APP_KEY;
@@ -1319,7 +1409,7 @@ describe('telemetry is off until the user turns it on', () => {
     expect(DEFAULT_TELEMETRY).toBe(false);
   });
 
-  it('sends nothing at either egress point on a fresh install', async () => {
+  it('reports crashes without sending usage events on a fresh install', async () => {
     // Nothing is mocked here. `egress-boundary.test.ts` substitutes the consent
     // gate to drive both sides of it; this runs the real settings module
     // against empty storage, which is the state a wallet is actually in the
@@ -1333,10 +1423,23 @@ describe('telemetry is off until the user turns it on', () => {
     );
     await flushEgress();
 
-    expect(requests).toEqual([]);
+    expect(requests).not.toContain(INGEST_URL);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 
-  it('sends at both once consent is stored, so the silence above is the gate and not a broken driver', async () => {
+  it('keeps crash reporting enabled after usage sharing is explicitly disabled', async () => {
+    await getStorageProvider().set({ [TELEMETRY_STORAGE_KEY]: false });
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await sendEvent({ phase: 'started', flow: 'open', flowId: 'opted-out', runId: 'run' }, resolveTelemetryContext());
+    await flushEgress();
+
+    expect(requests).not.toContain(INGEST_URL);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
+  });
+
+  it('adds usage events once usage consent is stored', async () => {
     // Written straight to the store the background reads rather than through
     // `setTelemetrySetting`, whose mirror write is fire-and-forget: the point
     // here is the gate, not the timing of the mirror.

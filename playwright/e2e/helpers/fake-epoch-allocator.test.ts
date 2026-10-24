@@ -210,6 +210,33 @@ describe('FakeEpochAllocator allocation recovery transport', () => {
     ).resolves.toMatchObject({ status: 500, body: { success: false } });
   });
 
+  it('answers /health in the SDK HealthCheckResponse shape the wallet reads', async () => {
+    await expect(allocatorRequest(allocator, '/health')).resolves.toMatchObject({
+      status: 200,
+      body: {
+        status: 'healthy',
+        signingAddress: '0x0000000000000000000000000000000000000001',
+        allocatorAddresses: { '11155111': expect.any(String), '999999999': expect.any(String) },
+        chainConfig: { supportedChains: expect.any(Array) }
+      }
+    });
+  });
+
+  it('quotes the posted input amount as tokenIn, in EVM USDC at 18 decimals as the Sepolia token answers', async () => {
+    for (const tokenInAmount of ['10000000000000000000', '1250000000000000000']) {
+      await expect(
+        allocatorRequest(allocator, '/checkIfDepositNeeded', { compact: { mandate: { tokenInAmount } } })
+      ).resolves.toMatchObject({
+        status: 200,
+        body: { tokenIn: tokenInAmount, tokenInDecimals: 18, tokenInSymbol: 'USDC' }
+      });
+    }
+    await expect(allocatorRequest(allocator, '/checkIfDepositNeeded', {})).resolves.toMatchObject({
+      status: 400,
+      body: { success: false }
+    });
+  });
+
   it('keeps the existing deposit nonce default without a programmed sequence', async () => {
     await expect(allocatorRequest(allocator, `/suggested-nonce/${SOURCE_CHAIN_ID}/${WITHDRAW_OWNER}`)).resolves.toEqual(
       { status: 200, body: { success: true, nonce: '1' } }

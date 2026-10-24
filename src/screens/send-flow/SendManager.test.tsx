@@ -1,9 +1,16 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  publishMockBridgeSnapshot
+} from 'lib/epoch/testing/bridge-config';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
@@ -11,6 +18,23 @@ import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
+
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 /**
  * SendManager is a Navigator-hosted, react-hook-form-driven multi-step send
@@ -53,8 +77,11 @@ const navigateMock = jest.fn();
 
 const useAccountMock = jest.fn(() => ({ publicKey: 'me-pk' }) as any);
 const useAllAccountsMock = jest.fn(() => [] as any[]);
-const useAllBalancesMock = jest.fn(() => ({ data: undefined as any }));
+const useAllBalancesMock = jest.fn((_address?: string): { data: any; isLoading?: boolean } => ({ data: undefined }));
 let mockBalancesLoading = false;
+let mockHiddenTokensLoaded = true;
+let mockHiddenTokenIds = new Set<string>();
+let mockRpcUrl = 'https://testnet.example';
 const useAllTokensBaseMetadataMock = jest.fn(() => ({}) as any);
 const useFilteredContactsMock = jest.fn(() => ({ contacts: [] as any[] }));
 const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as any[]);
@@ -71,10 +98,28 @@ const scanQRCodeMock = jest.fn();
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
+// The bridged price entries the testnet config names (the manual mock beside the module).
+let mockSendNetwork = 'devnet';
+// Testnet before any document has been accepted, as on a first start that cannot reach the config repo.
+let mockSendConfigLoaded = true;
+jest.mock('lib/remote-config/runtime', () => {
+  const fixture = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
+    'lib/epoch/testing/bridge-config'
+  );
+  const devnet = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+  const unloaded = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' as const };
+  return fixture.remoteConfigRuntimeMock(() => {
+    if (mockSendNetwork !== 'testnet') return devnet;
+    return mockSendConfigLoaded ? fixture.TEST_BRIDGE_CONFIG_SNAPSHOT : unloaded;
+  });
+});
+
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 // The token prices under test follow the default rule, no price without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal fee case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
 const telemetryHandles: TelemetryHandle[] = [];
@@ -87,12 +132,25 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'unknown');
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
+// The real store, whose balance maps the real balance hook reads in the cases that run it in place of the mock.
+const realWalletStore = () => jest.requireActual<typeof import('lib/store')>('lib/store').useWalletStore;
 const walletStoreState = {
   tokenPrices: { USDC: { price: 3 } } as Record<string, { price: number }>,
   isTransactionModalOpen: false,
   lastCompletedTxHash: null as string | null,
   closeTransactionModal: closeTransactionModalMock,
-  setLastCompletedTxHash: setLastCompletedTxHashMock
+  setLastCompletedTxHash: setLastCompletedTxHashMock,
+  get balances() {
+    return realWalletStore().getState().balances;
+  },
+  get balancesLoading() {
+    return realWalletStore().getState().balancesLoading;
+  },
+  get balancesLastFetched() {
+    return realWalletStore().getState().balancesLastFetched;
+  },
+  // A read the real hook starts stores nothing; a case lands its rows itself.
+  fetchBalances: jest.fn(async () => undefined)
 };
 
 // ---------------------------------------------------------------------------
@@ -122,11 +180,19 @@ jest.mock('./SelectRecipient', () => ({
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
       <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
       <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
+      <span data-testid="sr-networks">{JSON.stringify(props.networks.map((n: any) => n.id))}</span>
       <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
       <button data-testid="sr-addcontact" onClick={props.onAddContact} />
       <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
       {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
+      {props.networks.map((network: { id: string }) => (
+        <button
+          key={network.id}
+          data-testid={`sr-network-${network.id}`}
+          onClick={() => props.onSelectNetwork(network.id)}
+        />
+      ))}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -157,7 +223,10 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
+      <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
+      <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
+      <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
       <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
       <span data-testid="sa-network">{props.network ?? ''}</span>
       <button data-testid="sa-receive" onClick={props.onReceive} />
@@ -173,6 +242,7 @@ jest.mock('./SelectToken', () => ({
   SelectTokenDrawer: (props: any) => (
     <div data-testid="token-drawer">
       <span data-testid="td-open">{String(props.open)}</span>
+      <span data-testid="td-usdcx-only">{String(props.usdcxOnly)}</span>
       <button data-testid="td-select" onClick={() => props.onSelect(mockSelectedToken)} />
       <button data-testid="td-close" onClick={() => props.onOpenChange(false)} />
     </div>
@@ -211,28 +281,82 @@ jest.mock('./useRecentRecipients', () => ({
 }));
 
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
-jest.mock('./bridge-networks', () => ({
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  get BRIDGE_NETWORKS() {
-    return mockBridgeNetworks;
-  },
-  getBridgeNetwork: jest.fn()
+// When set, the networks every send offers, one stable array as the real list is while the snapshot holds.
+let mockOfferedNetworks: Array<{ id: string; name: string; chainId: number }> | undefined;
+jest.mock('./bridge-networks', () => {
+  const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
+  // The testnet USDCx destinations, in the destination table's order.
+  const usdcxNetworks = [
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    sepolia,
+    { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614 },
+    { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
+  ];
+  const sepoliaOnly = [sepolia];
+  return {
+    defaultBridgeNetwork: () => sepolia,
+    get BRIDGE_NETWORKS() {
+      return mockBridgeNetworks;
+    },
+    getBridgeNetwork: jest.fn(),
+    usdcxBridgeNetworks: () => usdcxNetworks,
+    defaultUsdcxBridgeNetwork: () => usdcxNetworks[0],
+    isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
+    isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
+    sendBridgeNetworks: (usdcxWithdrawals: boolean) =>
+      mockOfferedNetworks ?? (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
+  };
+});
+
+// USDCx withdrawal is offered only for the token id a test names; unset, every token takes the Epoch route.
+let mockUsdcxTokenId: string | undefined;
+let mockUsdcxWithdrawalNetwork = true;
+jest.mock('lib/usdcx/withdrawal', () => ({
+  isUsdcxWithdrawalAvailable: (tokenId: string | undefined) => !!tokenId && tokenId === mockUsdcxTokenId,
+  isUsdcxWithdrawalNetwork: () => mockUsdcxWithdrawalNetwork
 }));
 
 let mockEpochAmount: string | undefined;
+const useEpochQuoteMock = jest.fn((_args: { faucetId?: string; enabled: boolean }) => ({
+  amount: mockEpochAmount,
+  loading: false
+}));
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => ({ amount: mockEpochAmount, loading: false })
+  useEpochQuote: (args: any) => useEpochQuoteMock(args)
 }));
 
 jest.mock('./SendRoute', () => ({
-  SendRoute: (props: any) => <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
+  SendRoute: (props: any) => (
+    <>
+      <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
+      <span data-testid="route-selected">{props.route}</span>
+      <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
+      <span data-testid="route-usdcx-payout">
+        {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
+      </span>
+      <button data-testid="route-confirm" onClick={props.onConfirm} />
+    </>
+  )
+}));
+
+// The burn fee dry run behind `useBurnFeeReserve`; it never answers unless a case says otherwise.
+const mockEstimateUsdcxBurnFee = jest.fn<Promise<UsdcxBurnFeeEstimate>, [string, number]>(() => new Promise(() => {}));
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ estimateUsdcxBurnFee: mockEstimateUsdcxBurnFee })
 }));
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => useAccountMock(),
   useAllAccounts: () => useAllAccountsMock(),
-  useAllBalances: () => ({ ...useAllBalancesMock(), isLoading: mockBalancesLoading }),
+  useAllBalances: (address: string) => ({ isLoading: mockBalancesLoading, ...useAllBalancesMock(address) }),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
+}));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: () => ({ loaded: mockHiddenTokensLoaded, isHidden: (id: string) => mockHiddenTokenIds.has(id) })
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => mockRpcUrl
 }));
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
@@ -240,7 +364,7 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 let mockNativeId: string | null = 'MIDEN-ID';
-jest.mock('app/hooks/useMidenFaucetId', () => ({
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
   __esModule: true,
   default: () => mockNativeId
 }));
@@ -291,7 +415,15 @@ jest.mock('utils/miden', () => {
     detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
   };
 });
-jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+jest.mock('lib/i18n/numbers', () => ({
+  stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a),
+  // The balance check has to see the real digit shift. The stand-in above floors through parseFloat,
+  // which is the comparison this suite is pinning.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
+}));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
 jest.mock('lib/telemetry', () => ({
@@ -305,6 +437,8 @@ jest.mock('lib/telemetry', () => ({
 const renderFlow = (isLoading = false) => render(<SendFlow isLoading={isLoading} />);
 
 beforeEach(() => {
+  mockSendNetwork = 'devnet';
+  mockSendConfigLoaded = true;
   jest.clearAllMocks();
   clearSendDraft();
   mockPathname = '/send';
@@ -312,6 +446,8 @@ beforeEach(() => {
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
   mockEpochAmount = undefined;
+  mockUsdcxTokenId = undefined;
+  mockUsdcxWithdrawalNetwork = true;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
@@ -321,6 +457,9 @@ beforeEach(() => {
   useAllAccountsMock.mockReturnValue([]);
   mockBaseFee = 0;
   mockBalancesLoading = false;
+  mockHiddenTokensLoaded = true;
+  mockHiddenTokenIds = new Set();
+  mockRpcUrl = 'https://testnet.example';
   mockNativeId = 'MIDEN-ID';
   useAllBalancesMock.mockReturnValue({ data: undefined });
   useAllTokensBaseMetadataMock.mockReturnValue({});
@@ -372,6 +511,18 @@ describe('SendManager rendering', () => {
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
   });
 
+  it.each([SendFlowStep.SelectAmount, SendFlowStep.Route])(
+    'hides the top home actions on %s and restores them on back',
+    step => {
+      mockCardStack = [{ name: step }];
+      const view = renderFlow();
+      expect(document.body).toHaveAttribute('data-hide-home-actions');
+      mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+      view.rerender(<SendFlow isLoading={false} />);
+      expect(document.body).not.toHaveAttribute('data-hide-home-actions');
+    }
+  );
+
   it('links the amount step fee shortfall notice to Receive', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
@@ -381,11 +532,12 @@ describe('SendManager rendering', () => {
     expect(navigateMock).toHaveBeenCalledWith('/receive');
   });
 
-  it('does not hide the navbar when not on the /send path even past recipient', () => {
+  it('asks for the navbar hold past the recipient step on any route, leaving visibility to the hook', () => {
     mockPathname = '/';
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
-    expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(false);
+    expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
+    expect(useHideNavbarWhileOpenMock).not.toHaveBeenCalledWith(false);
   });
 
   it('renders the default (empty) branch for an unknown route name', () => {
@@ -762,6 +914,43 @@ describe('recipient address entry', () => {
     }
   });
 
+  it('selects the first offered network once when Sepolia is not offered', () => {
+    mockOfferedNetworks = [
+      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
+      { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 }
+    ];
+    mockBridgeNetworks = mockOfferedNetworks;
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('base-sepolia');
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('selects no network when none is offered', () => {
+    mockOfferedNetworks = [];
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
   it("preselects a 0x contact's saved network when it is picked", () => {
     mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external', network: 'sepolia' };
     renderFlow();
@@ -1102,6 +1291,18 @@ describe('amount entry', () => {
     expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
   });
 
+  it('rejects a typed base unit above an 18-decimal token balance', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 18, balance: 1, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    selectToken();
+    typeAmount('1.000000000000000001');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+    expect(navigateToMock).not.toHaveBeenCalled();
+  });
+
   it('accepts a valid amount within balance', () => {
     renderAmountStep();
     selectToken();
@@ -1133,6 +1334,18 @@ describe('revalidation when the token changes', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     return renderFlow();
   };
+
+  it('re-flags a restored over-balance amount after its token is selected', () => {
+    setSendDraft({ amount: '1.000000000000000001', recipientAddress: '0xrecip', tokenId: 'T1' });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 18 }, balance: 1, fiatPrice: 1 }]
+    });
+    renderAmountStep();
+
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('1.000000000000000001');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+  });
 
   it('does nothing when there is no amount yet', () => {
     renderAmountStep();
@@ -1175,6 +1388,49 @@ describe('revalidation when the token changes', () => {
       fireEvent.click(screen.getByTestId('td-select'));
     });
     expect(screen.getByTestId('sa-error')).toHaveTextContent('');
+  });
+
+  it('keeps an amount intact and blocks review when the selected token cannot represent it', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    act(() => fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.123456' } }));
+    act(() => fireEvent.click(screen.getByTestId('td-select')));
+
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('1.123456');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ amount: undefined }));
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+    expect(navigateToMock).not.toHaveBeenCalled();
+  });
+
+  it('shows the precision error when a finer amount is typed after token selection', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    act(() => fireEvent.click(screen.getByTestId('td-select')));
+    act(() => fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.123456' } }));
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+  });
+
+  it('refuses a restored amount the selected token cannot represent before review', () => {
+    const amount = '1.123456';
+    setSendDraft({
+      amount,
+      recipientAddress: 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph',
+      tokenId: 'T1'
+    });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 100, fiatPrice: 1 }]
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 
@@ -1267,10 +1523,10 @@ describe('token preselection', () => {
   });
 
   it('values a preselected swap token at the asset it stands for', () => {
-    mockSearch = `?tokenId=${TOKEN_IETH.faucetId}`;
+    mockSearch = `?tokenId=${TEST_TOKEN_IETH.faucetId}`;
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({
-      data: [{ tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
+      data: [{ tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
     });
     walletStoreState.tokenPrices = { ETH: { price: 3000 } };
     try {
@@ -1283,7 +1539,7 @@ describe('token preselection', () => {
   });
 
   describe('after the user picks another token', () => {
-    const T2 = TOKEN_IBTC.faucetId;
+    const T2 = TEST_TOKEN_IBTC.faucetId;
     const threeTokens = (t2Balance = 7) => [
       { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 0 },
       { tokenId: T2, metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },
@@ -1465,12 +1721,247 @@ describe('token preselection', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   });
 
-  it('does not preselect when there is no tokenId at all', () => {
+  it('selects the only sendable token when there is no tokenId', () => {
     mockSearch = '';
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+  });
+});
+
+describe('single sendable token default', () => {
+  const native = { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 };
+  const other = { tokenId: 'OTHER', metadata: { symbol: 'OTHER', decimals: 6 }, balance: 20 };
+
+  beforeEach(() => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  });
+
+  it('fills only the token and leaves amount, navigation and the picker under user control', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(navigateToMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('sa-selecttoken'));
+    expect(screen.getByTestId('td-open')).toHaveTextContent('true');
+  });
+
+  it.each([{ rows: [] }, { rows: [{ ...native, balance: 0 }] }, { rows: [native, other] }])(
+    'leaves no default for $rows',
+    ({ rows }) => {
+      useAllBalancesMock.mockReturnValue({ data: rows });
+      renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    }
+  );
+
+  it('waits for balance loading and then selects from the resolved snapshot', () => {
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    mockBalancesLoading = false;
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+  });
+
+  it('waits for wallet and hidden-token loading, and excludes hidden tokens', () => {
+    mockHiddenTokensLoaded = false;
+    mockHiddenTokenIds = new Set(['OTHER']);
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    const { rerender } = renderFlow(true);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    mockHiddenTokensLoaded = true;
+    rerender(<SendFlow isLoading={true} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+  });
+
+  it('does not default an unknown scale, then selects once its metadata resolves', () => {
+    useAllBalancesMock.mockReturnValue({ data: [{ ...other, metadata: { ...other.metadata, scaleIsUnknown: true } }] });
+    const { rerender } = renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('excludes a native balance held entirely by the fee reserve', () => {
+    mockBaseFee = 1_000_000;
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('leaves no default when the account cannot pay the known fee', () => {
+    mockBaseFee = 1_000_000;
+    useAllBalancesMock.mockReturnValue({ data: [{ ...native, balance: 0 }, other] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('insufficientFeeAsset');
+  });
+
+  it('keeps a manual choice across later balance and price refreshes', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    mockSelectedToken = { id: 'OTHER', name: 'OTHER', decimals: 6, balance: 20, fiatPrice: 0, scaleIsKnown: true };
+    fireEvent.click(screen.getByTestId('td-select'));
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('keeps an existing default when another funded token arrives', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+  });
+
+  it('clears an exhausted automatic token and waits when no candidate remains', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    useAllBalancesMock.mockReturnValue({ data: [{ ...native, balance: 0 }] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+  });
+
+  it('resets token and amount on an account change and waits for its balances', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    useAccountMock.mockReturnValue({ publicKey: 'new-account' });
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: undefined });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    mockBalancesLoading = false;
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('resets on an effective network change and does not reuse the old balance snapshot', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    mockRpcUrl = 'https://devnet.example';
+    // The save that changed the network dropped every cached balance.
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: undefined });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    mockBalancesLoading = false;
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('waits for a new snapshot when the account and the network change in the same render', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    useAccountMock.mockReturnValue({ publicKey: 'new-account' });
+    mockRpcUrl = 'https://devnet.example';
+    // The save that changed the network dropped every cached balance, the new account's too.
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: undefined });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    mockBalancesLoading = false;
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('selects only a destination-compatible token after the network changes', () => {
+    mockUsdcxTokenId = 'OTHER';
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecip' } });
+    fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  describe('with the real balance hook', () => {
+    const { useAllBalances } = jest.requireActual<typeof import('lib/miden/front/balance')>('lib/miden/front/balance');
+    const store = realWalletStore();
+    const noMetadata = {};
+    const land = (address: string, rows: any[]) =>
+      store.setState(state => ({
+        balances: { ...state.balances, [address]: rows },
+        balancesLoading: { ...state.balancesLoading, [address]: false },
+        balancesLastFetched: { ...state.balancesLastFetched, [address]: Date.now() }
+      }));
+    let consoleErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      store.setState({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+      land('me-pk', [native]);
+      useAllBalancesMock.mockImplementation((address = '') => useAllBalances(address, noMetadata));
+      // React only warns about an effect that re-renders forever, and the loop never ends; failing on the warning does.
+      const consoleError = console.error;
+      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        if (String(args[0]).includes('Maximum update depth exceeded')) throw new Error(String(args[0]));
+        consoleError(...args);
+      });
+    });
+
+    afterEach(() => consoleErrorSpy.mockRestore());
+
+    it('settles after switching to an account with no cached balances', () => {
+      const { rerender } = renderFlow();
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+      useAccountMock.mockReturnValue({ publicKey: 'uncached-pk' });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    });
+
+    describe('after a network change drops the cached balances', () => {
+      const fresh = { tokenId: 'FRESH', metadata: { symbol: 'FRESH', decimals: 6 }, balance: 3 };
+      // What a Developer Settings save does in this realm.
+      const saveNewNetwork = () => {
+        mockRpcUrl = 'https://devnet.example';
+        store.getState().clearBalances();
+      };
+
+      beforeEach(() => land('other-pk', [other]));
+
+      it('chooses no token for an account whose rows were cached before the change until its new snapshot lands', () => {
+        const { rerender } = renderFlow();
+        expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+        saveNewNetwork();
+        rerender(<SendFlow isLoading={false} />);
+        useAccountMock.mockReturnValue({ publicKey: 'other-pk' });
+        rerender(<SendFlow isLoading={false} />);
+        expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+        land('other-pk', [fresh]);
+        rerender(<SendFlow isLoading={false} />);
+        expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^FRESH$/);
+      });
+
+      it('chooses no token in a Send screen mounted after the change until a new snapshot lands', () => {
+        saveNewNetwork();
+        const { rerender } = renderFlow();
+        expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+        land('me-pk', [fresh]);
+        rerender(<SendFlow isLoading={false} />);
+        expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^FRESH$/);
+      });
+    });
   });
 });
 
@@ -1638,10 +2129,10 @@ describe('send telemetry', () => {
 // Fast-route fee: only a priced token of known scale has a dollar input.
 // ---------------------------------------------------------------------------
 describe('fast-route fee', () => {
-  const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1') => {
-    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId });
+  const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1', { amount = '5', quote = '4' } = {}) => {
+    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId });
     mockCardStack = [{ name: SendFlowStep.Route }];
-    mockEpochAmount = '4';
+    mockEpochAmount = quote;
     useAllBalancesMock.mockReturnValue({ data: [{ tokenId, metadata, balance: 42, fiatPrice: 0 }] });
     renderFlow();
     return screen.getByTestId('route-fee');
@@ -1659,5 +2150,506 @@ describe('fast-route fee', () => {
     expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true }, MIDEN_USDC_FAUCET)).toHaveTextContent(
       /^undefined$/
     );
+  });
+
+  // The nominal $1 is a display figure, so 1000 tokens at it are not $1000 the user sends.
+  it('is absent for a token valued only at the nominal $1, not the $995 it would invent', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      expect(
+        renderRouteStep({ symbol: 'IMIDEN', decimals: 2 }, 'T1', { amount: '1000', quote: '5' })
+      ).toHaveTextContent(/^undefined$/);
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
+  });
+
+  it('stops using the sent token quote once it expires, without any other update', () => {
+    jest.useFakeTimers();
+    try {
+      walletStoreState.tokenPrices = {
+        USDC: { price: 3, observedAt: Date.now() }
+      } as typeof walletStoreState.tokenPrices;
+      const fee = renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET);
+      expect(fee).toHaveTextContent(/^11$/);
+
+      act(() => {
+        jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS + 1);
+      });
+
+      expect(screen.getByTestId('route-fee')).toHaveTextContent(/^undefined$/);
+    } finally {
+      jest.useRealTimers();
+      walletStoreState.tokenPrices = { USDC: { price: 3 } };
+    }
+  });
+
+  it('keeps the fee of a token the feed prices while the nominal rate is on', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^11$/);
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// USDCx withdrawal: the token decides the route, the destinations and the Epoch quote.
+// ---------------------------------------------------------------------------
+describe('USDCx withdrawal wiring', () => {
+  const usdcxToken = { id: 'USDCX', name: 'USDCx', decimals: 6, balance: 100, fiatPrice: 1 };
+  const otherToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
+
+  const pickToken = (token: typeof usdcxToken) => {
+    mockSelectedToken = token;
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+  };
+
+  const pickEvmRecipient = () => {
+    mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+  };
+
+  const offeredNetworks = () => JSON.parse(screen.getByTestId('sr-networks').textContent!);
+
+  beforeEach(() => {
+    mockUsdcxTokenId = usdcxToken.id;
+  });
+
+  it('switches the route to USDCx for the USDCx token and back to Epoch for another', () => {
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    renderFlow();
+    pickEvmRecipient();
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+
+    pickToken(usdcxToken);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^usdcx$/);
+    expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^true$/);
+
+    pickToken(otherToken);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+    expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^false$/);
+  });
+
+  it('keeps Arc selected and clears another token picked after USDCx', () => {
+    const { rerender } = renderFlow();
+    pickToken(usdcxToken);
+    pickEvmRecipient();
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+
+    pickToken(otherToken);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  });
+
+  it('offers all bridge destinations before and after token selection', () => {
+    renderFlow();
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+    pickToken(usdcxToken);
+    pickEvmRecipient();
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+
+    pickToken(otherToken);
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+  });
+
+  it('offers Sepolia alone where USDCx withdrawals do not exist and moves a saved USDCx-only destination there', () => {
+    mockUsdcxWithdrawalNetwork = false;
+    const { rerender } = renderFlow();
+    pickToken(otherToken);
+    mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external', network: 'arc-testnet' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+    expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('false');
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+  });
+
+  it('moves a USDCx-only destination to Sepolia when the effective network stops offering it', () => {
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+
+    mockUsdcxWithdrawalNetwork = false;
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+  });
+
+  it.each(['arc-testnet', 'base-sepolia', 'arbitrum-sepolia'])(
+    'keeps %s selected and clears an unsupported token',
+    network => {
+      const { rerender } = renderFlow();
+      pickToken(otherToken);
+      fireEvent.click(screen.getByTestId(`sr-network-${network}`));
+      pickEvmRecipient();
+      expect(screen.getByTestId('sr-network')).toHaveTextContent(network);
+      expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('true');
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      pickToken(otherToken);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      pickToken(usdcxToken);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('USDCx');
+    }
+  );
+
+  it('disables the Epoch quote on the USDCx path and enables it for another token on the same bridge send', () => {
+    renderFlow();
+    pickToken(usdcxToken);
+    pickEvmRecipient();
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'USDCX', enabled: false }));
+
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
+    pickToken(otherToken);
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'T1', enabled: true }));
+  });
+
+  // Circle takes a flat ~1.0035 USDC from a Sepolia payout; the allowance a burn there must exceed is 1.5 USDC.
+  it('blocks a USDCx amount the Sepolia fee allowance takes whole, naming the allowance and the network', () => {
+    // Six decimals, as USDCx has; the shared mock drops them.
+    stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.round(parseFloat(s) * 1_000_000)));
+    setSendDraft({
+      amount: '1.5',
+      recipientAddress: '0xrecip',
+      tokenId: usdcxToken.id,
+      bridgeNetwork: 'sepolia',
+      bridgeRoute: 'usdcx'
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: usdcxToken.id, metadata: { symbol: 'USDCx', decimals: 6 }, balance: 100, fiatPrice: 0 }]
+    });
+    renderFlow();
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxSendMoreThanPayoutFee$/);
+    expect(screen.getByTestId('sa-error-values')).toHaveTextContent('{"amount":"1.5","network":"Sepolia"}');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.500001' } });
+    });
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('true');
+  });
+
+  it("hands the Route step the USDCx burn's destination chain and its amount in base units", () => {
+    // Six decimals, as USDCx has; the shared mock drops them.
+    stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.round(parseFloat(s) * 1_000_000)));
+    setSendDraft({
+      amount: '2.5',
+      recipientAddress: '0xrecip',
+      tokenId: usdcxToken.id,
+      bridgeNetwork: 'sepolia',
+      bridgeRoute: 'usdcx'
+    });
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: usdcxToken.id, metadata: { symbol: 'USDCx', decimals: 6 }, balance: 100, fiatPrice: 0 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('route-usdcx-payout')).toHaveTextContent(/^11155111:2500000$/);
+
+    pickToken(otherToken);
+    expect(screen.getByTestId('route-usdcx-payout')).toBeEmptyDOMElement();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The measured fee reserve of a USDCx burn of the native token.
+// ---------------------------------------------------------------------------
+describe('USDCx burn fee reserve', () => {
+  // 9.909734 USDCx at base fee 7: the static reserve holds back 210 base units (cap 9.909524) and the measured one
+  // 315 (cap 9.909419), so 9.9095 fits only the static cap.
+  const NATIVE = 'MIDEN-ID';
+  const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
+  const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({ outcome: 'measured', reserve });
+
+  const openBurn = (step: SendFlowStep, amount = '') => {
+    setSendDraft({
+      amount,
+      recipientAddress: '0xrecip',
+      tokenId: NATIVE,
+      bridgeNetwork: 'arc-testnet',
+      bridgeRoute: 'usdcx'
+    });
+    mockCardStack = [{ name: step }];
+    return renderFlow();
+  };
+
+  const typeAmount = (value: string) => {
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value } });
+    });
+  };
+
+  beforeEach(() => {
+    mockUsdcxTokenId = NATIVE;
+    mockBaseFee = 7;
+    stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.round(parseFloat(s) * 1_000_000)));
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: NATIVE, metadata: { symbol: 'USDCx', decimals: 6 }, balance: 9.909734, fiatPrice: 0 }]
+    });
+    mockEstimateUsdcxBurnFee.mockReset().mockImplementation(never);
+  });
+
+  it('disables Max and Continue and says the fee is being measured before any amount is typed', () => {
+    openBurn(SendFlowStep.SelectAmount);
+
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^true$/);
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeMeasuring$/);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the measuring message and Continue disabled for an amount below the static cap', () => {
+    openBurn(SendFlowStep.SelectAmount);
+
+    typeAmount('5');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeMeasuring$/);
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
+  });
+
+  it('keeps Max and Continue disabled with the failure message once the estimate and its retry fail', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue({ outcome: 'failed' });
+    openBurn(SendFlowStep.SelectAmount);
+
+    await waitFor(() => expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeUnavailable$/));
+    typeAmount('5');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeUnavailable$/);
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^true$/);
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps the amount at the measured reserve once it lands', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(315n));
+    openBurn(SendFlowStep.SelectAmount);
+    await act(async () => {});
+
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^false$/);
+    expect(Number(screen.getByTestId('sa-balance').textContent)).toBeCloseTo(9.909419, 6);
+    typeAmount('9.9095');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+  });
+
+  it('measures once per account and chain, not again for another recipient', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(315n));
+    openBurn(SendFlowStep.SelectAmount);
+    await act(async () => {});
+
+    mockSelectedContact = { id: '0xother', name: 'Other', isOwned: false, contactType: 'external' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+    await act(async () => {});
+
+    expect(screen.getByTestId('sa-recipient')).toHaveTextContent(/^0xother$/);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(1);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith('me-pk', 5042002);
+  });
+
+  it('refuses review from the Route step while the fee is measured and for an amount the measured reserve exceeds', async () => {
+    let land: (estimate: UsdcxBurnFeeEstimate) => void = () => {};
+    mockEstimateUsdcxBurnFee.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          land = resolve;
+        })
+    );
+    // Accepted under the static cap, which the old flow applied while the dry run ran.
+    openBurn(SendFlowStep.Route, '9.9095');
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    await act(async () => land(measured(315n)));
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(consumeSendDraft()).toBeNull();
+  });
+
+  it('compares a typed base unit before handing a native burn from Route to review', async () => {
+    const amount = '1.000000000000000001';
+    mockBaseFee = 0;
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: NATIVE, metadata: { symbol: 'MIDEN', decimals: 18 }, balance: 1, fiatPrice: 0 }]
+    });
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.Route, amount);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(consumeSendDraft()).toBeNull();
+  });
+
+  it('hands an amount the measured reserve covers to review', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(315n));
+    openBurn(SendFlowStep.Route, '9.9094');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+
+  // A burn that costs nothing is a measurement, so the static cap applies, and it keeps the full balance on a zero fee.
+  it('enables Max for the full balance under a measured zero reserve at a zero base fee', async () => {
+    mockBaseFee = 0;
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.SelectAmount);
+    await act(async () => {});
+
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^false$/);
+    expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^9\.909734$/);
+    typeAmount('9.909734');
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^true$/);
+  });
+
+  it('hands the full balance to review under a measured zero reserve at a zero base fee', async () => {
+    mockBaseFee = 0;
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.Route, '9.909734');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+});
+
+it('does not preselect the retired Epoch faucet from a Testnet token-page link', () => {
+  mockSendNetwork = 'testnet';
+  mockSearch = `?tokenId=${MIDEN_USDC_FAUCET}`;
+  useAllBalancesMock.mockReturnValue({
+    data: [{ tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 }, balance: 100 }]
+  });
+  mockRenderRouteName = SendFlowStep.SelectAmount;
+  renderFlow();
+  expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+});
+
+describe('Testnet send while no bridge config document has arrived', () => {
+  const T1_ROW = { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 };
+  const NATIVE_ROW = { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10, fiatPrice: 0 };
+  const pickNative = () => {
+    mockSelectedToken = { id: 'MIDEN-ID', name: 'MIDEN', decimals: 6, balance: 10, fiatPrice: 0 };
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+  };
+  const acceptDocument = () =>
+    act(() => {
+      mockSendConfigLoaded = true;
+      publishMockBridgeSnapshot();
+    });
+
+  beforeEach(() => {
+    mockSendNetwork = 'testnet';
+    mockSendConfigLoaded = false;
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  });
+
+  it('keeps a restored draft whole until the document names its token as the retired faucet', () => {
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: MIDEN_USDC_FAUCET });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('says why a linked token is not applied, and applies it with no notice once the document arrives', () => {
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('says why a restored draft cannot continue, keeping its token and amount, until the document arrives', () => {
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr === 'mtst1recipient');
+    setSendDraft({ amount: '7', recipientAddress: 'mtst1recipient', tokenId: 'T1' });
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+
+  it("leaves a held row to the picker's notice while nothing is linked or chosen", () => {
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('shows no held notice for the native token chosen beside a held row', () => {
+    useAllBalancesMock.mockReturnValue({ data: [NATIVE_ROW, T1_ROW] });
+    renderFlow();
+    pickNative();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('drops a held link from the notice once the user picks the native token instead', () => {
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({ data: [NATIVE_ROW, T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    pickNative();
+
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
   });
 });

@@ -37,7 +37,7 @@ export const ExternalLinkValue: FC<{
  * swap did not. The history list already draws that distinction, so without this
  * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
  *
- * `isUnconfirmed` (`isUnconfirmedFailure`) wins over everything else: a row whose
+ * `isUnconfirmed` (`isOutcomeUnconfirmed`) wins over everything else: a row whose
  * outcome the wallet cannot rule out is not confirmed-failed and not confirmed-cancelled,
  * so it is checked ahead of both.
  */
@@ -45,14 +45,18 @@ export const transactionStatusOf = ({
   status,
   isCancelled,
   isUnconfirmed,
-  swapSettlement: reportedSettlement
+  swapSettlement: reportedSettlement,
+  paybackClaimStuck
 }: {
   status?: ITransactionStatus;
   isCancelled?: boolean;
   isUnconfirmed?: boolean;
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** The swap's latest payout claim failed and none is in flight, which outranks its settlement state. */
+  paybackClaimStuck?: boolean;
 }): Status => {
   if (isUnconfirmed) return 'unconfirmed';
+  if (status === ITransactionStatus.Unconfirmed) return 'unconfirmed';
   // A user cancellation is recorded as a failure (`cancel.ts`), so it is checked first.
   if (isCancelled) return 'cancelled';
   // A swap that failed never placed its order, so it has no settlement to
@@ -60,6 +64,7 @@ export const transactionStatusOf = ({
   // in failure red, which names two different outcomes at once. Failure is the
   // stronger and more actionable fact, so it wins.
   if (status === ITransactionStatus.Failed) return 'failed';
+  if (paybackClaimStuck) return 'paybackStuck';
   // A reclaimed order ended without delivering what was asked for, so it gets
   // the same neutral treatment as a cancellation — the history list already
   // tones it that way.
@@ -72,13 +77,14 @@ export const StatusPill: FC<{
   status?: ITransactionStatus;
   isCancelled?: boolean;
   isUnconfirmed?: boolean;
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  paybackClaimStuck?: boolean;
   testId?: string;
-}> = memo(({ status, isCancelled, isUnconfirmed, swapSettlement, testId }) => (
+}> = memo(({ status, isCancelled, isUnconfirmed, swapSettlement, paybackClaimStuck, testId }) => (
   <StatusBadge
     size="md"
     live
-    status={transactionStatusOf({ status, isCancelled, isUnconfirmed, swapSettlement })}
+    status={transactionStatusOf({ status, isCancelled, isUnconfirmed, swapSettlement, paybackClaimStuck })}
     data-testid={testId}
   />
 ));

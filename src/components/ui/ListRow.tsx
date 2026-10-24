@@ -13,6 +13,8 @@ import { SelectionCheck } from './SelectionCheck';
 
 interface ListRowBaseProps {
   title: React.ReactNode;
+  /** A 64px choice row: neutral inset dividers and a flow-tinted selected surface. */
+  variant?: 'default' | 'choice';
   /** 13px `muted` line under the title. A row with one is 64px tall, 56px without. */
   subtitle?: React.ReactNode;
   /** Leading 40px visual, such as a `ContactAvatar`. */
@@ -35,6 +37,11 @@ interface ListRowBaseProps {
    * on a row that is not a choice.
    */
   checked?: boolean;
+  /**
+   * A tapped toggle row whose `trailing` element, such as a `CheckboxIndicator`, shows the state:
+   * the row reports it as `aria-pressed` and draws nothing itself. Never pass it with `checked`.
+   */
+  pressed?: boolean;
   /** Shows the chevron of a row that navigates. On by default for `to` and `href`. */
   chevron?: boolean;
   /** Tapping the row: renders a `button`, with the tap haptic. */
@@ -91,6 +98,7 @@ const rowVariants = cva(
   ],
   {
     variants: {
+      variant: { default: '', choice: '' },
       // 16px padding + the visual + the 12px gap.
       leading: {
         none: 'before:left-4',
@@ -110,9 +118,17 @@ const rowVariants = cva(
         false: ''
       }
     },
-    defaultVariants: { leading: 'none', size: 'default', interactive: false }
+    defaultVariants: { leading: 'none', size: 'default', interactive: false, variant: 'default' }
   }
 );
+
+const CHOICE_FOCUS: Record<FlowAccent, string> = {
+  brand: 'focus-visible:ring-accent-primary',
+  send: 'focus-visible:ring-accent-send',
+  receive: 'focus-visible:ring-accent-receive',
+  earn: 'focus-visible:ring-accent-earn',
+  swap: 'focus-visible:ring-accent-swap'
+};
 
 /**
  * One row of a `ListGroup`: a leading avatar or icon, a 16px title over a 13px `muted` subtitle,
@@ -133,6 +149,7 @@ export type ListRowProps = ListRowBaseProps & ({ disabled?: undefined } | { disa
 export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(function ListRow(
   {
     title,
+    variant = 'default',
     subtitle,
     avatar,
     icon,
@@ -141,6 +158,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     value,
     trailing,
     checked,
+    pressed,
     chevron,
     onClick,
     to,
@@ -164,9 +182,9 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
   const showChevron = chevron ?? Boolean(to || href);
   const tone = accent ? ACCENT_CLASSES[accent] : null;
   const classes = cn(
-    rowVariants({ leading, size: subtitle ? 'default' : 'compact', interactive }),
-    // After the variants, so the accent's rule replaces the neutral hairline.
-    tone?.rule,
+    rowVariants({ leading, variant, size: subtitle || variant === 'choice' ? 'default' : 'compact', interactive }),
+    // Choices keep neutral rules; flow color belongs to their selection and keyboard focus.
+    variant === 'choice' ? [checked && (tone?.tint ?? 'bg-fill-pressed'), CHOICE_FOCUS[accent ?? 'brand']] : tone?.rule,
     className
   );
 
@@ -262,7 +280,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         disabled={disabled}
         role={radio ? 'radio' : undefined}
         aria-checked={radio ? Boolean(checked) : undefined}
-        aria-pressed={radio ? undefined : checked}
+        aria-pressed={radio ? undefined : (checked ?? pressed)}
         aria-label={ariaLabel}
         data-testid={dataTestId}
         className={classes}

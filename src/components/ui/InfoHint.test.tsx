@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { reducedMotionTransition, springs } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { InfoHint } from './InfoHint';
+import { InfoHint, InfoHintTrigger } from './InfoHint';
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
@@ -155,5 +155,21 @@ describe('InfoHint', () => {
     // 16px: the bubble's rounded-2xl radius.
     expect(mockArrow).toHaveBeenCalledWith(expect.objectContaining({ padding: 16 }));
     expect(mockArrow.mock.calls.at(-1)![0].element).not.toBeUndefined();
+  });
+});
+
+describe('InfoHintTrigger', () => {
+  // InfoHint anchors its bubble to the button through this ref, and a sheet's caller passes its own
+  // aria state and tap handler, so both have to land on the button itself.
+  it('forwards its ref and props to the button', () => {
+    const ref = React.createRef<HTMLButtonElement>();
+    const onClick = jest.fn();
+    render(<InfoHintTrigger ref={ref} label="About Test iETH" aria-expanded={false} onClick={onClick} />);
+
+    const button = screen.getByRole('button', { name: 'About Test iETH' });
+    expect(ref.current).toBe(button);
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

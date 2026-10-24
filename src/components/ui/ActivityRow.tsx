@@ -178,16 +178,22 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {title}
           </span>
           {subtitle && (
-            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption text-muted">
+            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption-heading text-muted">
               {subtitle}
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      {/* Never shrinks and is capped at half the row, so a short amount or badge keeps its width and a long amount,
+          token name or asset list truncates inside the cap instead of starving the title. The line takes `text-ink`
+          for its ellipsis, which would otherwise draw in the button's default colour. */}
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {amount && (
-          <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
+          <span
+            data-testid={testId && `${testId}-amount`}
+            className="max-w-full truncate text-value text-right text-ink"
+          >
             {amount.value !== '' && (
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>
                 {amount.preformatted ? amount.value : formatDisplayAmount(amount.value)}

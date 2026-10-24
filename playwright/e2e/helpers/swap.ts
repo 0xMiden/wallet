@@ -1,9 +1,11 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
 
 import { hexFaucetToBech32 } from './faucet-address';
+import { forgetFixtureConfig, setEligibilityFixtureConfig } from './feature-eligibility';
 import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
+import { IS_LOCALNET } from '../config/environments';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 /**
@@ -12,7 +14,7 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
  *
  *  - `fundSwapPair` stands up two faucets + funds the maker with the OFFER token
  *    and the taker with the REQUEST token, points both wallets' swap registries
- *    at them, and stubs the external price feed.
+ *    at them, and stubs the swap quote service.
  *  - `createSwapOrder` drives the real `#/swap` UI to mint a maker note and
  *    returns its on-chain orderId.
  *  - `fillSwapOrder` / `cancelSwapOrder` run in the taker/maker SERVICE WORKER
@@ -26,8 +28,22 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 type Wallet = ChromeWalletPageApi;
 
-/** External swap price feed — stubbed so specs don't depend on the network. */
-const PRICE_FEED_GLOB = '**/35-175-40-181.sslip.io/**';
+/** The quote service the stub localnet document names. No such host exists, so only the stubs below answer it. */
+const STUB_QUOTE_URL = 'https://swap-quotes.test';
+/** The testnet document's solver (`swap.etaUrl`), answered by the same stubs so a testnet run never reaches it. */
+const TESTNET_QUOTE_URL = 'https://35-175-40-181.sslip.io';
+const isStubQuoteHost = (url: URL): boolean => url.origin === STUB_QUOTE_URL || url.origin === TESTNET_QUOTE_URL;
+
+// Localnet publishes no config document, so without this one the page names no quote service and the Swap press
+// refuses before any request.
+const STUB_LOCALNET_DOCUMENT = {
+  network: 'localnet',
+  version: 1,
+  features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  swap: { etaUrl: STUB_QUOTE_URL }
+};
+
+const QUOTE_HEADERS = { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin' };
 
 /** Default base-unit amount minted to each side's faucet. */
 export const DEFAULT_FUND_AMOUNT = 100_000_000_000;
@@ -67,12 +83,107 @@ export interface FundSwapPairOptions {
   requestDecimals?: number;
   /** per-side balance-wait/claim budget (default 150s; raise for guardian accounts). */
   balanceTimeoutMs?: number;
+  /**
+   * Serve the stub config document and quote answers (default true). False for a spec that routes its own: a
+   * later `page.route` wins, so these would shadow it. The testnet solver is aborted either way.
+   */
+  stubQuoteService?: boolean;
+}
+
+/**
+ * The quote service's answers for the funded pair: a price of 1 at the faucets' own decimals, and every ask at
+ * market and filled in full with settlements running, which the pre-submit check accepts. Any other path aborts.
+ */
+function answerQuote(route: Route, decimalsOf: (faucetHex: string | null) => number | undefined): Promise<void> {
+  const url = new URL(route.request().url());
+  const query = url.searchParams;
+  const json = (body: unknown, status = 200) =>
+    route.fulfill({ status, contentType: 'application/json', headers: QUOTE_HEADERS, body: JSON.stringify(body) });
+  if (route.request().method() !== 'GET') return route.abort();
+  switch (url.pathname) {
+    case '/v2/pairs':
+      return json({ tokens: [], pairs: [] });
+    case '/v2/pair-price': {
+      const offeredDecimals = decimalsOf(query.get('offered_faucet'));
+      const requestedDecimals = decimalsOf(query.get('requested_faucet'));
+      if (offeredDecimals === undefined || requestedDecimals === undefined) {
+        return json({ error: 'no_market', message: 'the stub quotes only the funded pair' }, 503);
+      }
+      return json({
+        offeredFaucet: query.get('offered_faucet'),
+        requestedFaucet: query.get('requested_faucet'),
+        marketPrice: '1',
+        fillPrice: '1',
+        feePpm: 0,
+        offeredDecimals,
+        requestedDecimals,
+        asOf: Math.floor(Date.now() / 1000)
+      });
+    }
+    case '/v2/swap-eta': {
+      const offeredAmount = query.get('offered_amount');
+      const requestedAmount = query.get('requested_amount');
+      return json({
+        offeredFaucet: query.get('offered_faucet'),
+        requestedFaucet: query.get('requested_faucet'),
+        offeredAmount,
+        requestedAmount,
+        priceBand: 'at_market',
+        fillStatus: 'full',
+        reason: null,
+        fillableOfferedAmount: offeredAmount,
+        fillableRequestedAmount: requestedAmount,
+        maxOfferedAmount: offeredAmount,
+        expectedRequestedAmount: requestedAmount,
+        feePpm: 0,
+        feeAmount: '0',
+        marketPrice: '1',
+        fillPrice: '1',
+        settlementsRunning: true,
+        estimatedSeconds: 30,
+        median24hSeconds: null
+      });
+    }
+    default:
+      return route.abort();
+  }
+}
+
+/**
+ * Share the localnet policy with every realm and the eligibility endpoint, then reload this page with quote
+ * routes installed. Reading the stub's pairs confirms the page accepted the configured solver.
+ */
+async function serveStubQuoteService(
+  page: Page,
+  decimalsOf: (faucetHex: string | null) => number | undefined
+): Promise<void> {
+  if (IS_LOCALNET) {
+    await setEligibilityFixtureConfig(STUB_LOCALNET_DOCUMENT);
+    await forgetFixtureConfig(page, 'localnet');
+  }
+  await page.route(isStubQuoteHost, route => answerQuote(route, decimalsOf));
+  const pairsRead: Promise<unknown> = IS_LOCALNET
+    ? page
+        .waitForResponse(response => response.url() === `${STUB_QUOTE_URL}/v2/pairs`, { timeout: 30_000 })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        )
+    : Promise.resolve(undefined);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const missed = await pairsRead;
+  if (missed !== undefined) {
+    throw new Error(
+      `the page never read the stub quote service's pairs after the reload: ` +
+        (missed instanceof Error ? missed.message : String(missed))
+    );
+  }
 }
 
 /**
  * Stand up a swap-ready pair: two faucets, maker funded with the OFFER token and
  * taker with the REQUEST token, both wallets' swap registries pointed at them,
- * and the external price feed stubbed. Both wallets must already be created.
+ * and the swap quote service stubbed. Both wallets must already be created.
  */
 export async function fundSwapPair(
   midenCli: MidenCli,
@@ -111,12 +222,25 @@ export async function fundSwapPair(
     logoSymbol: 'ETH'
   };
   const tokens = [offer, request];
+  const decimalsByFaucet = new Map([
+    [offerFaucetHex.toLowerCase(), offer.decimals],
+    [requestFaucetHex.toLowerCase(), request.decimals]
+  ]);
+  const decimalsOf = (faucetHex: string | null) =>
+    faucetHex === null ? undefined : decimalsByFaucet.get(faucetHex.toLowerCase());
   for (const w of [maker, taker]) {
+    if (opts.stubQuoteService ?? true) await serveStubQuoteService(w.page, decimalsOf);
+    else await w.page.route(`${TESTNET_QUOTE_URL}/**`, route => route.abort());
+    // The override lives in the page realm's memory, so it is set after the reload, once the hook is back.
+    await w.page.waitForFunction(
+      () => typeof (window as never as { __TEST_SET_SWAP_TOKENS__?: unknown }).__TEST_SET_SWAP_TOKENS__ === 'function',
+      undefined,
+      { timeout: 60_000 }
+    );
     await w.page.evaluate(
       t => (window as never as { __TEST_SET_SWAP_TOKENS__: (t: unknown) => void }).__TEST_SET_SWAP_TOKENS__(t),
       tokens
     );
-    await w.page.route(PRICE_FEED_GLOB, r => r.abort());
   }
   return { offer, request, offerFaucetHex, requestFaucetHex };
 }

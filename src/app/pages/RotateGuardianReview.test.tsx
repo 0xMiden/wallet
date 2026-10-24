@@ -3,8 +3,14 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { checkBiometricAvailability } from 'lib/biometric';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RotateGuardianReview from './RotateGuardianReview';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
 const mockUnlock = jest.fn();
 const mockInitiateSwitch = jest.fn();
@@ -19,6 +25,7 @@ const mockHasHardwareProtector = jest.fn();
 const mockHasPasswordProtector = jest.fn();
 const mockIsMobile = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => true);
+const mockIsIOS = jest.fn(() => false);
 const mockCurrentAccount = {
   publicKey: 'guardian-account',
   name: 'Guardian',
@@ -47,7 +54,7 @@ let mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
 let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
-  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint, refresh: jest.fn() })
+  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint })
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({
@@ -101,24 +108,41 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div data-testid="passcode-entry">
-      {error ? <span role="alert">{error}</span> : null}
-      <button disabled={isSubmitting} data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div data-testid="passcode-entry">
+        {error ? <span role="alert">{error}</span> : null}
+        <button disabled={isSubmitting} data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: React.ReactNode }) => <div>{title}</div>,
@@ -126,7 +150,6 @@ jest.mock('components/Alert', () => ({
 }));
 
 jest.mock('lib/biometric', () => ({
-  isBiometricEnabled: jest.fn().mockResolvedValue(false),
   checkBiometricAvailability: jest.fn()
 }));
 
@@ -152,7 +175,8 @@ jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { provider:
 
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension(),
-  isMobile: () => mockIsMobile()
+  isMobile: () => mockIsMobile(),
+  isIOS: () => mockIsIOS()
 }));
 
 // Real `sanitizeGuardianUrl`/`isValidGuardianUrl`: they ARE the endpoint guards
@@ -188,12 +212,14 @@ jest.mock('lib/woozie', () => ({
 }));
 
 beforeEach(() => {
+  mockRenderActualPasscode = false;
   jest.clearAllMocks();
   mobileBackHandler = undefined;
   mockCurrentEndpoint = 'https://old.example';
   mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
+  mockIsIOS.mockReturnValue(false);
   mockHasHardwareProtector.mockResolvedValue(false);
   mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
@@ -337,6 +363,10 @@ it('password authentication gates the extension flow and retries with fresh auth
   fireEvent.change(password, { target: { value: 'correct-password' } });
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
   expect(await screen.findByText('queue failed')).toBeInTheDocument();
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'field');
   expect(mockUnlock).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
@@ -722,6 +752,10 @@ it('shows a serialized error message rather than stringifying the object', async
   fireEvent.click(confirm);
 
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('the node refused the request'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'notice');
 });
 
 it('allows a retry after a hang, which created no row', async () => {
@@ -926,4 +960,63 @@ it('does not redirect after the user backs out of the credential step mid-flight
 
   await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
   expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+describe('hot-key label (face / fingerprint)', () => {
+  beforeEach(() => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+  });
+
+  it('reads faceUnlock for a face biometric on Android', async () => {
+    mockIsIOS.mockReturnValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('faceUnlock')).toBeInTheDocument();
+  });
+
+  it('reads faceId for a face biometric on iOS', async () => {
+    mockIsIOS.mockReturnValue(true);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('faceId')).toBeInTheDocument();
+  });
+
+  it('reads fingerprint for a fingerprint biometric', async () => {
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'fingerprint' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('fingerprint')).toBeInTheDocument();
+  });
+
+  it('reads the password label when the vault has no hardware protector, even if biometrics are available', async () => {
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+
+    expect(screen.getByText('password')).toBeInTheDocument();
+    expect(mockCheckBiometricAvailability).not.toHaveBeenCalled();
+  });
+});
+
+it('reports a rejected mobile credential on the real passcode display', async () => {
+  mockRenderActualPasscode = true;
+  mockIsMobile.mockReturnValue(true);
+  mockUnlock.mockRejectedValue(new Error('private credential failure'));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  fireEvent.click(await screen.findByTestId('passcode-submit'));
+  await screen.findAllByText('private credential failure');
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'passcode');
 });

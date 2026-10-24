@@ -9,21 +9,24 @@ import {
   type ConnectivityCategory
 } from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
+import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
   handleOffscreenStageEvent,
+  handleOffscreenSubmitGate,
   markOpStarted,
   midenClientProxy,
   reloadOffscreenEndpointOverrides
 } from 'lib/miden/back/miden-client-proxy';
-import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
+  OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_PROVE_MARKER,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   type OffscreenSignRequest,
@@ -33,9 +36,18 @@ import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
-import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
+import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
-import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import {
+  cacheScope,
+  captureNativeAssetSnapshot,
+  primeNativeAssetId,
+  recordSyncedFeeFaucetId
+} from 'lib/miden-chain/native-asset';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
@@ -47,15 +59,25 @@ import {
   resetMidenClient,
   withWasmClientLock
 } from '../sdk/miden-client';
+import { countNoteDeliveryWrite } from '../transaction/helper';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
 // `store` may not be initialized at module scope evaluation time.
 let frontStore: ReturnType<typeof store.map> | null = null;
 
+// Settles once start() has hydrated the endpoint override and the bridge config, which handlers read synchronously.
+let startupHydration: Promise<void> = Promise.resolve();
+
 export async function start() {
   console.log('Miden background script started');
-  intercom.onRequest(processRequest);
+  let hydrated: () => void = () => undefined;
+  startupHydration = new Promise<void>(resolve => {
+    hydrated = resolve;
+  });
+  // Registered first so no message is missed; it dispatches only once startupHydration settles.
+  intercom.onRequest(dispatchWhenHydrated);
+  intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
@@ -89,7 +111,14 @@ export async function start() {
   // Apply any developer endpoint override before any client/vault init reads
   // endpoints. Must run before primeNativeAssetId() below — its cache keys
   // are derived from getEffectiveNetworkName() at call time.
-  await loadEndpointOverrides();
+  // Then the bridge config, which synchronous readers here (bridge-in matching, spend valuation) need. Requests wait
+  // for both through dispatchWhenHydrated; both read storage only and never wait for the network.
+  try {
+    await loadEndpointOverrides();
+    await initBridgeConfig();
+  } finally {
+    hydrated();
+  }
 
   await Actions.init();
 
@@ -102,6 +131,18 @@ export async function start() {
     installBridgeInTestHooks();
     const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
     installEarnTestHooks();
+    const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
+    (globalThis as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__ = async (
+      id: string
+    ) => {
+      await setFeeFaucetIdForTest(id);
+      // The SW and offscreen each have their own client singleton, built with
+      // the fee faucet at create time. Both may already exist (boot discovery,
+      // idle sync) before the harness injects the genesis id.
+      await resetMidenClient();
+      await reloadOffscreenEndpointOverrides();
+      primeNativeAssetId();
+    };
   }
 
   // Native asset ID is network-wide on-chain state — prime discovery here so
@@ -221,10 +262,13 @@ function registerOffscreenSignHandler(): void {
           op_id?: string;
           sign_id?: string;
           stage?: ITransactionStage;
+          evidence?: unknown;
           category?: ConnectivityCategory;
           active?: boolean;
           ts?: number;
           line?: string;
+          id?: unknown;
+          scope?: unknown;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -241,6 +285,24 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
+      if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
+      const id = m.id;
+      const scope = m.scope;
+      void startupHydration
+        .then(async () => {
+          if (scope !== cacheScope()) return false;
+          return recordSyncedFeeFaucetId(id, captureNativeAssetSnapshot(scope));
+        })
+        .then(
+          ok => sendResponse({ ok }),
+          error => {
+            console.warn('offscreen fee identity publication failed', error);
+            sendResponse({ ok: false });
+          }
+        );
+      return true;
+    }
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.
@@ -255,7 +317,10 @@ function registerOffscreenSignHandler(): void {
     // port; the handler itself swallows an unknown op and a throwing callback.
     // `isTransactionStage` is a VALUE check, not just a type check — see its doc.
     if (m.type === OFFSCREEN_STAGE_EVENT) {
-      if (typeof m.op_id === 'string' && isTransactionStage(m.stage)) handleOffscreenStageEvent(m.op_id, m.stage);
+      if (typeof m.op_id === 'string' && isTransactionStage(m.stage)) {
+        // Malformed evidence parses to undefined and the crossing is still recorded, as an evidence-less entry (#1081).
+        handleOffscreenStageEvent(m.op_id, m.stage, parseSubmitEvidence(m.evidence));
+      }
       return false;
     }
     // Connectivity report from the offscreen realm. That realm executes the writes,
@@ -298,6 +363,20 @@ function registerOffscreenSignHandler(): void {
       void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
       return false;
     }
+    // The Guardian leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
+    // the leaf never submits on an answer that did not come from the handler.
+    if (m.type === OFFSCREEN_SUBMIT_GATE) {
+      if (typeof m.op_id !== 'string') return false;
+      handleOffscreenSubmitGate({
+        target: SW_TARGET,
+        type: OFFSCREEN_SUBMIT_GATE,
+        op_id: m.op_id,
+        evidence: parseSubmitEvidence(m.evidence)
+      }).then(sendResponse, (err: unknown) =>
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) })
+      );
+      return true;
+    }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
     handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
       // The handler already classifies vault errors; a throw here is an
@@ -315,6 +394,23 @@ function registerOffscreenSignHandler(): void {
   });
 }
 
+// What an approval window asks for; one that no live handler answered is an approval this worker no longer holds.
+const CONFIRMATION_REQUEST_TYPES: ReadonlySet<unknown> = new Set([
+  MidenMessageType.DAppGetPayloadRequest,
+  MidenMessageType.DAppSimulateTransactionRequest,
+  ...APPROVAL_CONFIRMATION_TYPES
+]);
+
+function confirmationRequestNotFound(req: unknown): Error | undefined {
+  const type: unknown = typeof req === 'object' && req !== null && 'type' in req ? req.type : undefined;
+  return CONFIRMATION_REQUEST_TYPES.has(type) ? Actions.confirmationNotFound(req) : undefined;
+}
+
+async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+  await startupHydration;
+  return processRequest(req, port);
+}
+
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
@@ -327,6 +423,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // Fire-and-forget — start processing asynchronously
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.ProcessTransactionsResponse };
+    case WalletMessageType.NoteDeliveryWrittenRequest:
+      // Counted, never a cleared idle finding: a running pass took its count before its query and writes that finding
+      // back when it ends, so only a count past the one it took makes the next sweep query.
+      countNoteDeliveryWrite();
+      return { type: WalletMessageType.NoteDeliveryWrittenResponse };
     case WalletMessageType.ReloadEndpointOverridesRequest:
       // Re-hydrate the override cache in THIS (service-worker) realm, then invalidate
       // every client that baked the old endpoints in at creation time. All three steps
@@ -357,8 +458,17 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     rediscovery to whoever happens to ask next means the first sync after a
       //     repoint judges notes against the old chain's fee.
       await loadEndpointOverrides();
+      //   - initBridgeConfig() hydrates the remote bridge config of the network the override selects; this realm has
+      //     no scheduler to notice the switch on its own.
+      await initBridgeConfig();
       resetSyncBackoffForEndpointChange();
       clearSyncFuseForEndpointChange();
+      //   - retireGuardianWritesForEndpointChange() retires guardian writes DECIDED against the
+      //     old node but not yet committed. The frontend retires its own loop, but the discard
+      //     rollback runs in THIS realm, takes no token, and spends a chain read and two operator
+      //     probes before it rebinds the account, so the loop's check lands after the write. An
+      //     endpoint save never moves `guardianEpoch` either, so the epoch CAS cannot see it.
+      retireGuardianWritesForEndpointChange();
       await resetMidenClient();
       primeNativeAssetId();
       await reloadOffscreenEndpointOverrides();
@@ -374,7 +484,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // byte-identical to before.
       try {
         const noteId = await withWasmClientLock(async hold => {
-          const id = await midenClientProxy.importNoteBytes(noteBytes);
+          const id = await midenClientProxy.importNoteBytes(noteBytes, hold);
           // The import is a network round trip, and an eviction during it releases the
           // mutex without stopping this callback — so the sync below would run with no
           // mutex held, concurrently with whoever holds it now. Throwing instead takes
@@ -391,15 +501,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         // Don't lose the note on a transient blip (resilience gap 1): queue the
         // bytes for the background import loop (wall-clock retry + dead-letter)
         // before surfacing the error, so a manual import isn't lost to one blip.
-        // Both abandonment shapes count, not just a network blip. A watchdog eviction
-        // and an offscreen deadline kill say the same thing this queue exists for —
-        // "we do not know whether this landed" — and neither matches
-        // `isLikelyNetworkError`, whose tokens are transport text: the poison message
+        // Every kill shape counts anywhere in the cause chain, not just a network blip.
+        // A watchdog eviction, an offscreen deadline kill and a terminated client say the same thing this queue
+        // exists for, "we do not know whether this landed", and `isLikelyNetworkError`
+        // cannot be relied on for any of them, since its tokens are transport text: the poison message
         // is closed wallet-authored text. So an eviction took the not-transient path
         // and dropped the bytes from the one mechanism built to preserve them, which
         // for a private note can be the only copy of the funds it carries. Matches
         // the queue's own classifier (`notes.ts`, `transient`).
-        if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+        if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
           // Logged rather than swallowed: the throw below reports the IMPORT
           // failure, which says nothing about whether the background retry was
           // actually armed. Losing both silently is what made this look like a
@@ -439,6 +549,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {
@@ -453,7 +565,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
           req.password,
           req.mnemonic,
           req.ownMnemonic,
-          req.guardianEndpoint
+          req.guardianEndpoint,
+          req.accessCode
         );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {
@@ -465,13 +578,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(
-        req.password,
-        req.mnemonic,
-        req.walletAccounts,
-        req.formatVersion,
-        req.importedAccounts
-      );
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts, req.importedAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
@@ -633,14 +740,28 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.PersistNewHotKeyResponse
       };
     case WalletMessageType.SwapHotKeyRequest:
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
+      };
+    case WalletMessageType.ImportHotKeyPairRequest:
+      await Actions.importHotKeyPair(req.accountPublicKey, req.keyPairPayload);
+      return {
+        type: WalletMessageType.ImportHotKeyPairResponse
       };
     case WalletMessageType.SetGuardianEndpointRequest:
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
+      };
+    case WalletMessageType.RevertGuardianEndpointRequest:
+      return {
+        type: WalletMessageType.RevertGuardianEndpointResponse,
+        outcome: await Actions.revertGuardianEndpointAfterDiscard(
+          req.accountPublicKey,
+          req.discardedEndpoint,
+          req.revertTo
+        )
       };
     case WalletMessageType.SetGuardianOperatorCommitmentRequest:
       await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);

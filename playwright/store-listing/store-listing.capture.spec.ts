@@ -5,7 +5,9 @@ import path from 'node:path';
 
 import {
   capturePlan,
+  exploreCatalogRoute,
   installCaptureShim,
+  installHardwareSecurityShim,
   guardianPubkeyRoute,
   guardianPubkeyStubCommitment,
   parkCapturePointer,
@@ -97,7 +99,11 @@ async function preparePage(page: Page): Promise<void> {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
 }
 
-async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEntry): Promise<BrowserContext> {
+async function newMobileContext(
+  platform: 'ios' | 'android',
+  item: CapturePlanEntry,
+  options?: { hardwareSecurity?: boolean }
+): Promise<BrowserContext> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: item.viewport,
@@ -107,6 +113,7 @@ async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEn
     reducedMotion: 'reduce'
   });
   await context.addInitScript(installCaptureShim, platform);
+  if (options?.hardwareSecurity) await context.addInitScript(installHardwareSecurityShim, platform);
   await context.route(guardianPubkeyRoute, route =>
     route.fulfill({
       status: 200,
@@ -114,6 +121,7 @@ async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEn
       body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
     })
   );
+  await context.route(exploreCatalogRoute, route => route.abort());
   return context;
 }
 
@@ -231,7 +239,8 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   const guardian = planEntry(platform, 'guardian');
   const protectionScene = flag === 'ios' ? 'ios-protection' : 'android-protection';
   const protection = planEntry(platform, protectionScene);
-  const onboardingContext = await newMobileContext(flag, protection);
+  // The protection chooser renders only where the vault's hardware probe passes.
+  const onboardingContext = await newMobileContext(flag, protection, { hardwareSecurity: true });
   const onboarding = await onboardingContext.newPage();
   await onboarding.goto(mobileBaseUrl, { waitUntil: 'domcontentloaded' });
   await preparePage(onboarding);
@@ -239,8 +248,8 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   await onboarding.getByRole('button', { name: 'Get started' }).click();
   await acknowledgeNetworkNotice(onboarding);
   await capture(onboarding, protection);
-  // The picker needs this create's seed, which the passcode step generates: set one up (entered, then
-  // confirmed), then open the picker from Meet your Guardian the way a user does.
+  // The provider sheet needs this create's seed, which the passcode step generates: set one up (entered,
+  // then confirmed), then open the sheet from Choose your Guardian's Change provider the way a user does.
   await onboarding.getByRole('button', { name: 'Set up your passcode' }).click();
   await onboarding.getByTestId('onboarding-setup-passcode').waitFor({ state: 'visible' });
   // The screen moves to its confirm phase on a short timer and ignores keys past six until then.

@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ReviewLayout, ReviewAction } from './ReviewLayout';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -59,6 +63,11 @@ const makeProps = (overrides: Partial<React.ComponentProps<typeof ReviewLayout>>
 describe('ReviewLayout', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('reserves remaining iOS gesture clearance around its pinned actions', () => {
+    const { container } = render(<ReviewLayout {...makeProps()} />);
+    expect(container.firstElementChild?.className).toContain('--wallet-control-safe-bottom,0px');
   });
 
   it('hides the bottom navbar while mounted', () => {
@@ -154,7 +163,8 @@ describe('ReviewLayout', () => {
   it('draws no bar between the hero and the rows, whatever the flow', () => {
     for (const accent of ['brand', 'send', 'receive', 'earn', 'swap'] as const) {
       const { container, unmount } = render(<ReviewLayout {...makeProps({ accent })} />);
-      expect(container.querySelector('.h-2.rounded-full')).not.toBeInTheDocument();
+      // The network pill's dot is the same shape; it belongs to the banner, not the body.
+      expect(container.querySelector('.h-2.rounded-full:not([data-testid="network-mode-banner"] *)')).toBeNull();
       unmount();
     }
   });
@@ -171,5 +181,43 @@ describe('ReviewLayout', () => {
       // Children still render inside the (now border-free) wrapper.
       expect(screen.getByTestId('child')).toBeInTheDocument();
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the review surface after the dwell', () => {
+    render(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'review');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<ReviewLayout {...makeProps()} errorId={errorId} error="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

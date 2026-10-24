@@ -1,11 +1,11 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import i18n from 'i18next';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 
 import { hasTelemetryChoice, isTelemetryEnabled } from 'lib/settings/helpers';
-import { initCrashReporting } from 'lib/telemetry/crash';
+import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
 
 import HelpImproveWalletScreen, { HelpImproveWalletScreen as NamedHelpImproveWalletScreen } from './HelpImproveWallet';
 import en from '../../../../public/_locales/en/en.json';
@@ -34,13 +34,18 @@ jest.mock('lib/platform/storage-adapter', () => ({
   })
 }));
 
-// Constructing a real Sentry client in jsdom is neither possible nor the point;
-// what matters is that accepting starts reporting and declining never does.
+let mockCrashReportingActive = false;
 jest.mock('lib/telemetry/crash', () => ({
-  initCrashReporting: jest.fn()
+  initCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = true;
+  }),
+  stopCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = false;
+  })
 }));
 
 const mockInitCrashReporting = initCrashReporting as jest.Mock;
+const mockStopCrashReporting = jest.mocked(stopCrashReporting);
 
 /**
  * Both buttons now AWAIT the consent write before calling `onSubmit`, so that
@@ -62,7 +67,9 @@ describe('HelpImproveWalletScreen', () => {
   beforeEach(async () => {
     localStorage.clear();
     for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
-    mockInitCrashReporting.mockReset();
+    mockCrashReportingActive = false;
+    mockInitCrashReporting.mockClear();
+    mockStopCrashReporting.mockClear();
 
     testI18n = i18n.createInstance();
     await testI18n.use(initReactI18next).init({
@@ -115,16 +122,21 @@ describe('HelpImproveWalletScreen', () => {
     }
   });
 
-  it('declining by test id is what records the refusal — the path the E2E suites take', async () => {
+  it('declining by test id records usage refusal while leaving crash reporting active', async () => {
     const onSubmit = jest.fn();
+    initCrashReporting();
+    mockInitCrashReporting.mockClear();
     renderScreen({ onSubmit });
 
     fireEvent.click(screen.getByTestId('help-improve-wallet-decline'));
+    expect(onSubmit).not.toHaveBeenCalled();
     await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(false);
     expect(hasTelemetryChoice()).toBe(true);
     expect(mockInitCrashReporting).not.toHaveBeenCalled();
+    expect(mockStopCrashReporting).not.toHaveBeenCalled();
+    expect(mockCrashReportingActive).toBe(true);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
@@ -141,6 +153,25 @@ describe('HelpImproveWalletScreen', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Help improve Wallet');
   });
 
+  it('says in one line what sharing is for, under the heading', () => {
+    renderScreen();
+    expect(screen.getByText("Share usage data so we can fix what's breaking.")).toBeInTheDocument();
+  });
+
+  it('groups the disclosure as three titled facts: what is shared, what stays private, no tracking', () => {
+    renderScreen();
+    const body = screen.getByTestId('help-improve-wallet-disclosure');
+
+    const titles = ['Only what helps us fix bugs', 'Your wallet stays private', 'No ads, no tracking'];
+    for (const title of titles) expect(within(body).getByText(title)).toBeInTheDocument();
+    // In that order: what is collected first, then the reassurances.
+    const text = body.textContent ?? '';
+    const positions = titles.map(title => text.indexOf(title));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    // And it still says the choice is not final.
+    expect(body).toHaveTextContent(/you can change this any time in settings/i);
+  });
+
   it('names what IS collected', () => {
     renderScreen();
     const body = screen.getByTestId('help-improve-wallet-disclosure');
@@ -152,20 +183,20 @@ describe('HelpImproveWalletScreen', () => {
     expect(body).toHaveTextContent(/your platform/i);
   });
 
-  it('names crash reporting, which this same setting also turns on', () => {
+  it('discloses always-on scrubbed crash reports separately from optional usage data', () => {
     renderScreen();
     const body = screen.getByTestId('help-improve-wallet-disclosure');
+    const crashReports = within(body).getByTestId('help-improve-wallet-crash-reports');
 
-    // The disclosure described the product events well and never mentioned
-    // crash reports, so a user could accept this prompt without being told
-    // stack traces would be sent. One setting, two kinds of data: both have to
-    // be named for the consent to be informed.
-    expect(body).toHaveTextContent(/if the app crashes/i);
-    expect(body).toHaveTextContent(/crash report/i);
-    // What is in one, in the terms a non-engineer can act on.
-    expect(body).toHaveTextContent(/where it happened in the code/i);
-    // And that it is scrubbed first — the reason sending one is acceptable.
-    expect(body).toHaveTextContent(/scrubbed to remove sensitive data/i);
+    expect(crashReports.tagName).toBe('P');
+    expect(crashReports).toHaveClass('text-body-sm', 'text-muted');
+    expect(crashReports).toHaveTextContent(en.helpImproveWalletCrashReports);
+    expect(crashReports).toHaveTextContent(/crash reports are sent either way/i);
+    expect(crashReports).toHaveTextContent(/where it happened in the code/i);
+    expect(crashReports).toHaveTextContent(/scrubbed to remove sensitive data/i);
+    expect(crashReports).toHaveTextContent(/with no identifier for you or your device/i);
+    expect(crashReports.nextElementSibling).toHaveTextContent(en.helpImproveWalletChangeAnyTime);
+    expect(within(body).getByText(en.helpImproveWalletSharedDescription)).not.toHaveTextContent(/crash report/i);
   });
 
   it('names what is NOT collected, including the things a wallet must never send', () => {
@@ -215,16 +246,21 @@ describe('HelpImproveWalletScreen', () => {
     expect(prompt).toContain(ACCEPT_LABEL);
   });
 
-  it('records acceptance and starts crash reporting', async () => {
+  it('records usage acceptance without restarting the active crash reporter', async () => {
     const onSubmit = jest.fn();
+    initCrashReporting();
+    mockInitCrashReporting.mockClear();
     renderScreen({ onSubmit });
 
     fireEvent.click(screen.getByText(ACCEPT_LABEL));
+    expect(onSubmit).not.toHaveBeenCalled();
     await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(true);
     expect(hasTelemetryChoice()).toBe(true);
-    expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+    expect(mockInitCrashReporting).not.toHaveBeenCalled();
+    expect(mockStopCrashReporting).not.toHaveBeenCalled();
+    expect(mockCrashReportingActive).toBe(true);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 

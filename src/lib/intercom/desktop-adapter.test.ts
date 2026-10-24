@@ -48,6 +48,7 @@ jest.mock('lib/miden/back/actions', () => ({
   revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
   persistNewHotKey: jest.fn().mockResolvedValue(undefined),
   swapHotKey: jest.fn().mockResolvedValue(undefined),
+  importHotKeyPair: jest.fn().mockResolvedValue(undefined),
   setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
   setGuardianOperatorCommitment: jest.fn().mockResolvedValue(undefined),
   setGuardianSyncStatus: jest.fn().mockResolvedValue(undefined),
@@ -144,6 +145,8 @@ describe('DesktopIntercomAdapter', () => {
         'test123',
         'word1 word2 word3',
         false,
+        undefined,
+        // No mainnet access code in this request.
         undefined
       );
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
@@ -164,7 +167,8 @@ describe('DesktopIntercomAdapter', () => {
         'pw',
         'a b c',
         true,
-        'https://guardian.example'
+        'https://guardian.example',
+        undefined
       );
     });
 
@@ -177,17 +181,10 @@ describe('DesktopIntercomAdapter', () => {
         password: 'test123',
         mnemonic: 'word1 word2 word3',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
-        'test123',
-        'word1 word2 word3',
-        [],
-        2,
-        importedAccounts
-      );
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', [], importedAccounts);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 
@@ -544,6 +541,14 @@ describe('DesktopIntercomAdapter', () => {
           newHotPubKey: 'new-pub'
         } as any)
       ).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.ImportHotKeyPairRequest,
+          accountPublicKey: 'acc',
+          keyPairPayload: 'hot:evm'
+        } as any)
+      ).toEqual({ type: WalletMessageType.ImportHotKeyPairResponse });
 
       expect(
         await adapter.request({

@@ -1,41 +1,63 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { usdFormatterFor } from 'lib/i18n/numbers';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
-import { getPendingNotesUsdTotal } from 'lib/wallet-prompts';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { getPendingNotesUsdTotal, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 
 import { ClaimsLoadingBar } from './ActivityClaimsStatus';
 import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
+import type { IHistoryEntry } from './IHistoryEntry';
 import { useActivityClaimList } from './useActivityClaimList';
 
 interface ActivityPendingHistoryProps {
   search: string;
   filter: ActivityFilter;
+  predicate?: (entry: IHistoryEntry) => boolean;
+  catalogPending?: boolean;
+  /** The filter's own empty state, in place of the generic one. */
+  emptyState?: React.ReactNode;
   programId?: string | null;
   /** Forwarded to the list below, which owns the loading state the caller reports on. */
   onInitialLoad?: () => void;
 }
 
-export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
+export const ActivityPendingHistory = ({
+  search,
+  filter,
+  programId,
+  onInitialLoad,
+  predicate,
+  catalogPending,
+  emptyState
+}: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
   const {
     representedItems,
     listItems,
     renderPendingItem,
     acceptMany,
+    cannotPayFee,
     account,
     isLoadingNotes,
     hidden,
     declinedIds,
     hiddenCount
   } = useActivityClaimList(search, filter);
+  useUserVisibleError(hidden.failed ? 'activityHiddenNotesError' : null, 'inline');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  useBridgeConfigSnapshot({ load: false });
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
+  const isRecovering = recovery !== null && recovery.step !== 'history-partial' && recovery.step !== 'history-failed';
+  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering || catalogPending === true;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
@@ -47,6 +69,8 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   // Every acceptable transfer is already in flight: the action stays, in its loading state, so it
   // does not vanish from under the tap that started it.
   const acceptingAll = claimingCount > 0 && claimableNotes.length === 0;
+  // Every transaction Accept All would queue is certain to fail on the fee; each card says why.
+  const acceptAllBlocked = claimableNotes.length > 0 && cannotPayFee(claimableNotes);
   const showAcceptAll = filter === 'pending' && (claimableNotes.length > 0 || acceptingAll);
   // Restore is offered only while a declined transfer could still be accepted.
   const showRestore = filter === 'pending' && hiddenCount > 0;
@@ -54,13 +78,10 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   // All is about to accept - so it is read off the SAME list the cards below come from, which is
   // `isShown`'s, and a declined transfer is not on it. `HomePrompts` reads the same set through
   // the same store, which is what makes the banner and this row agree.
-  const waitingTotalUsd = useMemo(
-    () =>
-      getPendingNotesUsdTotal(
-        listItems.map(item => item.note),
-        tokenPrices
-      ),
-    [listItems, tokenPrices]
+  // Read the current verified price assets on each render.
+  const waitingTotalUsd = getPendingNotesUsdTotal(
+    listItems.map(item => item.note),
+    tokenPrices
   );
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
@@ -89,7 +110,10 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
 
   return (
     <>
-      <ClaimsLoadingBar loading={isLoadingNotes} />
+      <ClaimsLoadingBar loading={isFetching} label={t('activityFetchingHistoryAndNotes')} />
+      <div role="status" aria-live="polite" className="shrink-0 px-4 text-xs text-text-secondary-token">
+        {isFetching && <p className="pt-2 pb-1">{t('activityFetchingHistoryAndNotes')}</p>}
+      </div>
 
       {/* `pb-28` clears the floating navbar. There is no pinned footer any more: Accept All sits
           in the row below, so the tab keeps its navbar the way every other tab does. */}
@@ -134,7 +158,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 className="w-auto shrink-0"
                 data-testid="pending-row-accept-all"
                 title={acceptingAll ? t('claiming') : t('acceptAll')}
-                disabled={claimableNotes.length === 0 && !acceptingAll}
+                disabled={(claimableNotes.length === 0 && !acceptingAll) || acceptAllBlocked}
                 isLoading={acceptingAll}
                 onClick={() => acceptAll()}
               />
@@ -147,13 +171,19 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             programId={programId}
             fullHistory
             centerEmptyState
+            emptyState={emptyState}
             scrollParentRef={scrollRef}
             searchQuery={search}
             filter={filter}
+            predicate={predicate}
             pendingItems={representedItems}
             drawnPendingItems={listItems}
             renderPendingItem={renderPendingItem}
             onInitialLoad={onInitialLoad}
+            onLoadingChange={setIsLoadingHistory}
+            externalLoading={isLoadingNotes || isRecovering || catalogPending}
+            deferInitialLoad={catalogPending === true}
+            hideLoadingSpinner
           />
         </div>
       </div>

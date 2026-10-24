@@ -20,14 +20,6 @@ module.exports = {
   Program: {
     fromString: jest.fn()
   },
-  // No `ChainAnchor` entry on purpose (#784). Both suites that decode a
-  // proposal's anchor install their own spy, so a shared default is reached by
-  // nothing — and it would be actively harmful if it ever were: returning a
-  // truthy anchor makes a suite that forgot to stub the decode pass silently
-  // ON THE ANCHORED PATH, which is the failure the guardian suite's own
-  // `mockReset` + explicit default exists to prevent. The unstubbed
-  // "Cannot read properties of undefined (reading 'deserialize')" is the louder
-  // outcome, and it names the member to stub.
   RecordPlaintext: {
     fromString: jest.fn()
   },
@@ -56,7 +48,9 @@ module.exports = {
     Consumed: 'Consumed',
     Committed: 'Committed',
     Expected: 'Expected',
-    Processing: 'Processing'
+    Processing: 'Processing',
+    List: 'List',
+    Unverified: 'Unverified'
   },
   // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
   // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
@@ -69,6 +63,9 @@ module.exports = {
   NoteAssets: jest.fn(),
   NoteAttachment: jest.fn(),
   NoteArray: jest.fn(),
+  TransactionRequest: {
+    deserialize: jest.fn(() => ({ expectedOutputOwnNotes: () => [] }))
+  },
   TransactionRequestBuilder: jest.fn(),
   BasicFungibleFaucetComponent: jest.fn(),
   TransactionResult: jest.fn(),
@@ -86,6 +83,7 @@ module.exports = {
   // The lazy entry's WASM loader. Static classes above are usable only after it
   // resolves in production; the mock has no module to load, so it resolves empty.
   getWasmOrThrow: jest.fn(async () => ({})),
+  MidenClient: { ready: jest.fn(async () => undefined) },
   SigningInputs: jest.fn(),
   Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
   AccountInterface: jest.fn(),

@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { AlertSheet } from 'components/ui/AlertSheet';
 import { ButtonVariant } from 'components/ui/Button';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { dispatchAlertClose, dispatchConfirmClose, useModalsParams } from 'lib/ui/dialog';
 
 /**
@@ -23,28 +22,12 @@ const Dialogs: FC = () => {
     dispatchConfirmClose(true);
   }, []);
 
-  // Handle mobile back button/gesture to close dialogs
-  useMobileBackHandler(
-    () => {
-      if (confirmParams.isOpen) {
-        dispatchConfirmClose(false);
-        return true;
-      }
-      if (alertParams.isOpen) {
-        dispatchAlertClose();
-        return true;
-      }
-      return false;
-    },
-    [confirmParams.isOpen, alertParams.isOpen],
-    { overlay: true }
-  );
-
   return (
     <>
       <AlertSheet
         open={confirmParams.isOpen}
         title={confirmParams.title}
+        variant={confirmParams.variant}
         actionLabel={confirmParams.confirmLabel ?? t('ok')}
         actionVariant={confirmParams.destructive ? ButtonVariant.Destructive : ButtonVariant.Primary}
         onAction={handleConfirm}
@@ -59,6 +42,7 @@ const Dialogs: FC = () => {
       <AlertSheet
         open={alertParams.isOpen}
         title={alertParams.title}
+        variant={alertParams.variant}
         actionLabel={t('ok')}
         onAction={dispatchAlertClose}
         screenKey="alert"

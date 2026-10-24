@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Bread",
-  "version": "1.16.2",
+  "version": "1.17.6",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
@@ -35,7 +35,7 @@
     "gecko": {
       "id": "{34ac229e-1cf5-4e4c-8a77-988155c4360f}",
       "data_collection_permissions": {
-        "required": ["none"],
+        "required": ["locationInfo"],
         "optional": ["technicalAndInteraction"]
       }
     }

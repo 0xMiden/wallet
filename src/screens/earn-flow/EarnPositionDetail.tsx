@@ -56,7 +56,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
               variant={ButtonVariant.Primary}
               accent="earn"
               disabled={!position.id || position.stale || Number(position.withdrawable) <= 0}
-              onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+              onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw`)}
               className="flex-1 max-w-none"
             />
           </>
@@ -69,7 +69,13 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
       ) : pending ? null : (
         <>
           {loadFailed && <EarnLoadError onRetry={refetch} />}
-          <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
+          {/* As far under the divider as the vault page's caption and the Earn tab's. */}
+          <EarnSummaryPanel
+            summary={summary}
+            titleId="earn-position-summary-title"
+            showMetrics={false}
+            className="mt-7"
+          />
 
           <PositionAreaChart position={position} />
 
@@ -219,16 +225,18 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
         </span>
       )
     },
+    // A market with its own name (a Morpho market) says which of the protocol's markets holds the position.
+    ...(position.marketName ? [{ label: t('earnMarketLabel'), value: position.marketName }] : []),
     { label: t('network'), value: position.network },
     { label: t('position'), value: t('earnAssetOnNetwork', { asset: position.asset, network: position.network }) },
     { label: t('route'), value: position.route },
     { label: t('withdraw'), value: position.withdrawTime }
   ];
 
-  // One `fill` card of label/value rows with hairlines between them, in place of the 4px rule and
-  // five hand-built rows.
+  // One outline card of label/value rows with hairlines between them, in Nunito as on the deposit
+  // review and its receipt, in place of the 4px rule and five hand-built rows.
   return (
-    <DetailCard>
+    <DetailCard surface="outline" className="face-heading">
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label}>
           {row.value}

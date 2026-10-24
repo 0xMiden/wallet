@@ -1,14 +1,18 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { PendingActivityCard, type PendingActivityItem, type PendingActivityStatus } from './PendingActivityCard';
 
 const mockNavigate = jest.fn();
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 // The presets, with the transition of each tagged so the card's CHOICE of transition is readable.
 // `reducedMotionTransition` keeps its real shape: it is what the card falls back to, and the tests
@@ -42,6 +46,7 @@ jest.mock('framer-motion', () => {
   });
   return { ...actual, motion };
 });
+
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: (path: string) => mockNavigate(path) }));
 jest.mock('app/icons/v2', () => ({
@@ -49,6 +54,17 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Receive: 'receive', ChevronDown: 'chevron-down' }
 }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 const note: ClaimableNoteWithMetadata = {
   id: 'note-1',
@@ -70,6 +86,19 @@ const renderCard = (
 };
 
 describe('PendingActivityCard', () => {
+  it('names a transfer of the testnet bridge faucet by its label', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const item: PendingActivityItem = {
+      note: { ...note, faucetId: TEST_MIDEN_USDC_FAUCET, metadata: { name: 'USDC', symbol: 'USDC', decimals: 6 } },
+      status: 'pending'
+    };
+    render(<PendingActivityCard item={item} onAccept={jest.fn()} onReject={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+    expect(screen.getByText('1 Test Epoch USDC')).toBeInTheDocument();
+  });
+
   // Resolving a `height: auto` keyframe makes Framer measure the element, which calls
   // `window.scrollTo` — unimplemented in jsdom, and noisy rather than fatal. Stub it away.
   beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
@@ -178,7 +207,7 @@ describe('PendingActivityCard', () => {
       const decline = screen.getByRole('button', { name: 'activityRejectTransfer' });
       expect(decline).toHaveClass('w-2/5');
       // No animated wrapper left to replay: the button sits directly in the static footer row.
-      expect(decline.parentElement).toHaveClass('flex', 'gap-2.5');
+      expect(decline.parentElement).toHaveClass('flex', 'border-t', 'border-hairline');
       expect(decline.parentElement?.className).not.toContain('overflow-hidden');
     });
 
@@ -189,6 +218,136 @@ describe('PendingActivityCard', () => {
       expect(accept).not.toBeDisabled();
       expect(accept).toHaveAttribute('aria-busy', 'true');
       expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    });
+
+    it('withholds Accept for a transfer that cannot pay its fee and says why with the card closed', () => {
+      const onAccept = jest.fn();
+      renderCard('pending', { cannotPayFee: true }, onAccept);
+
+      const accept = screen.getByRole('button', { name: 'activityAcceptTransfer' });
+      expect(accept).toBeDisabled();
+      fireEvent.click(accept);
+      expect(onAccept).not.toHaveBeenCalled();
+      const notice = screen.getByTestId('pending-activity-fee-notice');
+      expect(notice).toHaveTextContent('insufficientFeeAssetShort');
+      expect(accept).toHaveAttribute('aria-describedby', notice.id);
+      // Declining costs nothing, so it stays available.
+      expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+    });
+
+    it("withholds a failed claim's Retry when it cannot pay its fee", () => {
+      renderCard('failed', { cannotPayFee: true });
+
+      expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      expect(screen.getByTestId('pending-activity-fee-notice')).toBeInTheDocument();
+    });
+
+    it('a held claim offers Retry, enabled and not loading, and hands the item back (#1081)', () => {
+      const onRetryHeld = jest.fn();
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={onRetryHeld} />);
+      const button = screen.getByRole('button', { name: 'retry' });
+      expect(button).not.toBeDisabled();
+      // A loading Button refuses taps through pointer events, which jsdom does not apply, so the class is the check.
+      expect(button).not.toHaveClass('pointer-events-none');
+      fireEvent.click(button);
+      expect(onRetryHeld).toHaveBeenCalledWith(item);
+    });
+
+    it('explains a refused, dropped, or unanswered submission on the closed card (#1689)', () => {
+      const onRetryHeld = jest.fn();
+      const onAccept = jest.fn();
+      const refused: PendingActivityItem = {
+        note,
+        status: 'claiming',
+        txId: 'tx-held',
+        held: true,
+        submission: {
+          kind: 'rejected',
+          messageKey: 'submissionRejectedByNetwork',
+          details: 'grpc request failed for submit_proven_transaction: invalid request parameters'
+        }
+      };
+      const { unmount } = render(<PendingActivityCard item={refused} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+      const notice = screen.getByTestId('pending-activity-submission');
+      expect(notice).toHaveTextContent('submissionRejectedByNetwork');
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(onRetryHeld).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetryHeld).toHaveBeenCalledTimes(1);
+      expect(onAccept).not.toHaveBeenCalled();
+      unmount();
+
+      const dropped = renderCard('claiming', {
+        held: true,
+        txId: 'tx-drop',
+        submission: { kind: 'interrupted', messageKey: 'submissionInterrupted' }
+      });
+      expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionInterrupted');
+      expect(screen.getByTestId('pending-activity-submission')).toHaveAttribute('role', 'status');
+      expect(screen.getByRole('button', { name: 'retry' })).toHaveAttribute('aria-busy', 'false');
+      dropped.unmount();
+
+      renderCard('failed', { submission: { kind: 'unanswered', messageKey: 'submissionUnanswered' } });
+      expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionUnanswered');
+      expect(screen.queryByText('noteClaimFailedRetry')).toBeNull();
+    });
+
+    it('offers Retry for a stored submission only on a held claim, the one its handler can act on (#1689)', () => {
+      const onRetryHeld = jest.fn();
+      const onAccept = jest.fn();
+      const submission = { kind: 'interrupted', messageKey: 'submissionInterrupted' } as const;
+      const inFlight: PendingActivityItem = { note, status: 'claiming', txId: 'tx-live', submission };
+      const { unmount } = render(<PendingActivityCard item={inFlight} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+      expect(screen.queryByRole('button', { name: 'retry' })).toBeNull();
+      const action = screen.getByRole('button', { name: 'activityAcceptingTransfer' });
+      expect(action).toHaveAttribute('aria-busy', 'true');
+      expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionInterrupted');
+      fireEvent.click(action);
+      expect(onRetryHeld).not.toHaveBeenCalled();
+      expect(onAccept).not.toHaveBeenCalled();
+      unmount();
+
+      const heldItem: PendingActivityItem = { ...inFlight, held: true };
+      render(<PendingActivityCard item={heldItem} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetryHeld).toHaveBeenCalledWith(heldItem);
+      expect(onAccept).not.toHaveBeenCalled();
+    });
+
+    it('says a stored submission sentence once on an open card, not again in the folded hint (#1689)', () => {
+      renderCard('claiming', {
+        held: true,
+        txId: 'tx-held',
+        submission: { kind: 'rejected', messageKey: 'submissionRejectedByNetwork' }
+      });
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getAllByText('submissionRejectedByNetwork')).toHaveLength(1);
+      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('transactionNotConfirmedHint');
+    });
+
+    it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('transactionNotConfirmedHint');
+      expect(hint).not.toHaveTextContent('activityNotYetAccepted');
+    });
+
+    it('a refusal replaces the hint and opens the folded section (#1081)', () => {
+      const item: PendingActivityItem = {
+        note,
+        status: 'claiming',
+        txId: 'tx-held',
+        held: true,
+        retryError: 'The Guardian is still holding this transaction.'
+      };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveAttribute('data-tone', 'negative');
+      expect(hint).toHaveAttribute('role', 'alert');
     });
   });
 
@@ -268,22 +427,210 @@ describe('PendingActivityCard', () => {
       // Nothing subordinate to say, so there is no empty second line under it.
       expect(notice.querySelector('[data-slot="body"]')).toBeNull();
     });
-    it('draws Decline and Accept as the app own pill buttons, at the row action size', () => {
+    it('runs Decline and Accept edge to edge along the card foot, under a hairline', () => {
       renderCard('pending');
 
       for (const name of ['activityRejectTransfer', 'activityAcceptTransfer']) {
         const button = screen.getByRole('button', { name });
-        // The shared `sm` size — the same one the Pending list's Accept All uses — not the 48px
-        // page CTA, which took over a card whose whole row above it is 40px, and not a
-        // squared-off panel with its shape argued away.
-        expect(button).toHaveClass('h-9', 'rounded-full', 'text-cta-sm');
-        expect(button).not.toHaveClass('h-12', 'text-cta');
+        // Square-cornered 48px halves of one action bar: the card's own rounded clip shapes the
+        // outer corners, so the buttons carry none of their own.
+        expect(button).toHaveClass('h-12', 'rounded-none', 'text-cta-sm');
+        expect(button).not.toHaveClass('rounded-full', 'text-cta');
         expect(button.className).not.toContain('!');
-        expect(button.className).not.toContain('text-sm');
       }
-      // The footer's bottom padding came down with them, so a shorter button leaves no band of
-      // empty space under the card.
-      expect(screen.getByRole('button', { name: 'activityRejectTransfer' }).parentElement).toHaveClass('pb-3');
+      // Decline is the quiet half: no fill and no outline of its own inside the bar.
+      expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toHaveClass('border-0');
+      // The bar sits flush on the card's foot: no side or bottom padding around it.
+      const bar = screen.getByRole('button', { name: 'activityRejectTransfer' }).parentElement;
+      expect(bar).toHaveClass('border-t', 'border-hairline');
+      expect(bar?.className).not.toMatch(/\bp[xb]-/);
     });
+  });
+});
+
+describe('PendingActivityCard live failure reporting', () => {
+  const advance = (ms: number) => act(() => jest.advanceTimersByTime(ms));
+  const card = (item: PendingActivityItem) => (
+    <PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />
+  );
+  const open = () => fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    localStorage.clear();
+    resetActivityReadState();
+  });
+
+  it('reports a pending row that becomes failed while its real Notice is open after 1000 ms', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(card({ note, status: 'failed' }));
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<PendingActivityItem>([
+    { note, status: 'failed' },
+    { note, status: 'claiming', txId: 'tx-held', held: true, retryError: 'Saved refusal' }
+  ])('keeps an already-failed first render silent: %p', item => {
+    render(card(item));
+    if (screen.queryByRole('button', { expanded: false })) open();
+    expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('data-tone', 'negative');
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps a reopened failed row silent after its earlier mount ended before the dwell', () => {
+    const first = render(card({ note, status: 'pending' }));
+    open();
+    first.rerender(card({ note, status: 'failed' }));
+    advance(999);
+    first.unmount();
+
+    render(card({ note, status: 'failed' }));
+    open();
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('starts the dwell only when the folded live failure is displayed', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    rerender(card({ note, status: 'failed' }));
+    advance(5000);
+    expect(screen.queryByTestId('pending-activity-hint')).toBeNull();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    open();
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+
+  it('does not restart the same failure dwell when the same note receives refreshed details', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed' }));
+    advance(500);
+    rerender(card({ note: { ...note, receivedAt: 123 }, status: 'failed' }));
+    expect(screen.getByText('activityReceivedOn')).toBeInTheDocument();
+    advance(499);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    rerender(card({ note: { ...note, receivedAt: 456 }, status: 'failed' }));
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['clear', 'unmount'] as const)('cancels a live failure shorter than the dwell on %s', end => {
+    const view = render(card({ note, status: 'pending' }));
+    open();
+    view.rerender(card({ note, status: 'failed' }));
+    advance(999);
+    if (end === 'unmount') view.unmount();
+    else view.rerender(card({ note, status: 'pending' }));
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not transfer a live failure to a different note loaded already failed', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed' }));
+    advance(999);
+    rerender(card({ note: { ...note, id: 'note-other' }, status: 'failed' }));
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('lets a replacement pending note create its own later live failure', () => {
+    const other = { ...note, id: 'note-other' };
+    const { rerender } = render(card({ note, status: 'failed' }));
+    open();
+    rerender(card({ note: other, status: 'pending' }));
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    rerender(card({ note: other, status: 'failed' }));
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+
+  it('starts another live episode after a displayed failure recovers', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    rerender(card({ note, status: 'pending' }));
+    advance(1000);
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['noteClaimFailedRetry', 'notice'],
+      ['noteClaimFailedRetry', 'notice']
+    ]);
+  });
+});
+
+describe('Guardian wait on a pending card (#1666)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('keeps the current wait visible while closed and removes it on the same card when cleared', () => {
+    const item: PendingActivityItem & { guardianBusy: true } = {
+      note,
+      status: 'claiming',
+      txId: 'tx-wait',
+      guardianBusy: true
+    };
+    const onAccept = jest.fn();
+    const view = render(<PendingActivityCard item={item} onAccept={onAccept} />);
+    const card = view.container.querySelector('[data-pending-status="claiming"]');
+
+    expect(card).not.toBeNull();
+    expect(screen.getByRole('button', { expanded: false })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+    expect(view.container.textContent).toContain('guardianBusyStep');
+    const reason = screen.getByText('guardianBusyStep');
+    expect(reason).toBeVisible();
+    expect(reason.closest('[aria-hidden="true"]')).toBeNull();
+
+    view.rerender(<PendingActivityCard item={{ note, status: 'claiming', txId: 'tx-wait' }} onAccept={onAccept} />);
+    expect(view.container.querySelector('[data-pending-status="claiming"]')).toBe(card);
+    expect(view.container.textContent).not.toContain('guardianBusyStep');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('keeps a held Retry refusal ahead of a stale Guardian wait flag', () => {
+    const item: PendingActivityItem & { guardianBusy: true } = {
+      note,
+      status: 'claiming',
+      txId: 'tx-held',
+      held: true,
+      retryError: 'Saved refusal',
+      guardianBusy: true
+    };
+    const onAccept = jest.fn();
+    const onRetryHeld = jest.fn();
+    const { container } = render(<PendingActivityCard item={item} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('Saved refusal');
+    const retry = screen.getByRole('button', { name: 'retry' });
+    expect(retry).toBeEnabled();
+    expect(retry).not.toHaveAttribute('aria-busy', 'true');
+    expect(container.textContent).not.toContain('guardianBusyStep');
+    fireEvent.click(retry);
+    expect(onRetryHeld).toHaveBeenCalledWith(item);
+    expect(onAccept).not.toHaveBeenCalled();
   });
 });

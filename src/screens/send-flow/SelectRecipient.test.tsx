@@ -1,13 +1,14 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { MotionConfig } from 'framer-motion';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
-jest.mock('lib/epoch', () => ({
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  EPOCH_DESTINATION_CHAIN_ID: 11155111
-}));
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -17,7 +18,6 @@ const MIDEN_ADDRESS = 'mtst1recipient';
 
 const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   },
@@ -83,6 +83,13 @@ describe('SelectRecipient', () => {
     expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
+  it('hides the placeholder while the recipient field is focused, as the other text fields do', () => {
+    renderRecipient({ onScan: jest.fn() });
+    const field = screen.getByTestId('send-recipient-input');
+    expect(field).toHaveClass('focus:placeholder:text-transparent');
+    expect(field).toHaveAttribute('placeholder');
+  });
+
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
@@ -122,16 +129,17 @@ describe('SelectRecipient', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
     const chip = screen.getByTestId('send-network-sepolia');
-    expect(chip.tagName).toBe('SPAN');
+    expect(chip.tagName).not.toBe('BUTTON');
     expect(chip).toHaveTextContent('Sepolia');
   });
 
-  it('offers the bridge networks as chips once there is more than one', () => {
+  it('offers bridge networks in a picker once there is more than one', () => {
     mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
     try {
       const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
       expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('send-network-picker'));
       expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
       fireEvent.click(screen.getByTestId('send-network-base'));
       expect(props.onSelectNetwork).toHaveBeenCalledWith('base');
@@ -303,6 +311,76 @@ describe('SelectRecipient — paste', () => {
   });
 });
 
+describe('SelectRecipient: clear (#503)', () => {
+  const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+  it('offers no clear action while the address field is empty', () => {
+    renderRecipient();
+    expect(clearButton()).toBeNull();
+  });
+
+  it('clears an entered address through the change handler typing uses, keeping focus', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: MIDEN_ADDRESS,
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+    expect(screen.getByTestId('send-recipient-input')).toHaveFocus();
+  });
+
+  it('empties the field and drops the button once its owner takes the empty address', () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState(MIDEN_ADDRESS);
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(<Owner />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(screen.getByTestId('send-recipient-input')).toHaveValue('');
+    expect(clearButton()).toBeNull();
+  });
+
+  it('offers to clear an address of only spaces, which the pills already treat as empty', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: '   ',
+      onPaste: jest.fn(),
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+    expect(screen.getByTestId('send-paste')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+  });
+
+  it('sits at the end of the address line, the field shrinking for it', () => {
+    renderRecipient({ address: MIDEN_ADDRESS });
+    const field = screen.getByTestId('send-recipient-input');
+    const clear = screen.getByRole('button', { name: 'clear' });
+    expect(clear.parentElement).toBe(field.parentElement);
+    expect(field).toHaveClass('min-w-0', 'flex-1');
+    expect(field).not.toHaveClass('w-full');
+    expect(clear).toHaveClass('-my-2');
+    expect(clear).not.toHaveClass('-mr-3');
+  });
+});
+
 describe('SelectRecipient — address field growth', () => {
   // The field measures with height:auto, which cannot be interpolated, so the height it is drawn
   // at has to go back before the new one or the CSS transition is cancelled. Restoring the last
@@ -325,5 +403,113 @@ describe('SelectRecipient — address field growth', () => {
     rerender(<SelectRecipient {...baseRecipientProps()} address="mtst1abcdefghijklmnop" />);
 
     expect(writes).toEqual(['auto', '90px', '150px']);
+  });
+});
+
+describe('SelectRecipient user-visible errors', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const settleMotion = async () => {
+    await act(async () => {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+  };
+
+  it.each(['invalidEthereumAddress', 'cannotSendToSelf', 'midenAddressWrongNetwork', 'invalidMidenAccountId'])(
+    'reports the visible %s recipient refusal without the address',
+    async error => {
+      const Owner = () => {
+        const [address, setAddress] = React.useState('');
+        return (
+          <SelectRecipient
+            {...baseRecipientProps()}
+            address={address}
+            error={address ? error : undefined}
+            onAddressChange={event => setAddress(event.target.value)}
+          />
+        );
+      };
+      render(
+        <MotionConfig skipAnimations>
+          <Owner />
+        </MotionConfig>
+      );
+      fireEvent.change(screen.getByTestId('send-recipient-input'), { target: { value: MIDEN_ADDRESS } });
+      await settleMotion();
+      expect(screen.getByText(error)).toBeVisible();
+      expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+
+      await act(async () => jest.advanceTimersByTimeAsync(999));
+      expect(screen.getByText(error)).toBeVisible();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTimeAsync(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[error, 'inline']]);
+      await act(async () => jest.advanceTimersByTimeAsync(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('reports the camera denial passed back after pressing Scan QR code', async () => {
+    const Owner = () => {
+      const [error, setError] = React.useState<string>();
+      return (
+        <SelectRecipient {...baseRecipientProps()} error={error} onScan={() => setError('cameraPermissionDenied')} />
+      );
+    };
+    render(
+      <MotionConfig skipAnimations>
+        <Owner />
+      </MotionConfig>
+    );
+    fireEvent.click(screen.getByTestId('send-scan-icon').closest('button')!);
+    await settleMotion();
+    expect(screen.getByText('cameraPermissionDenied')).toBeVisible();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(screen.getByText('cameraPermissionDenied')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['cameraPermissionDenied', 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels reporting when correcting the recipient removes the error before 1000 ms', async () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState('');
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          error={address ? 'invalidMidenAccountId' : undefined}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(
+      <MotionConfig skipAnimations>
+        <Owner />
+      </MotionConfig>
+    );
+    fireEvent.change(screen.getByTestId('send-recipient-input'), { target: { value: 'mtst1bad' } });
+    await settleMotion();
+    expect(screen.getByText('invalidMidenAccountId')).toBeVisible();
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await settleMotion();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.queryByText('invalidMidenAccountId')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

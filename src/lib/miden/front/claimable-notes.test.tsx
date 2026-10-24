@@ -2,6 +2,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { pagerMotion } from 'lib/animation';
 import {
   guardianSyncFuseKey,
   __resetSyncFuseStateForTests,
@@ -10,6 +11,7 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 
 const _g = globalThis as any;
 _g.__cnTest = {
@@ -20,21 +22,30 @@ _g.__cnTest = {
   uncompletedTxs: [] as any[],
   intercomRequest: jest.fn(),
   metadataCache: {} as Record<string, any>,
-  fetchMetadata: jest.fn(async () => ({ base: { decimals: 6, symbol: 'X', name: 'X' } })),
+  fetchMetadata: jest.fn(async () => ({ decimals: 6, symbol: 'X', name: 'X' })),
   setTokensBaseMetadata: jest.fn(async () => undefined),
   lastFetchPromise: Promise.resolve(),
   lastFetchData: undefined as any,
   walletState: {
     extensionClaimableNotes: null as any,
     assetsMetadata: {} as Record<string, any>,
+    tokenMetadataOverrides: {} as Record<string, any>,
     setExtensionClaimableNotes: jest.fn(),
     setAssetsMetadata: jest.fn()
   }
 };
 
 jest.mock('lib/platform', () => ({
-  isExtension: () => (globalThis as any).__cnTest.isExtension,
-  isIOS: () => (globalThis as any).__cnTest.isIOS
+  isExtension: () => (globalThis as any).__cnTest?.isExtension ?? false,
+  // False on an extension page an extension reload or update orphaned.
+  hasExtensionRuntime: () =>
+    ((globalThis as any).__cnTest?.isExtension ?? false) && ((globalThis as any).__cnTest?.hasExtensionRuntime ?? true),
+  isIOS: () => (globalThis as any).__cnTest?.isIOS ?? false
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => (globalThis as any).__cnTest.actualNativeId,
+  getNativeAssetMetadataSync: () => (globalThis as any).__cnTest.nativeMetadata
 }));
 
 jest.mock('lib/store', () => {
@@ -42,13 +53,20 @@ jest.mock('lib/store', () => {
   (fn as any).getState = () => (globalThis as any).__cnTest.walletState;
   return {
     useWalletStore: fn,
-    getIntercom: () => ({ request: (globalThis as any).__cnTest.intercomRequest })
+    getIntercom: () => ({ request: (globalThis as any).__cnTest.intercomRequest }),
+    // As the store's accessor over the same entries the local list reads: an entry no override made is the faucet's record.
+    faucetMetadataOf: (faucetId: string) => {
+      const t = (globalThis as any).__cnTest;
+      return t.walletState.tokenMetadataOverrides[faucetId] === undefined ? t.metadataCache[faucetId] : undefined;
+    }
   };
 });
 
 // The SWR config is where the #777 gate lives (`isPaused`), so the mock has to keep it
 // rather than swallow it — a mock that only calls the fetcher makes the gate untestable.
 const swrConfigSeen: any[] = [];
+// One stable mutate, so a test can see whether a refresh revalidated.
+const mockSwrMutate = jest.fn();
 
 jest.mock('lib/swr', () => ({
   useRetryableSWR: jest.fn((_key: any, fetcher: any, config: any) => {
@@ -72,7 +90,7 @@ jest.mock('lib/swr', () => ({
       // settled it wins for its own key, which is what SWR does on revalidation.
       const settled = (globalThis as any).__cnTest.liveDataByKey[JSON.stringify(_key)];
       const data = settled ?? config?.fallbackData;
-      return { data, mutate: jest.fn(), isLoading: data === undefined, isValidating: false };
+      return { data, mutate: mockSwrMutate, isLoading: data === undefined, isValidating: false };
     }
     return { data: result, mutate: jest.fn(), isLoading: false, isValidating: false };
   })
@@ -90,6 +108,12 @@ jest.mock('../sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => (globalThis as any).__cnTest.currentHold ?? null,
   withWasmClientLock: async (fn: (hold: object) => Promise<any>, options?: any) => {
     lockOptionsSeen.push(options);
+    // One hold, picked by its label, rejects instead of running.
+    const reject = (globalThis as any).__cnTest.rejectHold;
+    if (reject && reject.label === options?.label) {
+      (globalThis as any).__cnTest.rejectHold = undefined;
+      throw reject.error;
+    }
     const hold = { id: `cn-hold-${lockOptionsSeen.length}` };
     (globalThis as any).__cnTest.currentHold = hold;
     try {
@@ -114,9 +138,19 @@ jest.mock('../back/miden-client-proxy', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
-  getUncompletedTransactions: async () => {
-    if ((globalThis as any).__cnTest.uncompletedTxsError) throw new Error('dexie unavailable');
-    return (globalThis as any).__cnTest.uncompletedTxs;
+  getNoteHoldingTransactions: async (address: string) => {
+    const t = (globalThis as any).__cnTest;
+    if (t.uncompletedTxsError) throw new Error('dexie unavailable');
+    // Captured BEFORE the gate: a parked read must resolve with what the store held when IT was
+    // issued, not with whatever a later read installed. Reading after the await made a stale-read
+    // test observe fresh data and pass against the very bug it was written for.
+    const value = t.uncompletedTxsByAddress?.[address] ?? t.uncompletedTxs;
+    if (t.uncompletedTxsGateFor === address) {
+      await t.uncompletedTxsGate;
+      // Lets a test wait until a parked read has actually returned, rather than asserting before it lands.
+      t.onParkedReadReturn?.();
+    }
+    return value;
   }
 }));
 
@@ -125,7 +159,7 @@ jest.mock('lib/miden/note-quarantine', () => ({
 }));
 
 jest.mock('../assets', () => ({
-  isMidenFaucet: jest.fn(async (id: string) => id === 'miden-faucet')
+  isMidenFaucet: jest.fn(async (id: string) => id === (globalThis as any).__cnTest.legacyId)
 }));
 
 jest.mock('../helpers', () => ({
@@ -160,7 +194,8 @@ jest.mock('lib/miden-chain/block-timestamps', () => ({
 // The cache is scoped by endpoint; a test switches endpoints through this value.
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => (globalThis as any).__cnTest.rpcUrl,
-  getEffectiveNetworkName: () => 'testnet'
+  getEffectiveNetworkName: () => 'testnet',
+  getTestNetworkNameKey: () => 'testnet'
 }));
 
 jest.mock('./assets', () => ({
@@ -171,7 +206,9 @@ jest.mock('./assets', () => ({
   })
 }));
 
-import { __resetClaimableNotesCacheForTests, useClaimableNotes } from './claimable-notes';
+import { selectAutoConsumeBatch } from './auto-managed-notes';
+import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
+import { requestNotesRefresh } from './note-refresh';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
 // going). Such a straggler still writes the module-level last-known-list cache, so it
@@ -182,6 +219,7 @@ afterEach(async () => {
 });
 
 beforeEach(() => {
+  _g.__cnTest.rejectHold = undefined;
   _g.__cnTest.kv = {};
   _g.__cnTest.puts = 0;
   _g.__cnTest.putOverride = undefined;
@@ -191,6 +229,7 @@ beforeEach(() => {
   __resetClaimableNotesCacheForTests();
   _g.__cnTest.isExtension = false;
   _g.__cnTest.isIOS = false;
+  _g.__cnTest.hasExtensionRuntime = true;
   _g.__cnTest.storage = {};
   _g.__cnTest.consumableNotes = [];
   _g.__cnTest.uncompletedTxs = [];
@@ -198,9 +237,13 @@ beforeEach(() => {
   _g.__cnTest.walletState.extensionClaimableNotes = null;
   _g.__cnTest.walletState.extensionClaimingNoteIds = new Set();
   _g.__cnTest.walletState.assetsMetadata = {};
+  _g.__cnTest.walletState.tokenMetadataOverrides = {};
   _g.__cnTest.intercomRequest.mockReset().mockResolvedValue(undefined);
+  _g.__cnTest.actualNativeId = 'miden-faucet';
+  _g.__cnTest.legacyId = 'miden-faucet';
+  _g.__cnTest.nativeMetadata = { symbol: 'MIDEN', decimals: 6 };
   _g.__cnTest.metadataCache = {};
-  _g.__cnTest.fetchMetadata = jest.fn(async () => ({ base: { decimals: 6, symbol: 'X', name: 'X' } }));
+  _g.__cnTest.fetchMetadata = jest.fn(async () => ({ decimals: 6, symbol: 'X', name: 'X' }));
   _g.__cnTest.setTokensBaseMetadata = jest.fn(async () => undefined);
   _g.__cnTest.lastFetchPromise = Promise.resolve();
   _g.__cnTest.lastFetchData = undefined;
@@ -215,6 +258,9 @@ describe('useClaimableNotes (extension mode)', () => {
   beforeEach(() => {
     _g.__cnTest.isExtension = true;
     _g.__cnTest.uncompletedTxsError = false;
+    _g.__cnTest.uncompletedTxsGate = undefined;
+    _g.__cnTest.uncompletedTxsGateFor = undefined;
+    _g.__cnTest.uncompletedTxsByAddress = undefined;
     (globalThis as any).chrome = {
       storage: {
         local: {
@@ -254,6 +300,45 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.claimingTxId).toBe('tx-9');
   });
 
+  it('gates a note whose claim is held while the node decides, and points at that row (#1081)', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    // Status 4 is Unconfirmed: the note-holding read returns it while the reconciler still judges it.
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-held', type: 'consume', status: 4, noteIds: ['n1'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-held');
+  });
+
+  it('gates a native note a live dApp transaction will consume, so auto-consume leaves it out', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'carried',
+        faucetId: 'miden-faucet',
+        amountBaseUnits: '100000000',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-dapp'));
+    expect(selectAutoConsumeBatch(result.current.data ?? [], 'miden-faucet', null)).toEqual([]);
+  });
+
   it('keeps the previous gate when the consume-row read fails', async () => {
     // Better a stale gate for one tick than a Claim button that reappears under a live
     // consume: a failed read must not be read as "nothing is being claimed".
@@ -276,9 +361,169 @@ describe('useClaimableNotes (extension mode)', () => {
     _g.__cnTest.uncompletedTxsError = false;
   });
 
+  it('drops a consume-row read that resolves after the account changed', async () => {
+    // The read is async and runs from both the poll and `mutate`, so one started before an account
+    // switch can land after it. Ungated it installs the PREVIOUS account's claim gate over the new
+    // account's notes -- the note reads as claimed by a transaction that is not its own.
+    let release: () => void = () => {};
+    _g.__cnTest.uncompletedTxsGate = new Promise<void>(res => {
+      release = res;
+    });
+    // Park ONLY the old account's read. Gating both would let the new account's read resolve last
+    // and clear the map on its own, which is what made an earlier version of this test vacuous.
+    _g.__cnTest.uncompletedTxsGateFor = 'pk-old';
+    const parkedReturned = new Promise<void>(res => {
+      _g.__cnTest.onParkedReadReturn = res;
+    });
+    // The new account has a live consume of its own. Unguarded, the stale read replaces the map that consume installed,
+    // and the render-time generation check then shows no claim at all, which asserting "not claimed" cannot tell apart
+    // from the guard working.
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-old': [{ id: 'tx-old', type: 'consume', noteIds: ['n1'] }],
+      'pk-new': [{ id: 'tx-new', type: 'consume', noteIds: ['n1'] }]
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-old' }
+    });
+
+    // Switch accounts while the first read is still parked; the new account's own claim shows first.
+    rerender({ pk: 'pk-new' });
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-new'));
+
+    // Then let the stale read land, and wait until it has before asserting it changed nothing.
+    await act(async () => {
+      release();
+      await parkedReturned;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-new');
+  });
+
+  it('drops a stale read across an A -> B -> A switch, which an address comparison cannot', async () => {
+    // The ABA case. Comparing the resolving read's address against the current one passes here,
+    // because the address IS 'pk-a' again by the time the first read lands -- so that guard would
+    // install the FIRST A's rows over the second A's. Only a generation distinguishes them.
+    let release: () => void = () => {};
+    _g.__cnTest.uncompletedTxsGate = new Promise<void>(res => {
+      release = res;
+    });
+    _g.__cnTest.uncompletedTxsGateFor = 'pk-a';
+    const parkedReturned = new Promise<void>(res => {
+      _g.__cnTest.onParkedReadReturn = res;
+    });
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-a': [{ id: 'tx-stale', type: 'consume', noteIds: ['n1'] }],
+      'pk-b': []
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-a' }
+    });
+
+    // The first A's read has already captured [tx-stale] and is parked. From here on the store holds the second A's own
+    // live consume, tx-a2, so the parked read landing unguarded would replace that map with a stale one, which the
+    // render-time generation check then shows as no claim at all.
+    _g.__cnTest.uncompletedTxsGateFor = 'never';
+    _g.__cnTest.uncompletedTxsByAddress['pk-a'] = [{ id: 'tx-a2', type: 'consume', noteIds: ['n1'] }];
+
+    // A -> B -> A: the parked read belongs to the FIRST A.
+    rerender({ pk: 'pk-b' });
+    rerender({ pk: 'pk-a' });
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-a2'));
+
+    await act(async () => {
+      release();
+      await parkedReturned;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-a2');
+  });
+
+  it("does not show the previous account's installed claim map while the new account's read fails", async () => {
+    // The generation guard drops stale completions, but a map that already landed is not a completion: untagged, it stayed
+    // applied after a switch, and a failed read deliberately keeps the last map, so the new account showed the old
+    // account's claim until its own read succeeded.
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-old': [{ id: 'tx-old', type: 'consume', noteIds: ['n1'] }],
+      'pk-new': []
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-old' }
+    });
+    // Positive control: the old account's map is installed before the switch.
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+
+    _g.__cnTest.uncompletedTxsError = true;
+    rerender({ pk: 'pk-new' });
+
+    await waitFor(() => expect(result.current.data).toHaveLength(1));
+    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+  });
+
+  it('re-reads the consume rows when mutate is called, without waiting for the next poll', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => expect(result.current.data).toHaveLength(1));
+    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+
+    // A consume is queued after the last poll. `mutate` must surface it, or a caller that
+    // refreshes right after claiming still sees the note as claimable for a whole poll period.
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-9', type: 'consume', noteIds: ['n1'] }];
+    await act(async () => {
+      await result.current.mutate();
+    });
+
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+  });
+
   it('un-gates a note once no consume row is in flight for it', async () => {
     // A row leaving Queued/GeneratingTransaction is reported by omission from
-    // `getUncompletedTransactions` -- and that includes a consume that FAILED. The broadcast
+    // `getNoteHoldingTransactions` -- and that includes a consume that FAILED and holds nothing. The broadcast
     // gate this replaced had no path back from a failure: the note stays consumable, so the
     // note-gone clear never fired and the Claim button did not return.
     _g.__cnTest.walletState.extensionClaimableNotes = [
@@ -314,6 +559,26 @@ describe('useClaimableNotes (extension mode)', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data?.[0]?.id).toBe('n1');
+  });
+
+  it('keeps whether a synced note carries more assets than the one it shows', () => {
+    const synced = (id: string, carriesMoreAssets?: boolean) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
+      carriesMoreAssets
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), synced('b')];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    expect(result.current.data?.map(note => [note.id, note.carriesMoreAssets])).toEqual([
+      ['a', true],
+      ['b', undefined]
+    ]);
   });
 
   it('keeps whether a synced note is a standard payment, which the rotation gate claims by (#805)', () => {
@@ -445,6 +710,23 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.metadata?.symbol).toBe('A');
   });
 
+  it("shows the user's override over the faucet metadata a note carries", () => {
+    _g.__cnTest.walletState.tokenMetadataOverrides = { f1: { name: 'Mine', symbol: 'MN', decimals: 2 } };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        // The faucet could not be read, so its scale is unknown and the user's decimals apply.
+        metadata: { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
+      }
+    ];
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    expect(result.current.data?.[0]?.metadata).toMatchObject({ name: 'Mine', symbol: 'MN', decimals: 2 });
+  });
+
   it('filters notes that have neither metadata in the note nor in assets', () => {
     _g.__cnTest.walletState.extensionClaimableNotes = [
       {
@@ -472,6 +754,35 @@ describe('useClaimableNotes (extension mode)', () => {
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.data?.[0]?.type).toBe('unknown');
+  });
+
+  describe('on a page an extension reload or update orphaned', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('stops reading extension storage once the runtime is gone', async () => {
+      renderHook(() => useClaimableNotes('A'));
+      const get = _g.chrome.storage.local.get as jest.Mock;
+      const reads = get.mock.calls.length;
+      expect(reads).toBeGreaterThan(0);
+
+      _g.__cnTest.hasExtensionRuntime = false;
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(9_000);
+      });
+      expect(get).toHaveBeenCalledTimes(reads);
+    });
+
+    it('never reads extension storage when it mounts after the runtime is gone', () => {
+      _g.__cnTest.hasExtensionRuntime = false;
+      const get = jest.fn(() => {
+        throw new Error('Extension context invalidated.');
+      });
+      _g.chrome.storage.local.get = get;
+
+      expect(() => renderHook(() => useClaimableNotes('A'))).not.toThrow();
+      expect(get).not.toHaveBeenCalled();
+    });
   });
 
   it('serves cached notes only for the matching account (account-scoped poll)', () => {
@@ -726,6 +1037,35 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     expect(_g.__cnTest.lastFetchData.map((n: any) => n.id)).toEqual(['visible-note']);
   });
 
+  it('never shows a carried note unheld when a dApp confirm lands between the quarantine and holding reads', async () => {
+    // The confirm queues the dApp transaction holding the note, then releases its quarantine. Whichever of the two
+    // reads runs first sees the state before it and the other the state after.
+    let confirmed = false;
+    const readThenConfirm = <T,>(before: T, after: T) => ({
+      configurable: true,
+      get: () => {
+        const value = confirmed ? after : before;
+        confirmed = true;
+        return value;
+      }
+    });
+    const holder = { id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] };
+    Object.defineProperty(_g.__cnTest, 'quarantined', readThenConfirm(new Set(['carried']), new Set()));
+    Object.defineProperty(_g.__cnTest, 'uncompletedTxs', readThenConfirm([], [holder]));
+    try {
+      _g.__cnTest.consumableNotes = [makeMockNote({ id: 'carried', amount: '100000000' })];
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      const notes: ClaimableNoteWithMetadata[] = _g.__cnTest.lastFetchData;
+      const carried = notes.find(note => note.id === 'carried');
+      expect(carried === undefined || carried.isBeingClaimed).toBe(true);
+      expect(selectAutoConsumeBatch(notes, 'miden-faucet', null)).toEqual([]);
+    } finally {
+      Object.defineProperty(_g.__cnTest, 'quarantined', { value: new Set(), writable: true, configurable: true });
+      Object.defineProperty(_g.__cnTest, 'uncompletedTxs', { value: [], writable: true, configurable: true });
+    }
+  });
+
   it('uses the in-progress consume transactions to mark notes as being claimed', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'note-being-claimed' })];
     _g.__cnTest.uncompletedTxs = [{ type: 'consume', noteId: 'note-being-claimed' }];
@@ -745,6 +1085,84 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     ]);
     // Non-miden faucet that is already cached must NOT be queued for prefetch.
     expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+  });
+
+  it('discovers an uncached foreign legacy display faucet while retaining actual native metadata', async () => {
+    _g.__cnTest.actualNativeId = 'actual-A';
+    _g.__cnTest.legacyId = 'legacy-B';
+    _g.__cnTest.nativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    _g.__cnTest.consumableNotes = [
+      makeMockNote({ id: 'actual-note', faucetId: 'actual-A', amount: '1000000' }),
+      makeMockNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '125' })
+    ];
+    const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+    _g.__cnTest.fetchMetadata.mockResolvedValue(legacyMetadata);
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData).toEqual([
+      expect.objectContaining({
+        id: 'actual-note',
+        metadata: expect.objectContaining({ symbol: 'USDCX', decimals: 6 })
+      })
+    ]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    await mockRunWhenClientIdle.mock.calls[0]![0]();
+    expect(_g.__cnTest.fetchMetadata).toHaveBeenCalledTimes(1);
+    expect(_g.__cnTest.fetchMetadata).toHaveBeenCalledWith('legacy-B');
+    expect(_g.__cnTest.setTokensBaseMetadata).toHaveBeenCalledWith({ 'legacy-B': legacyMetadata });
+  });
+
+  it.each([false, true])(
+    'uses actual native note metadata under a divergent legacy selector, cached=%s',
+    async cached => {
+      _g.__cnTest.actualNativeId = 'actual-A';
+      _g.__cnTest.legacyId = 'legacy-B';
+      _g.__cnTest.nativeMetadata = { symbol: 'USDCX', decimals: 6 };
+      if (cached) _g.__cnTest.metadataCache['actual-A'] = { symbol: 'MIDEN', name: 'Miden', decimals: 8 };
+      _g.__cnTest.consumableNotes = [makeMockNote({ id: 'actual-note', faucetId: 'actual-A', amount: '1000000' })];
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      expect(_g.__cnTest.lastFetchData).toEqual([
+        expect.objectContaining({
+          id: 'actual-note',
+          metadata: expect.objectContaining({ symbol: 'USDCX', decimals: 6 })
+        })
+      ]);
+      expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserves known foreign legacy note metadata without discovery', async () => {
+    _g.__cnTest.actualNativeId = 'actual-A';
+    _g.__cnTest.legacyId = 'legacy-B';
+    _g.__cnTest.nativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+    _g.__cnTest.metadataCache['legacy-B'] = legacyMetadata;
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '125' })];
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData).toEqual([
+      expect.objectContaining({ id: 'legacy-note', metadata: legacyMetadata })
+    ]);
+    expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+  });
+
+  it('fetches the metadata of a faucet whose store entry only an override made', async () => {
+    const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+    // What the store holds for a faucet with no record: the placeholder with the override on top.
+    _g.__cnTest.metadataCache = {
+      'overridden-faucet': { name: 'Mine', symbol: 'MN', decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+    };
+    _g.__cnTest.walletState.tokenMetadataOverrides = { 'overridden-faucet': override };
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'overridden-note', faucetId: 'overridden-faucet' })];
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    await mockRunWhenClientIdle.mock.calls[0]![0]();
+    expect(_g.__cnTest.fetchMetadata).toHaveBeenCalledWith('overridden-faucet');
+    expect(_g.__cnTest.setTokensBaseMetadata).toHaveBeenCalledWith({
+      'overridden-faucet': { decimals: 6, symbol: 'X', name: 'X' }
+    });
   });
 
   it('queues a background fetch for an unknown faucet and persists the fetched metadata', async () => {
@@ -873,6 +1291,24 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     __resetSyncFuseStateForTests();
   });
 
+  // A trap in either hold abandons the probe without learning anything about the node.
+  it.each(['claimable-notes', 'claimable-notes-swap-lineage'])(
+    'books a realm-error eviction of the %s hold as abandoned, never erasing eviction evidence',
+    async label => {
+      __resetSyncFuseStateForTests();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      _g.__cnTest.rejectHold = { label, error: new WasmClientPoisonedError('realm-error') };
+
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      noteSyncWatchdogEviction('claimable-notes');
+
+      expect(lockOptionsSeen.map(options => options?.label)).toContain(label);
+      expect(isSyncFused('claimable-notes')).toBe(true);
+      __resetSyncFuseStateForTests();
+    }
+  );
+
   it('exposes debugInfo only on iOS', () => {
     _g.__cnTest.isIOS = true;
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
@@ -993,6 +1429,28 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       Object.fromEntries((notes ?? []).map(note => [note.id, note.standardPayment]));
     expect(flags(result.current.data)).toEqual({ standard: true, custom: false });
     await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
+  });
+
+  it('live single-asset notes preserve explicit asset knowledge', async () => {
+    // The claim fee gate fails open on such a note: one of the hidden assets may pay the fee.
+    _g.__cnTest.consumableNotes = [
+      {
+        ...makeMockNote({ id: 'multi' }),
+        assets: [
+          { faucetId: 'miden-faucet', amount: '100' },
+          { faucetId: 'token-faucet', amount: '5' }
+        ]
+      },
+      makeMockNote({ id: 'single' })
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const flags = Object.fromEntries((result.current.data ?? []).map(note => [note.id, note.carriesMoreAssets]));
+    expect(flags).toEqual({ multi: true, single: false });
+    expect(result.current.data?.find(note => note.id === 'single')).toMatchObject({ carriesMoreAssets: false });
+    expect(result.current.data?.find(note => note.id === 'multi')).toMatchObject({ carriesMoreAssets: true });
   });
 
   it('replaces the cached list with the live result and rewrites the cache', async () => {
@@ -1211,5 +1669,138 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([expect.objectContaining({ id: 'null-cache-note' })]);
+  });
+});
+
+describe('useClaimableNotes note refresh while the pager moves', () => {
+  const mutate = () => mockSwrMutate;
+  const setup = () => {
+    jest.useFakeTimers();
+    _resetInteractionPriorityForTest();
+    _g.__cnTest.isExtension = false;
+    const view = renderHook(() => useClaimableNotes('pk-1'));
+    mutate().mockClear();
+    return view;
+  };
+
+  afterEach(() => {
+    _resetInteractionPriorityForTest();
+    jest.useRealTimers();
+  });
+
+  it('revalidates at once when idle', async () => {
+    setup();
+    await act(async () => {
+      requestNotesRefresh();
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the revalidation while an interaction is active, then runs it once the interaction ends', async () => {
+    setup();
+    const end = beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mutate()).not.toHaveBeenCalled();
+
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+  });
+
+  it('revalidates at the cap when the interaction never ends', async () => {
+    setup();
+    beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+      jest.advanceTimersByTime(1400);
+    });
+    expect(mutate()).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces refreshes that arrive during one wait into a single revalidation', async () => {
+    setup();
+    const end = beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+      requestNotesRefresh();
+      requestNotesRefresh();
+    });
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      requestNotesRefresh();
+    });
+    expect(mutate()).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not revalidate a deferred refresh after unmount', async () => {
+    const { unmount } = setup();
+    const end = beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+    });
+    unmount();
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    expect(mutate()).not.toHaveBeenCalled();
+  });
+
+  it('holds a read, the 5s poll included, until the pager gesture ends', async () => {
+    jest.useFakeTimers();
+    _resetInteractionPriorityForTest();
+    _g.__cnTest.isExtension = false;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => []);
+    const end = beginInteraction();
+    renderHook(() => useClaimableNotes('pk-1'));
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
+
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a held read at the cap while the gesture continues', async () => {
+    jest.useFakeTimers();
+    _resetInteractionPriorityForTest();
+    _g.__cnTest.isExtension = false;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => []);
+    beginInteraction();
+    renderHook(() => useClaimableNotes('pk-1'));
+    await act(async () => {
+      jest.advanceTimersByTime(pagerMotion.interactionDeferCapMs - 100);
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
   });
 });

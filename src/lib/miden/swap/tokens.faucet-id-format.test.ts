@@ -1,5 +1,7 @@
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 
 import { priceSymbolFor, _resetNormalizedFaucetIdsForTest } from './tokens';
 
@@ -25,6 +27,8 @@ const mockFromHex = jest.fn();
 const mockFromBech32 = jest.fn();
 const mockFromAccountId = jest.fn();
 
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AccountId: { fromHex: (...args: unknown[]) => mockFromHex(...args) },
   Address: {

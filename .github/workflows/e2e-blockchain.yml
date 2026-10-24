@@ -3,8 +3,13 @@ name: E2E Blockchain
 # Runs the blockchain-backed E2E suites (Chrome extension + iOS simulator)
 # against the public network that matches the BRANCH'S PROTOCOL LINE.
 #
-#   push to main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
-#   push to next  ->  devnet    (next is on 0.16.0-rc.x)
+#   main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
+#   next  ->  devnet    (next is on 0.16.0-rc.x)
+#
+# Nothing runs it on push. Release E2E (release-e2e.yml) dispatches it nightly
+# and on each release with network=testnet, and Next E2E (devnet)
+# (next-e2e-devnet.yml) dispatches next's own copy nightly with network=devnet.
+# The `push` arms of the job gates below are inert until a push trigger returns.
 #
 # Devnet and testnet run different protocol versions, so a wallet built for one
 # genuinely cannot pass against the other. This used to be handled by running
@@ -25,11 +30,11 @@ name: E2E Blockchain
 # Splitting by branch gives each line a hard gate. Nothing is `continue-on-error`
 # any more: on main a testnet failure is fatal, and on next a devnet failure is
 # fatal, because in each case that network IS the branch's line. GitHub runs the
-# workflow file from the PUSHED ref, so `next` carries its own copy of the split
+# workflow file from the DISPATCHED ref, so `next` carries its own copy of the split
 # (#678) alongside main's (#676) — otherwise devnet would never run here at all.
 #
-# `workflow_dispatch` still takes a network argument for ad-hoc runs, so either
-# network can be exercised from either branch by hand.
+# `workflow_dispatch` takes the network argument, so either network can be
+# exercised from either branch by hand; pass it, since the default is devnet.
 #
 # (#797, CLOSED) Devnet's 2026-08-27 re-genesis enabled transaction fees, and for a week no
 # released tooling could transact against it, so all four devnet suites were taken off the
@@ -39,10 +44,6 @@ name: E2E Blockchain
 # a real bug again.
 
 on:
-  push:
-    branches:
-      - main
-      - next
   workflow_dispatch:
     inputs:
       network:
@@ -63,6 +64,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -80,7 +83,8 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -103,8 +107,22 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       # Pre-install the miden-client-cli so the cold-cache ~7 min cargo
       # compile happens in its own step, not inside Playwright's 5-min
@@ -114,7 +132,7 @@ jobs:
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       - name: Drop apt repositories this repo never installs from
@@ -136,6 +154,9 @@ jobs:
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Run blockchain E2E (devnet)
         id: e2e
@@ -159,7 +180,8 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: testnet
     steps:
@@ -177,15 +199,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       - name: Drop apt repositories this repo never installs from
@@ -207,6 +243,9 @@ jobs:
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Run blockchain E2E (testnet)
         run: xvfb-run -a yarn test:e2e:blockchain:testnet
@@ -287,10 +326,13 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # The suite (34 tests on one worker) took 48-55 min on green testnet runs (2026-10-08/09) and outran
+    # 60 min on a slow testnet on 2026-10-10 with every finished test passing. A dispatch may first build a linked
+    # web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
     env:
       E2E_NETWORK: devnet
-      GUARDIAN_URL: https://guardian-stg.openzeppelin.com
+      GUARDIAN_URL: https://guardian-devnet.openzeppelin.com
     steps:
       - uses: actions/checkout@v4
 
@@ -306,15 +348,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       - name: Drop apt repositories this repo never installs from
@@ -337,15 +393,21 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build Chrome extension (devnet)
         run: yarn test:e2e:blockchain:build
+
+      - name: Verify fresh Guardian onboarding and public funding (devnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run guardian-onboarding-create.spec.ts --output=test-results/playwright/onboarding
 
       - name: Run Guardian E2E (devnet)
         id: e2e
         # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
         # devnet's — so a failure here is a real failure of the branch, not the
         # protocol mismatch that made this non-fatal when it also ran on main.
-        run: xvfb-run -a yarn test:e2e:guardian:run
+        run: xvfb-run -a yarn test:e2e:guardian:run --grep-invert 'I create a wallet from scratch and it works' --output=test-results/playwright/guardian
 
       - name: Upload artifacts
         if: always()
@@ -362,10 +424,13 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # The suite (34 tests on one worker) took 48-55 min on green testnet runs (2026-10-08/09) and outran
+    # 60 min on a slow testnet on 2026-10-10 with every finished test passing. A dispatch may first build a linked
+    # web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
     env:
       E2E_NETWORK: testnet
-      GUARDIAN_URL: https://guardian.openzeppelin.com
+      GUARDIAN_URL: https://guardian-testnet.openzeppelin.com
     steps:
       - uses: actions/checkout@v4
 
@@ -381,15 +446,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       - name: Drop apt repositories this repo never installs from
@@ -412,11 +491,17 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build Chrome extension (testnet)
         run: yarn test:e2e:blockchain:build
 
+      - name: Verify fresh Guardian onboarding and public funding (testnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run guardian-onboarding-create.spec.ts --output=test-results/playwright/onboarding
+
       - name: Run Guardian E2E (testnet)
-        run: xvfb-run -a yarn test:e2e:guardian:run
+        run: xvfb-run -a yarn test:e2e:guardian:run --grep-invert 'I create a wallet from scratch and it works' --output=test-results/playwright/guardian
 
       - name: Upload artifacts
         if: always()
@@ -489,7 +574,9 @@ jobs:
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -507,15 +594,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
@@ -579,6 +680,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -682,7 +786,9 @@ jobs:
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: testnet
     steps:
@@ -700,15 +806,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       - name: Launch Simulator.app
@@ -766,6 +886,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -902,7 +1025,7 @@ jobs:
   # Same iOS harness as mobile-{devnet,testnet} but runs ONLY the guardian spec
   # (playwright.ios.guardian.config.ts). No GUARDIAN_URL: the mobile guardian
   # wallet uses the network DEFAULT guardian endpoint (devnet ->
-  # guardian-stg.openzeppelin.com, testnet -> guardian.openzeppelin.com), which
+  # guardian-devnet.openzeppelin.com, testnet -> guardian-testnet.openzeppelin.com), which
   # in-app onboarding selects automatically. Gated separately (mobile-guardian-
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
@@ -924,7 +1047,9 @@ jobs:
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -942,15 +1067,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
@@ -1014,6 +1153,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -1115,7 +1257,9 @@ jobs:
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: testnet
     steps:
@@ -1133,15 +1277,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       - name: Launch Simulator.app
@@ -1199,6 +1357,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |

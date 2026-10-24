@@ -15,6 +15,245 @@
     "message": "バックアップチェックを保存できませんでした。もう一度お試しください。",
     "englishSource": "Could not save the backup check. Please try again."
   },
+  "swapBalanceUnavailable": {
+    "message": "利用可能残高を確認できませんでした。もう一度お試しください。",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "スワップを行う前に、保留中の取引が完了するのを待ってください。",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "正確な支払額",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "受取対象の推定支払額。完全約定の場合は支払額が多くなる可能性がありますが、部分約定の場合は満期時に受け取る金額が少なくなる可能性があります。",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "スリッページとは、要求した受取額が固定されたまま、計算された支払額が調整されることを指します。",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "この送金には、この経路は利用できません。利用可能な別の経路で続行してください。この画面からは取引が送信されていません。",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "この送金にはこの経路は利用できません。また、現時点では他の利用可能な経路もありません。この画面からは取引が送信されていません。",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Agglayerで続ける",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Epochで続ける",
+    "englishSource": "Continue via Epoch"
+  },
+  "usdcxBurnTitle": {
+    "message": "USDCxのバーン",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "バーンが送信されました",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "$symbol$の手数料",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxBurnOnly": {
+    "message": "バーン（焼却）のみ",
+    "englishSource": "Burn only"
+  },
+  "usdcxWithdrawalNotice": {
+    "message": "「Burn confirmed」とは、USDCxがMiden上でバーンされたことを意味します。「Confirmed」とは、宛先のUSDC残高が増加したことを意味します。USDCxをバーンするnoteと宛先アドレスは公開されています。公開されたnoteは取り戻すことができません。",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
+  },
+  "usdcxBurnTestNotice": {
+    "message": "このテスト faucet は、Miden上でUSDCxを焼却し、支払先への送金は行いません。焼却 note および宛先アドレスは公開されています。公開された焼却 notes は取り戻すことはできません。",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "バーン待ち",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "バーン処理",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "バーンが確認されました",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "却下されたバーン",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Note ID",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "宛先ドメイン",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "処理の試行",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "前回の処理エラー",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "最低バーン量",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "$symbol$で支払われる（faucetの実行スポンサーシップを含む）",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxInvalidDestination": {
+    "message": "この出金には、対応ネットワーク上の有効なアドレスを入力してください。",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "このネットワーク上では、このトークンのUSDCxによる引き出しは利用できません。",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
+  },
+  "usdcxInvalidAmount": {
+    "message": "USDCxの正の金額を、小数点以下最大6桁まで入力してください。",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "少なくとも$amount$のUSDCxを送金してください。",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "USDCxのfaucetについては、現時点では不明です。再審査をリクエストして、再度試みてください。",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "$amount$以上のUSDCxを$network$に送金してください：Circleの手数料は支払額から差し引かれます。",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "最大$amount$のUSDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "少なくとも$amount$のUSDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFetchingHistoryAndNotes": {
+    "message": "取引履歴の取得とnotes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "スワップ",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "ブリッジアウト",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "預金による収益",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 変更済み",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "デバイスキーが更新されました",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "アカウントは安全に保護されています",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "実行済み",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "$operator$ からの履歴を復元しました。$count$件の取引が復元されました。",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "ネットワークまたはGuardianのオペレーターが提供できないため、取引履歴の復元が停止しました。復元は自動的に再試行されません。",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ トランザクションが復元されました。一部のGuardianソースを読み取ることができませんでした。次回ウォレットのロックを解除した際に、復元処理が再試行されます。",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "ペイロード",
     "englishSource": "Payload"
@@ -28,8 +267,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "お持ちのウォレットが開き、正確な金額を承認し、Sepolia上で署名を行うことになります。",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "ウォレットが開き、正確な金額を承認し、ソースネットワーク上で署名を行います。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "受け取る",
@@ -44,8 +283,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "お使いのウォレットから、$tokenSymbol$ の承認と、Sepolia での入金の署名を求めるメッセージが表示されます。確認後、Miden に資金が入金されます。",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "ウォレットから、$tokenSymbol$の承認と、送信元ネットワークでの入金への署名を求めるメッセージが表示されます。確認後、資金はMidenに反映されます。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -252,6 +491,18 @@
     "message": "出金",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "預入",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "ミデンへ",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "ミデンより",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "さらに預け入れる",
     "englishSource": "Deposit more"
@@ -303,6 +554,30 @@
   "earnRiskLabel": {
     "message": "リスク",
     "englishSource": "Risk"
+  },
+  "earnRiskLow": {
+    "message": "Low",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "High",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "預入は終了しました",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "この保管庫は現在、預け入れを受け付けていません。後ほど再度お試しいただくか、別の保管庫をお選びください。",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Walletは、この保管庫への預入を一時停止しています。既存の預入分には影響ありません。別の保管庫を選択してください。",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
   },
   "earnAuditedLabel": {
     "message": "監査済み",
@@ -377,9 +652,21 @@
     "message": "ポジションを開くことに失敗しました",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "預入トークンの詳細を読み込んでいます。表示され次第、操作を続行できます。",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "現在、預入トークンは利用できないため、預入は一時停止されています。後ほど再度お試しください。",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "このレビューは別の預金トークン向けに作成されたものです。戻って、金額を再度入力してください。",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
-    "message": "獲得したリワードの合計",
-    "englishSource": "Total Earned Rewards"
+    "message": "獲得総額",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$の複合年利（APY）を獲得",
@@ -409,6 +696,10 @@
   "earnPositionsLoadError": {
     "message": "ポジションを読み込めませんでした。接続状態を確認して、もう一度お試しください。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnUnavailableOnNetwork": {
+    "message": "このネットワークでは「Earn」機能は利用できません",
+    "englishSource": "Earn is not available on this network"
   },
   "earnVaultLoadError": {
     "message": "このVaultを読み込めませんでした。接続状態を確認し、もう一度お試しください。",
@@ -444,8 +735,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "注目の金庫",
-    "englishSource": "Featured Vaults"
+    "message": "利用可能な金庫",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -460,6 +751,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ on $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },
@@ -483,37 +789,163 @@
     "message": "アカウントを作成する",
     "englishSource": "Create Account"
   },
-  "importAccount": {
-    "message": "アカウントのインポート",
-    "englishSource": "Import account"
+  "me": {
+    "message": "自分",
+    "englishSource": "Me"
   },
-  "accountName": {
-    "message": "アカウント名",
-    "englishSource": "Account name"
-  },
-  "accountNameInputPlaceholder": {
-    "message": "例: 貯蓄",
-    "englishSource": "e.g. Savings"
-  },
-  "accountNameInputInvalid": {
-    "message": "1～16文字で入力し、空白またはハイフンで始めないでください。",
-    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
-  },
-  "privateKeyInputDescription": {
-    "message": "インポートするアカウントの秘密鍵。",
-    "englishSource": "The private key of the account you want to import."
-  },
-  "privateKeyInputPlaceholder": {
-    "message": "例: APrivateKey1zkp...",
-    "englishSource": "e.g. APrivateKey1zkp..."
-  },
-  "privateKeyClipboardNotCleared": {
-    "message": "秘密鍵がクリップボードから削除できませんでした。続行する前に、ご自身でクリップボードをクリアしてください。",
-    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  "profile": {
+    "message": "プロフィール",
+    "englishSource": "Profile"
   },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "マイバッジ",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "マイバッジを開く",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$個中$earned$個を獲得",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnetでの活動による非公開のマイルストーン",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "ウォレットの非公開のマイルストーン。",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgesStatEarned": {
+    "message": "獲得",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "ロック済み",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "近日公開予定",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgeCollection": {
+    "message": "すべてのバッジ",
+    "englishSource": "All badges"
+  },
+  "mainnetOnly": {
+    "message": "Mainnetのみ",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "バッジはMainnetで獲得できます",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "バッジはメインネット上でアンロックされます。テスト環境での活動はカウントされません。",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$、獲得済み",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$、未獲得",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "未獲得",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "獲得済み",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "まだ利用できません",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "初めての入金",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "資金を追加し、使用可能になるまで待ちましょう。",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "初めての受け取り",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "このアカウントへの送金を承認し、受け取りましょう。",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "初めての送金",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Midenの送金を確定しましょう。",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "初めてのスワップ",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "スワップを完了し、使用可能な資金を受け取りましょう。",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "復元を確認済み",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "このアカウントの復元用バックアップを確認しましょう。",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "ミニアプリ探検家",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "対応するミニアプリの体験を完了しましょう。",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "承認済みDApps",
@@ -565,6 +997,10 @@
     "message": "戻る",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "スワップに戻る",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "スキップ",
     "englishSource": "Skip"
@@ -610,8 +1046,36 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "ウォレットでは、この送金が正常に処理されたかどうかを確認できませんでした。まだ着金する可能性もありますので、再度送金する前に、ウォレットの同期が完了した後で残高を確認してください。",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "ウォレットは、この操作が正常に完了したかどうかを確認できませんでした。まだ完了する可能性もありますので、再試行する前に、ウォレットが同期を終えた後に確認してください。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "ウォレットは、この操作が正常に完了したかどうかを判断できず、確認も行っていません。再試行する前に、ウォレットを確認してください。",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "これはバックアップから復元されたため、ウォレットは処理が正常に完了したかどうかを確認したり、再試行したりすることができません。再度実行する前に、ウォレットの状態を確認してください。",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
+  },
+  "submissionInterrupted": {
+    "message": "送信中に接続が切断されました。ウォレットでは送信が正常に行われたかどうかを確認できません。まだ処理が完了する可能性もありますので、再試行する前に確認してください。",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Guardianがこの投稿を拒否しました。もう一度試してください。",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionBlockedByIssuer": {
+    "message": "このトークンの発行者があなたのアカウントをブロックしたため、トークンを送金することはできません。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "ネットワークはこの提出を拒否しました。もう一度試してください。",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "この送信に対して応答はありませんでした。ウォレット側では送信が正常に処理されたかどうかを確認できません。まだ処理が完了する可能性もありますので、再試行する前に確認してください。",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
   },
   "showFullError": {
     "message": "エラーの全文を表示",
@@ -638,8 +1102,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "このウォレットを開いたまま接続を維持してください。送信後しばらくは配信が自動で再試行され、成功するとこの警告は消えます。1 時間経っても受取人に届かない場合は、再送しないでください。下の取引 ID を保存してサポートにご連絡ください。その ID から送金を復旧できます。",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "このウォレットを開いたまま接続状態を維持してください。配信は最大3日間自動的に再試行され、成功するとこの警告は消えます。1日経っても受取人に何も届かない場合は、再送信しないでください。以下の取引IDを保存し、サポートに連絡してください。この取引IDがあれば、送金を復元できる可能性があります。",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "この送金については自動配信が停止しました。再送は行わず、以下の取引IDを保存してサポートに連絡してください。この取引IDがあれば、送金を復元することが可能です。",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "受領確認済み",
@@ -735,6 +1203,10 @@
     "message": "このトークンの小数点以下の桁数は確認できなかったため、金額を表示したり送金したりすることはできません。",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
   },
+  "sendTokenAvailabilityChecking": {
+    "message": "このトークンがテストネットで送信可能かどうかを確認しています。確認が完了次第、送信できます。",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
+  },
   "oops": {
     "message": "おっと！",
     "englishSource": "Oops!"
@@ -783,15 +1255,6 @@
   "privateKeyRevealAcknowledge": {
     "message": "この鍵は変更も取り消しもできないと理解しています。",
     "englishSource": "I understand this key cannot be rotated or revoked."
-  },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "この古いウォレットファイルに含まれていないインポート済みアカウント: $importedCount$。秘密鍵のバックアップから個別に復元してください。",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
   },
   "editAccountName": {
     "message": "アカウント名の編集",
@@ -880,6 +1343,18 @@
   "transactionStepSyncingGuardian": {
     "message": "Guardianとの同期",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "受取人への配送",
+    "englishSource": "Delivering to recipient"
+  },
+  "guardianBusyStep": {
+    "message": "Guardianの到着をお待ちください",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardianは、まだ前回の取引を処理中です。今回の取引は自動的に続行されます。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ 秒",
@@ -1326,7 +1801,7 @@
     "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
-    "message": "続きを読む",
+    "message": "続ける",
     "englishSource": "Continue"
   },
   "noOperationsFound": {
@@ -1512,6 +1987,10 @@
     "message": "その他",
     "englishSource": "Other"
   },
+  "others": {
+    "message": "その他",
+    "englishSource": "Others"
+  },
   "thousandFormat": {
     "message": "$thousand$ k",
     "englishSource": "$thousand$k",
@@ -1555,6 +2034,10 @@
     "message": "貼り付け",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "クリップボードを読み取れませんでした。コードを入力するか、もう一度お試しください。",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "貼り付けるものがありません。先にアドレスをコピーしてください。",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1591,6 +2074,10 @@
     "message": "トークンを検索する",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "このネットワークにはUSDCxのみを送金できます。",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "在庫あり",
     "englishSource": "Available"
@@ -1611,6 +2098,10 @@
   "swap": {
     "message": "スワップ",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "スワップの確認",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "In Protocol Dex経由で",
@@ -1644,14 +2135,105 @@
     "message": "レート",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "お受け取り金額には、すでに$percent$のソルバー手数料が含まれています。",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "レートとは、$fee$の手数料がすでに含まれた状態で、ソルバーが現時点で約定できる最大値を指します。受取額は、そのレートから$slippage$のスリッページを差し引いた金額となります。",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "フィル",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "決済が遅延しています。お客様の注文は保留となります。",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "このペアは取引対象ではありません。",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "現在、価格情報は利用できません。しばらくしてから再度お試しください。",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "価格が変動しました。相場情報を更新してください。",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "現時点では、現在の価格での注文が不足しています。",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "時間がかかる場合があります：価格がわずかに動いた時点で約定します。",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "現在、この注文の一部のみが約定し、残りは待機中です。",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "現在の価格で約定する。",
+    "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "現在の流動性では、このスワップ注文が約定する可能性は低いと思われます。手続きを続行することは可能ですが、注文は有効期限が切れるまで未約定のままとなる可能性があります。",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "このスワップ注文のうち、現在利用可能な流動性で約定できるのは一部のみです。取引を続行することは可能ですが、残りの部分は注文の有効期限が切れるまで未約定のままとなる可能性があります。",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
+  "swapVerdictExpected": {
+    "message": "$amount$相当の$symbol$を受け取ります。",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "スリッページ",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "注文が現在のレートよりどの程度下回った場合に約定するかを示します。テストネットでは、約0.25%を上回る注文は約定しません。",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "受取金額はご自身で設定するため、この注文にはスリッページは適用されません。",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "$min$から$max$までの範囲で、小数点以下2桁までのパーセンテージを入力してください。",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "価格が変動しました。新しい金額を確認して、もう一度お試しください。",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "通常は埋める",
@@ -1694,6 +2276,10 @@
   "swapInvalidAmounts": {
     "message": "交換する有効な金額を入力してください。",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "このペアは交換できなくなりました。戻って別のトークンを選択してください。",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "価格が表示されません。しばらくしてからもう一度お試しください。",
@@ -1848,6 +2434,23 @@
     "message": "再度リクエストしてください",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "先ほど資金の引き出しをリクエストしました。$seconds$秒後に再度お試しください。",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "先ほど資金の引き出しをリクエストされました。しばらくしてから再度お試しください。",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "現在、faucetから資金を送金できません。後ほど再度お試しください。",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "アカウントの回復が検出されました",
     "englishSource": "Account recovery detected"
@@ -1880,9 +2483,9 @@
     "message": "承認待ちの送金があります",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ 件待機中",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ 件待機中 · タップして確認",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2055,8 +2658,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "既存の 12 単語のリカバリ フレーズを使用します。他のウォレットプロバイダーからウォレットをインポートすることもできます。",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "別のウォレットから互換性のある12語の回復フレーズを使用して、Midenアカウントを作成することができます。これにより、他のネットワークから資産が転送されることはありません。",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "暗号化されたウォレットファイルを使用してインポートする",
@@ -2081,10 +2684,6 @@
   "enterDecryptionPassword": {
     "message": "ウォレットをエクスポートするときに設定したパスワードを入力します。これにより、ファイルが復号化され、アクセスが復元されます。",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "インポートを続行する",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "お財布をどのように保護するかをお選びください",
@@ -2162,6 +2761,50 @@
     "message": "この端末では、生体認証によるロック解除はご利用いただけません。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "ここで使用するには、設定で「指紋認証」または「顔認証」を仕事用に設定してください。",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "「設定」で指紋または顔認証を設定し、生体認証によるロック解除を利用してください。",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "仕事用に設定した顔認証や指紋認証では、ウォレットを保護するにはセキュリティが不十分です。ここで使用するには、設定で「仕事用」の指紋認証を設定してください。",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "このデバイスで設定されている顔認証や指紋認証によるロック解除は、ウォレットを保護するには十分なセキュリティレベルではありません。「設定」で指紋を登録し、生体認証によるロック解除を使用してください。",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "このデバイスの生体認証機能ではウォレットを保護できません。代わりにパスコードを使用してください。",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "現在、生体認証センサーは利用できません。もう一度お試しいただくか、パスコードをご利用ください。",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID や Touch ID は利用できません。このアプリで無効になっている場合は、「設定」で有効にするか、パスコードを使用してください。",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "生体認証によるロック解除を使用するには、最新のセキュリティ更新プログラムをインストールしてください。",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "生体認証によるロック解除を使用するには、設定でデバイスのパスコードを設定してください。",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "試行回数が多すぎると、生体認証によるロック解除がロックされます。デバイスのロックを解除してから、再度お試しください。",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "「設定」を開く",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Guardian を選択してください",
     "englishSource": "Choose your Guardian"
@@ -2169,38 +2812,6 @@
   "chooseGuardianDescription": {
     "message": "以下のオプションから選択してください",
     "englishSource": "Select an option below"
-  },
-  "setUpYourAccount": {
-    "message": "アカウントの設定",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Midenでは、アカウント情報は非公開となっています。各項目を一度確認し、その保護方法について理解してください。",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "アカウントはこのデバイス上に存在します",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "アカウントのプライベートな状態はデバイス上に保持されます。ネットワークが認識するのは、常に暗号的なコミットメントのみです。",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "リカバリーフレーズだけでは不十分です",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "リカバリーフレーズは鍵を復元するものであり、アカウントの状態を復元するものではありません。デバイスを紛失すれば、その状態は失われます。",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Guardianはあなたを守ることができます",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Guardianは、アカウントの状態を保存し、アカウントの復旧を支援します。これは、アカウントのバックアップを行うサーバーのようなものと考えてください。ただし、が資金にアクセスすることは決してありません。",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
@@ -2217,14 +2828,6 @@
   "learnMoreAboutGuardian": {
     "message": "Guardianの詳細はこちら",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "保護者なし",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "上級者向け — リカバリーフレーズのみを使用して復元してください。「guardian」の共同署名者は不要です。",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "運営：",
@@ -2254,22 +2857,118 @@
     "message": "Guardianとは何ですか？",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "あなたのGuardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Guardianについて",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "変更",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "Guardianは、ユーザーのプライベートアカウントデータをバックアップし、取引に共同署名を行います。",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ はあなたのアカウントをバックアップします。資金を動かすことはできず、いつでも切り替えられます。",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "新しいスマートフォンでの復元",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "リカバリーフレーズを使用すると、鍵が復元され、Guardianのバックアップがあればアカウントも復元されます。このフレーズは安全に保管してください。",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "お客様の資金は、常にお客様自身のものです",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Guardianはあなたと共に署名を行います。Guardian単独で資金を移動させることは決してできません。",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "いつでも切り替え可能",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "いつでも好きな時に別のGuardianに切り替えることができます。アカウント自体は変わりません。",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "Guardiansに関する詳細",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "$name$ へ進む",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "プロバイダーの変更",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "詳細はこちら",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "地域：",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "最速",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "プロバイダーを選択してください",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "これらはすべて、同じ方法でアカウントのバックアップを行います。",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "「設定」からいつでも切り替えが可能です。",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelinは、監査で知られるスマートコントラクトセキュリティ企業です。",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway：ノードやネットワークを運用するblockchainインフラプロバイダー。",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClassは、ゼロ知識証明システムを構築するエンジニアリング企業です。",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset：韓国に拠点を置くデジタル資産カストディ企業。",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianAboutPara": {
+    "message": "組み込み型ウォレットインフラストラクチャのプロバイダーであるPara。",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "スマートコントラクトのセキュリティと監査",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchainインフラプロバイダー",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "ゼロ知識システム工学",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "デジタル資産カストディアン",
+    "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "組み込み型ウォレットインフラストラクチャ",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を放棄することなく安全網を追加します。",
@@ -2366,10 +3065,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "ウォレットの12語のリカバリーフレーズを入力してください。",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Midenのリカバリーフレーズのみがサポートされています。",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "ウォレットの準備が完了しました！",
@@ -2659,6 +3354,18 @@
     "message": "Guardianのローテーションが正常に完了しました！",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardianを切り替えました",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian の変更を送信しました",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "送信済み",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "現在の変更点",
     "englishSource": "What changes now"
@@ -2678,6 +3385,22 @@
   "guardianSwitchUnconfirmedBody": {
     "message": "変更は送信されましたが、このデバイスではオンチェーンで成立したことを確認できませんでした。ウォレット側では確認できません。Guardian の設定もこのトランザクションのアクティビティ項目も、いずれの場合も新しい Guardian を表示します。以降のトランザクションが共同署名できずに拒否された場合は、変更をやり直してください。",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "このデバイスにはまだ保存されていません。",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Guardianの変更はネットワークに届きましたが、このデバイスではまだアカウントの新しい状態を保存できていません。ウォレットはバックグラウンドで試行を続けており、成功するまでは、このデバイスからの取引が処理されない可能性があります。Guardianの変更を再度実行する必要はありません。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "このデバイスには保存されていません。",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Guardianの変更はネットワークに届きましたが、このデバイスはアカウントの新しい状態を保存できず、単独では復元できません。Guardianの変更を再度実行しないでください。サポートにお問い合わせください。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "このデバイスは新しい Guardian のアドレスも保存できなかったため、引き続き以前のアドレスが表示されます。ウォレットが再入力を求めますが、その入力によって別の変更が開始されることはありません。",
@@ -2714,6 +3437,26 @@
   "guardianSwitchSuccessInfo4": {
     "message": "Guardianはいつでも再ローテーションできます。その際はリカバリーフレーズが必要となるため、安全に保管してください。",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "新しいGuardianが共同署名を行います",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "新しいGuardianは、確認後、1回共同署名を行います",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "何も移動していない",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "アクセス可能な状態を保つ",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "いつでも再度切り替え可能",
+    "englishSource": "Switch again anytime"
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "このGuardianの切り替えを承認するには、認証を行ってください。",
@@ -2779,6 +3522,18 @@
     "message": "日常キーのローテーション中に問題が発生しました。資金は安全ですので、今すぐ再試行できます。",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "最初からやり直す",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "このウォレットを削除して、最初からやり直すべきでしょうか？",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "これにより、このデバイスからウォレットが削除されるため、例えば別のguardian URLを使用してウォレットを復元することが可能になります。資金はネットワーク上に残ります。ウォレットを復元するには、リカバリーフレーズが必要になります。",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "毎日の鍵のローテーションは確認されていません",
     "englishSource": "Everyday key rotation not confirmed"
@@ -2792,16 +3547,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "MIDENを追加して、日常用キーを有効にしてください",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "USDCXを追加して、日常用キーを有効にしてください",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "日常用キーの有効化はトランザクションであり、すべてのトランザクションには少額のネットワーク手数料としてMIDENが支払われます。以下のこのアカウントのアドレスにMIDENを送金してください。ウォレットがそれを受け取り、自動的にキーの有効化を完了します。",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "日常用キーの有効化はトランザクションであり、すべてのトランザクションには少額のネットワーク手数料としてUSDCXが支払われます。以下のこのアカウントのアドレスにUSDCXを送金してください。ウォレットがそれを受け取り、自動的にキーの有効化を完了します。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "$amount$ MIDEN以上を送信してください。",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "$amount$ USDCX以上を送信してください。",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2813,28 +3568,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "MIDENが届くのを待っています…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "USDCXが届くのを待っています…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "受け取ったMIDENは、ネットワーク手数料を支払うには不足しています。もう少し送ってください。",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "受け取ったUSDCXは、ネットワーク手数料を支払うには不足しています。もう少し送ってください。",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDENを受信しました。請求中…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCXを受信しました。請求中…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "日常用キーの有効化…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "受け取ったMIDENは、受け取り請求できませんでした。",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "受け取ったUSDCXは、受け取り請求できませんでした。",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "ウォレットは、受け取ったMIDENがすでに請求済みかどうかを確認できませんでした。再試行する前に、ウォレットが同期を完了するまで1分ほどお待ちください。",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "ウォレットは、受け取ったUSDCXがすでに請求済みかどうかを確認できませんでした。再試行する前に、ウォレットが同期を完了するまで1分ほどお待ちください。",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "もう一度試してみてください",
@@ -2863,6 +3618,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "このアカウントには、照合できるオンチェーンの Guardian がまだ設定されていません。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "アドレスの確認中にGuardianが変更されました。もう一度お試しください。",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian アクセス不可",
@@ -2912,6 +3671,27 @@
     "message": "私は、Breadを含め、誰に対しても自分の暗号化されたウォレットファイルを共有することはありません。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "$accountNames$のアカウント状態はこのファイルに記載されています",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "このファイルには、リカバリーフレーズと、Guardianオペレーターが通常管理しているアカウントの状態が保存されているため、ファイルとそのパスワードを所持する者なら誰でも両方を閲覧できます。日常的に使用する鍵は含まれていません。復元後、ウォレットはGuardianオペレーターを通じて鍵を再発行します。あるいは、保存済みの日常用鍵ペアを使用することも可能です（設定 → 鍵 → 秘密鍵を表示）。 このファイルはスナップショットです。送受信を行った後は、新しいファイルを保存してください。古いファイルでは、その後に発生した事象を復元することはできません。",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "ローテーションがまだ実行中です。完了するまで待ってから、再度お試しください。",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "保存済みの日常用鍵ペアを使用する",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "このファイルからは復元されませんでした：$accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -2952,6 +3732,10 @@
   "encryptedWalletFileUnsupportedVersion": {
     "message": "このウォレットファイルは新しいバージョンのBreadで作成されています。Breadを更新してもう一度お試しください。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "このウォレットファイルは別のネットワークのものであり、このネットワーク上では復元できません。",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
   },
   "encryptedWalletFileRestoreFailed": {
     "message": "ウォレットを復元できませんでした。ストレージを確認してもう一度お試しください。",
@@ -2994,24 +3778,36 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "お客様のMIDENはネットワーク手数料用に確保されています。送金するには、さらにMIDENを受け取る必要があります。",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "お客様のUSDCXはネットワーク手数料用に確保されています。送金するには、さらにUSDCXを受け取る必要があります。",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "金額を確認する前に、このバーンにかかるネットワーク手数料を算出します。",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "今回のバーンにかかるネットワーク手数料を測定できないため、金額を確認できません。別の宛先を選択して、再度お試しください。",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
-    "message": "ネットワーク手数料の支払いにMIDENが必要です。続行するには、MIDENを受け取ってください。",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "ネットワーク手数料の支払いにUSDCXが必要です。続行するには、USDCXを受け取ってください。",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN の送金を自動で受け取る",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "USDCX の送金を自動で受け取る",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "受信した MIDEN の送金を自動で残高に受け取ります。「受け取る」をタップした場合と同じで、受け取る頻度が増えることも、手数料が高くなることもありません。",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "受信した USDCX の送金を自動で残高に受け取ります。「受け取る」をタップした場合と同じで、受け取る頻度が増えることも、手数料が高くなることもありません。",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "ウォレットファイルの作成中…",
@@ -3259,22 +4055,74 @@
     "message": "guardianを自動的に検出できませんでした。ご利用になったものを選択するか、そのURLを入力してください。",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ guardian(s) にアクセスできなかったため、検出が不完全である可能性があります。",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+  "guardianStateBehindChain": {
+    "message": "$name$はこのアカウントを認識していますが、アカウントの最新の状態は保持していません。アカウントを別のguardianに移管した場合は、そのguardianのURLを入力してください。",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
     "placeholders": {
-      "count": {
+      "name": {
         "content": "$1"
       }
     }
+  },
+  "importSeedPhraseHint": {
+    "message": "Midenアカウントを復元、または新規作成するには、有効な12語の回復フレーズを入力してください。",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "サポートされているのは12語の回復フレーズのみです。貼り付けたフレーズはそれより長いため、何も入力されませんでした。",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "確認したGuardiansにはバックアップが見つかりませんでした",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "何も復元されませんでした。もし、当方が確認していないGuardianがこのフレーズのバックアップを保持している場合は、以下からそれを選択してください。そうでない場合は、このフレーズを使用して新しいアカウントを作成できます。",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "すべてのGuardianを確認することはできなかったため、バックアップが存在するかどうかは判断できません。もう一度試すか、以前に使用したGuardianを選択してください。",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "このフレーズを使用して新しいアカウントを作成してください",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "このフレーズを使って新しいアカウントを作成しますか？",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "これにより新しいアカウントが作成されます。既存のアカウントを復元するものではありません。",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "このフレーズがどのように生まれたのか、またその強度はどれほどなのかについては保証できません。もしこれが暴露された場合、これを使用しているすべてのウォレットが影響を受ける可能性があります。",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "リカバリーフレーズはこのデバイス上に保存されたままになります。",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "リスクを理解した上で、新規アカウントにこのフレーズを使用したいと考えています",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "このフレーズに対応する公開アカウントがまだ存在しない場合、インポートを行うと、それに基づいて新しいアカウントが作成されます。",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "もう一度検出してみてください",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "guardian では、お客様のアカウントが見つかりませんでした。URL を確認するか、代わりにパブリックアカウントとしてインポートしてください。",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "このGuardianのバックアップが見つかりませんでした。URLを確認するか、別のGuardianを選択してください。",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
+  },
+  "guardianOtherNetwork": {
+    "message": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "GuardianのカスタムURLを使用してください",
@@ -3327,6 +4175,18 @@
   "assetChanges": {
     "message": "資産の変動",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "また、この取引では、NFTなど、ウォレットに表示できない資産も移動します。信頼できる場合のみ、続行してください。",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "不明",
@@ -3388,6 +4248,24 @@
     "message": "署名をお願いします",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "$domain$ にログインする",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Breadは、$domain$専用に作成された鍵を使用して、このログインメッセージに署名します。この鍵では、資金の移動やアカウントの変更を行うことはできません。",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "アセットのリクエスト",
     "englishSource": "Request Assets"
@@ -3443,6 +4321,46 @@
   "slow": {
     "message": "遅い",
     "englishSource": "Slow"
+  },
+  "unavailable": {
+    "message": "利用不可",
+    "englishSource": "Unavailable"
+  },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "一時的に利用不可",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "この外部サービスは現在利用できません。後ほど再度お試しください。",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
+  "swapUnavailableTitle": {
+    "message": "このネットワークではスワップは利用できません",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "このネットワークでは、現時点ではスワップ用トークンは設定されていません。",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
+  "agglayerCheckingToken": {
+    "message": "このトークンが「Slowルート」に対応しているかどうかを確認中…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "このトークンは「Slow」ルートをサポートしていません。",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "このトークンを確認できませんでした。戻って、もう一度試してください。",
+    "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
     "message": "秒",
@@ -3661,17 +4579,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "ツール",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "ソーシャル",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "ゲーム",
@@ -3688,14 +4598,6 @@
   "exploreCategoriesLabel": {
     "message": "カテゴリ",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "おすすめ",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "ヘルパーツール",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "開く",
@@ -3724,10 +4626,6 @@
   "exploreNoResultsDescription": {
     "message": "別の名前を試すか、dAppのURLを貼り付けてください。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "スワップ用のテストネットトークンを入手",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",
@@ -3818,10 +4716,6 @@
     "message": "dAppブラウザのヘッダー",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "下にドラッグして最小化",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "dAppスイッチャー",
     "englishSource": "dApp switcher"
@@ -3838,6 +4732,53 @@
     "message": "{count}個の公開済みdApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$を開きますか？",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "このサイトは「Explore」に掲載されておらず、誰でもリンクを張ることができます。このサイトを信頼できる場合にのみアクセスしてください。",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "開く",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "トランザクションを完了しています",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Bread を開いたままにしてください。トランザクションが完了すると $host$ に戻ります。",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "$host$ を開けませんでした",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread は応答しましたが、リクエスト元のアプリが開きませんでした。続けるには、そのアプリをご自身で開いてください。",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "トランザクションは送信済みです。アプリで再試行する前に、Bread で結果を確認してください。",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "承認する",
     "englishSource": "Approve"
@@ -3846,6 +4787,18 @@
     "message": "このアプリは、あなたのウォレットに接続しようとしています",
     "englishSource": "This app wants to connect to your wallet"
   },
+  "dappNetworkMismatch": {
+    "message": "このアプリはMiden $dappNetwork$を要求しましたが、お使いのウォレットはMiden $walletNetwork$上にあります。",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
+  },
   "dappTransactionRequest": {
     "message": "このアプリがトランザクションをリクエストしています",
     "englishSource": "This app is requesting a transaction"
@@ -3853,6 +4806,15 @@
   "dappSignRequest": {
     "message": "このアプリでは、ウォレットを使用してデータに署名することを求めています",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "当サイトでは、Breadを使用して$domain$にログインすることを推奨しています。",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "このアプリは、プライベートなnoteをあなたのウォレットにインポートしようとしています",
@@ -3890,6 +4852,14 @@
   "fingerprint": {
     "message": "指紋",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "顔認証",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "カメラへのアクセスが拒否されました",
@@ -3964,8 +4934,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "ウォレットは、取引が成立したかどうかを確認できませんでした。再度送信する前に、ウォレットを開いてください。",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "ウォレットは、取引が成立したかどうかを確認できませんでした。再試行する前に、ウォレットを開いてください。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして受け取る",
@@ -4084,6 +5054,10 @@
     "message": "トークン情報",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "説明",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "代替可能",
     "englishSource": "Fungible"
@@ -4183,6 +5157,65 @@
   "swapNotesBundled": {
     "message": "このスワップにまとめられた約定",
     "englishSource": "Fills bundled into this swap"
+  },
+  "swapActivityTitle": {
+    "message": "スワップ取引",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "資金の返還",
+    "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "ペイアウトが滞っている",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "このスワップからの支払い処理が失敗し続けているのは、このアカウントが受け取りに必要なネットワーク手数料を支払えないためです。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "このスワップによる払い出しが、Guardianで繰り返し失敗しています。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "このスワップからの支払い処理が失敗し続けているのは、ネットワークに接続できなかったためです。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "このスワップからの支払い処理が繰り返し失敗しています。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "支払いの再試行",
+    "englishSource": "Retry payout"
+  },
+  "swapReturnedAt": {
+    "message": "返却済み · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "発注時刻：$time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "提示価格：$amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "swapFillNote": {
     "message": "約定 $number$",
@@ -4327,6 +5360,15 @@
     "message": "EVMウォレットが接続されました",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "接続されたウォレットが$network$を承認しませんでした。ウォレットを再接続して承認してください。",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "コネクテッド・ウォレット",
     "englishSource": "Connected wallet"
@@ -4392,8 +5434,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "約6時間",
-    "englishSource": "~6 hours"
+    "message": "約30分",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "現在、入金しています",
@@ -4408,20 +5450,74 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "ウォレットでリクエストを承認し、Sepoliaによる確認が完了するまでこの画面を開いたままにしておいてください。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "ウォレット内のリクエストを承認してください（複数回求められる場合があります）。送信元ネットワークによる確認が完了するまで、この画面を開いたままにしておいてください。",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "ブリッジへの入金が失敗しました",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositBalanceTooLow": {
+    "message": "接続されたウォレットには、$network$上の$balance$分の$token$が保管されていますが、この入金額には不足しています。何も送信されませんでした。",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "$network$上の$token$残高を確認できませんでした。何も送信されませんでした。",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "このアカウントの最大保有額は$cap$米ドルです。現在$held$米ドルが保有されており、この入金により$deposit$米ドルが追加されます。これより少ない金額を入力してください。",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "このアカウントの最大保有額は$cap$米ドルです。また、$token$の価格は現在設定されていないため、この金額との照合はできません。後ほど再度お試しください。",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeDepositSubmitted": {
     "message": "ブリッジを開始しました！",
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepoliaでの取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "送信元の取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscanで表示",
@@ -4434,6 +5530,21 @@
   "fastEthWrapNotice": {
     "message": "「Fast」ルートでのETHのブリッジでは、まずETHをWETHにラップし、その後WETHをブリッジします。このルートは現時点では利用できません。",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Fastを利用するには、手数料を含めて$deposit$分の$token$の入金が必要ですが、接続されたウォレットの残高は$balance$分の$token$です。金額を減らすか、Slowを選択してください。",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "接続先ネットワーク",
@@ -4482,6 +5593,197 @@
   "slowRouteLabel": {
     "message": "スロー（アグレイヤー）",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx（Circle xReserve）",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "～2分",
+    "englishSource": "~2 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "約1分",
+    "englishSource": "~1 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserveは、ユーザーが預け入れたUSDCに対し、Miden上で1:1の比率でUSDCxを発行します。",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circleは、MidenへのUSDCxの入金をまだ有効化していません。後ほど再度お試しください。",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "ソース取引は確認されました。Miden上でUSDCxが発行される前に、Circleによる入金の認証を待っています。",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "ブロックエクスプローラーで表示",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circleは預入を認証しました。USDCxはまもなくMiden上で発行される予定です。",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "USDCxはMidenで発行され、あなたのウォレットに受け取られました。",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDCは$source$でバーンされ、$target$のCircleの執行者にミントされます。Circleは金額に加えて手数料を請求し、$target$で送金を執行します。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circleは現時点でこの送金の価格を算出できませんでした。何も送金されていません。しばらくしてから再度お試しください。",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "この入金には、$network$上の$total$ $token$が必要です。これは、金額にCircleの手数料$fee$ $token$を加えたものです。接続済みのウォレットには$balance$ $token$が保管されています。金額から手数料分を差し引くか、ウォレットに$token$を追加してください。",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "バーンが確認されました。$network$上で実行される前に、Circleによる転送の認証を待っています。",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circleがこの送金を承認しました。$network$上でこれを実行し、MidenのxReserveにUSDCを入金してください。これには$network$上で少量のガス代が必要です。",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "$network$上で実行",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "実行中…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "送金は$network$上で実行されました。Miden上でUSDCxが鋳造される前に、Circleによる入金の認証を待っています。",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "バーンが確認されました。Circleは送金を認証し、$network$上で実行します。これにより、USDCがMidenのxReserveに預け入れられます。",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle手数料",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Circleの手数料",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "進捗状況",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "$network$に預け入れ",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "$network$でバーンされた",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circleはバーンを証明しました",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circleは$network$上で実行されます",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "$network$上で実行",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circleは入金を確認しました",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "Midenで発行されたUSDCx",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "ブリッジ $from$ → $to$",
@@ -4554,6 +5856,10 @@
   "unverifiedTokenDescription": {
     "message": "このトークンは、Midenの検証済みトークンリストには含まれていません。誰でも任意の名前でトークンを作成できるため、信頼する前にfaucetのIDを確認してください。",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "未確認のトークン",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
@@ -4719,6 +6025,10 @@
     "message": "guardianのカスタムURL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "手数料 faucet アカウントID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "オンボーディングで「保護者なし」オプションを許可する",
     "englishSource": "Allow 'No guardian' option in onboarding"
@@ -4865,15 +6175,6 @@
     "message": "送金受理済み",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "この出金は安全に再試行できません。別の出金を開始する前に、この出金の状況を確認してください。",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -4895,8 +6196,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "テスト用ウォレットのみを接続してください",
-    "englishSource": "Connect a test wallet only"
+    "message": "テストウォレットのみを使用してください",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "テスト用資金のみ",
@@ -4928,16 +6229,16 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "このブリッジは、USDCにはArc TestnetまたはEthereum Sepoliaを、ETHにはEthereum Sepoliaを使用します。実際の資金を保有しているウォレットは接続しないでください。新しいウォレットを作成し、テスト用トークンのみを預けてください。",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "ウォレットの改善にご協力ください",
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Walletのどの機能を使用しているか、どこで操作が滞ったか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームをお知らせください。そうすることで、不具合の原因を特定し修正することができます。アプリがクラッシュした場合は、エラー内容とコード内の発生箇所を含むクラッシュレポートも送信されます。送信前に機密データは削除されています。 鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、取引内容は一切送信されません。他のアプリやサイトでの追跡は行わず、広告目的で使用されることもなく、データブローカーへの販売や共有も行われません。これらの設定はいつでも変更可能です。",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "ウォレットのどの部分を使用しているか、どこで問題が発生したか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームを共有してください。そうすることで、不具合を修正できます。鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、または取引内容は絶対に共有しないでください。 他のアプリやサイトでの追跡は一切行わず、広告目的での利用も一切ありません。また、データブローカーへの販売や共有も一切行いません。クラッシュレポートは、エラー内容とコード内の発生箇所を、機密データを削除し、ユーザーやデバイスの識別子を一切含まない状態で送信されます。この設定はいつでも変更可能です。",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "利用状況データの共有",
@@ -4946,6 +6247,42 @@
   "helpImproveWalletDecline": {
     "message": "今はいい",
     "englishSource": "Not now"
+  },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "ウォレットのどの機能を使用しているか、どこで問題が発生しているか、エラーの大まかな分類、アプリのバージョン、およびご利用のプラットフォーム。",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "クラッシュレポートは、クラッシュを修正するためにいずれの場合も送信されます。レポートには、エラー内容とコード内の発生箇所が含まれますが、機密データは削除され、ユーザーやデバイスの識別子は一切含まれません。",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
   },
   "activityAcceptTransfer": {
     "message": "送金を受け入れる",
@@ -5054,9 +6391,94 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "アクセスコード",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "メインネットのロックを解除する",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "このコードは動作しませんでした。コードを確認して、もう一度試してください。",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "このコードを確認できませんでした。後ほどもう一度お試しください。",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "このウォレットはMidenメインネットでは利用できません。新しいウォレットにはアクセスコードが必要です。",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Midenメインネットでは、登録済みのアカウントおよびアクセスコードのみが認められます。",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "メインネット",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "メインネットへのアクセスコードをお持ちですか？",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "メインネットは現時点では招待制となっています。招待状に記載された12文字のコードを入力すると、ウォレットがMidenメインネットで利用開始されます。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "コードは招待メールに記載されています。",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "コードがあります",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "コードは持っていません",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Breadは招待制です",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "新しいウォレットには、招待リンクから取得したメインネットアクセスコードが必要です。既存のアカウントは、引き続き復元可能です。",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "トークンに実際の価値はありません",
     "englishSource": "Tokens have no real value"
+  },
+  "mainnetCountdownLink": {
+    "message": "早期アクセスリストに登録する",
+    "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "メインネットへの移行",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "リセットしてメインネットに切り替える",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "アクセスコードが承認されました。切り替えを行うと、このデバイスからこのウォレット、その残高、および履歴がすべて消去されます。まず、リカバリー情報を保存してください。テストトークンはメインネットには移行されません。その後、このコードを使用してメインネットウォレットを作成するか、既存のメインネットウォレットを復元することになります。",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "招待コードを入力してください。メインネットがそれを受け入れるまで、何もクリアされません。",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
+  },
+  "mainnetCountdownLabel": {
+    "message": "Breadのメインネット移行までの残り時間：$time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
   },
   "activityRestoreTransfers": {
     "message": "復元",
@@ -5115,8 +6537,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "このブリッジは、イーサリアム・セポリアのテストトークンをMidenへ移動させるものです。イーサリアムのメインネットやその他の実稼働ネットワークからブリッジを行わないでください。",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "このブリッジは、Arc Testnet または Ethereum Sepolia の USDC、あるいは Ethereum Sepolia の ETH を Miden へ移動させるものです。メインネットやその他の実稼働ネットワークからのブリッジは絶対にしないでください。",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "隠された送金：$count$",
@@ -5284,8 +6706,41 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
@@ -5384,26 +6839,6 @@
     "message": "あなたの収益",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "秒",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "分",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "時間",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "日",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "有効期限の単位",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "$label$ の詳細",
     "englishSource": "More information about $label$",
@@ -5413,15 +6848,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "$min$ から $max$ までの整数を入力してください。",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "指定時間内に約定しなかった場合はキャンセルする",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2分",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1時間",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1日",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7日間",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "その時点で約定していない場合は、スワップはキャンセルされ、$amount$のうち未約定分は返還されます。",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -5531,5 +6983,1113 @@
   "hiddenTokensUnreadable": {
     "message": "非表示のトークンを読み込むことができませんでした。",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "送信の確認",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "交換を確認してください",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "この取引を確認してください",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "入金を確認してください",
+    "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "トークンの詳細を編集する",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "トークンの詳細",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名前",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "記号",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小数点",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucetの値にリセット",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "編集済み",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1文字から$max$文字の名称を入力してください。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1～$max$文字の記号を入力してください。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0から$max$までの整数を入力してください。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "これらの設定値は、このウォレットがトークンを表示する方法のみを変更します。faucetは独自の設定値を保持します。送信する金額には、ここで設定した小数点以下の桁数が使用されます。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "トークンの詳細を保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETHは、Midenテストネットでのスワップに使用されるテスト用トークンです。これはETHではなく、本番環境のウォレットでは利用できません。",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "この交換は、Midenテストネット上のスマートコントラクトを通じて実行されます。",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "スワップが実行される場所",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "$token$について",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "次のウォレットの確認を待っています",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "最初の確認が完了しました。ウォレットから再度確認を求められますので、この画面を開いたままにしておいてください。",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "詳細オプション",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "転送タイプ",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "公開転送",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "トークン、金額、受取人アドレスが Miden 上で公開されます。",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "この転送のトークン、金額、受取人アドレスは Miden 上で誰でも閲覧できます。",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "送信者アドレスはどちらのモードでも公開されます。",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "公開で送信",
+    "englishSource": "Send publicly"
+  },
+  "breadCloseError": {
+    "message": "Breadに戻れませんでした。",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "今すぐ終了",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Breadに戻る",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Breadをタップして戻る",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "ブリッジイン",
+    "englishSource": "Bridge in"
+  },
+  "bridgeDepositTokensUnavailable": {
+    "message": "ブリッジのトークンリストを読み込めなかったため、一部のトークンが表示されていない可能性があります。後ほど再度お試しください。",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "このブリッジは、このネットワーク上でこのトークンを上場していません。",
+    "englishSource": "The bridge does not list this token on this network."
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "ウォレットを接続してください",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Midenに持ち込みたいトークンを保管しているウォレット。",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "ウォレットを接続する",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "ウォレット",
+    "englishSource": "Your wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "未接続",
+    "englishSource": "Not connected"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "接続後",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask、Rainbow、またはWalletConnect対応のウォレット。",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "送金方法を選択してください",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "トークン、ソースネットワーク、および数量を選択してください。",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "確認および承認",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "ルートと手数料を確認した上で、ウォレットで承認してください。",
+    "englishSource": "Check the route and fees, then approve in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "実際の資金を保有しているウォレットを絶対に接続しないでください。",
+    "englishSource": "Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "ルートを選択してください",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "続行する前に、手数料と到着予定時刻を確認してください。",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "到着予定時刻",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "到着は宛先ネットワークによって異なります",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "ブリッジ手数料",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "ベストバリュー",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "最も安い",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "最速",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "ルートのソート",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "ブリッジプロバイダー",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "そのほとんどは、プロバイダーの手数料を差し引いた後の金額です。",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "ガス代を含む、最低限のブリッジおよびネットワークコスト。",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "最短到着予定時刻。",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "推定費用",
+    "englishSource": "Est. cost"
+  },
+  "earnWithdrawPositive": {
+    "message": "Enter an amount greater than zero.",
+    "englishSource": "Enter an amount greater than zero."
+  },
+  "earnWithdrawPrecision": {
+    "message": "Use no more than $decimals$ decimal places.",
+    "englishSource": "Use no more than $decimals$ decimal places.",
+    "placeholders": {
+      "decimals": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawAboveAvailable": {
+    "message": "Enter an amount within the available balance.",
+    "englishSource": "Enter an amount within the available balance."
+  },
+  "earnWithdrawAvailable": {
+    "message": "Available: $amount$ $asset$",
+    "englishSource": "Available: $amount$ $asset$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnWithdrawQuoteUnavailable": {
+    "message": "A withdrawal quote is unavailable for this amount. Try a larger amount or refresh.",
+    "englishSource": "A withdrawal quote is unavailable for this amount. Try a larger amount or refresh."
+  },
+  "earnWithdrawRefresh": {
+    "message": "The balance or quote changed. Refresh and review again.",
+    "englishSource": "The balance or quote changed. Refresh and review again."
+  },
+  "earnSelectedAmountGasless": {
+    "message": "Selected amount (gasless)",
+    "englishSource": "Selected amount (gasless)"
+  },
+  "earnWithdrawFeesIncluded": {
+    "message": "Route costs are reflected in the quoted receipt. Gas is sponsored.",
+    "englishSource": "Route costs are reflected in the quoted receipt. Gas is sponsored."
+  },
+  "earnWithdrawExpectedReceipt": {
+    "message": "Expected to receive",
+    "englishSource": "Expected to receive"
+  },
+  "earnWithdrawMinimumReceipt": {
+    "message": "Minimum received",
+    "englishSource": "Minimum received"
+  },
+  "earnWithdrawRouteFees": {
+    "message": "Route fees",
+    "englishSource": "Route fees"
+  },
+  "earnWithdrawRefreshQuote": {
+    "message": "Refresh quote",
+    "englishSource": "Refresh quote"
+  },
+  "earnWithdrawFullBalanceSelected": {
+    "message": "Full balance selected",
+    "englishSource": "Full balance selected"
+  },
+  "earnWithdrawApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawDeliverySummary": {
+    "message": "To Miden · About 1 min · Gas sponsored",
+    "englishSource": "To Miden · About 1 min · Gas sponsored"
+  },
+  "earnWithdrawYouWithdraw": {
+    "message": "You withdraw",
+    "englishSource": "You withdraw"
+  },
+  "earnWithdrawStaysInvested": {
+    "message": "Stays invested",
+    "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "到着日：",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · 約1分",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "ガス",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "スポンサー提供",
+    "englishSource": "Sponsored"
+  },
+  "earnWithdrawAll": {
+    "message": "Full balance",
+    "englishSource": "Full balance"
+  },
+  "earnWithdrawExactAmount": {
+    "message": "Exact withdrawal amount",
+    "englishSource": "Exact withdrawal amount"
+  },
+  "earnWithdrawInProgress": {
+    "message": "このポジションからの別の引き出しが現在進行中です。完了するまでお待ちください。",
+    "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
+  },
+  "webViewUpdateTitle": {
+    "message": "Android System WebViewの更新",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread には、アプリ内でウェブページを表示する Android のコンポーネントである Android System WebView の新しいバージョンが必要です。Google Play から更新してから、Bread を再度開いてください。",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Google Playを開く",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Chromeを更新",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Bread を利用するには、このバージョンの Android ではアプリ内でウェブページを表示する、新しいバージョンの Chrome が必要です。Google Play からアップデートした後、Bread を再度開いてください。",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Breadは開始できませんでした",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "何らかの理由でBreadの読み込みが中断されました。もう一度試すか、Breadを閉じてから再度開いてください。",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "もう一度試してください",
+    "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "利用可能か確認しています",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "お住まいの地域でウォレットを利用できるか確認しています。しばらくお待ちください。",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "お住まいの地域ではウォレットを利用できません",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "現在の所在地からはウォレットを利用できません。",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "利用可能か確認できませんでした",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "接続を確認して、もう一度お試しください。",
+    "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "このブラウザまたはデバイスではウォレットを実行できません",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "oneClickSelectAsset": {
+    "message": "$network$でトークンを選択してください",
+    "englishSource": "Select a token on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickNoAssets": {
+    "message": "このネットワーク上には、検証済みのトークンは存在しません。",
+    "englishSource": "No verified tokens are available on this network."
+  },
+  "oneClickRecipientSection": {
+    "message": "受信者",
+    "englishSource": "Recipient"
+  },
+  "oneClickRefundSection": {
+    "message": "払い戻し口座",
+    "englishSource": "Refund account"
+  },
+  "oneClickRecipientAddress": {
+    "message": "受取人アドレス",
+    "englishSource": "Recipient address"
+  },
+  "oneClickRefundAddress": {
+    "message": "発信元ネットワーク上の払い戻しアドレス",
+    "englishSource": "Refund address on the origin network"
+  },
+  "oneClickRefundAccount": {
+    "message": "払い戻し口座",
+    "englishSource": "Refund account"
+  },
+  "oneClickConnectOriginWallet": {
+    "message": "$network$ウォレットを接続する",
+    "englishSource": "Connect $network$ wallet",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickChooseForeignNetwork": {
+    "message": "Miden以外の送信元または送信先ネットワークを選択してください。",
+    "englishSource": "Choose an origin or destination network outside Miden."
+  },
+  "oneClickDifferentNetworksRequired": {
+    "message": "2つの異なるネットワークを選択してください。",
+    "englishSource": "Choose two different networks."
+  },
+  "oneClickMidenAssetRequired": {
+    "message": "このルートの片側には、検証済みのMidenトークンを選択してください。",
+    "englishSource": "Choose a verified Miden token for one side of this route."
+  },
+  "oneClickSameUnderlyingBridge": {
+    "message": "これはブリッジ転送です。この資産については、既存のブリッジフローを使用してください。",
+    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
+  },
+  "oneClickQuoteUnavailable": {
+    "message": "このルートでは相場情報が利用できません。アドレスを確認して、もう一度お試しください。",
+    "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
+  },
+  "oneClickQuoteExpiresAt": {
+    "message": "クォートは期限切れとなります",
+    "englishSource": "Quote expires"
+  },
+  "oneClickQuoteExpired": {
+    "message": "有効期限が切れています。続行する前に更新してください。",
+    "englishSource": "Expired. Refresh before continuing."
+  },
+  "oneClickConfirmMidenDeposit": {
+    "message": "このMidenへの入金を確認してください",
+    "englishSource": "Confirm this Miden deposit"
+  },
+  "oneClickSubmitFailed": {
+    "message": "入金が送信できませんでした。経路を確認して、もう一度お試しください。",
+    "englishSource": "The deposit could not be submitted. Review the route and try again."
+  },
+  "oneClickRouteChanged": {
+    "message": "ルートが変更されました。続行する前に、新しい見積もりを依頼してください。",
+    "englishSource": "The route changed. Request a new quote before continuing."
+  },
+  "oneClickArrivalEstimate": {
+    "message": "約$minutes$分",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefreshQuote": {
+    "message": "相場情報を更新",
+    "englishSource": "Refresh quote"
+  },
+  "oneClickMinimumReceived": {
+    "message": "最低受領額",
+    "englishSource": "Minimum received"
+  },
+  "oneClickMinimumOutput": {
+    "message": "最小出力",
+    "englishSource": "Minimum output"
+  },
+  "oneClickRefundAmount": {
+    "message": "払い戻し額",
+    "englishSource": "Refund amount"
+  },
+  "oneClickNativeFee": {
+    "message": "Midenネットワーク手数料の推定額",
+    "englishSource": "Estimated Miden network fee"
+  },
+  "oneClickAvailableBalance": {
+    "message": "利用可能な外部残高",
+    "englishSource": "Available external balance"
+  },
+  "oneClickBalanceChecking": {
+    "message": "外部残高の確認",
+    "englishSource": "Checking external balance"
+  },
+  "oneClickBalanceCheckingBody": {
+    "message": "接続されたアカウントを確認し、ネットワーク手数料に十分な残高を確保すること。",
+    "englishSource": "Checking the connected account and reserving enough for the network fee."
+  },
+  "oneClickBalanceUnavailable": {
+    "message": "外部残高は利用不可",
+    "englishSource": "External balance unavailable"
+  },
+  "oneClickBalanceUnavailableBody": {
+    "message": "ウォレットは、接続されたアカウントの残高およびネットワーク手数料を確認できませんでした。続行する前に、再接続するか、もう一度お試しください。",
+    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
+  },
+  "oneClickGasReserve": {
+    "message": "ネットワーク手数料として確保済み：$amount$ $symbol$",
+    "englishSource": "Reserved for network fees: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "oneClickInsufficientTokenBalance": {
+    "message": "トークン残高不足",
+    "englishSource": "Insufficient token balance"
+  },
+  "oneClickInsufficientTokenBalanceBody": {
+    "message": "接続されたアカウントには、提示された入金額に相当するこのトークンが十分にありません。",
+    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
+  },
+  "oneClickInsufficientGasBalance": {
+    "message": "ネットワーク手数料の残高不足",
+    "englishSource": "Insufficient network fee balance"
+  },
+  "oneClickInsufficientGasBalanceBody": {
+    "message": "接続されたアカウントには、推定ネットワーク手数料を賄うために、さらに$symbol$が必要です。",
+    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickArrival": {
+    "message": "到着予定時刻",
+    "englishSource": "Estimated arrival"
+  },
+  "oneClickRecipient": {
+    "message": "受信者",
+    "englishSource": "Recipient"
+  },
+  "oneClickRoute": {
+    "message": "ルート",
+    "englishSource": "Route"
+  },
+  "oneClickYouPayFrom": {
+    "message": "支払いは$network$で行います",
+    "englishSource": "You pay on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickYouReceiveOn": {
+    "message": "$network$で受け取ります",
+    "englishSource": "You receive on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefundFee": {
+    "message": "返金手数料",
+    "englishSource": "Refund fee"
+  },
+  "oneClickWithdrawFee": {
+    "message": "出金手数料",
+    "englishSource": "Withdrawal fee"
+  },
+  "oneClickDepositInstructions": {
+    "message": "預入の手順",
+    "englishSource": "Deposit instructions"
+  },
+  "oneClickManualDepositNotice": {
+    "message": "選択したネットワークから、以下の正確な金額を送金してください。スワップは、送金が預入アドレスに到達して初めて開始されます。",
+    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
+  },
+  "oneClickNetwork": {
+    "message": "ネットワーク",
+    "englishSource": "Network"
+  },
+  "oneClickOriginNetwork": {
+    "message": "Originネットワーク",
+    "englishSource": "Origin network"
+  },
+  "oneClickDestinationNetwork": {
+    "message": "宛先ネットワーク",
+    "englishSource": "Destination network"
+  },
+  "oneClickAmount": {
+    "message": "金額",
+    "englishSource": "Amount"
+  },
+  "oneClickDepositAddress": {
+    "message": "入金アドレス",
+    "englishSource": "Deposit address"
+  },
+  "oneClickDepositMemo": {
+    "message": "備考",
+    "englishSource": "Memo"
+  },
+  "oneClickOriginTransaction": {
+    "message": "オリジン取引",
+    "englishSource": "Origin transaction"
+  },
+  "oneClickTrackingSaved": {
+    "message": "この経路は「アクティビティ」に保存されるため、後で追跡することができます。",
+    "englishSource": "This route is saved in Activity so you can track it later."
+  },
+  "oneClickBroadcastTrackingPending": {
+    "message": "このウォレットから入金が送信されましたが、まだ取引を保存できていません。再度送信しないでください。取引ハッシュは以下の通りです。",
+    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
+  },
+  "oneClickRefreshingExpiredQuote": {
+    "message": "期限切れの相場情報の更新",
+    "englishSource": "Refreshing expired quote"
+  },
+  "oneClickRecoveryUnavailable": {
+    "message": "このルートは更新できません",
+    "englishSource": "This route cannot be refreshed"
+  },
+  "oneClickRecoveryUnavailableBody": {
+    "message": "アカウント、ネットワーク、または検証済みルートが変更されました。取引画面に戻り、必要に応じて新しいルートを開始してください。",
+    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
+  },
+  "oneClickExpiredRefreshFailed": {
+    "message": "期限切れの相場情報は更新できませんでした。送信する前に、再試行して新しい相場情報を取得してください。",
+    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
+  },
+  "oneClickQuoteRefreshed": {
+    "message": "相場情報の更新",
+    "englishSource": "Quote refreshed"
+  },
+  "oneClickExpiredRefreshNotice": {
+    "message": "以前の引用文は、お客様の入金が送信される前に有効期限が切れていました。この更新された手順を確認し、続行するかどうかをご確認ください。",
+    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
+  },
+  "oneClickDepositSubmitted": {
+    "message": "預入申請済み",
+    "englishSource": "Deposit submitted"
+  },
+  "oneClickStatusKnownDepositTx": {
+    "message": "預入取引が見つかりました",
+    "englishSource": "Deposit transaction found"
+  },
+  "oneClickStatusPendingDeposit": {
+    "message": "入金を待機中",
+    "englishSource": "Waiting for deposit"
+  },
+  "oneClickStatusIncompleteDeposit": {
+    "message": "入金額が不完全です",
+    "englishSource": "Deposit amount is incomplete"
+  },
+  "oneClickStatusProcessing": {
+    "message": "スワップ処理",
+    "englishSource": "Swap processing"
+  },
+  "oneClickStatusSuccess": {
+    "message": "プロバイダーによるスワップの完了",
+    "englishSource": "Swap completed by provider"
+  },
+  "oneClickStatusRefunded": {
+    "message": "返金された資金",
+    "englishSource": "Funds refunded"
+  },
+  "oneClickStatusFailed": {
+    "message": "スワップ失敗",
+    "englishSource": "Swap failed"
+  },
+  "oneClickProviderStatus": {
+    "message": "プロバイダーのステータス",
+    "englishSource": "Provider status"
+  },
+  "oneClickDeliveryStatus": {
+    "message": "ウォレットの引き渡し",
+    "englishSource": "Wallet delivery"
+  },
+  "oneClickStatusDelivered": {
+    "message": "ウォレットで受領",
+    "englishSource": "Received in wallet"
+  },
+  "oneClickDeliveryArriving": {
+    "message": "Midenウォレットへの到着",
+    "englishSource": "Arriving in Miden wallet"
+  },
+  "oneClickDepositAmount": {
+    "message": "預入金額",
+    "englishSource": "Deposit amount"
+  },
+  "oneClickOutputAmount": {
+    "message": "引用された出力",
+    "englishSource": "Quoted output"
+  },
+  "oneClickFailureReason": {
+    "message": "返金または失敗理由",
+    "englishSource": "Refund or failure reason"
+  },
+  "oneClickNetworkMiden": {
+    "message": "Miden",
+    "englishSource": "Miden"
+  },
+  "oneClickNetworkEthereum": {
+    "message": "イーサリアム",
+    "englishSource": "Ethereum"
+  },
+  "oneClickNetworkBase": {
+    "message": "Base",
+    "englishSource": "Base"
+  },
+  "oneClickNetworkArbitrum": {
+    "message": "Arbitrum",
+    "englishSource": "Arbitrum"
+  },
+  "oneClickNetworkOptimism": {
+    "message": "Optimism",
+    "englishSource": "Optimism"
+  },
+  "oneClickNetworkArc": {
+    "message": "Arc",
+    "englishSource": "Arc"
+  },
+  "availableAmount": {
+    "message": "利用可能：$amount$ $symbol$",
+    "englishSource": "Available: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
+  "amountUsdUnavailable": {
+    "message": "USDの見積もりは利用不可",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USDの相場が期限切れとなりました。価格を更新中…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "$unit$単位の金額",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$を入力してください",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD価格を読み込み中…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "USDの価格が更新できませんでした",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "米ドルの推定額",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "プレビュー",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "終了",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "サンプルデータはデザインプレビュー専用です。これらはお客様のウォレットの資金や実際のプレイヤーランキングではありません。何も公開されていません。",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "サンプルプレイヤー",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "プレビューのみ",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "サンプル更新を適用",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "あなたのランク",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "提出残高",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GCリーダーボード",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "ローカルで更新されたスナップショットのサンプルです。何も送信されていません。",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Breadでゲームを探してみましょう。",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Arcade を探索する",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "注目のゲーム",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "試してみるべきゲーム",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcadeのショートカット",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "ランキング",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "ゲームコイン",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "私のアクティビティ",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "オープンゲーム",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "利用可能なゲームはありません",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "このネットワーク上で利用可能になったゲームは、ここに表示されます。",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "ゲームを開始しても、ウォレットは自動的に接続されません。Breadが事前に確認を求めます。",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GCランキング",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC残高の確認",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC残高",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "未読",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "残高を送信",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "残高を更新する",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "残高スナップショットを送信すると、アカウント識別子、GC残高、ネットワーク、およびスナップショット時刻がリーダーボードと共有されます。その他の資産の残高は含まれません。",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC残高の読み取りとリーダーボードへの送信は、現時点では連携されていません。残高の読み取りや送信は行われていません。",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "ランキングはここに表示されます",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "このネットワークでは、ランキング機能はまだ実装されていません。",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "残高はここに表示されます",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "ゲームコインは、このネットワーク上ではまだ利用可能になっていません。",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "「Arcade」に掲載されているゲームのみが対象となります。",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "ファイナンス",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "その他",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "コイン",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "アクティビティ",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "ゲームを閲覧する",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "残高は非公開のままです。",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "ランク付けの対象となるのは、ユーザーが共有することを選択した残高のみです。",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "まだゲーム活動はありません",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Arcadeゲームで行った取引は、ここに表示されます。",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1,000 GCを1 USDCxで購入（ネットワーク手数料別）。",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "BreadでのGC購入はまだ利用できません。",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "GCを追加購入",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "ゲームコイン",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

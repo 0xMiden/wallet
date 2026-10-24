@@ -41,7 +41,8 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         req.password,
         req.mnemonic,
         req.ownMnemonic,
-        req.guardianEndpoint
+        req.guardianEndpoint,
+        req.accessCode
       );
       return { type: WalletMessageType.NewWalletResponse };
 
@@ -50,13 +51,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
 
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(
-        req.password,
-        req.mnemonic,
-        req.walletAccounts,
-        req.formatVersion,
-        req.importedAccounts
-      );
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts, req.importedAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
 
     case WalletMessageType.UnlockRequest:
@@ -224,9 +219,16 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     }
 
     case WalletMessageType.SwapHotKeyRequest: {
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
+      };
+    }
+
+    case WalletMessageType.ImportHotKeyPairRequest: {
+      await Actions.importHotKeyPair(req.accountPublicKey, req.keyPairPayload);
+      return {
+        type: WalletMessageType.ImportHotKeyPairResponse
       };
     }
 
@@ -234,6 +236,17 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
+      };
+    }
+
+    case WalletMessageType.RevertGuardianEndpointRequest: {
+      return {
+        type: WalletMessageType.RevertGuardianEndpointResponse,
+        outcome: await Actions.revertGuardianEndpointAfterDiscard(
+          req.accountPublicKey,
+          req.discardedEndpoint,
+          req.revertTo
+        )
       };
     }
 
@@ -339,6 +352,9 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     // undefined, no throw, no failing test). See back/main.ts for the SW's own routing.
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
 
     default:
       console.warn(`${label}: Unknown request type`, req?.type);

@@ -269,3 +269,88 @@ export async function inStorageTurn<T>(name: string, operation: () => Promise<T>
   storageTurnTails.set(name, settled);
   return run;
 }
+
+export type VerdictTurn<T> = { ran: true; value: T } | { ran: false };
+export type VerdictTurnMode = { ifAvailable: true } | { waitMs: number };
+
+// Without Web Locks (iOS before 15.4, older macOS web views) the reconciler and Retry run in this one realm, so a
+// chain per row and the set of names held serialize them, and `ifAvailable` can still report a held row.
+const verdictTails = new Map<string, Promise<void>>();
+const verdictHeld = new Set<string>();
+
+export const verdictLockName = (rowId: string): string => `miden-tx-verdict:${rowId}`;
+
+const waitAtMost = (promise: Promise<void>, ms: number): Promise<boolean> =>
+  new Promise(resolve => {
+    const timer = setTimeout(() => resolve(false), ms);
+    void promise.then(() => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+
+async function inLocalVerdictTurn<T>(
+  name: string,
+  operation: () => Promise<T>,
+  mode: VerdictTurnMode
+): Promise<VerdictTurn<T>> {
+  if ('ifAvailable' in mode && (verdictHeld.has(name) || verdictTails.has(name))) return { ran: false };
+  const previous = verdictTails.get(name) ?? Promise.resolve();
+  let release: () => void = () => {};
+  const mine = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const tail = previous.then(() => mine);
+  verdictTails.set(name, tail);
+  void tail.then(() => {
+    if (verdictTails.get(name) === tail) verdictTails.delete(name);
+  });
+  const acquired = 'ifAvailable' in mode ? true : await waitAtMost(previous, mode.waitMs);
+  if (!acquired) {
+    // Gave up: the slot passes straight on, and this operation never runs.
+    release();
+    return { ran: false };
+  }
+  verdictHeld.add(name);
+  try {
+    return { ran: true, value: await operation() };
+  } finally {
+    verdictHeld.delete(name);
+    release();
+  }
+}
+
+/**
+ * Run `operation` holding the row's verdict lock (#1081). Every judge-then-write sequence on an unknown-outcome row
+ * takes it: the reconciler asks with `ifAvailable` and skips a held row, and Retry waits at most `waitMs`; a waiter
+ * that gives up never runs later. Web Locks are per origin, so on the extension the service worker (the reconciler)
+ * and the popup, side panel and tabs (Retry) share one manager. Nothing takes this lock while holding the WASM lock or
+ * the loop lock.
+ */
+export async function inVerdictTurn<T>(
+  rowId: string,
+  operation: () => Promise<T>,
+  mode: VerdictTurnMode
+): Promise<VerdictTurn<T>> {
+  const name = verdictLockName(rowId);
+  if (typeof navigator === 'undefined' || !navigator.locks) return inLocalVerdictTurn(name, operation, mode);
+  if ('ifAvailable' in mode) {
+    return navigator.locks.request<Promise<VerdictTurn<T>>>(name, { ifAvailable: true }, async lock =>
+      lock === null ? { ran: false } : { ran: true, value: await operation() }
+    );
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), mode.waitMs);
+  try {
+    return await navigator.locks.request<Promise<VerdictTurn<T>>>(name, { signal: controller.signal }, async () => {
+      clearTimeout(timer);
+      return { ran: true, value: await operation() };
+    });
+  } catch (error) {
+    if (controller.signal.aborted && error instanceof DOMException && error.name === 'AbortError')
+      return { ran: false };
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}

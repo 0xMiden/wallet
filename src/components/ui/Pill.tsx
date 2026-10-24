@@ -7,9 +7,11 @@ import { cn } from 'lib/ui/util';
 
 /**
  * Height and type scale. `xs` (20px) is the compact status badge in dense rows; `sm` (24px) is the
- * status pill in detail headers; `md` (32px) is every other chip, badge and action.
+ * status pill in detail headers; `md` (32px) is every other chip, badge and action; `lg` (40px) is
+ * a row of page-level shortcut chips (Arcade's Rankings / Coins / Activity); `tag` (18px, a
+ * step under `xs`) is a mark after a row's name, such as a token's Unverified tag.
  */
-export type PillSize = 'xs' | 'sm' | 'md';
+export type PillSize = 'xs' | 'sm' | 'md' | 'lg' | 'tag';
 
 /**
  * What the pill says about its content:
@@ -19,6 +21,8 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
  * - `inactive`: a status that is neither good nor bad (cancelled, reclaimed, unavailable),
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
+ * - `muted`: a quiet mark that says nothing good or bad (a flat 24h move, an Unverified tag),
+ *   `fill` with `muted`.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  * - `inverse` - on a coloured surface: a darker well of that surface with its
  *   white ink, so it suits every card color and never brings a status hue of its own.
@@ -33,6 +37,7 @@ export type PillTone =
   | 'warning'
   | 'negative'
   | 'inactive'
+  | 'muted'
   | 'plain'
   | 'page'
   | 'inverse';
@@ -67,6 +72,8 @@ export type PillProps = PillBehaviourProps & {
   trailingIcon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
+  /** Soft corners for network tags; other pills retain their capsule shape. */
+  shape?: 'capsule' | 'rounded';
   /**
    * Which haptic the tap fires: `'light'` (default) for an ordinary action, or `false` to fire
    * none and let the caller manage it. A single choice in a row is a `SegmentedControl`, which
@@ -85,13 +92,16 @@ export type PillProps = PillBehaviourProps & {
 };
 
 // Literal class strings, so Tailwind generates them.
-const pillVariants = cva('relative inline-flex max-w-full items-center rounded-full border', {
+const pillVariants = cva('relative inline-flex max-w-full items-center border', {
   variants: {
+    shape: { capsule: 'rounded-full', rounded: 'rounded-xl' },
     size: {
       // Semibold: at 20px the bold face reads heavier than the row title beside it.
       xs: 'h-5 gap-1 px-2 text-badge font-semibold',
       sm: 'h-6 gap-1 px-2 text-badge',
-      md: 'h-8 gap-1.5 px-3 text-pill'
+      md: 'h-8 gap-1.5 px-3 text-pill',
+      lg: 'h-10 gap-1.5 px-3.5 text-pill',
+      tag: 'h-4.5 gap-1 px-1.5 text-tag'
     } satisfies Record<PillSize, string>,
     tone: {
       neutral: 'border-transparent bg-fill text-ink',
@@ -105,6 +115,7 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
       negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
       inactive: 'border-transparent bg-fill-pressed text-ink',
+      muted: 'border-transparent bg-fill text-muted',
       plain: 'border-transparent',
       // A pill sitting INSIDE a `fill` element — the Paste and Scan pills in a text field, a tag
       // over a card's artwork — so it takes the page's surface to stand off the one under it.
@@ -112,7 +123,7 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
     } satisfies Record<PillTone, string>
   },
-  defaultVariants: { size: 'md', tone: 'neutral' }
+  defaultVariants: { size: 'md', tone: 'neutral', shape: 'capsule' }
 });
 
 /**
@@ -127,7 +138,9 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
     size: {
       xs: '-ml-0.5 h-3 w-3',
       sm: '-ml-0.5 h-3.5 w-3.5',
-      md: '-ml-1 h-4 w-4'
+      md: '-ml-1 h-4 w-4',
+      lg: '-ml-1 h-4 w-4',
+      tag: '-ml-0.5 h-3 w-3'
     } satisfies Record<PillSize, string>
   },
   defaultVariants: { size: 'md' }
@@ -141,7 +154,9 @@ const pillTrailingIconVariants = cva(
       size: {
         xs: '-mr-0.5 h-3 w-3',
         sm: '-mr-0.5 h-3.5 w-3.5',
-        md: '-mr-1 h-4 w-4'
+        md: '-mr-1 h-4 w-4',
+        lg: '-mr-1 h-4 w-4',
+        tag: '-mr-0.5 h-3 w-3'
       } satisfies Record<PillSize, string>
     },
     defaultVariants: { size: 'md' }
@@ -162,6 +177,7 @@ export const Pill: React.FC<PillProps> = ({
   trailingIcon,
   size = 'md',
   tone = 'neutral',
+  shape = 'capsule',
   onClick,
   haptic = 'light',
   selected,
@@ -179,7 +195,7 @@ export const Pill: React.FC<PillProps> = ({
   // by utility name) can then pick the tone default over the caller's class regardless of
   // argument order, e.g. `border-network-miden-border` losing to `border-transparent`.
   const classes = cn(
-    pillVariants({ size, tone }),
+    pillVariants({ size, tone, shape }),
     onClick && !disabled && 'cursor-pointer',
     disabled && 'opacity-50',
     className

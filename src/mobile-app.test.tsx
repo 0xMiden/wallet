@@ -5,7 +5,7 @@
  *
  * The module has no exports — everything happens as a side effect of import:
  * it hoists `React` onto `globalThis`, calls `initTheme()` and
- * `installGuardianCorsBypass()` at top level, then kicks off the async
+ * `installGuardianFetchBoundary()` at top level, then kicks off the async
  * `initMobile()` bootstrap (which is fire-and-forget with a trailing
  * `.catch`). We therefore drive it by (re)loading the module under a fresh
  * registry with every collaborator mocked, then assert on the observable
@@ -20,8 +20,13 @@ import React from 'react';
 // *invoked* lazily when `./mobile-app` is required, by which point these
 // consts are initialised.
 // ---------------------------------------------------------------------------
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
 const mockInitTheme = jest.fn();
-const mockInstallGuardianCorsBypass = jest.fn();
+const mockInstallGuardianFetchBoundary = jest.fn();
 const mockInitMobileBackHandler = jest.fn<Promise<void>, []>();
 const mockInitKeyboardInset = jest.fn<Promise<void>, []>();
 const mockAdapterInit = jest.fn<Promise<void>, []>();
@@ -47,7 +52,7 @@ jest.mock('lib/intercom/mobile-adapter', () => ({
   getMobileIntercomAdapter: (...args: unknown[]) => mockGetMobileIntercomAdapter(...(args as []))
 }));
 jest.mock('lib/miden/guardian/native-http', () => ({
-  installGuardianCorsBypass: (...args: unknown[]) => mockInstallGuardianCorsBypass(...(args as []))
+  installGuardianFetchBoundary: (...args: unknown[]) => mockInstallGuardianFetchBoundary(...(args as []))
 }));
 jest.mock('lib/mobile/back-handler', () => ({
   initMobileBackHandler: (...args: unknown[]) => mockInitMobileBackHandler(...(args as []))
@@ -105,10 +110,10 @@ afterEach(() => {
 });
 
 describe('mobile-app entry point — top-level side effects', () => {
-  it('installs theme + guardian CORS bypass on import (before render)', async () => {
+  it('installs theme + the Guardian fetch boundary on import (before render)', async () => {
     await loadModule();
     expect(mockInitTheme).toHaveBeenCalledTimes(1);
-    expect(mockInstallGuardianCorsBypass).toHaveBeenCalledTimes(1);
+    expect(mockInstallGuardianFetchBoundary).toHaveBeenCalledTimes(1);
   });
 
   it('hoists React onto globalThis when not already present', async () => {
@@ -270,5 +275,50 @@ describe('mobile-app entry point — bootstrap failure (showError paths)', () =>
     expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Unhandled initialization error', err);
     expect(document.getElementById('root')).toBeNull();
     expect(mockCreateRoot).not.toHaveBeenCalled();
+  });
+});
+
+describe('mobile startup user-visible reporting', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root"></div>';
+    mockAdapterInit.mockResolvedValue(undefined);
+  });
+
+  it('reports the root-missing path once with a closed startup identity', async () => {
+    document.body.innerHTML = '';
+    await loadModule();
+    expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Root container not found', undefined);
+    expect(mockCreateRoot).not.toHaveBeenCalled();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_root_missing', 'startup']]);
+  });
+
+  it('reports initialization rejection once despite both real catch displays', async () => {
+    const error = new Error('private init detail 0x1234 amount 42');
+    mockAdapterInit.mockRejectedValueOnce(error);
+    await loadModule();
+    expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Failed to initialize', error);
+    expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Unhandled initialization error', error);
+    expect(document.getElementById('root')?.textContent).toContain('Unhandled initialization error');
+    expect(document.getElementById('root')?.textContent).toContain(error.message);
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_init_failed', 'startup']]);
+  });
+
+  it('keeps successful initialization quiet', async () => {
+    await loadModule();
+    expect(mockRender).toHaveBeenCalledTimes(1);
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('reports each fresh startup but does not repeat for a cached module import', async () => {
+    document.body.innerHTML = '';
+    await loadModule();
+    require('./mobile-app');
+    await flush();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_root_missing', 'startup']]);
+    await loadModule();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([
+      ['raw_startup_root_missing', 'startup'],
+      ['raw_startup_root_missing', 'startup']
+    ]);
   });
 });

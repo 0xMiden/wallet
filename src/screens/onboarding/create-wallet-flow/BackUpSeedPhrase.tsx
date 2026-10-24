@@ -84,10 +84,11 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
                 tone="word"
               >
                 <span
+                  data-slot="word-mask"
                   className={classNames(
                     'flex w-full min-w-0 gap-1',
                     'transition duration-300 ease-in-out motion-reduce:transition-none',
-                    isWordsVisible ? 'blur-none' : 'blur-sm'
+                    isWordsVisible ? '[filter:none]' : '[filter:blur(8px)]'
                   )}
                 >
                   <span className="pointer-events-none text-muted tabular-nums select-none">{`${index + 1}.`}</span>

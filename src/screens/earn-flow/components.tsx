@@ -3,11 +3,14 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Card } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
@@ -17,9 +20,14 @@ import { EarnSummary } from './types';
 /** What the earn flow names a vault or a position by: the protocol as the title, and the asset and
  *  network on the line under it, which the mark beside them stands for. Both answer it. */
 export interface EarnSubject {
+  /** The document's name of the vault, when the document lists it. It takes the protocol's place as the title. */
+  name?: string;
   protocol: string;
+  /** The market's own name, when the protocol alone does not identify the market (a Morpho market). */
+  marketName?: string;
   asset: string;
   network: string;
+  fundingAsset?: string;
 }
 
 /** Earn's vaults are EVM-side, so anything that is not Miden itself takes the Ethereum mark. */
@@ -33,13 +41,16 @@ const networkKind = (network: string): NetworkChipKind => (network.toLowerCase()
  * for assistive tech; beside `EarnSubjectSubtitle`, which says it already, it is `decorative`:
  * hidden and unnamed, so the pair is announced once.
  */
-export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: boolean; className?: string }> = ({
-  asset,
-  network,
-  decorative = false,
-  className
-}) => {
+export const EarnAssetMark: FC<{
+  asset: string;
+  network: string;
+  fundingAsset?: string;
+  decorative?: boolean;
+  className?: string;
+}> = ({ asset: underlyingAsset, network: underlyingNetwork, fundingAsset, decorative = false, className }) => {
   const { t } = useTranslation();
+  const asset = fundingAsset ?? underlyingAsset;
+  const network = fundingAsset ? 'Miden' : underlyingNetwork;
 
   return (
     <span aria-hidden={decorative || undefined} className={classNames('flex shrink-0 items-center', className)}>
@@ -50,14 +61,51 @@ export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: bo
 };
 
 /** The title every page of the earn flow puts in its header, so a vault and a position are named
- *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
- *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
-export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
+ *  the same way wherever the flow shows them: the document's name of the vault (as written, never
+ *  translated), else the protocol, over `EarnSubjectSubtitle`'s asset and network. Together at the
+ *  title's size they wrapped to two lines beside the back and the mark. */
+export const earnSubjectTitle = (subject: EarnSubject): string => subject.name ?? subject.protocol;
 
-/** The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". */
+/**
+ * The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". A subject with a market name puts
+ * the name first ("Morpho uniBTC-USDC 77 · USDC on Base"), so that two markets of one protocol do not look the same.
+ */
 export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
-  return <>{t('earnAssetOnNetwork', { asset: subject.asset, network: subject.network })}</>;
+  const asset = subject.fundingAsset ?? subject.asset;
+  const network = subject.fundingAsset ? 'Miden' : subject.network;
+  return (
+    <>
+      {subject.marketName
+        ? t('earnMarketAssetOnNetwork', { market: subject.marketName, asset, network })
+        : t('earnAssetOnNetwork', { asset, network })}
+    </>
+  );
+};
+
+/**
+ * Tells the user that a vault does not accept deposits now, on the pages whose Deposit or Continue it disables:
+ * the wallet has stopped its deposits (`depositsEnabled` false), or the market does not open them. It shows nothing
+ * while the vault is open or not yet known.
+ */
+export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; depositsEnabled?: boolean; className?: string }> = ({
+  canOpen,
+  depositsEnabled,
+  className
+}) => {
+  const { t } = useTranslation();
+  if (canOpen !== false && depositsEnabled !== false) return null;
+  return (
+    <Notice
+      tone="warning"
+      icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+      title={t('earnVaultClosedTitle')}
+      className={className}
+      data-testid="earn-vault-closed-notice"
+    >
+      {depositsEnabled === false ? t('earnVaultDepositsPausedBody') : t('earnVaultClosedBody')}
+    </Notice>
+  );
 };
 
 /** Shared top bar for the earn flow's pages that are NOT on `SubPageLayout` (the amount step, which
@@ -75,7 +123,16 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
       title={subject ? earnSubjectTitle(subject) : t('earnDeposit')}
       subtitle={subject && <EarnSubjectSubtitle subject={subject} />}
       onBack={goBack}
-      actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} decorative />}
+      actions={
+        subject && (
+          <EarnAssetMark
+            asset={subject.asset}
+            network={subject.network}
+            fundingAsset={subject.fundingAsset}
+            decorative
+          />
+        )
+      }
     />
   );
 };
@@ -110,6 +167,17 @@ export interface EarnHeroProps {
   meta?: React.ReactNode;
   /** Anything that belongs inside the section under the hero, e.g. the summary's metric cards. */
   children?: React.ReactNode;
+  /**
+   * `figure-first` (default): the figure, its caption, then the rate line, as a vault or a review
+   * reads. `label-first`: the caption over the figure and `meta` drawn as-is under it (the summary
+   * passes its APY pill), the way the tab root's total reads with no page title above it.
+   */
+  layout?: 'figure-first' | 'label-first';
+  /** `label-first` only: replaces the caption's type style, for a hero that must match another
+   *  screen's (the deposit review against the amount step's entry). */
+  labelClassName?: string;
+  /** `label-first` only: replaces the figure's type style and colour outright. */
+  figureClassName?: string;
   className?: string;
 }
 
@@ -126,20 +194,35 @@ export const EarnHero: FC<EarnHeroProps> = ({
   label,
   meta,
   children,
+  layout = 'figure-first',
+  labelClassName,
+  figureClassName,
   className
-}) => (
-  <section aria-labelledby={labelId} className={className}>
-    {/* The figure the page is about, on the balance card's own type style. */}
-    <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
-    {unit}
-    <p id={labelId} className="mt-2 text-label text-muted">
-      {label}
-    </p>
-    {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
-    {meta && <p className="mt-0.5 text-value text-positive-tint-ink">{meta}</p>}
-    {children}
-  </section>
-);
+}) =>
+  layout === 'label-first' ? (
+    <section aria-labelledby={labelId} className={className}>
+      {/* The 16px label (`text-row-title`), the size the Settings section titles take. */}
+      <p id={labelId} className={labelClassName ?? 'mb-1.5 text-row-title text-muted'}>
+        {label}
+      </p>
+      <div className={figureClassName ?? cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      {unit}
+      {meta && <div className="mt-2 flex">{meta}</div>}
+      {children}
+    </section>
+  ) : (
+    <section aria-labelledby={labelId} className={className}>
+      {/* The figure the page is about, on the balance card's own type style. */}
+      <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      {unit}
+      <p id={labelId} className="mt-2 text-label text-muted">
+        {label}
+      </p>
+      {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
+      {meta && <p className="mt-0.5 text-value text-positive-tint-ink">{meta}</p>}
+      {children}
+    </section>
+  );
 
 export const EarnSummaryPanel: FC<{
   summary: EarnSummary;
@@ -151,8 +234,10 @@ export const EarnSummaryPanel: FC<{
 
   return (
     <EarnHero
+      layout="label-first"
       labelId={titleId}
-      className={className}
+      // Set wholly in Nunito: the APY pill and the metric figures read `--font-sans` like body text.
+      className={cn('face-heading', className)}
       value={
         <AnimatedNumber
           value={summary.totalRewardsUsd}
@@ -162,11 +247,17 @@ export const EarnSummaryPanel: FC<{
       }
       label={t('earnTotalEarnedRewards')}
       meta={
-        <AnimatedNumber
-          value={summary.blendedApyPercent}
-          format={apy => t('earnEarningBlendedApy', { apy: `~${apy.toFixed(1)}%` })}
-          placeholder={t('earnEarningBlendedApy', { apy: EARN_PLACEHOLDER })}
-        />
+        <Pill
+          tone="positive"
+          icon={<span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-status-positive" />}
+          data-testid="earn-summary-apy"
+        >
+          <AnimatedNumber
+            value={summary.blendedApyPercent}
+            format={apy => t('earnPositionsApy', { apy: `~${apy.toFixed(1)}%` })}
+            placeholder={t('earnPositionsApy', { apy: EARN_PLACEHOLDER })}
+          />
+        </Pill>
       }
     >
       {/* #503 — gap-3 so Total deposited / Estimated rewards don't abut. Equal columns, so the
@@ -192,7 +283,6 @@ export const EarnSummaryPanel: FC<{
                 placeholder={EARN_PLACEHOLDER}
               />
             }
-            valueClassName="text-positive-tint-ink"
           />
         </div>
       )}
@@ -201,10 +291,11 @@ export const EarnSummaryPanel: FC<{
 };
 
 /** The token a review's figure is denominated in: its mark and its symbol, on the unit type style
- *  that sits beside an entry. One shape for the deposit and the withdraw review alike. */
-export const EarnAmountUnit: FC<{ symbol: string }> = ({ symbol }) => (
-  <div className="flex items-center gap-1">
-    <TokenLogo symbol={symbol} size="md" />
-    <span className="text-entry-unit text-ink">{symbol}</span>
+ *  that sits beside an entry. `compact` is the smaller line a label-first hero puts under its
+ *  figure: the 24px mark and the page-title size. */
+export const EarnAmountUnit: FC<{ symbol: string; compact?: boolean }> = ({ symbol, compact = false }) => (
+  <div className={classNames('flex items-center', compact ? 'mt-1 gap-1.5' : 'gap-1')}>
+    <TokenLogo symbol={symbol} size={compact ? 'sm' : 'md'} />
+    <span className={classNames(compact ? 'text-title-page' : 'text-entry-unit', 'text-ink')}>{symbol}</span>
   </div>
 );

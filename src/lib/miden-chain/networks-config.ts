@@ -35,13 +35,14 @@ export enum MIDEN_TRANSPORT_LAYER_NAME {
 }
 
 export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.MAINNET, 'https://api.miden.io'], // Placeholder
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://rpc.cedar.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://rpc.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://rpc.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57291']
 ]);
 
 export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://tx-prover.cedar.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://tx-prover.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://tx-prover.devnet.miden.io'],
   // :50052, not :50051 — a locally-run guardian binds host :50051 for its gRPC,
@@ -49,6 +50,7 @@ export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50052']
 ]);
 
+// No mainnet entry here or in the faucet API map: mainnet has no faucet.
 export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://faucet.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://faucet.devnet.miden.io'],
@@ -64,17 +66,25 @@ export const MIDEN_FAUCET_API_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://transport.cedar.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://127.0.0.1:57292']
+  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57292']
 ]);
 
 export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://explorer.cedar.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://testnet.midenscan.com'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
 ]);
 
 export const MIDEN_NETWORKS: MidenNetwork[] = [
+  {
+    rpcBaseURL: 'https://rpc.cedar.miden.io',
+    id: MIDEN_NETWORK_NAME.MAINNET,
+    name: 'Mainnet',
+    autoSync: true
+  },
   {
     rpcBaseURL: 'https://rpc.testnet.miden.io',
     id: MIDEN_NETWORK_NAME.TESTNET,
@@ -103,10 +113,16 @@ export const GUARDIAN_BRAND_NAME = {
 } as const;
 
 /**
- * The Guardian providers a user can choose from during onboarding or when
- * switching their Guardian. Each provider maps the networks it supports to its
- * endpoint on that network (OpenZeppelin runs on both testnet and devnet; the
- * others currently expose a testnet endpoint only).
+ * The BUNDLED Guardian operators: the fallback list, not the list the wallet
+ * shows. The operators of a network come from the `guardians` section of its
+ * `0xMiden/wallet-config` document, and this list is used only while the
+ * wallet has no such section (see `lib/miden-chain/guardian-registry`). Read
+ * operators through `getNetworkGuardians`, or through the option getters in
+ * `lib/miden-chain/constants`, never from this constant.
+ *
+ * Each provider maps the networks it supports to its endpoint on that network.
+ * Every network's entries equal its published document, in the document's
+ * order. Localnet has no document, so its entry is always used.
  */
 export const GUARDIAN_OPTIONS: GuardianOption[] = [
   {
@@ -115,8 +131,8 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     operatedBy: GUARDIAN_BRAND_NAME.openZeppelin,
     location: 'US-EAST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
-      [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com'],
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.openzeppelin.com'],
+      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-devnet.openzeppelin.com'],
       // Localnet dev/E2E: the OpenZeppelin guardian image run locally (HTTP :3000).
       [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:3000']
     ])
@@ -145,8 +161,41 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     operatedBy: 'Korea Digital Asset (Koda)',
     location: 'Asia (SK)',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([[MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.kodax.com']])
+  },
+  {
+    id: 'para',
+    name: 'Para',
+    operatedBy: 'Para',
+    location: 'US-EAST',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.beta.getpara.com']
+    ])
+  },
+  // LambdaClass runs mainnet from another region, so its mainnet operator is an entry of its own.
+  {
+    id: 'lambda-class',
+    name: GUARDIAN_BRAND_NAME.lambdaClass,
+    operatedBy: GUARDIAN_BRAND_NAME.lambdaClass,
+    location: 'US-EAST',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.MAINNET, 'https://guardian.cedar.internal.lambdaclass.com']
+    ])
   }
 ];
+
+/**
+ * Built-in operator hosts that were renamed, old name to current name. Each
+ * pair is the SAME server (same registrations, same key), and
+ * `canonicalGuardianEndpoint` treats the two names as one endpoint wherever
+ * endpoints are compared, so an account still bound to the old name, a history
+ * row, a restored backup file or a dev override that carries it is still
+ * recognised as that operator. Never add a pair whose new name is a different
+ * server.
+ */
+export const RENAMED_GUARDIAN_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+  ['https://guardian.openzeppelin.com', 'https://guardian-testnet.openzeppelin.com'],
+  ['https://guardian-stg.openzeppelin.com', 'https://guardian-devnet.openzeppelin.com']
+]);
 
 /**
  * A Guardian provider resolved to its endpoint on a specific network. Shared
@@ -158,21 +207,15 @@ export interface ResolvedGuardianOption {
   operatedBy: string;
   location: string;
   endpoint: string;
+  /**
+   * Who runs the operator, in one English sentence: the guardian step shows it under the operator's name. Only a
+   * config document gives it; without it the wallet shows its bundled sentence for `id`, else `operatedBy`.
+   */
+  about?: string;
+  /**
+   * What kind of company runs the operator, in a short English line: the Change provider sheet shows it on the
+   * operator's card. Only a config document gives it; without it the wallet shows its bundled line for `id`, else
+   * `operatedBy`.
+   */
+  kind?: string;
 }
-
-/**
- * All Guardian endpoints available per network, derived from GUARDIAN_OPTIONS:
- * each network maps to the list of provider endpoints that support it, in
- * GUARDIAN_OPTIONS order (so index 0 is the default provider — OpenZeppelin).
- */
-export const MIDEN_GUARDIAN_ENDPOINTS: Map<string, string[]> = (() => {
-  const byNetwork = new Map<string, string[]>();
-  for (const option of GUARDIAN_OPTIONS) {
-    for (const [network, endpoint] of option.endpoint) {
-      const existing = byNetwork.get(network) ?? [];
-      existing.push(endpoint);
-      byNetwork.set(network, existing);
-    }
-  }
-  return byNetwork;
-})();

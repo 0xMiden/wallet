@@ -1,8 +1,9 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import ExportFileComplete, { ExportFileCompleteProps } from './ExportFileComplete';
 
@@ -89,6 +90,11 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: (cb: () => unknown) => cb()
 }));
 
+// Not the build default, so a payload that carries it can only have read it here.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'mainnet'
+}));
+
 const mockIsMobile = jest.fn();
 
 jest.mock('lib/platform', () => ({
@@ -122,6 +128,24 @@ const baseProps: ExportFileCompleteProps = {
 
 const renderComponent = (overrides: Partial<ExportFileCompleteProps> = {}) =>
   render(<ExportFileComplete {...baseProps} {...overrides} />);
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ExportFileComplete', () => {
   let clickSpy: jest.SpyInstance;
@@ -232,29 +256,6 @@ describe('ExportFileComplete', () => {
     await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
   });
 
-  it('does not render the legacy omission warning for a successful version 2 export', async () => {
-    mockAccounts = [
-      { name: 'HD 0', hdIndex: 0 },
-      { name: 'Imported A', hdIndex: -1 },
-      { name: 'Imported B', hdIndex: -1 }
-    ];
-    mockExportWalletBackupMaterial.mockResolvedValueOnce({
-      seedPhrase: 'seed words twelve',
-      midenClientDbContent: 'MIDEN_DB_DUMP',
-      walletDbContent: 'WALLET_DB_DUMP',
-      accounts: mockAccounts,
-      importedAccounts: [
-        { accountId: 'imported-a', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' },
-        { accountId: 'imported-b', publicKeyCommitment: 'c3d4', authScheme: 'ecdsa', secretKeyHex: '0304' }
-      ]
-    });
-
-    renderComponent();
-    await screen.findByText('encryptedWalletFileExportedTitle1');
-
-    expect(screen.queryByText('encryptedFileImportedAccountsOmitted')).not.toBeInTheDocument();
-  });
-
   it('invokes onDone when the Done button is clicked', async () => {
     const onDone = jest.fn();
     renderComponent({ onDone });
@@ -304,6 +305,7 @@ describe('ExportFileComplete', () => {
     expect(mockEncryptJson).toHaveBeenCalledWith(
       {
         formatVersion: 2,
+        network: 'mainnet',
         seedPhrase: 'seed words twelve',
         midenClientDbContent: 'MIDEN_DB_DUMP',
         walletDbContent: 'WALLET_DB_DUMP',
@@ -353,8 +355,11 @@ describe('ExportFileComplete', () => {
     });
     const encryptedFile = JSON.parse(fileContent);
     const payload = await passworder.decryptJson({ dt: encryptedFile.dt, iv: encryptedFile.iv }, derivedKey!);
+    // The network travels inside the encrypted payload, so a restore on another
+    // network can refuse the file before it reads the store dump.
     expect(payload).toEqual({
       formatVersion: 2,
+      network: 'mainnet',
       seedPhrase: 'seed words twelve',
       midenClientDbContent: 'MIDEN_DB_DUMP',
       walletDbContent: 'WALLET_DB_DUMP',
@@ -656,5 +661,59 @@ describe('ExportFileComplete', () => {
 
     await waitFor(() => expect(mockExportWalletBackupMaterial).toHaveBeenCalled());
     expect(mockExportWalletBackupMaterial).toHaveBeenCalledWith(undefined);
+  });
+  describe('user-visible error reporting', () => {
+    it('does not report a dismissed share sheet', async () => {
+      mockIsMobile.mockReturnValue(true);
+      mockShare.mockRejectedValueOnce(new Error('Share canceled'));
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      await act(async () => {
+        renderComponent();
+      });
+      expect(screen.getByText('encryptedWalletFileNotSavedTitle')).toBeVisible();
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+    });
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    it.each([false, true])(
+      'reports the export failure with a closed identity importedAccount=%s',
+      async importedAccount => {
+        mockExportWalletBackupMaterial.mockRejectedValueOnce(
+          new Error(importedAccount ? importedAccountBackupFailure(privateErrorFixture) : privateErrorFixture)
+        );
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        await act(async () => {
+          renderComponent();
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('encryptedWalletFileExportFailedTitle');
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          importedAccount ? privateErrorFixture : 'encryptedWalletFileExportFailedDesc'
+        );
+        expect(reportUserVisibleError).not.toHaveBeenCalled();
+        dwellForError();
+        expectDisplayReport(
+          importedAccount ? 'encryptedWalletFileExportFailedAccount' : 'encryptedWalletFileExportFailedDesc',
+          'inline'
+        );
+      }
+    );
+    it('does not report pending export progress', async () => {
+      mockExportWalletBackupMaterial.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        renderComponent();
+      });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
   });
 });

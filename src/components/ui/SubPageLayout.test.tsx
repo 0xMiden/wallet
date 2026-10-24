@@ -35,6 +35,21 @@ describe('SubPageLayout', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('reserves control clearance in a no-footer scroller without duplicating the footer floor', () => {
+    const { rerender } = render(
+      <SubPageLayout data-testid="page">
+        <button>Row</button>
+      </SubPageLayout>
+    );
+    expect(body(screen.getByTestId('page')).className).toContain('--wallet-control-safe-bottom,0px');
+    rerender(
+      <SubPageLayout data-testid="page" footer={<button>Continue</button>}>
+        <button>Row</button>
+      </SubPageLayout>
+    );
+    expect(body(screen.getByTestId('page')).className).not.toContain('--wallet-control-safe-bottom');
+  });
+
   it('scrolls only the body, with the 16px gutter and 20px between sections', () => {
     render(
       <SubPageLayout title="Keys" data-testid="page">
@@ -104,7 +119,7 @@ describe('SubPageLayout', () => {
     );
 
     const pinned = footer(screen.getByTestId('page'))!;
-    expect(pinned).toHaveClass('pb-4', 'pt-3');
+    expect(pinned).toHaveClass('pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]', 'pt-3');
     expect(pinned.className).not.toContain('var(--keyboard-height,0px)');
     expect(pinned).not.toHaveAttribute('data-navbar-cushion');
   });
@@ -208,6 +223,14 @@ describe('SubPageSection', () => {
     render(<SubPageSection title="Details" titleAs="h3" />);
 
     expect(screen.getByRole('heading', { level: 3, name: 'Details' })).toBeInTheDocument();
+  });
+
+  it('draws the label as the 16px section title on request', () => {
+    render(<SubPageSection title="Account" titleSize="md" />);
+
+    const heading = screen.getByRole('heading', { level: 2, name: 'Account' });
+    expect(heading).toHaveClass('text-row-title', 'text-muted');
+    expect(heading).not.toHaveClass('text-label');
   });
 
   it('renders only what it is given', () => {

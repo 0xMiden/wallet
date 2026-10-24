@@ -1,5 +1,5 @@
 import { NetworkChipKind } from 'components/NetworkChip';
-import { BRIDGE_NETWORKS, BridgeNetwork, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
+import { BRIDGE_NETWORKS, BridgeNetwork, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { detectAddressChain } from 'utils/miden';
 
 export interface ContactNetwork {
@@ -11,7 +11,7 @@ export interface ContactNetwork {
 /** Which network a contact is on: Miden for a Miden address, the saved bridge network for `0x`. */
 export function contactNetwork(address: string, network?: string): ContactNetwork {
   if (detectAddressChain(address) !== 'ethereum') return { kind: 'miden' };
-  return { kind: 'ethereum', bridgeNetwork: BRIDGE_NETWORKS.find(n => n.id === network) ?? DEFAULT_BRIDGE_NETWORK };
+  return { kind: 'ethereum', bridgeNetwork: BRIDGE_NETWORKS.find(n => n.id === network) ?? defaultBridgeNetwork() };
 }
 
 /** The network's display name: "Miden", or the bridge network's own name, e.g. "Sepolia". */

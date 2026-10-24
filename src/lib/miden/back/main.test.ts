@@ -12,6 +12,7 @@
 const _g = globalThis as any;
 _g.__mainTest = {
   onRequest: jest.fn(),
+  onNotFound: jest.fn(),
   broadcast: jest.fn(),
   storeWatch: jest.fn(),
   doSync: jest.fn(),
@@ -19,6 +20,7 @@ _g.__mainTest = {
   startTransactionProcessing: jest.fn(),
   resetMidenClient: jest.fn(),
   loadEndpointOverrides: jest.fn(),
+  initBridgeConfig: jest.fn(async () => undefined),
   swSignCallback: jest.fn(async () => new Uint8Array([0xab, 0xcd])),
   client: {
     importNoteBytes: jest.fn(),
@@ -31,6 +33,7 @@ _g.__mainTest = {
 jest.mock('lib/miden/back/defaults', () => ({
   intercom: {
     onRequest: (cb: any) => (globalThis as any).__mainTest.onRequest(cb),
+    onNotFound: (cb: any) => (globalThis as any).__mainTest.onNotFound(cb),
     broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg)
   }
 }));
@@ -67,6 +70,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => {
     ...actual,
     markOpStarted: jest.fn(),
     handleOffscreenStageEvent: jest.fn(),
+    handleOffscreenSubmitGate: jest.fn(async () => ({ ok: true })),
     reloadOffscreenEndpointOverrides: jest.fn(async () => true)
   };
 });
@@ -142,16 +146,25 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides()
+  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides(),
+  // The delivery sweep's pass reads it; without it every pass throws and leaves no idle finding to test.
+  isNoteTransportConfigured: () => true
+}));
+
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual('lib/remote-config/runtime'),
+  initBridgeConfig: async () => (globalThis as any).__mainTest.initBridgeConfig()
 }));
 
 const mockOnRequest = _g.__mainTest.onRequest;
+const mockOnNotFound = _g.__mainTest.onNotFound;
 const mockBroadcast = _g.__mainTest.broadcast;
 const mockStoreWatch = _g.__mainTest.storeWatch;
 const mockDoSync = _g.__mainTest.doSync;
 const mockStartTransactionProcessing = _g.__mainTest.startTransactionProcessing;
 const mockResetMidenClient = _g.__mainTest.resetMidenClient;
 const mockLoadEndpointOverrides = _g.__mainTest.loadEndpointOverrides;
+const mockInitBridgeConfig = _g.__mainTest.initBridgeConfig;
 const mockClient = _g.__mainTest.client;
 
 jest.mock('../sdk/helpers', () => ({
@@ -159,7 +172,13 @@ jest.mock('../sdk/helpers', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  primeNativeAssetId: jest.fn()
+  primeNativeAssetId: jest.fn(),
+  cacheScope: () => (globalThis as any).__mainTest.nativeScope,
+  captureNativeAssetSnapshot: jest.fn((scope: string) => ({
+    scope,
+    revision: (globalThis as any).__mainTest.nativeRevision
+  })),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
 }));
 
 jest.mock('lib/miden/back/actions', () => ({
@@ -190,20 +209,28 @@ jest.mock('lib/miden/back/actions', () => ({
   removeDAppSession: jest.fn(),
   isDAppEnabled: jest.fn(),
   processDApp: jest.fn(),
+  confirmationNotFound: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
+  swapHotKey: jest.fn(),
+  importHotKeyPair: jest.fn(),
   checkGuardianDrift: jest.fn(),
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
+  estimateUsdcxBurnFee: jest.fn(),
   retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 }))
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
+import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
+import * as Repo from 'lib/miden/repo';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
-import { TRANSACTION_STAGES } from '../db/types';
-import { MidenMessageType } from '../types';
+import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { MidenMessageType, NoteTypeEnum } from '../types';
 import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
@@ -213,6 +240,8 @@ const flushStorage = () => new Promise(resolve => setTimeout(resolve, 0));
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  _g.__mainTest.nativeScope = 'rpc|devnet';
+  _g.__mainTest.nativeRevision = 0;
   for (const k of Object.keys(_g.__mainConnStore)) delete _g.__mainConnStore[k];
   // `current` in connectivity-state is module state that nothing else here resets, and
   // the real mutators run in this suite. Reset it from the HARNESS, not as a side
@@ -255,6 +284,36 @@ beforeEach(async () => {
 });
 
 describe('main.start', () => {
+  it('hydrates the remote config after the endpoint override and before any handler can run', () => {
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+    expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInitBridgeConfig.mock.invocationCallOrder[0]
+    );
+    expect(mockInitBridgeConfig.mock.invocationCallOrder[0]).toBeLessThan(Actions.init.mock.invocationCallOrder[0]);
+  });
+
+  it('holds every request until start() has hydrated the endpoint override and the bridge config', async () => {
+    let hydrated: () => void = () => undefined;
+    mockInitBridgeConfig.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          hydrated = () => resolve(undefined);
+        })
+    );
+    mockOnRequest.mockClear();
+    Actions.getFrontState.mockClear();
+    const started = start();
+    const handler = mockOnRequest.mock.calls[0]![0];
+    const answered = handler({ type: WalletMessageType.GetStateRequest });
+    await flushStorage();
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(2);
+    expect(Actions.getFrontState).not.toHaveBeenCalled();
+    hydrated();
+    await started;
+    await expect(answered).resolves.toMatchObject({ type: WalletMessageType.GetStateResponse });
+    expect(Actions.getFrontState).toHaveBeenCalled();
+  });
+
   it('initializes Actions and registers an intercom handler', () => {
     expect(Actions.init).toHaveBeenCalled();
     expect(mockOnRequest).toHaveBeenCalledTimes(1);
@@ -340,6 +399,19 @@ describe('processRequest', () => {
     expect(mockDoSync).toHaveBeenCalledWith(undefined);
   });
 
+  it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
+    const response = { type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome: 'measured', feeReserve: '315' };
+    Actions.estimateUsdcxBurnFee.mockResolvedValueOnce(response);
+    const req = {
+      type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+      accountPublicKey: 'mm1account',
+      destinationChainId: 1
+    };
+
+    await expect(dispatch(req)).resolves.toEqual(response);
+    expect(Actions.estimateUsdcxBurnFee).toHaveBeenCalledWith(req);
+  });
+
   it('forwards a forced SyncRequest', async () => {
     await dispatch({ type: WalletMessageType.SyncRequest, force: true });
     expect(mockDoSync).toHaveBeenCalledWith(true);
@@ -384,13 +456,23 @@ describe('processRequest', () => {
   // executes writes/syncs and talks to the node lives in the offscreen document —
   // a separate JS realm with its own override cache and its own client — so a saved
   // override that isn't pushed there never reaches the node the wallet actually uses.
+  it('ReloadEndpointOverridesRequest re-hydrates the remote config for the network the override selects', async () => {
+    mockLoadEndpointOverrides.mockClear();
+    mockInitBridgeConfig.mockClear();
+    await dispatch({ type: WalletMessageType.ReloadEndpointOverridesRequest });
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+    expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInitBridgeConfig.mock.invocationCallOrder[0]
+    );
+  });
+
   it('ReloadEndpointOverridesRequest also invalidates the OFFSCREEN realm, after re-reading the override', async () => {
     mockLoadEndpointOverrides.mockClear();
     await dispatch({ type: WalletMessageType.ReloadEndpointOverridesRequest });
 
     expect(proxyMock.reloadOffscreenEndpointOverrides).toHaveBeenCalledTimes(1);
-    // Ordering: the SW's own cache is refreshed first, so both realms end up reading
-    // the same freshly-saved override.
+    // Ordering: the SW's own cache is refreshed first, so the state it sends the
+    // offscreen realm is the freshly-saved override.
     expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
       proxyMock.reloadOffscreenEndpointOverrides.mock.invocationCallOrder[0]
     );
@@ -433,6 +515,32 @@ describe('processRequest', () => {
     // case the retry queue exists for.
     expect(mockQueueNoteImport).toHaveBeenCalledWith(Buffer.from([1, 2, 3]).toString('base64'));
     errorSpy.mockRestore();
+  });
+
+  it('ImportNoteBytesRequest queues the bytes when a terminated client refused the import', async () => {
+    mockClient.importNoteBytes.mockRejectedValueOnce(new Error('Client terminated'));
+    mockQueueNoteImport.mockClear();
+
+    await expect(
+      dispatch({
+        type: WalletMessageType.ImportNoteBytesRequest,
+        noteBytes: Buffer.from([1, 2, 3]).toString('base64')
+      })
+    ).rejects.toThrow('Client terminated');
+
+    expect(mockQueueNoteImport).toHaveBeenCalledWith(Buffer.from([1, 2, 3]).toString('base64'));
+  });
+
+  it('ImportNoteBytesRequest queues the bytes and rethrows a cause-wrapped poison', async () => {
+    const noteBytes = Buffer.from([1, 2, 3]).toString('base64');
+    const poison = new WasmClientPoisonedError('watchdog', new Error('note import parked'));
+    const error = new Error('import wrapper', { cause: poison });
+    mockClient.importNoteBytes.mockRejectedValueOnce(error);
+
+    await expect(dispatch({ type: WalletMessageType.ImportNoteBytesRequest, noteBytes })).rejects.toBe(error);
+
+    expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+    expect(mockClient.syncState).not.toHaveBeenCalled();
   });
 
   // #788 follow-up: the Activity notice's Retry drains the dead-letter store in
@@ -519,7 +627,15 @@ describe('processRequest', () => {
       ownMnemonic: false,
       guardianEndpoint: 'https://guardian.example'
     });
-    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false, 'https://guardian.example');
+    expect(Actions.registerNewWallet).toHaveBeenCalledWith(
+      'on-chain',
+      'pw',
+      'm',
+      false,
+      'https://guardian.example',
+      // No mainnet access code in this request.
+      undefined
+    );
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
   });
 
@@ -532,10 +648,9 @@ describe('processRequest', () => {
       password: 'pw',
       mnemonic: 'm',
       walletAccounts: [],
-      formatVersion: 2,
       importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], 2, importedAccounts);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], importedAccounts);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 
@@ -732,6 +847,37 @@ describe('processRequest', () => {
     expect(res.type).toBe(WalletMessageType.SetGuardianOperatorCommitmentResponse);
   });
 
+  it('forwards a SwapHotKeyRequest with its expectation (#1233)', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SwapHotKeyRequest,
+      accountPublicKey: 'acc',
+      newHotPubKey: 'new-pub',
+      expectedHotPubKey: 'old-pub'
+    });
+    expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+  });
+
+  it('forwards an ImportHotKeyPairRequest to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.ImportHotKeyPairRequest,
+      accountPublicKey: 'acc',
+      keyPairPayload: 'hot:evm'
+    });
+    expect(res.type).toBe(WalletMessageType.ImportHotKeyPairResponse);
+    expect(Actions.importHotKeyPair).toHaveBeenCalledWith('acc', 'hot:evm');
+  });
+
+  it('forwards a SwapHotKeyRequest without an expectation as none (#1233)', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SwapHotKeyRequest,
+      accountPublicKey: 'acc',
+      newHotPubKey: 'new-pub'
+    });
+    expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
+  });
+
   it('SetGuardianSyncStatusRequest forwards to Actions', async () => {
     const res = await dispatch({
       type: WalletMessageType.SetGuardianSyncStatusRequest,
@@ -820,6 +966,54 @@ describe('processRequest', () => {
     expect(res).toBeUndefined();
   });
 
+  const CONFIRMATION_REQUEST_TYPES = [
+    MidenMessageType.DAppGetPayloadRequest,
+    MidenMessageType.DAppSimulateTransactionRequest,
+    MidenMessageType.DAppUnlockConfirmationRequest,
+    MidenMessageType.DAppPermConfirmationRequest,
+    MidenMessageType.DAppTransactionConfirmationRequest,
+    MidenMessageType.DAppPrivateNotesConfirmationRequest,
+    MidenMessageType.DAppSignConfirmationRequest,
+    MidenMessageType.DAppAssetsConfirmationRequest,
+    MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+    MidenMessageType.DAppConsumableNotesConfirmationRequest
+  ];
+
+  it.each(CONFIRMATION_REQUEST_TYPES)(
+    'leaves a %s to the live confirmation handlers, whatever their order',
+    async type => {
+      await expect(dispatch({ type, id: 'confirmation-1' })).resolves.toBeUndefined();
+      expect(Actions.confirmationNotFound).not.toHaveBeenCalled();
+    }
+  );
+
+  it("registers a fallback that codes a declined confirmation request with the background's state, and nothing else", () => {
+    expect(mockOnNotFound).toHaveBeenCalledTimes(1);
+    const fallback = mockOnNotFound.mock.calls[0]![0];
+    const unknown = Object.assign(new Error('Not Found'), { code: 'confirmation_unknown' });
+    Actions.confirmationNotFound.mockImplementation(() => unknown);
+    try {
+      for (const type of CONFIRMATION_REQUEST_TYPES) {
+        const req = { type, id: ['never-opened'] };
+        expect(fallback(req)).toBe(unknown);
+        expect(Actions.confirmationNotFound).toHaveBeenLastCalledWith(req);
+      }
+      Actions.confirmationNotFound.mockClear();
+      for (const req of [
+        { type: WalletMessageType.GetStateRequest },
+        { type: MidenMessageType.PageRequest, origin: 'o', payload: 'PING' },
+        { id: ['never-opened'] },
+        null,
+        MidenMessageType.DAppGetPayloadRequest
+      ]) {
+        expect(fallback(req)).toBeUndefined();
+      }
+      expect(Actions.confirmationNotFound).not.toHaveBeenCalled();
+    } finally {
+      Actions.confirmationNotFound.mockReset();
+    }
+  });
+
   it('PageRequest returns null payload when processDApp returns undefined', async () => {
     Actions.processDApp.mockResolvedValueOnce(undefined);
     const res = await dispatch({
@@ -867,6 +1061,89 @@ describe('processRequest', () => {
       assets: [{ amount: '0', faucetId: '' }],
       nullifier: ''
     });
+  });
+});
+
+// On the extension the delivery sweep runs here and skips its query while nothing is due. A page's delivery write
+// moves only the page's count, so the page reports it and this realm counts it as a write of its own (#1473).
+describe('a delivery write a page reports', () => {
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+  const spies: { mockRestore: () => void }[] = [];
+
+  const owingRow = (overrides: Partial<ITransaction>): ITransaction => ({
+    id: 'tx-delivery',
+    accountId: 'acct-1',
+    type: 'send',
+    status: ITransactionStatus.Completed,
+    initiatedAt: nowSeconds() - 120,
+    completedAt: nowSeconds() - 120,
+    displayIcon: ICON_BY_TYPE.send,
+    transactionId: '0xland',
+    outputNoteIds: ['0xnote'],
+    secondaryAccountId: 'mtst1recipient',
+    noteType: NoteTypeEnum.Private,
+    noteDelivery: 'relayed',
+    relayAttempts: 1,
+    ...overrides
+  });
+
+  /** The sweep's candidate reads, counted from here on; a row write is `where({ id })`. */
+  const countQueries = () => {
+    const where = jest.spyOn(Repo.transactions, 'where');
+    spies.push(where);
+    return () => where.mock.calls.filter(([index]) => String(index) === 'noteDelivery').length;
+  };
+
+  beforeEach(() => {
+    __resetNoteDeliverySweepForTests();
+    __resetSyncFuseStateForTests();
+  });
+
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  it('counts the write here, so the next sweep queries inside its idle window', async () => {
+    await Repo.transactions.add(owingRow({ nextRelayAt: nowSeconds() + 600 }));
+    const queries = countQueries();
+    await sweepNoteDeliveries();
+    await sweepNoteDeliveries();
+    expect(queries()).toBe(1);
+
+    const response = await dispatch({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+    expect(response).toEqual({ type: WalletMessageType.NoteDeliveryWrittenResponse });
+  });
+
+  it('reaches the sweep through a pass that was running when it arrived', async () => {
+    // Receipts only, so the pass makes no delivery write of its own to move the count past the one it took.
+    await Repo.transactions.add(owingRow({ nextRelayAt: nowSeconds() - 1, restoredFromBackup: true }));
+    const queries = countQueries();
+    let reached: () => void = () => {};
+    const readReached = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    let release: (consumed: boolean) => void = () => {};
+    spies.push(
+      jest.spyOn(proxyMock.midenClientProxy, 'isOutputNoteConsumed').mockImplementation(() => {
+        reached();
+        return new Promise<boolean>(resolve => {
+          release = resolve;
+        });
+      }),
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    );
+
+    const pass = sweepNoteDeliveries();
+    await readReached;
+    await dispatch({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+    release(false);
+    await pass;
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
   });
 });
 
@@ -1065,9 +1342,63 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(ret).toBe(false);
     expect(sendResponse).not.toHaveBeenCalled();
     // Routed to the stage handler — NOT to the sign handler or markOpStarted.
-    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenCalledWith('op-524', 'proving');
+    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenCalledWith('op-524', 'proving', undefined);
     expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
     expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('parses the evidence an OFFSCREEN_STAGE_EVENT carries, and drops malformed evidence (#1081)', () => {
+    const id = `0x${'b'.repeat(64)}`;
+    signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_STAGE_EVENT',
+        op_id: 'op-1',
+        stage: 'submitting',
+        evidence: { transactionId: id, smuggled: 1 }
+      },
+      ownSender,
+      jest.fn()
+    );
+    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenLastCalledWith('op-1', 'submitting', { transactionId: id });
+    signListener()(
+      { target: 'sw', type: 'OFFSCREEN_STAGE_EVENT', op_id: 'op-2', stage: 'submitting', evidence: { refBlock: -4 } },
+      ownSender,
+      jest.fn()
+    );
+    // The crossing is still recorded downstream, as an evidence-less entry.
+    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenLastCalledWith('op-2', 'submitting', undefined);
+  });
+
+  // #1644: the Guardian leaf's submit gate is answered, not fire-and-forget, so the port is held and every fault
+  // answers no.
+  it('routes an OFFSCREEN_SUBMIT_GATE to handleOffscreenSubmitGate with parsed evidence and answers its reply', async () => {
+    const id = `0x${'c'.repeat(64)}`;
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate', evidence: { transactionId: id, smuggled: 1 } },
+      ownSender,
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flushStorage();
+    expect(proxyMock.handleOffscreenSubmitGate).toHaveBeenCalledWith({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: 'op-gate',
+      evidence: { transactionId: id }
+    });
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('answers an OFFSCREEN_SUBMIT_GATE no when its handler rejects, and ignores one without an op_id', async () => {
+    proxyMock.handleOffscreenSubmitGate.mockRejectedValueOnce(new Error('IndexedDB closed'));
+    const sendResponse = jest.fn();
+    signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate' }, ownSender, sendResponse);
+    await flushStorage();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'IndexedDB closed' });
+    expect(signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE' }, ownSender, jest.fn())).toBe(false);
   });
 
   it('ignores an OFFSCREEN_STAGE_EVENT missing op_id or stage (no handler call, no crash)', () => {
@@ -1248,5 +1579,90 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
+  });
+});
+
+describe('scoped offscreen native identity relay', () => {
+  const id = '0x817edea77acc5d71616e493afecea3';
+  const publication = () => jest.requireMock('lib/miden-chain/native-asset').recordSyncedFeeFaucetId;
+  const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
+    capturedRuntimeListeners[0]?.(message, sender, reply);
+  it.each([
+    {
+      scope: 'rpc|devnet',
+      accepted: true,
+      expectedPublication: [[id, { scope: 'rpc|devnet', revision: 1 }]],
+      expectedCaptures: [['rpc|devnet']]
+    },
+    { scope: 'old-rpc|devnet', accepted: false, expectedPublication: [], expectedCaptures: [] }
+  ])(
+    'waits for hydrated scope before acknowledging the first publication from $scope',
+    async ({ scope, accepted, expectedPublication, expectedCaptures }) => {
+      let hydrate: () => void = () => undefined;
+      mockLoadEndpointOverrides.mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            hydrate = () => {
+              _g.__mainTest.nativeScope = 'rpc|devnet';
+              _g.__mainTest.nativeRevision = 1;
+              resolve();
+            };
+          })
+      );
+      _g.__mainTest.nativeScope = 'default-rpc|testnet';
+      if (accepted) {
+        publication().mockImplementationOnce(
+          async (_id: string, snapshot: { revision: number }) => snapshot.revision === 1
+        );
+      }
+      const capture = jest.requireMock('lib/miden-chain/native-asset').captureNativeAssetSnapshot;
+      const started = start();
+      await flushStorage();
+      const reply = jest.fn();
+      expect(invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope }, ownSender, reply)).toBe(true);
+      await flushStorage();
+      expect(reply).not.toHaveBeenCalled();
+      hydrate();
+      await started;
+      await flushStorage();
+      expect(reply).toHaveBeenCalledWith({ ok: accepted });
+      expect(publication().mock.calls).toEqual(expectedPublication);
+      expect(capture.mock.calls).toEqual(expectedCaptures);
+    }
+  );
+  it('acknowledges a same-scope SDK identity after durable adoption', async () => {
+    const reply = jest.fn();
+    expect(
+      invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'rpc|devnet' }, ownSender, reply)
+    ).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(publication()).toHaveBeenCalledWith(id, { scope: 'rpc|devnet', revision: 0 });
+    expect(reply).toHaveBeenCalledWith({ ok: true });
+  });
+  it.each([undefined, 7, '', 'bech32-untrusted', '0x123'])('refuses invalid plain IDs (%s)', badId => {
+    expect(invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id: badId, scope: 'rpc|devnet' })).toBe(false);
+    expect(publication()).not.toHaveBeenCalled();
+  });
+  it('refuses a message from another extension before adoption', () => {
+    expect(
+      invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'rpc|devnet' }, { id: 'other-extension' })
+    ).toBe(false);
+    expect(publication()).not.toHaveBeenCalled();
+  });
+  it('rejects an obsolete endpoint without publishing to the active cache', async () => {
+    const reply = jest.fn();
+    invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'old-rpc|devnet' }, ownSender, reply);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(publication()).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith({ ok: false });
+  });
+  it('reports storage failure to the offscreen publisher', async () => {
+    const reply = jest.fn();
+    publication().mockRejectedValueOnce(new Error('storage unavailable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'rpc|devnet' }, ownSender, reply);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(reply).toHaveBeenCalledWith({ ok: false });
+    warn.mockRestore();
   });
 });

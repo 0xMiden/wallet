@@ -1,26 +1,23 @@
 name: Swap E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: swap-e2e-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
-  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # Heavy job runs on workflow_dispatch (Release E2E's nightly on main), not on pull_request.
   # The workflow still triggers on PRs so swap-e2e-gate (the required check) can
   # report green when the suite is skipped. A swap regression is caught on the
   # merge commit, not on every PR.
   swap-e2e:
     name: swap-e2e (chrome)
     if: github.event_name != 'pull_request'
-    # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
-    # suite wall clock, so they do not establish a core count. Kept at 2x because this
-    # suite measured green here; the cold-build ceiling below is NOT derived from it.
-    runs-on: warp-ubuntu-latest-arm64-2x
+    runs-on: ubuntu-24.04-arm
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m).
     # The suite is real-network and intermittently flaky under CI load, so it runs
     # with `--retries=1`; the partial-fill spec alone sits through a real ~2-min
@@ -34,7 +31,10 @@ jobs:
     # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
     # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
     # binds on a cold build; a warm run is unaffected by raising it.
-    timeout-minutes: 120
+    # A dispatch may first build a linked web-sdk PR from source (still unfinished at 33 min on this runner,
+    # pr-e2e-bridge-guardian.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI and the node cold (14 and 71 min here).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 270 || 120 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
@@ -49,8 +49,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -60,30 +60,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
           if [ "${{ runner.arch }}" = X64 ]; then
             namespace=miden-e2e-cargo-v2
           else
             namespace=miden-e2e-cargo-v3-${{ runner.arch }}
           fi
-          echo "key=$namespace-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
@@ -143,6 +131,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Install xvfb
@@ -178,9 +169,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
-        # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
+        # on PRs, upload only when the run failed.
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: swap-e2e-report
           path: test-results/

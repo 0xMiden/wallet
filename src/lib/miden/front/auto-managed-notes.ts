@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
@@ -33,16 +33,18 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * A native swap note settles through its own lineage-aware path, or stays a manual
  * claim when its per-order auto-consume is off. A `fromCache` entry is never taken: no
  * live read has confirmed it, so the note may already be spent, consumed or recalled.
- * Notes already being claimed are left out BEFORE the value check, which has to measure
+ * Notes already being claimed, or held by a dApp transaction that will consume them
+ * (`claimingTxIdByNoteId`), are left out BEFORE the value check, which has to measure
  * the set that will actually be claimed: counting an in-flight note let a lone new dust
  * note ride in on the in-flight batch's value and be claimed alone for a full fee.
  *
  * None of the three calls this for a seed-recovered account whose everyday-key rotation
  * is pending: its rotation gate claims those notes with the recovery key (#805).
  *
- * The value check runs on the BATCH TOTAL, because the batch is one transaction paying
- * one fee; judged per note, a backlog of individually marginal notes was refused in
- * full. It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
+ * The value check runs on the BATCH TOTAL, because a batch of up to
+ * MAX_NOTES_PER_UNATTENDED_CLAIM notes is one transaction paying one fee; judged per note, a backlog of
+ * individually marginal notes was refused in full. The consumers queue a larger batch in chunks of that size,
+ * each measured on its own (`chunkAutoConsumeBatch`, #1644). It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
  * block header has no fee accessor the fee stays null for good, so refusing on null
  * would switch auto-consume off permanently.
  */
@@ -60,9 +62,9 @@ export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
 
 /**
  * The subset of `notes` the user has to claim by hand (#811): every note except the
- * native notes a consume already covers, whatever the auto-consume setting (turning it
- * off cancels no queued consume), and, while auto-consume is on, the batch the
- * auto-consumers claim. A native note worth too little to auto-claim therefore still
+ * native notes a consume or a dApp transaction already covers, whatever the auto-consume
+ * setting (turning it off cancels no queued consume), and, while auto-consume is on, the
+ * batch the auto-consumers claim. A native note worth too little to auto-claim therefore still
  * asks, as does a native swap note whose per-order auto-consume is off; swap notes that
  * settle automatically never reach this list, because `useClaimableNotes` drops them. A
  * cache-first list, every entry cached, is judged as if a live read had confirmed it:
@@ -98,7 +100,7 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
  */
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
   const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 

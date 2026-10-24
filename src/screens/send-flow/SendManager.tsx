@@ -5,21 +5,32 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
+import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
+import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
+import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -31,7 +42,17 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import {
+  BRIDGE_NETWORKS,
+  getBridgeNetwork,
+  BridgeNetworkId,
+  defaultBridgeNetwork,
+  defaultUsdcxBridgeNetwork,
+  isEpochBridgeNetwork,
+  SendNetworkId,
+  sendBridgeNetworks,
+  usdcxBridgeNetworks
+} from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -99,6 +120,7 @@ export interface SendManagerProps {
 }
 
 export const SendManager: React.FC<SendManagerProps> = ({
+  isLoading,
   preselectedTokenId,
   draft,
   preselectedRecipient,
@@ -108,6 +130,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
+  const bridgeConfig = useBridgeConfigSnapshot();
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -126,13 +149,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
   // Hide the floating BottomNav once the user moves past recipient selection,
-  // so the step CTAs can sit at the actual bottom of the screen. Gated on the
-  // pathname because SendManager stays mounted inside HomeSwipeContainer even
-  // when another home-group page is centered — without the gate, a send flow
-  // left mid-step would hide the navbar on Overview too.
+  // so the step CTAs can sit at the actual bottom of the screen. SendManager
+  // stays mounted inside HomeSwipeContainer while another home-group page is
+  // centred; the hook releases the hold while this page is not active.
   const currentStep = cardStack[cardStack.length - 1]?.name;
-  const pastRecipientStep = pathname === '/send' && currentStep !== SendFlowStep.SelectRecipient;
+  const pastRecipientStep = currentStep !== SendFlowStep.SelectRecipient;
   useHideNavbarWhileOpen(pastRecipientStep);
+  useHideHomeActionsWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
     const walletContacts: Contact[] = allAccounts
@@ -322,6 +345,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -360,6 +385,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // screen can show a live fee regardless of which route is selected.
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount || !validations.amount.isValidSync(amount)) return undefined;
+    // A finer amount stays on screen and is never quoted from its truncated base units.
+    if (amountExceedsTokenDecimals(amount, token.decimals)) return undefined;
     try {
       return stringToBigInt(amount, token.decimals);
     } catch {
@@ -367,19 +394,47 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [token, amount]);
 
+  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id);
+  useEffect(() => {
+    if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
+    if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
+  }, [usdcxAvailable, bridgeRoute, setValue]);
+
+  // The destination chain of a USDCx burn, or undefined when this send is not one.
+  const usdcxChainId = useMemo(
+    () =>
+      usdcxAvailable && isBridge
+        ? usdcxBridgeNetworks().find(network => network.id === bridgeNetwork)?.chainId
+        : undefined,
+    [usdcxAvailable, isBridge, bridgeNetwork]
+  );
+  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
+  const usdcxPayout = useMemo(
+    () =>
+      usdcxChainId === undefined || amountBaseUnits === undefined
+        ? undefined
+        : { chainId: usdcxChainId, amount: amountBaseUnits },
+    [usdcxChainId, amountBaseUnits]
+  );
+  const payoutFeeShortfall = useMemo(
+    () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
+    [usdcxPayout]
+  );
+
   const epochQuote = useEpochQuote({
+    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge
+    enabled: isBridge && !usdcxAvailable
   });
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
-  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced
-  // or unscaled one, no amount, or no quote - and all paint the same empty-value placeholder, so a test gated on
-  // the rendered text cannot tell a quote-service outage from a token that never
+  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced, unscaled or
+  // nominally priced one, no amount, or no quote - and all paint the same empty-value placeholder,
+  // so a test gated on the rendered text cannot tell a quote-service outage from a token that never
   // loaded. `useEpochQuote` already captures the failure reason and nothing reads
   // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
   // production impact.
@@ -398,48 +453,178 @@ export const SendManager: React.FC<SendManagerProps> = ({
     };
   }, [isBridge, epochQuote.loading, epochQuote.amount, epochQuote.symbol, epochQuote.error, token, amountBaseUnits]);
 
+  // Re-render when the sent token's quote expires, so the fee below stops using it on time.
+  useQuoteClock(token?.fiatPriceExpiresAt);
+  const fastQuoteExpired = token?.fiatPriceExpiresAt !== undefined && Date.now() >= token.fiatPriceExpiresAt;
+
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
-    // Unpriced (0) or unscaled, the input has no dollar value, and a fee from it is invented.
-    if (!token || !token.scaleIsKnown || !(token.fiatPrice > 0) || !amount || epochQuote.amount == null) {
+    // Unpriced (0), unscaled or at the nominal $1 (a display figure, not a quote), the input has no
+    // dollar value, and a fee from it is invented.
+    if (
+      !token ||
+      !token.scaleIsKnown ||
+      !(token.fiatPrice > 0) ||
+      token.fiatPriceIsNominal ||
+      fastQuoteExpired ||
+      !amount ||
+      epochQuote.amount == null
+    ) {
       return undefined;
     }
     const input = parseFloat(amount) * token.fiatPrice;
     const output = parseFloat(epochQuote.amount);
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
-  }, [token, amount, epochQuote.amount]);
+  }, [token, amount, epochQuote.amount, fastQuoteExpired]);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
+  const { loaded: hiddenTokensLoaded, isHidden } = useHiddenTokens(publicKey);
+  // A Developer Settings save drops every cached balance, so after a network change balances read as loading.
+  const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+  const previousTokenScopeRef = useRef(tokenScope);
+  const automaticTokenIdRef = useRef<string | null>(null);
+  const defaultCandidates = useMemo(() => {
+    if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
+    if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
+    return balanceData.filter(row => {
+      if (
+        isHidden(row.tokenId) ||
+        !hasKnownScale(row.metadata) ||
+        isNewTransferTokenHeld(bridgeConfig, row.tokenId, nativeFaucetId)
+      )
+        return false;
+      if (usdcxOnly && !isUsdcxWithdrawalAvailable(row.tokenId)) return false;
+      const available =
+        row.tokenId === nativeFaucetId
+          ? maxSendableNative(row.balance, verificationBaseFee, row.metadata.decimals)
+          : row.balance;
+      return Number.isFinite(available) && available > 0;
+    });
+  }, [
+    isLoading,
+    balancesLoading,
+    hiddenTokensLoaded,
+    publicKey,
+    balanceData,
+    nativeFaucetId,
+    verificationBaseFee,
+    isHidden,
+    usdcxOnly,
+    bridgeConfig
+  ]);
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
   // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
   const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
+    if (previousTokenScopeRef.current !== tokenScope) {
+      previousTokenScopeRef.current = tokenScope;
+      appliedPreselectionRef.current = null;
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+    }
     if (!preselectedTokenId) appliedPreselectionRef.current = null;
     if (!balanceData) return;
     if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
       const match = balanceData.find(t => t.tokenId === preselectedTokenId);
-      if (match) {
+      // A link is a new selection; a restored draft is the user's own, so only a retired faucet keeps it out.
+      const held = draft
+        ? isRetiredTransferToken(bridgeConfig, preselectedTokenId, nativeFaucetId)
+        : isNewTransferTokenHeld(bridgeConfig, preselectedTokenId, nativeFaucetId);
+      if (match && !held) {
         appliedPreselectionRef.current = preselectedTokenId;
+        automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
         return;
       }
+      if (draft && held) {
+        appliedPreselectionRef.current = preselectedTokenId;
+        setValue('amount', '');
+      }
     }
-    const current = getValues('token');
-    if (!current) return;
+    let current = getValues('token');
+    if (current && isRetiredTransferToken(bridgeConfig, current.id, nativeFaucetId)) {
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+      current = undefined;
+    }
+    if (
+      current &&
+      automaticTokenIdRef.current === current.id &&
+      !isLoading &&
+      !balancesLoading &&
+      hiddenTokensLoaded &&
+      !defaultCandidates.some(row => row.tokenId === current?.id)
+    ) {
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+      current = undefined;
+    }
+    if (!current) {
+      // Explicit links and restored drafts own preselection, even while their row is absent.
+      const only = defaultCandidates.length === 1 ? defaultCandidates[0] : undefined;
+      if (!preselectedTokenId && only) {
+        automaticTokenIdRef.current = only.tokenId;
+        setValue('token', uiTokenFromBalance(only, tokenPrices));
+      }
+      return;
+    }
     const held = balanceData.find(t => t.tokenId === current.id);
     // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
     if (!held && balancesLoading) return;
-    const refreshed = held ? uiTokenFromBalance(held, tokenPrices) : { ...current, balance: 0 };
+    const metadata = resolveDisplayMetadata(
+      current.id,
+      {
+        [current.id]: allTokensBaseMetadata[current.id] ?? {
+          symbol: current.name,
+          name: current.name,
+          decimals: current.decimals,
+          scaleIsUnknown: !current.scaleIsKnown
+        }
+      },
+      nativeFaucetId
+    );
+    const refreshed = uiTokenFromBalance(held ?? { tokenId: current.id, metadata, balance: 0 }, tokenPrices);
     if (sameUIToken(refreshed, current)) return;
     setValue('token', refreshed);
-  }, [preselectedTokenId, balanceData, balancesLoading, tokenPrices, setValue, getValues]);
+  }, [
+    preselectedTokenId,
+    draft,
+    tokenScope,
+    token,
+    isLoading,
+    hiddenTokensLoaded,
+    defaultCandidates,
+    balanceData,
+    balancesLoading,
+    tokenPrices,
+    allTokensBaseMetadata,
+    nativeFaucetId,
+    setValue,
+    getValues,
+    bridgeConfig
+  ]);
+
+  // Only the token Continue would send: the chosen one, else a link not yet applied. The picker explains the rows it
+  // leaves out, and a retired token goes silently.
+  const sendingTokenId = token?.id ?? (draft ? undefined : (preselectedTokenId ?? undefined));
+  const tokenHeld =
+    isNewTransferTokenHeld(bridgeConfig, sendingTokenId, nativeFaucetId) &&
+    !isRetiredTransferToken(bridgeConfig, sendingTokenId, nativeFaucetId);
+
+  // Clear a token that the selected destination cannot receive.
+  useEffect(() => {
+    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
+  }, [usdcxOnly, token, usdcxAvailable, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -448,12 +633,31 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Non-native tokens are unaffected (their fee comes out of a different asset), and
   // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
   // the pre-discovery window both keep the full balance.
+  //
+  // A USDCx burn of the native token costs more than that static reserve (on mainnet its fee plus the
+  // faucet execution sponsorship came to 36 base fees against a reserve of 30, so "Max" failed with a
+  // vault shortfall). Its cost is measured by a dry run of the burn, and the cap holds back the larger
+  // of the two reserves. Until the measurement lands the burn has no cap at all: Max and Continue stay
+  // disabled, the amount field says why, and Available keeps the static figure.
+  // Keyed on the account and chain only, so editing the recipient never measures again.
+  const burnFeeTarget = useMemo(
+    () =>
+      publicKey && token && nativeFaucetId !== null && token.id === nativeFaucetId && usdcxChainId !== undefined
+        ? { accountPublicKey: publicKey, destinationChainId: usdcxChainId }
+        : undefined,
+    [publicKey, token, nativeFaucetId, usdcxChainId]
+  );
+  const burnFee = useBurnFeeReserve(burnFeeTarget);
+  const burnFeeUnmeasured = burnFeeTarget !== undefined && burnFee.status !== 'measured';
+  const burnFeeMessage = burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : 'usdcxBurnFeeMeasuring';
   const spendableBalance = useMemo(() => {
     if (!token) return 0;
-    return nativeFaucetId !== null && token.id === nativeFaucetId
-      ? maxSendableNative(token.balance, verificationBaseFee, token.decimals)
-      : token.balance;
-  }, [token, nativeFaucetId, verificationBaseFee]);
+    if (nativeFaucetId === null || token.id !== nativeFaucetId) return token.balance;
+    const staticCap = maxSendableNative(token.balance, verificationBaseFee, token.decimals);
+    if (burnFee.reserve === undefined) return staticCap;
+    const burnCap = Math.max(0, token.balance - Number(burnFee.reserve) / 10 ** token.decimals);
+    return Math.min(staticCap, burnCap);
+  }, [token, nativeFaucetId, verificationBaseFee, burnFee.reserve]);
 
   // Shown on the Amount step so the quoted "Available" is the number the validation
   // below actually enforces. The form's own `token` keeps the true balance, which is
@@ -475,6 +679,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
       return;
     }
+    // Ahead of every amount check, so a restored or earlier amount never passes against the static cap.
+    if (burnFeeUnmeasured) {
+      setError('amount', { type: 'manual', message: burnFeeMessage });
+      return;
+    }
     if (amount === undefined) {
       // Clear a previous shortfall once funds arrive, even before typing.
       // A cleared field ('') still follows the invalid-amount path below.
@@ -483,7 +692,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
-    } else if (token && parseFloat(amount) > spendableBalance) {
+    } else if (token && amountExceedsTokenDecimals(amount, token.decimals)) {
+      setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+    } else if (token && typedAmountExceedsBalance(amount, spendableBalance, token.decimals)) {
       // Between one base fee and the 30x reserve the whole native balance is held back,
       // so `Available` reads 0 and "amount must be less than balance" is true but useless:
       // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
@@ -501,7 +712,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
     // asynchronously, so an amount typed before they landed was validated against an
     // empty balance list and an unknown fee and then never re-checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, spendableBalance, balanceData, balancesLoading, nativeFaucetId, verificationBaseFee]);
+  }, [
+    token,
+    spendableBalance,
+    balanceData,
+    balancesLoading,
+    nativeFaucetId,
+    verificationBaseFee,
+    burnFeeUnmeasured,
+    burnFeeMessage
+  ]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -534,6 +754,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // appears later cannot replace it.
   const onSelectToken = useCallback(
     (selectedToken: UIToken) => {
+      automaticTokenIdRef.current = null;
       appliedPreselectionRef.current = preselectedTokenId ?? null;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
     },
@@ -547,7 +768,22 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress) return;
+    if (!token || !amount || !recipientAddress || isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId))
+      return;
+    // Precision is decided before the balance comparison, and the typed string is left unchanged.
+    if (amountExceedsTokenDecimals(amount, token.decimals)) {
+      setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+      return;
+    }
+    // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
+    // before the measured reserve landed, or under a smaller one, goes back there with the reason shown.
+    if (burnFeeTarget && (burnFeeUnmeasured || typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) {
+      const reserveHoldsWholeBalance = spendableBalance <= 0 && token.balance > 0;
+      const overCapMessage = reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance';
+      setError('amount', { type: 'manual', message: burnFeeUnmeasured ? burnFeeMessage : overCapMessage });
+      if (currentStep === SendFlowStep.Route) goBack();
+      return;
+    }
     reviewHandoffRef.current = true;
     setSendDraft({
       amount,
@@ -560,7 +796,23 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
-  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute]);
+  }, [
+    amount,
+    recipientAddress,
+    token,
+    isBridge,
+    bridgeNetwork,
+    bridgeRoute,
+    burnFeeTarget,
+    burnFeeUnmeasured,
+    burnFeeMessage,
+    spendableBalance,
+    setError,
+    currentStep,
+    goBack,
+    bridgeConfig,
+    nativeFaucetId
+  ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
   // Miden send goes straight to review.
@@ -728,12 +980,15 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // While there is a single bridge network there is nothing to choose, so a valid 0x recipient
-  // gets it selected; the recipient step shows it as a fact and Confirm is ready.
+  // Keep an offered destination the user chose. Select the effective network's default when there is none, or when a
+  // contact, link or draft carries one this network does not offer (Ethereum on mainnet, Arc Testnet or Sepolia on
+  // the test networks), else the first destination the document offers.
   useEffect(() => {
-    const only = BRIDGE_NETWORKS.length === 1 ? BRIDGE_NETWORKS[0] : undefined;
-    if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork]);
+    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
+    const preferred = usdcxAvailable ? defaultUsdcxBridgeNetwork() : defaultBridgeNetwork();
+    const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
+    if (next) onSelectNetwork(next.id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -754,19 +1009,23 @@ export const SendManager: React.FC<SendManagerProps> = ({
         payload: { amount: amountString }
       });
 
-      const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
       } else if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
         // The fee is taken from this account's own vault, so with no native
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
-      } else if (token && amount > spendableBalance) {
+      } else if (burnFeeUnmeasured) {
+        // A burn has no cap until its reserve is measured, so no keystroke may clear this.
+        setError('amount', { type: 'manual', message: burnFeeMessage });
+      } else if (token && amountExceedsTokenDecimals(amountString, token.decimals)) {
+        setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+      } else if (token && typedAmountExceedsBalance(amountString, spendableBalance, token.decimals)) {
         // Between one base fee and the 30x reserve the whole native balance is held back,
         // so `Available` reads 0 and "amount must be less than balance" is true but useless:
         // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
-        // refuses only BELOW one base fee, and that asymmetry is deliberate — so name the
-        // reserve here rather than widen the refusal.
+        // refuses only BELOW one base fee. Name the reserve
+        // here rather than widen the refusal.
         const reserveHoldsWholeBalance = spendableBalance <= 0 && (token?.balance ?? 0) > 0;
         setError('amount', {
           type: 'manual',
@@ -783,6 +1042,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       clearErrors,
       // The fee-reserved cap, not the raw balance (see `spendableBalance`).
       spendableBalance,
+      burnFeeUnmeasured,
+      burnFeeMessage,
       // These feed the `insufficientFeeAsset` branch above. Omitted, the check
       // runs against first-render values -- an empty balance list and an unresolved
       // base fee -- so it either blocks a send that can pay its fee or admits one
@@ -807,6 +1068,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
+              networks={offeredNetworks}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
@@ -830,11 +1092,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
             <SendAmount
               token={spendableToken}
               amount={amount || ''}
-              isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
-              error={errors.amount?.message?.toString()}
+              isValidAmount={!errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount)}
+              error={errors.amount?.message?.toString() ?? (payoutFeeShortfall && 'usdcxSendMoreThanPayoutFee')}
+              errorValues={errors.amount ? undefined : payoutFeeShortfall}
               recipientAddress={recipientAddress || ''}
               recipientName={selectedContact?.name}
               network={displayedNetwork}
+              maxDisabled={burnFeeUnmeasured}
+              tokenHeld={tokenHeld}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onReceive={onReceive}
@@ -845,6 +1110,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
+              destinationChainId={getBridgeNetwork(bridgeNetwork)?.chainId}
+              usdcxAvailable={usdcxAvailable}
+              usdcxPayout={usdcxPayout}
+              faucetId={spendableToken?.id ?? ''}
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
@@ -862,6 +1131,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       // first-render cap -- the full balance, before the fee resolved. `token` itself
       // is no longer a dependency: it reaches the render only through this value.
       spendableToken,
+      bridgeNetwork,
       recipientAddress,
       isValidRecipient,
       recents,
@@ -870,6 +1140,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onPaste,
       errors.recipientAddress,
       errors.amount,
+      payoutFeeShortfall,
+      burnFeeUnmeasured,
+      tokenHeld,
       onAddressChange,
       onScan,
       amount,
@@ -881,8 +1154,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onReceive,
       chain,
       displayedNetwork,
+      offeredNetworks,
       selectedContact?.name,
       bridgeRoute,
+      usdcxAvailable,
+      usdcxPayout,
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
@@ -898,7 +1174,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     <HomeGroupPaneRoot testId="send-flow">
       <Navigator renderRoute={renderStep} />
 
-      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={onSelectToken}
+        usdcxOnly={usdcxOnly}
+      />
 
       <AccountsListDrawer
         open={showContactsDrawer}

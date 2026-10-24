@@ -1,9 +1,18 @@
 import type { Browser } from 'webextension-polyfill';
 
 import { isDesktop, isMobile } from 'lib/platform';
+import { annotateCrash, readPageNavigation } from 'lib/telemetry/crash-diagnostics';
 
-import { deserializeError } from './helpers';
+import { deserializeInternalError, IntercomError } from './helpers';
 import { MessageType, RequestMessage } from './types';
+
+function diagnosticRequestType(payload: unknown): unknown {
+  try {
+    return typeof payload === 'object' && payload !== null && 'type' in payload ? payload.type : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Interface for intercom clients (extension, mobile, and desktop)
@@ -78,8 +87,14 @@ class MobileIntercomClientWrapper implements IIntercomClient {
   }
 
   async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
-    const adapter = await this.getAdapter();
-    return adapter.request(payload, options);
+    const requestType = diagnosticRequestType(payload);
+    try {
+      const adapter = await this.getAdapter();
+      return await adapter.request(payload, options);
+    } catch (error) {
+      annotateCrash(error, { operation: 'intercom_request', requestType });
+      throw error;
+    }
   }
 
   subscribe(callback: (data: any) => void): () => void {
@@ -109,8 +124,14 @@ class DesktopIntercomClientWrapper implements IIntercomClient {
   }
 
   async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
-    const adapter = await this.getAdapter();
-    return adapter.request(payload, options);
+    const requestType = diagnosticRequestType(payload);
+    try {
+      const adapter = await this.getAdapter();
+      return await adapter.request(payload, options);
+    } catch (error) {
+      annotateCrash(error, { operation: 'intercom_request', requestType });
+      throw error;
+    }
   }
 
   subscribe(callback: (data: any) => void): () => void {
@@ -172,6 +193,8 @@ export class IntercomClient implements IIntercomClient {
   private reconnectAttempts = 0;
   /** Set once the context is orphaned — stops the reconnect loop for good. */
   private stopped = false;
+  /** Set once a reconnect has replaced the first port, so a crash report can say this page reconnected. */
+  private portRebuilt = false;
 
   constructor() {
     this.reqId = 0;
@@ -191,46 +214,61 @@ export class IntercomClient implements IIntercomClient {
    * Makes a request to background process and returns a response promise
    */
   async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
-    await this.portReady;
-    const reqId = this.reqId++;
-    const port = this.port;
+    const requestType = diagnosticRequestType(payload);
+    try {
+      await this.portReady;
+      const reqId = this.reqId++;
+      const port = this.port;
 
-    this.send({ type: MessageType.Req, data: payload, reqId });
+      this.send({ type: MessageType.Req, data: payload, reqId });
 
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const cleanup = () => {
-        if (done) return;
-        done = true;
-        // port may already be disconnected & replaced by onDisconnect — don't
-        // let its onMessage throw through cleanup.
-        try {
-          port.onMessage.removeListener(listener);
-        } catch {
-          /* noop */
+      return await new Promise((resolve, reject) => {
+        let done = false;
+        const cleanup = () => {
+          if (done) return;
+          done = true;
+          // port may already be disconnected & replaced by onDisconnect - don't
+          // let its onMessage throw through cleanup.
+          try {
+            port.onMessage.removeListener(listener);
+          } catch {
+            /* noop */
+          }
+          if (options?.signal) options.signal.removeEventListener('abort', onAbort);
+        };
+        const listener = (msg: any) => {
+          if (msg?.reqId !== reqId) return;
+          if (msg?.type === MessageType.Res) resolve(msg.data);
+          else if (msg?.type === MessageType.Err) reject(deserializeInternalError(msg.data));
+          cleanup();
+        };
+        const onAbort = () => {
+          cleanup();
+          reject(new Error('Aborted'));
+        };
+
+        port.onMessage.addListener(listener);
+        if (options?.signal) {
+          if (options.signal.aborted) {
+            onAbort();
+            return;
+          }
+          options.signal.addEventListener('abort', onAbort);
         }
-        if (options?.signal) options.signal.removeEventListener('abort', onAbort);
-      };
-      const listener = (msg: any) => {
-        if (msg?.reqId !== reqId) return;
-        if (msg?.type === MessageType.Res) resolve(msg.data);
-        else if (msg?.type === MessageType.Err) reject(deserializeError(msg.data));
-        cleanup();
-      };
-      const onAbort = () => {
-        cleanup();
-        reject(new Error('Aborted'));
-      };
-
-      port.onMessage.addListener(listener);
-      if (options?.signal) {
-        if (options.signal.aborted) {
-          onAbort();
-          return;
-        }
-        options.signal.addEventListener('abort', onAbort);
-      }
-    });
+      });
+    } catch (error) {
+      const code = error instanceof IntercomError ? error.code : undefined;
+      annotateCrash(error, {
+        operation: 'intercom_request',
+        requestType,
+        // A dApp approval's Not Found carries the state the background held for it.
+        confirmationHandler: code,
+        // A reload of an approval window is one way to ask for an approval the background no longer holds.
+        pageNavigation: code?.startsWith('confirmation_') ? readPageNavigation() : undefined,
+        portReconnected: this.portRebuilt
+      });
+      throw error;
+    }
   }
 
   /**
@@ -309,6 +347,7 @@ export class IntercomClient implements IIntercomClient {
         try {
           const nextBrowser = await getBrowser();
           this.port = this.buildPort(nextBrowser);
+          this.portRebuilt = true;
         } catch (e) {
           // `connect()` throws synchronously once the context is gone.
           if (isContextInvalidated(e)) this.stopped = true;

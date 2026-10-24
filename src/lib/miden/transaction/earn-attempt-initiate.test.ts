@@ -34,4 +34,31 @@ it('persists attempt identity and its clock before exposing the withdrawal row',
       })
     })
   );
+  expect(mockAdded[0]?.extraInputs).not.toHaveProperty('protocol');
+  expect(mockAdded[0]?.extraInputs).not.toHaveProperty('chainId');
+});
+
+it('persists the withdrawal protocol and chain on the row', async () => {
+  mockAdded.length = 0;
+  await initiateEarnWithdrawTransaction(
+    'account',
+    10n,
+    'owner',
+    'market',
+    'faucet',
+    '10',
+    'USDC',
+    'attempt-1',
+    123,
+    6,
+    '1delta',
+    8453
+  );
+  expect(mockAdded[0]?.extraInputs).toEqual(expect.objectContaining({ protocol: '1delta', chainId: 8453 }));
+});
+
+it('records the source decimals a retry falls back on', async () => {
+  mockAdded.length = 0;
+  await initiateEarnWithdrawTransaction('account', 10n, 'owner', 'market', 'faucet', '10', 'USDC', 'attempt-1', 123, 6);
+  expect(mockAdded[0]?.extraInputs).toEqual(expect.objectContaining({ sourceDecimals: 6 }));
 });

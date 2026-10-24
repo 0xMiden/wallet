@@ -18,13 +18,13 @@ import {
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/transaction/constants';
+import { newestRow } from 'lib/miden/transaction/rotation-funding';
 
 import {
   claimNoteIds,
   describeRotationFailure,
   GateRow,
   isBelowBaseFee,
-  newestRow,
   resolveRotationGateView,
   RotationFailureRow,
   RotationGateViewInput,
@@ -323,6 +323,17 @@ describe('describeRotationFailure', () => {
       message: null,
       details: rawTimeout
     });
+  });
+
+  it('reads a rotation the node discarded as failed, even past the submit crossing (#1233)', () => {
+    const discardText =
+      'GuardianWriteDiscardedError: Guardian replace-hot-key 0xabc did not land: the node discarded it.';
+    expect(
+      describeRotationFailure(
+        failed({ error: discardText, mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } }),
+        null
+      )
+    ).toEqual({ unconfirmed: false, message: null, details: discardText });
   });
 
   it('puts an unclassified failure before the submit crossing behind the generic message', () => {

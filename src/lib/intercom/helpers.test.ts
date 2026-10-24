@@ -2,6 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  WasmClientPoisonedError,
+  isSyncWatchdogEviction,
+  isWasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
+import {
   isSpendingLimitPriceUnavailable,
   spendingLimitAssessmentFromError,
   SpendingLimitAuthorizationRequiredError,
@@ -12,16 +17,17 @@ import {
 import {
   DEFAULT_ERROR_MESSAGE,
   deserializeError,
+  deserializeInternalError,
   IntercomError,
-  serializeError,
-  serializeErrorForPage
+  serializeErrorForPage,
+  serializeInternalError
 } from './helpers';
 
 describe('intercom helpers', () => {
-  it('serializes plain errors and arrays', () => {
-    expect(serializeError(new Error('boom'))).toBe('boom');
-    expect(serializeError({})).toBe(DEFAULT_ERROR_MESSAGE);
-    expect(serializeError({ message: 'bad', errors: ['x'] })).toEqual(['bad', ['x']]);
+  it('serializes plain errors and arrays for the page', () => {
+    expect(serializeErrorForPage(new Error('boom'))).toBe('boom');
+    expect(serializeErrorForPage({})).toBe(DEFAULT_ERROR_MESSAGE);
+    expect(serializeErrorForPage({ message: 'bad', errors: ['x'] })).toEqual(['bad', ['x']]);
   });
 
   it('deserializes into IntercomError', () => {
@@ -49,29 +55,43 @@ describe('intercom helpers', () => {
     expect(fromArray.code).toBeUndefined();
   });
 
-  it('round-trips a breach assessment across the port, keeping code and the assessment readable', () => {
-    const assessment: SpendingLimitAssessment = {
+  // The object a 1.16.2 server sent for a breach, frozen as a literal: that release's encoder
+  // ships in its own bundle, so this tree only has to read it.
+  it('reads the 1.16.2 breach object, keeping code and the assessment readable', () => {
+    const restored = deserializeError({
+      message: 'Over the daily limit',
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      spendingLimit: {
+        assessment: {
+          accountId: 'account-a',
+          usdAmount: '20',
+          revision: 'revision-1',
+          assessedAt: 100,
+          breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
+        }
+      }
+    });
+
+    expect(restored).toBeInstanceOf(IntercomError);
+    expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
+    expect(spendingLimitAssessmentFromError(restored)).toEqual({
       accountId: 'account-a',
       usdAmount: 20n,
       revision: 'revision-1',
       assessedAt: 100,
       breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
-    };
-    const error = new SpendingLimitAuthorizationRequiredError(assessment);
-
-    const restored = deserializeError(serializeError(error));
-
-    expect(restored).toBeInstanceOf(IntercomError);
-    expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
-    expect(spendingLimitAssessmentFromError(restored)).toEqual(assessment);
+    });
   });
 
-  it('round-trips a price-unavailable refusal across the port, keeping code and the symbol readable', () => {
-    const error = new SpendingLimitPriceUnavailableError('USDC');
-
-    const restored = deserializeError(serializeError(error));
+  it('reads the 1.16.2 price-unavailable object, keeping code and the symbol readable', () => {
+    const restored = deserializeError({
+      message: 'No current price is available for USDC',
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      spendingLimit: { symbol: 'USDC' }
+    });
 
     expect(restored.code).toBe('SPENDING_LIMIT_PRICE_UNAVAILABLE');
+    expect(restored.symbol).toBe('USDC');
     expect(isSpendingLimitPriceUnavailable(restored)).toBe(true);
   });
 
@@ -90,11 +110,152 @@ describe('intercom helpers', () => {
     expect(err instanceof Error ? err.message : String(err)).toBe('No Guardian accounts found for this seed');
   });
 
+  describe('the wallet-internal envelope', () => {
+    // Both classifiers, on the rebuilt error, because they read DIFFERENT fields
+    // and the difference is the whole reason the envelope grew: the name decides
+    // whether the pass stops taking holds, the reason decides whether the node is
+    // recorded as parked. Carrying only the name left the second one
+    // unconditionally false for every error that crossed this port, so a backend
+    // eviction could not feed the sync fuse at all.
+    it.each([
+      ['watchdog', true],
+      ['realm-error', false]
+    ] as const)('carries a %s eviction so both classifiers still answer', (reason, parked) => {
+      const original = new WasmClientPoisonedError(reason);
+      const revived = deserializeInternalError(serializeInternalError(original));
+
+      expect(isWasmClientPoisonedError(revived)).toBe(true);
+      expect(isSyncWatchdogEviction(revived)).toBe(parked);
+      expect(revived.message).toBe(original.message);
+    });
+
+    // An ARRAY, tested as an array: an object envelope round-trips just as well
+    // through the current pair and fails only against the OLD deserializer,
+    // which is the one hop this shape exists to survive.
+    it('degrades to message and errors under the previous deserializer', () => {
+      const wire = serializeInternalError(new WasmClientPoisonedError('watchdog'));
+      const legacy = deserializeError(wire);
+
+      expect(legacy.message).toBe(new WasmClientPoisonedError('watchdog').message);
+      expect(legacy.message).not.toContain('[object Object]');
+    });
+
+    // The other direction of the same skew - a client updated ahead of its
+    // server - which turns every backend error into the default message if the
+    // shorter legacy array is not recognised.
+    it('reads the legacy two-element array from an older server', () => {
+      const revived = deserializeInternalError(['bad', ['x']]);
+
+      expect(revived.message).toBe('bad');
+      expect(revived.errors).toEqual(['x']);
+      expect(isWasmClientPoisonedError(revived)).toBe(false);
+    });
+
+    it('falls back to the default message when the envelope carries no string', () => {
+      expect(deserializeInternalError([undefined, undefined, undefined, undefined]).message).toBe(
+        DEFAULT_ERROR_MESSAGE
+      );
+      expect(serializeInternalError(undefined)[0]).toBe(DEFAULT_ERROR_MESSAGE);
+    });
+
+    // The spending-limit refusals cross THIS port, not the page one, so the envelope has to
+    // carry their code and payload; dropping them leaves the send screen unable to tell a
+    // breach from an unpriceable asset.
+    it('carries a breach assessment, keeping code and the assessment readable', () => {
+      const assessment: SpendingLimitAssessment = {
+        accountId: 'account-a',
+        usdAmount: 20n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
+      };
+      const original = new SpendingLimitAuthorizationRequiredError(assessment);
+      const revived = deserializeInternalError(serializeInternalError(original));
+
+      expect(revived.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
+      expect(spendingLimitAssessmentFromError(revived)).toEqual(assessment);
+      expect(revived.message).toBe(original.message);
+    });
+
+    it('carries a price-unavailable refusal, keeping code and the symbol readable', () => {
+      const revived = deserializeInternalError(serializeInternalError(new SpendingLimitPriceUnavailableError('USDC')));
+
+      expect(revived.code).toBe('SPENDING_LIMIT_PRICE_UNAVAILABLE');
+      expect(revived.symbol).toBe('USDC');
+      expect(isSpendingLimitPriceUnavailable(revived)).toBe(true);
+    });
+
+    it('puts the literal code and payload in slot 5', () => {
+      const assessment: SpendingLimitAssessment = {
+        accountId: 'account-a',
+        usdAmount: 20n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
+      };
+      const breach = {
+        code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+        spendingLimit: {
+          assessment: {
+            accountId: 'account-a',
+            usdAmount: '20',
+            revision: 'revision-1',
+            assessedAt: 100,
+            breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
+          }
+        }
+      };
+      const unpriced = { code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', spendingLimit: { symbol: 'USDC' } };
+
+      for (const [error, payload] of [
+        [new SpendingLimitAuthorizationRequiredError(assessment), breach],
+        [new SpendingLimitPriceUnavailableError('USDC'), unpriced]
+      ] as const) {
+        expect(serializeInternalError(error)[4]).toEqual(payload);
+      }
+    });
+
+    // A 1.16.2 service worker under an open port still sends its spending-limit refusals as an object.
+    it('reads the object shape a 1.16.2 server sends for a spending-limit refusal', () => {
+      const revived = deserializeInternalError({
+        message: 'No current price is available for USDC',
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        spendingLimit: { symbol: 'USDC' }
+      });
+
+      expect(revived.code).toBe('SPENDING_LIMIT_PRICE_UNAVAILABLE');
+      expect(revived.symbol).toBe('USDC');
+      expect(isSpendingLimitPriceUnavailable(revived)).toBe(true);
+    });
+
+    // The other skew: a 1.16.2 page under a 1.17 service worker reads the envelope as
+    // `[message, errors]`. It keeps the message and loses the refusal's code - pinned so a
+    // change to the slot order or to that degradation is a decision, not an accident.
+    it('degrades a spending-limit refusal to its message for a 1.16.2 client', () => {
+      const original = new SpendingLimitPriceUnavailableError('USDC');
+      const legacy = deserializeError(serializeInternalError(original));
+
+      expect(legacy.message).toBe(original.message);
+      expect(legacy.code).toBeUndefined();
+      expect(isSpendingLimitPriceUnavailable(legacy)).toBe(false);
+    });
+
+    // An ordinary error must not come back looking evicted - the classifiers are
+    // only useful if they can say no.
+    it('leaves an ordinary error unclassified', () => {
+      const revived = deserializeInternalError(serializeInternalError(new Error('boom')));
+
+      expect(revived.message).toBe('boom');
+      expect(isWasmClientPoisonedError(revived)).toBe(false);
+      expect(isSyncWatchdogEviction(revived)).toBe(false);
+    });
+  });
+
   it('strips spending-limit and code fields at the page boundary', () => {
     // The page-facing serializer must never leak code, assessment, or symbol to an untrusted
     // dApp, even when the error carries them. Build an error the realistic way: through
-    // serializeError + deserializeError, so it carries the restored fields exactly as the
-    // content script would receive it.
+    // serializeInternalError + deserializeInternalError, so it carries the restored fields exactly
+    // as a rejection that crossed the wallet-internal port does.
     const assessment: SpendingLimitAssessment = {
       accountId: 'account-a',
       usdAmount: 50n,
@@ -103,7 +264,7 @@ describe('intercom helpers', () => {
       breach: { spent: 45n, proposedTotal: 55n, limit: 50n, overBy: 5n, resetAt: 200 }
     };
     const spendingLimitError = new SpendingLimitAuthorizationRequiredError(assessment);
-    const restored = deserializeError(serializeError(spendingLimitError));
+    const restored = deserializeInternalError(serializeInternalError(spendingLimitError));
 
     // Confirm the restored error has code (the main field the page-facing serializer should strip).
     expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
@@ -128,17 +289,20 @@ describe('intercom helpers', () => {
     expect((pageSerialized as any).code).toBeUndefined();
   });
 
-  it('carries the errors array alongside code in the internal object wire shape', () => {
-    // Every existing object-shape case here has a `code`/spending-limit payload but no `errors`
-    // array, so the `errors` key of the returned object has never actually been populated - only
-    // ever omitted. An error that legitimately carries both must keep both, not drop one for the
-    // other.
-    const error = { message: 'Operation failed', code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] };
-
-    expect(serializeError(error)).toEqual({
+  it('keeps the errors array alongside code, in the 1.16.2 object and in the internal envelope', () => {
+    // An error that legitimately carries both must keep both, not drop one for the other.
+    const legacy = deserializeError({
       message: 'Operation failed',
-      errors: ['detail-1', 'detail-2'],
-      code: 'SOME_CODE'
+      code: 'SOME_CODE',
+      errors: ['detail-1', 'detail-2']
+    });
+    expect(legacy).toMatchObject({ code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] });
+
+    const error = { message: 'Operation failed', code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] };
+    expect(deserializeInternalError(serializeInternalError(error))).toMatchObject({
+      message: 'Operation failed',
+      code: 'SOME_CODE',
+      errors: ['detail-1', 'detail-2']
     });
   });
 });

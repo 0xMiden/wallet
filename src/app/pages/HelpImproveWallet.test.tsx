@@ -5,6 +5,7 @@ import i18n from 'i18next';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 
 import { hasTelemetryChoice, isTelemetryEnabled } from 'lib/settings/helpers';
+import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
 import { navigate } from 'lib/woozie';
 
 import HelpImproveWalletPrompt from './HelpImproveWallet';
@@ -30,8 +31,14 @@ jest.mock('lib/platform/storage-adapter', () => ({
   })
 }));
 
+let mockCrashReportingActive = false;
 jest.mock('lib/telemetry/crash', () => ({
-  initCrashReporting: jest.fn()
+  initCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = true;
+  }),
+  stopCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = false;
+  })
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -55,6 +62,7 @@ describe('app/pages/HelpImproveWallet', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockCrashReportingActive = false;
     localStorage.clear();
     for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
     mockPostOnboardingRoute = '/';
@@ -97,6 +105,7 @@ describe('app/pages/HelpImproveWallet', () => {
     renderPrompt();
 
     fireEvent.click(screen.getByText(ACCEPT_LABEL));
+    expect(mockNavigate).not.toHaveBeenCalled();
     await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(true);
@@ -105,15 +114,21 @@ describe('app/pages/HelpImproveWallet', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('records a refusal and hands off to the same route', async () => {
+  it('records usage refusal and hands off while keeping crash reporting active', async () => {
+    initCrashReporting();
+    jest.mocked(initCrashReporting).mockClear();
     renderPrompt();
 
     fireEvent.click(screen.getByText(DECLINE_LABEL));
+    expect(mockNavigate).not.toHaveBeenCalled();
     await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(false);
     // Declining is an answer, so the prompt is done with for good.
     expect(hasTelemetryChoice()).toBe(true);
+    expect(jest.mocked(initCrashReporting)).not.toHaveBeenCalled();
+    expect(jest.mocked(stopCrashReporting)).not.toHaveBeenCalled();
+    expect(mockCrashReportingActive).toBe(true);
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });

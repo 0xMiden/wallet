@@ -1,16 +1,20 @@
 export const MIN_PASSWORD_LENGTH = 8;
 export const STRONG_PASSWORD_LENGTH = 12;
 
-// Canonical legal page URLs, hosted on the wallet's GitHub Pages site. A
-// dedicated Terms page does not exist yet, so Terms temporarily resolves to
-// the same Privacy URL until one is published — update both here then.
+// Canonical legal page URLs, hosted on the wallet's GitHub Pages site.
+// Privacy keeps its store-registered URL; Terms have a dedicated page.
 export const PRIVACY_POLICY_URL = 'https://0xmiden.github.io/wallet/privacy/';
-export const TERMS_OF_USE_URL = 'https://0xmiden.github.io/wallet/privacy/';
+export const TERMS_OF_USE_URL = 'https://0xmiden.github.io/wallet/tos/';
 
 // Hosted feedback form opened from Settings › About. Rendered in a native
 // in-app browser overlay on mobile and a new tab on desktop / extension.
-export const FEEDBACK_URL = 'https://miden-feedback-v2.miden-feedback-relay.workers.dev/';
+export const FEEDBACK_URL = 'https://cmuv78o9w003x5ebpyha3cf6p.zapier.app/page';
 
 // Miden support site opened from Settings › About. Same in-app webview /
 // new-tab treatment as FEEDBACK_URL.
 export const SUPPORT_URL = 'https://support.miden.xyz/';
+
+// The early-access list the mainnet countdown banner links to. The switch and
+// the launch moment come from the remote config (`mainnetCountdown`). Same
+// in-app webview / new-tab treatment as SUPPORT_URL.
+export const MAINNET_EARLY_ACCESS_URL = 'https://miden.xyz/bread';

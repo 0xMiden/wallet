@@ -4,23 +4,26 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { sepolia } from 'viem/chains';
 
-import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, getEvmConnection } from './client';
-import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
+
+import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, epochChain, getEvmConnection } from './client';
+import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { buildVaultEvmWalletClient } from './evm-account';
 
-type SdkCache = { address: string; chainId: number; sdk: EpochIntentSDK };
+// An instance is reused only for the allocator it was built with, so a config that moves the allocator is picked up
+// by the next call instead of reaching the old host. Reconcile watchers, fill polls and withdrawals build one without a
+// user action, possibly before this realm hydrated the config, so each build first awaits that (never the network).
+type SdkCache = { address: string; chainId: number; apiBaseUrl: string; sdk: EpochIntentSDK };
 
 let defaultCache: SdkCache | null = null;
 let midenCache: SdkCache | null = null;
 let readOnlyCache: SdkCache | null = null;
 let signingCache: SdkCache | null = null;
 
-async function buildSdk(address: `0x${string}`, chainOverride?: number): Promise<EpochIntentSDK> {
+async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverride?: number): Promise<EpochIntentSDK> {
   const walletClient = await buildEpochWalletClient(address, { chainOverride });
-  return new EpochIntentSDK({
-    apiBaseUrl: EPOCH_ALLOCATOR_URL,
-    walletClient
-  });
+  return new EpochIntentSDK({ apiBaseUrl, walletClient });
 }
 
 /**
@@ -32,7 +35,11 @@ async function buildSdk(address: `0x${string}`, chainOverride?: number): Promise
  * Caches one instance per (address, flow) so repeated calls in a single
  * session don't rebuild. Resets via `resetEpochSdk()` (called on WC disconnect).
  */
-export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<EpochIntentSDK | null> {
+export async function getEpochSdk(opts?: {
+  forMidenFlow?: boolean;
+  chainId?: number;
+  allocatorUrl?: string;
+}): Promise<EpochIntentSDK | null> {
   const { address } = await getEvmConnection();
   if (!address) {
     // WC disconnected — invalidate any SDK still pointing at a now-stale
@@ -41,13 +48,15 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
     midenCache = null;
     return null;
   }
-  const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : sepolia.id;
+  await initBridgeConfig();
+  const apiBaseUrl = opts?.allocatorUrl ?? getEpochAllocatorUrl();
+  const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : (opts?.chainId ?? sepolia.id);
   const slot = opts?.forMidenFlow ? midenCache : defaultCache;
-  if (slot && slot.address === address && slot.chainId === chainId) {
+  if (slot && slot.address === address && slot.chainId === chainId && slot.apiBaseUrl === apiBaseUrl) {
     return slot.sdk;
   }
-  const sdk = await buildSdk(address as `0x${string}`, opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : undefined);
-  const entry: SdkCache = { address, chainId, sdk };
+  const sdk = await buildSdk(address as `0x${string}`, apiBaseUrl, chainId);
+  const entry: SdkCache = { address, chainId, apiBaseUrl, sdk };
   if (opts?.forMidenFlow) {
     midenCache = entry;
   } else {
@@ -63,16 +72,22 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
  * Used by the send-flow Fast route (quote + send) so the user only supplies the
  * recipient address. Caches one instance per destination.
  */
-export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Promise<EpochIntentSDK> {
+export async function getEpochReadOnlySdk(
+  destinationAddress: `0x${string}`,
+  savedAllocatorUrl?: string
+): Promise<EpochIntentSDK> {
+  await initBridgeConfig();
+  const apiBaseUrl = savedAllocatorUrl ?? getEpochAllocatorUrl();
   const chainId = MIDEN_DESTINATION_CHAIN_ID;
-  if (readOnlyCache && readOnlyCache.address === destinationAddress && readOnlyCache.chainId === chainId) {
-    return readOnlyCache.sdk;
+  const cached = readOnlyCache;
+  if (cached?.address === destinationAddress && cached.chainId === chainId && cached.apiBaseUrl === apiBaseUrl) {
+    return cached.sdk;
   }
   const walletClient = buildEpochReadOnlyWalletClient(destinationAddress, {
     chainOverride: MIDEN_DESTINATION_CHAIN_ID
   });
-  const sdk = new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient });
-  readOnlyCache = { address: destinationAddress, chainId, sdk };
+  const sdk = new EpochIntentSDK({ apiBaseUrl, walletClient });
+  readOnlyCache = { address: destinationAddress, chainId, apiBaseUrl, sdk };
   return sdk;
 }
 
@@ -81,31 +96,41 @@ export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Pr
  * account (the Epoch position owner). Needs NO connected external wallet —
  * signing round-trips to the vault via the WalletClient from
  * buildVaultEvmWalletClient. This is the withdraw path: the SDK's Compact
- * writes (`withdrawToken` etc.) sign & broadcast on Sepolia as `evmAddress`.
- * Caches one instance per owner address.
+ * writes (`withdrawToken` etc.) sign and broadcast on `chainId` as `evmAddress`.
+ * The chain defaults to Sepolia. The cache key is the owner address, that chain, and the allocator.
  */
-export function getEpochSigningSdk(midenAccountPublicKey: string, evmAddress: `0x${string}`): EpochIntentSDK {
-  if (signingCache && signingCache.address === evmAddress && signingCache.chainId === sepolia.id) {
-    return signingCache.sdk;
+export async function getEpochSigningSdk(
+  midenAccountPublicKey: string,
+  evmAddress: `0x${string}`,
+  chainId: number = sepolia.id
+): Promise<EpochIntentSDK> {
+  await initBridgeConfig();
+  const apiBaseUrl = getEpochAllocatorUrl();
+  const cached = signingCache;
+  if (cached?.address === evmAddress && cached.chainId === chainId && cached.apiBaseUrl === apiBaseUrl) {
+    return cached.sdk;
   }
-  const walletClient = buildVaultEvmWalletClient(midenAccountPublicKey, evmAddress);
-  const sdk = new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient });
-  signingCache = { address: evmAddress, chainId: sepolia.id, sdk };
+  const walletClient = buildVaultEvmWalletClient(midenAccountPublicKey, evmAddress, undefined, epochChain(chainId));
+  const sdk = new EpochIntentSDK({ apiBaseUrl, walletClient });
+  signingCache = { address: evmAddress, chainId, apiBaseUrl, sdk };
   return sdk;
 }
 
 /**
  * Ensure the wallet-derived EVM owner is delegated to Epoch's EIP-7702 smart
- * account on Sepolia. This is intentionally separate from the Miden-funded
- * deposit path: only EVM write flows (notably Smart Withdraw) need the
- * delegation. The status probe makes this safe to call before every write.
+ * account on `chainId` (Sepolia when none is given). This is intentionally
+ * separate from the Miden-funded deposit path: only EVM write flows (notably
+ * Smart Withdraw) need the delegation. The status probe makes this safe to
+ * call before every write.
  */
 export async function ensureEpochSmartAccount(
   midenAccountPublicKey: string,
-  evmAddress: `0x${string}`
+  evmAddress: `0x${string}`,
+  guardedSdk?: EpochIntentSDK,
+  chainId: number = sepolia.id
 ): Promise<EpochIntentSDK> {
-  const sdk = getEpochSigningSdk(midenAccountPublicKey, evmAddress);
-  const status = await sdk.getWalletGaslessStatus(sepolia.id);
+  const sdk = guardedSdk ?? (await getEpochSigningSdk(midenAccountPublicKey, evmAddress, chainId));
+  const status = await sdk.getWalletGaslessStatus(chainId);
 
   if (status.delegation === 'epoch') {
     return sdk;
@@ -114,12 +139,12 @@ export async function ensureEpochSmartAccount(
     throw new Error('The EVM account is delegated to an unsupported smart-account implementation.');
   }
 
-  const setup = await sdk.convertToSmartAccount({ chainId: sepolia.id });
+  const setup = await sdk.convertToSmartAccount({ chainId });
   if (!setup.ok) {
     throw new Error(setup.reason ?? 'Failed to enable the Epoch smart account.');
   }
 
-  const ready = await sdk.getWalletGaslessStatus(sepolia.id);
+  const ready = await sdk.getWalletGaslessStatus(chainId);
   if (ready.delegation !== 'epoch') {
     throw new Error('Epoch smart-account setup completed but the delegation is not active.');
   }

@@ -26,19 +26,32 @@ export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY = 'guardian_note_recove
 const MAX_TRACKED_ACCOUNTS = 20;
 
 /**
- * A record not refreshed within this window is treated as abandoned. The
- * orchestrator rewrites it on every step and after every backfill chunk (each
- * bounded by a 60s op deadline), so a longer gap means the run died with the
- * realm — and without this bound the card, being non-dismissible, would stay
- * on screen forever.
+ * A live record ('transport', 'proposals', 'public' or 'history') not refreshed
+ * within this window is treated as abandoned. The orchestrator rewrites it on
+ * every step, after every backfill chunk (each bounded by a 60s op deadline)
+ * and after every proposal-import batch, and the history phase re-writes it
+ * on a GUARDIAN_HISTORY_PROGRESS_REFRESH_MS timer while it runs, so a longer
+ * gap means the run died with the realm; without this bound its card, being
+ * non-dismissible, would stay on screen forever. The terminal 'history-partial' and
+ * 'history-failed' records never age out: each is written once, its card is
+ * dismissible, and dismissing the card (which clears a 'history-failed' record
+ * and hides a 'history-partial' one) or the next run's first write removes it.
  */
 export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS = 180_000;
 
-export type GuardianNoteRecoveryStep = 'transport' | 'proposals' | 'public';
+export type GuardianNoteRecoveryStep =
+  | 'transport'
+  | 'proposals'
+  | 'public'
+  | 'history'
+  | 'history-partial'
+  | 'history-failed';
 
 export type GuardianNoteRecoveryProgress = {
   accountId: string;
   step: GuardianNoteRecoveryStep;
+  operator?: string;
+  restored?: number;
   /** Public-backfill bounds; present only during the `public` step. */
   startBlock?: number;
   syncedToBlock?: number;
@@ -49,8 +62,17 @@ export type GuardianNoteRecoveryProgress = {
    * Whether the writing pass had seen zero source failures at the time of the
    * write. Only a clean pass's watermark may be resumed from — see
    * `resumePointFor`. Absent means "unknown", which is treated as not clean.
+   * On a `history` or `history-partial` step it means the notes pass before
+   * the history phase had no source failure, so a retry may resume at history.
    */
   sourcesClean?: boolean;
+  /**
+   * The Guardian history generation of the run that wrote a `public`,
+   * `history` or `history-partial` step. A retry resumes any of them only under
+   * the same generation, so a record left by a wallet that was since replaced
+   * is not.
+   */
+  historyGeneration?: string;
 };
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -62,15 +84,20 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
   const accountId = Reflect.get(value, 'accountId');
   const step = Reflect.get(value, 'step');
   if (typeof accountId !== 'string' || accountId.length === 0) return null;
-  if (step !== 'transport' && step !== 'proposals' && step !== 'public') return null;
+  if (!['transport', 'proposals', 'public', 'history', 'history-partial', 'history-failed'].includes(step)) return null;
+  const operator = Reflect.get(value, 'operator');
+  const historyGeneration = Reflect.get(value, 'historyGeneration');
   return {
     accountId,
     step,
+    operator: typeof operator === 'string' ? operator : undefined,
+    restored: numberOrUndefined(Reflect.get(value, 'restored')),
     startBlock: numberOrUndefined(Reflect.get(value, 'startBlock')),
     syncedToBlock: numberOrUndefined(Reflect.get(value, 'syncedToBlock')),
     latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock')),
     updatedAt: numberOrUndefined(Reflect.get(value, 'updatedAt')),
-    sourcesClean: Reflect.get(value, 'sourcesClean') === true ? true : undefined
+    sourcesClean: Reflect.get(value, 'sourcesClean') === true ? true : undefined,
+    historyGeneration: typeof historyGeneration === 'string' ? historyGeneration : undefined
   };
 }
 
@@ -102,12 +129,14 @@ export function normalizeGuardianNoteRecoveryProgress(
  * writer stamps `updatedAt`, so a record without one cannot be from a live run
  * and is stale by definition — treating it as fresh instead would leave a
  * permanent non-dismissible card with nothing able to clear it.
+ * Only a live step ages out; a terminal record stays until its card is dismissed or the next run replaces it.
  */
 export function isGuardianNoteRecoveryProgressStale(
   progress: GuardianNoteRecoveryProgress,
   now: number = Date.now()
 ): boolean {
   if (progress.updatedAt === undefined) return true;
+  if (progress.step === 'history-partial' || progress.step === 'history-failed') return false;
   return now - progress.updatedAt > GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS;
 }
 
@@ -155,6 +184,41 @@ function evictOldest(
     delete entries[accountId];
   }
   return entries;
+}
+
+/**
+ * Per-account dismissals of a finished card, each the `updatedAt` of the record
+ * it hid. A `history-partial` record is also the checkpoint a retry resumes
+ * from, so dismissing its card must not delete it; the card returns when a
+ * later write gives the record a new `updatedAt`.
+ */
+export const GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY = 'guardian_note_recovery_dismissed_v1';
+
+async function fetchDismissals(): Promise<Record<string, number>> {
+  const value: unknown = await fetchFromStorage(GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY);
+  const dismissals: Record<string, number> = {};
+  if (!value || typeof value !== 'object') return dismissals;
+  for (const [accountId, updatedAt] of Object.entries(value)) {
+    const valid = numberOrUndefined(updatedAt);
+    if (valid !== undefined) dismissals[accountId] = valid;
+  }
+  return dismissals;
+}
+
+/** The `updatedAt` of the record whose card this account dismissed, or null. */
+export async function fetchGuardianNoteRecoveryDismissal(accountId: string): Promise<number | null> {
+  return (await fetchDismissals())[accountId] ?? null;
+}
+
+/** Best-effort, like the progress writes: a failed write leaves the card to show again. */
+export async function dismissGuardianNoteRecoveryProgress(accountId: string, updatedAt: number): Promise<void> {
+  try {
+    const dismissals = await fetchDismissals();
+    dismissals[accountId] = updatedAt;
+    await putToStorage(GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY, dismissals);
+  } catch (error) {
+    console.warn('[GuardianRecovery] Failed to persist a recovery card dismissal:', error);
+  }
 }
 
 /** Drop one account's record, leaving every other account's untouched. */

@@ -5,11 +5,14 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import type { WalletAccount } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
 import EncryptedWalletFileWalletPassword, {
   EncryptedWalletFileWalletPasswordProps
 } from './EncryptedWalletFileWalletPassword';
+
+let mockRealTelemetrySurfaces = false;
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
@@ -113,31 +116,46 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    error,
-    disabled,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    onChange?: (code: string) => void;
-    error?: string | null;
-    disabled?: boolean;
-    isSubmitting?: boolean;
-  }) => (
-    <div data-testid="passcode-entry" data-disabled={String(!!disabled)} data-submitting={String(!!isSubmitting)}>
-      <span data-testid="passcode-error">{error ?? ''}</span>
-      <button data-testid="passcode-change" onClick={() => onChange?.('12')}>
-        change
-      </button>
-      <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
-        submit
-      </button>
-    </div>
-  )
-}));
+jest.mock('components/PasscodeEntry', () =>
+  (() => {
+    const legacy = {
+      PasscodeEntry: ({
+        onSubmit,
+        onChange,
+        error,
+        disabled,
+        isSubmitting
+      }: {
+        onSubmit: (code: string) => void;
+        onChange?: (code: string) => void;
+        error?: string | null;
+        disabled?: boolean;
+        isSubmitting?: boolean;
+      }) => (
+        <div data-testid="passcode-entry" data-disabled={String(!!disabled)} data-submitting={String(!!isSubmitting)}>
+          <span data-testid="passcode-error">{error ?? ''}</span>
+          <button data-testid="passcode-change" onClick={() => onChange?.('12')}>
+            change
+          </button>
+          <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
+            submit
+          </button>
+        </div>
+      )
+    };
+    return {
+      ...legacy,
+      PasscodeEntry: (props: React.ComponentProps<typeof import('components/PasscodeEntry').PasscodeEntry>) => {
+        if (mockRealTelemetrySurfaces) {
+          const { PasscodeEntry } =
+            jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry');
+          return <PasscodeEntry {...props} />;
+        }
+        return <legacy.PasscodeEntry {...props} />;
+      }
+    };
+  })()
+);
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
@@ -175,6 +193,24 @@ const renderComp = async (props: EncryptedWalletFileWalletPasswordProps) => {
 
 const clickConfirm = () => {
   fireEvent.click(screen.getByTestId('checkbox').closest('button')!);
+};
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
 };
 
 describe('EncryptedWalletFileWalletPassword', () => {
@@ -554,7 +590,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
       name,
       isPublic: type !== WalletType.Guardian,
       type,
-      hdIndex
+      hdIndex,
+      authScheme: 'ecdsa'
     });
 
     it('names every hot-key Guardian account the file does not restore, before the consent (#1114)', async () => {
@@ -594,6 +631,30 @@ describe('EncryptedWalletFileWalletPassword', () => {
       );
     });
 
+    it('says what the file holds for a seed-derived Guardian account, before the consent', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Seed Guardian', WalletType.Guardian, 0),
+        account('Key Guardian', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      const notice = screen.getByTestId('encrypted-file-guardian-accounts');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveTextContent('encryptedWalletFileGuardianTitle: Seed Guardian');
+      expect(notice).not.toHaveTextContent('Key Guardian');
+      expect(
+        notice.compareDocumentPosition(screen.getByRole('checkbox')) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it('shows no Guardian notice when the wallet holds no seed-derived Guardian account', async () => {
+      mockAccounts = [account('Seed account', WalletType.OnChain, 0), account('Key Guardian', WalletType.Guardian, -1)];
+      await renderComp(makeProps());
+
+      expect(screen.queryByTestId('encrypted-file-guardian-accounts')).not.toBeInTheDocument();
+    });
+
     it('shows no notice when every account is in the file, a seed-derived Guardian included (#1114)', async () => {
       mockAccounts = [
         account('Seed account', WalletType.OnChain, 0),
@@ -604,6 +665,85 @@ describe('EncryptedWalletFileWalletPassword', () => {
 
       expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
       expect(screen.queryByTestId('encrypted-file-excluded-accounts')).not.toBeInTheDocument();
+    });
+  });
+  describe('user-visible error reporting', () => {
+    it('does not report the excluded-account warning or its account name', async () => {
+      mockAccounts = [
+        {
+          publicKey: 'synthetic-public-key',
+          name: privateErrorFixture,
+          isPublic: false,
+          type: WalletType.Guardian,
+          hdIndex: -1,
+          authScheme: 'ecdsa'
+        }
+      ];
+      await renderComp(makeProps());
+      expect(screen.getByTestId('encrypted-file-excluded-accounts')).toHaveAttribute('data-tone', 'warning');
+      expect(screen.getByTestId('encrypted-file-excluded-accounts')).toHaveTextContent(privateErrorFixture);
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealTelemetrySurfaces = true;
+    });
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockRealTelemetrySurfaces = false;
+    });
+
+    it.each([false, true])('reports a raw credential failure hardware=%s', async hardware => {
+      mockHasHardwareProtector.mockResolvedValue(hardware);
+      mockUnlock.mockRejectedValueOnce(new Error(privateErrorFixture));
+      await renderComp(makeProps({ walletPassword: 'pw' }));
+      clickConfirm();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('action-button'));
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      dwellForError();
+      expectDisplayReport('raw_encrypted_file_unlock_failed', hardware ? 'notice' : 'field');
+    });
+    it('reports a raw passcode failure through the real passcode entry', async () => {
+      mockIsMobile = true;
+      mockUnlock.mockRejectedValueOnce(new Error(privateErrorFixture));
+      await renderComp(makeProps());
+      clickConfirm();
+      for (const digit of '123456') fireEvent.click(screen.getByRole('button', { name: digit }));
+      await act(async () => {
+        jest.advanceTimersByTime(150);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(screen.getByText(privateErrorFixture)).toBeVisible();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      dwellForError();
+      expectDisplayReport('raw_encrypted_file_unlock_failed', 'passcode');
+    });
+    it('reports the lockout notice using its key without the countdown', async () => {
+      mockStore[TIMELOCK_KEY] = Date.now();
+      mockStore[ATTEMPT_KEY] = 4;
+      await renderComp(makeProps());
+      expect(screen.getByRole('alert')).toHaveTextContent('unlockPasswordErrorDelay');
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      dwellForError();
+      expectDisplayReport('unlockPasswordErrorDelay', 'notice');
+    });
+    it('does not report credential helper or confirmation caution text', async () => {
+      await renderComp(makeProps());
+      expect(screen.getByText('encryptedWalletFileConfirmation')).toBeVisible();
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
     });
   });
 });

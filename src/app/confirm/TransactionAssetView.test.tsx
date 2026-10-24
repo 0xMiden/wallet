@@ -1,9 +1,10 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
+import type { TxAssetView } from './decode';
 import { TransactionAssetView } from './TransactionAssetView';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
@@ -27,6 +28,9 @@ const view = {
   account: 'mtst1acct',
   outgoing: [{ faucetId: 'fA', amount: 10n }],
   incoming: [{ faucetId: 'fB', amount: 3n }],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
   inputNotesConsumed: 1,
   outputNotesCreated: 2,
   storageChanged: false
@@ -34,7 +38,8 @@ const view = {
 
 beforeEach(() => {
   (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => ({
-    base: { decimals: 6, symbol: id === 'fA' ? 'miZK' : 'rETH' }
+    decimals: 6,
+    symbol: id === 'fA' ? 'miZK' : 'rETH'
   }));
 });
 
@@ -130,7 +135,7 @@ it('renders a download button and invokes onDownload when clicked', () => {
 });
 
 it('falls back to the unknown label when a resolved asset has no symbol', async () => {
-  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: undefined } });
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [{ faucetId: 'fA', amount: 10n }], incoming: [] } as any}
@@ -141,7 +146,7 @@ it('falls back to the unknown label when a resolved asset has no symbol', async 
 });
 
 it('falls back to the unknown label for an incoming asset with no symbol', async () => {
-  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: undefined } });
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [], incoming: [{ faucetId: 'fB', amount: 5n }] } as any}
@@ -154,7 +159,7 @@ it('falls back to the unknown label for an incoming asset with no symbol', async
 it('still renders (with the unknown fallback) when fetchTokenMetadata rejects for one asset', async () => {
   (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => {
     if (id === 'fA') throw new Error('metadata service down');
-    return { base: { decimals: 6, symbol: 'rETH' } };
+    return { decimals: 6, symbol: 'rETH' };
   });
 
   expect(() => render(<TransactionAssetView view={view as any} mode="verified" />)).not.toThrow();
@@ -176,7 +181,10 @@ it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknow
   // an authoritative claim about an amount that could be off by a factor of a
   // trillion. The asset is still named, so the row is not a mystery.
   (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({
-    base: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
+    decimals: 6,
+    symbol: 'Unknown',
+    name: 'Unknown',
+    scaleIsUnknown: true
   });
   render(
     <TransactionAssetView
@@ -200,4 +208,78 @@ it('withholds the quantity when the metadata lookup fails outright', async () =>
     />
   );
   await waitFor(() => expect(screen.getByText('? unknown')).toBeInTheDocument());
+});
+
+it('exposes its mode and the output-note count to E2E', async () => {
+  const { rerender } = render(<TransactionAssetView view={view as any} mode="verified" />);
+  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+  expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('2');
+  rerender(<TransactionAssetView view={view as any} mode="declared" />);
+  expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
+});
+
+it('exposes the storage-changed value to E2E, in verified mode only', async () => {
+  const verifiedView: TxAssetView = view;
+  const { rerender } = render(<TransactionAssetView view={verifiedView} mode="verified" />);
+  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'false');
+  expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^no$/);
+  rerender(<TransactionAssetView view={{ ...verifiedView, storageChanged: true }} mode="verified" />);
+  expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'true');
+  expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^yes$/);
+  rerender(<TransactionAssetView view={verifiedView} mode="declared" />);
+  expect(screen.queryByTestId('tx-storage-changed')).not.toBeInTheDocument();
+});
+
+describe('NFTs and unlisted assets (#1600)', () => {
+  // The asset hooks resolve metadata asynchronously, so let that settle inside act.
+  const renderSettled = (ui: React.ReactElement) =>
+    act(async () => {
+      render(ui);
+    });
+
+  const nftOnly: TxAssetView = {
+    account: 'mtst1acct',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa11bb22…cc33dd' }],
+    incomingNfts: [{ faucetId: 'mtst1otherfaucet', assetId: '0x01020304…050607' }],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
+  };
+
+  it('lists an NFT that leaves and one that enters, each with its asset id and faucet, when no token moves', async () => {
+    await renderSettled(<TransactionAssetView view={nftOnly} mode="verified" />);
+
+    expect(screen.getByText('assetChanges')).toBeInTheDocument();
+    const [leaving, entering] = screen.getAllByTestId('tx-nft-row');
+    expect(leaving).toHaveAttribute('data-direction', 'out');
+    expect(leaving).toHaveTextContent('-nft 0xaa11bb22…cc33dd');
+    expect(leaving).toHaveTextContent('nftFaucet trunc(mtst1nftfaucet)');
+    expect(entering).toHaveAttribute('data-direction', 'in');
+    expect(entering).toHaveTextContent('+nft 0x01020304…050607');
+    expect(entering).toHaveTextContent('nftFaucet trunc(mtst1otherfaucet)');
+    expect(screen.queryByTestId('tx-unlisted-assets')).not.toBeInTheDocument();
+  });
+
+  it('marks a declared NFT row unverified', async () => {
+    await renderSettled(<TransactionAssetView view={nftOnly} mode="declared" />);
+
+    expect(screen.getAllByText('unverified')).toHaveLength(2);
+  });
+
+  it('warns instead of staying silent when the vault change holds assets it cannot list', async () => {
+    await renderSettled(
+      <TransactionAssetView
+        view={{ ...nftOnly, outgoingNfts: [], incomingNfts: [], unlistedAssets: 1 }}
+        mode="verified"
+      />
+    );
+
+    expect(screen.getByTestId('tx-unlisted-assets')).toHaveTextContent('unlistedAssetsWarning');
+    expect(screen.getByText('assetChanges')).toBeInTheDocument();
+  });
 });

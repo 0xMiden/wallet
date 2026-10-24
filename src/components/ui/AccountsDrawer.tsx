@@ -22,22 +22,18 @@ export interface AccountsDrawerProps {
 
 /**
  * Bottom sheet opened from the BalanceCard settings button. Lists
- * the balance-card color picker and account-level actions: Settings
- * (navigates to /settings) and private-key account import.
+ * the balance-card color picker and the Settings action (navigates
+ * to /settings). The wallet holds one account, so there is no
+ * account import here.
  */
 export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
   const selectedCardColor = useCardColor();
 
-  // `ListRow` fires the tap haptic itself, so the handlers only close and navigate.
+  // `ListRow` fires the tap haptic itself, so the handler only closes and navigates.
   const handleSettings = () => {
     onOpenChange(false);
     navigate('/settings');
-  };
-
-  const handleImportAccount = () => {
-    onOpenChange(false);
-    navigate('/import-account');
   };
 
   const handleCardColorSelect = (color: CardColor) => {
@@ -81,20 +77,14 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             </div>
           </section>
 
-          {/* The two account actions as one grouped list, like Settings' own rows: both navigate,
-              so both carry the chevron. */}
+          {/* The account action as a grouped list, like Settings' own rows: it navigates,
+              so it carries the chevron. */}
           <ListGroup>
             <ListRow
               title={t('settings')}
               icon={<Icon name={IconName.SettingsNew} fill="currentColor" />}
               chevron
               onClick={handleSettings}
-            />
-            <ListRow
-              title={t('importAccount')}
-              icon={<Icon name={IconName.Add} fill="currentColor" />}
-              chevron
-              onClick={handleImportAccount}
             />
           </ListGroup>
         </div>

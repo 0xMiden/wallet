@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
-import { PromptCard } from './PromptCard';
+import { PROMPT_CARD_VARIANT_STYLE, PromptCard } from './PromptCard';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The real Card, with the props PromptCard hands it recorded: the card's surface is Card's to draw.
 const mockCardProps: Array<Record<string, unknown>> = [];
@@ -90,6 +93,63 @@ describe('PromptCard', () => {
     // The named type styles, so the card reads like every other row on the page.
     expect(screen.getByText('Fund your wallet')).toHaveClass('text-row-title');
     expect(screen.getByText('You need MIDEN.')).toHaveClass('text-caption', 'text-muted');
+  });
+
+  it('keeps one style entry for each variant', () => {
+    // A variant left out of the table would otherwise fall through to another variant's look.
+    expect(Object.keys(PROMPT_CARD_VARIANT_STYLE).sort()).toEqual(['critical', 'default', 'receive', 'warning']);
+  });
+
+  it.each(['default', 'critical'] as const)(
+    'draws the `%s` variant on `page` with the muted body and the 36px bubble',
+    variant => {
+      const { container } = render(
+        <PromptCard title="Fund your wallet" body="You need MIDEN." variant={variant} icon={IconName.Checkmark} />
+      );
+
+      const card = container.firstChild as HTMLElement;
+      expect(card).toHaveClass('bg-page');
+      expect(card.className).not.toMatch(/border-transparent|bg-accent-receive-tint|bg-pending-tint/);
+      expect(screen.getByText('You need MIDEN.')).toHaveClass('text-muted');
+      expect(screen.getByText('You need MIDEN.')).not.toHaveClass('face-heading');
+      expect(screen.getByTestId('icon-Checkmark').parentElement).toHaveClass(
+        'h-9',
+        'w-9',
+        'bg-accent-primary/15',
+        'text-accent-primary'
+      );
+    }
+  );
+
+  it('draws the `receive` variant on the Receive tint with its ink', () => {
+    const { container } = render(
+      <PromptCard title="You have transfers to accept" body="1 waiting" variant="receive" icon={IconName.Receive} />
+    );
+
+    const card = container.firstChild as HTMLElement;
+    expect(card).toHaveClass('bg-accent-receive-tint', 'border-transparent');
+    expect(screen.getByText('1 waiting')).toHaveClass('face-heading', 'font-semibold', 'text-accent-receive-ink');
+    expect(screen.getByText('1 waiting')).not.toHaveClass('text-muted');
+  });
+
+  it('draws the `warning` variant on the sand tint with its ink', () => {
+    const { container } = render(
+      <PromptCard
+        title="Back up your wallet"
+        body="Save your recovery phrase."
+        variant="warning"
+        icon={IconName.ShieldCheck}
+        onDismiss={jest.fn()}
+      />
+    );
+
+    expect(container.firstChild as HTMLElement).toHaveClass('bg-pending-tint', 'border-transparent');
+    expect(screen.getByText('Back up your wallet')).toHaveClass('font-extrabold');
+    expect(screen.getByText('Save your recovery phrase.')).toHaveClass(
+      'face-heading',
+      'text-pending-tint-ink',
+      'font-semibold'
+    );
   });
 
   it('runs the card action when its content is clicked', () => {
@@ -489,5 +549,45 @@ describe('PromptCard', () => {
 
       expect(document.activeElement).toBe(elsewhere);
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the prompt surface after the dwell', () => {
+    render(<PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="failure" body="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'prompt');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<PromptCard errorId={errorId} title="Funding" status="failure" body="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="success" body="Success" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(
+      <PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="failure" body="Failed" />
+    );
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="success" body="Success" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

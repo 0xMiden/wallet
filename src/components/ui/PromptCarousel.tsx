@@ -16,6 +16,8 @@ import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
 import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
+import { PromptSlideActiveContext } from './prompt-slide-active';
+
 export interface PromptCarouselProps {
   /**
    * Each child becomes a slide. Falsy children (e.g. a banner component that
@@ -110,17 +112,6 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
     return () => ro.disconnect();
   }, [container]);
 
-  useEffect(() => {
-    if (!container || !paging) return;
-
-    // HomePrompts sits inside HomeSwipeContainer, which is another horizontal
-    // Framer Motion drag surface. Let the prompt track start its drag session,
-    // then stop pointer-down from bubbling into the page-level carousel.
-    const claimPromptGesture = (event: PointerEvent) => event.stopPropagation();
-    container.addEventListener('pointerdown', claimPromptGesture);
-    return () => container.removeEventListener('pointerdown', claimPromptGesture);
-  }, [container, paging]);
-
   useEffect(
     () => () => {
       if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
@@ -205,6 +196,8 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
       <div
         ref={setContainer}
         className={classNames('w-full overflow-hidden', paging && 'touch-pan-y')}
+        // `touch-pan-y` is the whole gesture claim: an outer native scroller (the Home pager) cannot
+        // take a sideways pan that starts here, so the drag needs no pointer-event plumbing.
         // Only the track's transform moves the slides. A browser scrolls this overflow-hidden
         // viewport to reveal a control focused in a hidden slide, and that offset would add to
         // the page focus moves the track by. (overflow: clip would stop it, but not on iOS 15.)
@@ -231,7 +224,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
               style={{ width: width || '100%' }}
               onFocus={() => handleSlideFocus(i)}
             >
-              {slide}
+              <PromptSlideActiveContext.Provider value={i === activeIndex}>{slide}</PromptSlideActiveContext.Provider>
             </div>
           ))}
         </motion.div>

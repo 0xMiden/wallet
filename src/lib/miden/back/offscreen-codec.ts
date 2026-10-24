@@ -14,8 +14,11 @@
 // imports below are TYPE-ONLY — erased at compile time, so they pull no module
 // into either bundle and the zero-runtime-dependency rule still holds.
 
+import type { EndpointState } from '../../miden-chain/effective-endpoints';
 import type { ConnectivityCategory } from '../activity/connectivity-state';
-import type { ITransactionStage } from '../db/types';
+import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
+import type { LandedTransaction } from '../sdk/sdk-error-code';
+import type { NoteType } from '../types';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
  * ignores anything whose `target` is not this. */
@@ -49,6 +52,12 @@ export const OFFSCREEN_RELOAD_ENDPOINTS = 'OFFSCREEN_RELOAD_ENDPOINTS' as const;
  * across the bus: only raw pubkey / signing-inputs / signature BYTES cross —
  * never an un-serializable SDK handle (issue #260, slice 5, design §2). */
 export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
+
+/** Message family for the Guardian leaf's submit gate (offscreen → SW → offscreen, #1644). The leaf asks before its
+ * submit call and submits only on `ok`; the service worker records the crossing before it answers, and refuses an op
+ * it no longer runs. So an attempt whose gate the service worker never opened provably never called submit, which a
+ * fire-and-forget {@link OFFSCREEN_STAGE_EVENT} cannot show: its absence proves nothing. */
+export const OFFSCREEN_SUBMIT_GATE = 'OFFSCREEN_SUBMIT_GATE' as const;
 
 /** Fire-and-forget control message (offscreen → SW): the op named by `op_id` has
  * just WON the offscreen WASM mutex and is about to execute. The SW arms that
@@ -87,6 +96,24 @@ export const OFFSCREEN_TELEMETRY_EVENT = 'OFFSCREEN_TELEMETRY_EVENT' as const;
  * block on this, and a dropped event costs a blank duration, never a
  * transaction. */
 export const OFFSCREEN_STAGE_EVENT = 'OFFSCREEN_STAGE_EVENT' as const;
+
+/** JSON-clean send row fields read by the SDK after crossing into the offscreen realm. */
+export interface OffscreenSendDto {
+  accountId: string;
+  secondaryAccountId: string;
+  faucetId: string;
+  noteType: NoteType;
+  amount: string;
+  delegateTransaction?: boolean;
+  extraInputs: {
+    recallBlocks?: number;
+    oneClick?: {
+      fundingDeadline?: string;
+      request: { deadline: string };
+      quote: { quote: { deadline?: string } };
+    };
+  };
+}
 
 /** Fire-and-forget connectivity report (offscreen → SW): the offscreen realm has
  * just observed `category` to be `active` (or not). It exists because the
@@ -131,7 +158,9 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  *
  * `argsB64` carries the positional arguments, each encoded with
  * {@link encodeArg} (binary → base64 bytes, scalar → JSON). `deadline_ms` is
- * the per-op deadline the SW enforces; `null` means "no deadline".
+ * the per-op deadline the SW enforces; `null` means "no deadline". `endpoints`
+ * is the SW's endpoint state when the call is sent: this realm has no extension
+ * storage, so it runs every call on the network the call names (#1482).
  */
 export interface OffscreenCallRequest {
   target: typeof OFFSCREEN_TARGET;
@@ -140,6 +169,7 @@ export interface OffscreenCallRequest {
   method: string;
   argsB64: string[];
   deadline_ms: number | null;
+  endpoints: EndpointState;
 }
 
 /**
@@ -163,28 +193,45 @@ export interface OffscreenCallRequest {
  * {@link finishOpError}'s: the SW must not see a kill as a plain error.
  * `errorReason` carries that error's own discriminant alongside it, so the
  * rebuilt error names the mechanism that actually fired rather than guessing.
+ * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
+ * transaction, its id and private output note count, so a landed row the service
+ * worker completes still records both (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
+ * before its submit call (#1081).
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
-  | { ok: false; op_id: string; error: string; errorCode?: string; errorName?: string; errorReason?: string };
+  | {
+      ok: false;
+      op_id: string;
+      error: string;
+      errorCode?: string;
+      errorLanded?: LandedTransaction;
+      errorName?: string;
+      errorReason?: string;
+      errorBeforeSubmit?: true;
+    };
 
 /**
- * SW → offscreen endpoint-override reload request. Carries no payload: the
- * override lives in extension storage, which BOTH realms read, so the message is
- * a pure "go re-read it" nudge rather than a copy of the new value.
+ * SW → offscreen endpoint reload request. The offscreen realm cannot read
+ * extension storage, so every reload carries the SW's endpoint state: the realm
+ * adopts it and drops its client singleton, even when the state is unchanged
+ * (seed removal sends one only to discard the client).
  */
 export interface OffscreenReloadEndpointsRequest {
   target: typeof OFFSCREEN_TARGET;
   type: typeof OFFSCREEN_RELOAD_ENDPOINTS;
+  endpoints: EndpointState;
 }
 
 /**
  * offscreen → SW acknowledgement of {@link OffscreenReloadEndpointsRequest},
- * delivered via `sendResponse`. `ok: true` means the realm re-read the override
- * and dropped its client singleton. As with an {@link OffscreenCallResponse}, a
- * response of `undefined` on the wire (doc closed/reaped) is not part of this
- * type — the SW treats a missing/failed ack as "not acknowledged" and moves on,
- * since a reaped document's replacement hydrates the override on its own.
+ * delivered via `sendResponse`. `ok: true` means the realm adopted the state and
+ * dropped its client singleton; `ok: false` means it adopted nothing and kept its
+ * client (a reload with no state, or one it could not read). As with an
+ * {@link OffscreenCallResponse}, a response of `undefined` on the wire (doc
+ * closed/reaped) is not part of this type: the SW treats a missing/failed ack as
+ * "not acknowledged" and moves on, since a reaped document's replacement gets the
+ * state with its first call.
  */
 export type OffscreenReloadEndpointsResponse = { ok: true } | { ok: false; error: string };
 
@@ -207,6 +254,18 @@ export interface OffscreenSignRequest {
   publicKeyB64: string;
   signingInputsB64: string;
 }
+
+/** offscreen → SW submit gate request. See {@link OFFSCREEN_SUBMIT_GATE}. `evidence` is the submit evidence the
+ * 'submitting' stamp carries (#1081), untrusted on arrival like the stamp's. */
+export interface OffscreenSubmitGateRequest {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_SUBMIT_GATE;
+  op_id: string;
+  evidence?: SubmitEvidenceFields;
+}
+
+/** SW → offscreen submit gate answer: submit only on `ok: true`. */
+export type OffscreenSubmitGateResponse = { ok: true } | { ok: false; error: string };
 
 /**
  * offscreen → SW execution-start signal (issue #260 flip-prep #3). Posted from
@@ -256,6 +315,8 @@ export interface OffscreenStageEvent {
   type: typeof OFFSCREEN_STAGE_EVENT;
   op_id: string;
   stage: ITransactionStage;
+  /** The 'submitting' stamp's evidence (#1081). Untrusted on arrival: the service worker parses it again. */
+  evidence?: SubmitEvidenceFields;
 }
 
 /**
@@ -358,15 +419,17 @@ export function encodeArg(value: unknown): string {
  *
  * Worth naming for this op specifically: the dispatch table erases its entries
  * to `(client, ...args: any[])`, so a dropped or reordered slot compiles
- * cleanly, and dropping the anchor slot silently reinstates the unanchored
- * execute that #784 exists to remove — a regression that shows up only once
- * the chain advances mid-round-trip.
+ * cleanly. The last slot carries a proposal metadata's base64 anchor and stays
+ * for wire compatibility only: nothing reads it, because the leaf executes at
+ * the tip against the block the request's auth args bind.
  *
- * The two optional slots are `| null`, not `| undefined`: the packer always
- * sends four elements and {@link encodeArg} maps an absent value to JSON
+ * The optional slots are `| null`, not `| undefined`: the packer always sends
+ * six elements and {@link encodeArg} maps an absent value to JSON
  * `null`, so a PACKED slot never arrives as `undefined`. A short envelope still
- * leaves the tail `undefined` — only hand-built test envelopes do that today —
- * which is why both receivers select on truthiness rather than on `null`.
+ * leaves the tail `undefined` (only hand-built test envelopes do that today),
+ * which is why the leaf tests `delegateTransaction` for truthiness rather than
+ * for `null`. The anchor slot has no receiver, and the deadline is only read
+ * for a 1Click send.
  *
  * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
  * `Uint8Array` at the top level, and a nested one would be JSON-mangled,
@@ -376,7 +439,9 @@ export type GuardianPipelineArgs = [
   accountId: string,
   trBytes: Uint8Array,
   delegateTransaction: boolean | null,
-  chainAnchorB64: string | null
+  chainAnchorB64: string | null,
+  oneClickDeadline: string | null,
+  oneClickRequired: boolean | null
 ];
 
 /** Inverse of {@link encodeArg}. */
@@ -424,13 +489,26 @@ export function errorNameOf(error: unknown): string | undefined {
 export class OperationAbortedError extends Error {
   readonly op_id: string;
   readonly reason: string;
+  /** Closed facts about the abort for crash reports; never an id or a duration. */
+  readonly facts?: OffscreenAbortFacts;
 
-  constructor(op_id: string, reason: string) {
+  constructor(op_id: string, reason: string, facts?: OffscreenAbortFacts) {
     super(`Offscreen operation ${op_id} aborted (${reason})`);
     this.name = 'OperationAbortedError';
     this.op_id = op_id;
     this.reason = reason;
+    if (facts !== undefined) this.facts = facts;
   }
+}
+
+/** Which timer of the deadline-holding op fired: armed at dispatch, the write backstop, at start, or after a sign. */
+export type OffscreenDeadlineTimer = 'dispatch' | 'backstop' | 'started' | 'resumed';
+
+export interface OffscreenAbortFacts {
+  /** Whether the offscreen doc's signal that this op won its mutex had arrived; the signal can be dropped. */
+  started: boolean;
+  /** For a deadline abort: whose deadline fired, which of its timers, and whether that op was a write. */
+  deadline?: { owner: 'own' | 'collateral'; timer: OffscreenDeadlineTimer; killer: 'write' | 'read' };
 }
 
 /**
@@ -446,3 +524,11 @@ export function isOperationAbortedError(error: unknown): error is OperationAbort
     (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'OperationAbortedError')
   );
 }
+
+export const OFFSCREEN_NATIVE_ASSET_EVENT = 'OFFSCREEN_NATIVE_ASSET_EVENT';
+export type OffscreenNativeAssetEvent = {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_NATIVE_ASSET_EVENT;
+  id: string;
+  scope: string;
+};

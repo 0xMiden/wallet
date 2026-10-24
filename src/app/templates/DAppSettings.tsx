@@ -14,6 +14,7 @@ import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSession, MidenDAppSessions } from 'lib/miden/types';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useRetryableSWR } from 'lib/swr';
 import { useConfirm } from 'lib/ui/dialog';
 import { truncateAddress } from 'utils/string';
@@ -87,7 +88,7 @@ const DAppSection: FC<{
   onRemove: (origin: string) => void;
 }> = ({ origin, session, onRemove }) => {
   const { t } = useTranslation();
-  const { network, accountId, privateDataPermission } = session;
+  const { accountId, privateDataPermission } = session;
 
   const hostname = (() => {
     try {
@@ -104,13 +105,13 @@ const DAppSection: FC<{
   const explorerAccountUrl = getExplorerAccountUrl(explorerHash);
 
   return (
-    <SubPageSection title={hostname} data-testid="dapp-session">
+    <SubPageSection title={hostname} titleSize="md" data-testid="dapp-session">
       <DetailCard>
         <DetailRow label={rowLabel(t('originLabel'))} stacked>
           {origin}
         </DetailRow>
         <DetailRow label={rowLabel(t('networkLabel'))}>
-          <span className="capitalize">{network}</span>
+          <span data-testid="dapp-session-network">{t(getEffectiveNetworkName())}</span>
         </DetailRow>
         <DetailRow label={rowLabel(t('pkhLabel'))}>
           <span>{truncateAddress(accountId, false, 8)}</span>

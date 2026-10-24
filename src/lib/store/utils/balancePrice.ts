@@ -4,7 +4,9 @@ import type { TokenPrices } from 'lib/prices';
 
 /**
  * A balance row's price fields: the quote of the token's price symbol (IETH at ETH), or 0, which
- * every reader of `fiatPrice` takes as "no price". Never a $1 guess for a token the feed does not quote.
+ * every reader of `fiatPrice` takes as "no price". An unquoted token, as `quotedPrice` defines it,
+ * stores 0, never a $1 guess, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it
+ * stores the nominal $1 like every other fiat figure.
  */
 export function balancePrice(
   tokenPrices: TokenPrices,

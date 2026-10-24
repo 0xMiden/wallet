@@ -69,11 +69,13 @@ export function DesktopDappConfirmationModal(): React.ReactElement | null {
 
   if (!request) return null;
 
-  const resolve = (result: DAppConfirmationResult) => {
+  const resolve = (result: DAppConfirmationResult, requestId: string) => {
     // PR-4 chunk 8: desktop is single-session, so it resolves the legacy default
     // slot. `resolveConfirmation` notifies subscribers, which clears `request` via
-    // `sync`; setting it here too keeps the modal from lingering for a frame.
-    dappConfirmationStore.resolveConfirmation(undefined, result);
+    // `sync`; setting it here too keeps the modal from lingering for a frame. A
+    // decision on a request that was since replaced resolves nothing, and the
+    // newer request stays on screen.
+    if (!dappConfirmationStore.resolveConfirmation(undefined, result, requestId)) return;
     focusedForRef.current = null;
     setRequest(null);
   };

@@ -1,19 +1,17 @@
 /**
- * Deliberate-violation harness for the two consent guards.
+ * Deliberate-violation harness for usage consent and crash-reporting disclosure.
  *
- * Two things are protected here and both are consent integrity, which is the
- * entire basis of the telemetry feature:
+ * Two things are protected here:
  *
  * 1. **The browser-level permission gate.** Firefox's own data-collection
- *    consent, ANDed with the wallet's setting. Its failure modes are silent in
- *    both directions — read an absent mechanism as a refusal and telemetry dies
+ *    consent gates usage events and crash reports. The wallet's setting also
+ *    gates usage events. Read an absent mechanism as a refusal and reporting dies
  *    on Chrome and mobile; read a refusal as absence and we collect from someone
  *    who declined. Neither throws. So each direction gets its own mutation.
  *
- * 2. **The consent copy.** `helpImproveWalletDescription` is the string that
- *    makes the opt-in informed, so every clause in it is deleted in turn and the
- *    prompt's tests must notice. A disclosure nobody asserts on is a disclosure
- *    that quietly shrinks.
+ * 2. **The consent copy.** Every clause in the prompt's rendered disclosure
+ *    strings is deleted in turn and the prompt's tests must notice. A
+ *    disclosure nobody asserts on is a disclosure that quietly shrinks.
  *
  * Nothing is left on disk: every edited file is restored from an in-memory copy
  * before the next mutation runs, and the tree is checked at the end.
@@ -40,6 +38,10 @@ const COPY_TEST = 'src/screens/onboarding/common/HelpImproveWallet.test.tsx';
 const GATE_BODY = `  if (!(await readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY))) return false;
   return isDataCollectionPermitted();`;
 
+const CRASH_GATE_BODY = `export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isDataCollectionPermitted();
+}`;
+
 const GRANT_CHECK = `return Array.isArray(dataCollection) && dataCollection.includes(TECHNICAL_AND_INTERACTION);`;
 
 const FAIL_CLOSED = `    ${GRANT_CHECK}
@@ -51,14 +53,26 @@ const ABSENT_KEY = `if (dataCollection === undefined) return true;`;
 const EXTENSION_GUARD = `if (!isExtension()) return true;`;
 const PERMISSION_NAME = `const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';`;
 
-const DESCRIPTION =
-  '"helpImproveWalletDescription": "Shares which parts of Wallet you use, where you get stuck, ' +
-  "broad error categories, the app version, and your platform, so we can fix what's breaking. " +
-  'If the app crashes, it also sends a crash report with the error and where it happened in the ' +
-  'code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, ' +
-  'password, addresses, balances, amounts, or transaction contents. No tracking across other apps ' +
-  'or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can ' +
-  'change this any time.",';
+const DISCLOSURES = {
+  helpImproveWalletSharedDescription:
+    'Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform.',
+  helpImproveWalletPrivateDescription:
+    'Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.',
+  helpImproveWalletNoTrackingDescription:
+    'No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.',
+  helpImproveWalletCrashReports:
+    'Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, ' +
+    'scrubbed to remove sensitive data, with no identifier for you or your device.',
+  helpImproveWalletChangeAnyTime: 'You can change this any time in Settings.'
+};
+
+function disclosureEdit(key, replacement) {
+  return {
+    file: EN_JSON,
+    find: `"${key}": ${JSON.stringify(DISCLOSURES[key])}`,
+    replace: `"${key}": ${JSON.stringify(replacement)}`
+  };
+}
 
 /**
  * Delete one clause from the disclosure. The whole string is the anchor, so a
@@ -66,8 +80,10 @@ const DESCRIPTION =
  * quietly matching somewhere else in a 900-key file.
  */
 function withoutClause(clause) {
-  if (!DESCRIPTION.includes(clause)) throw new Error(`clause not in the disclosure: ${clause}`);
-  return { file: EN_JSON, find: DESCRIPTION, replace: DESCRIPTION.replace(clause, '') };
+  const entry = Object.entries(DISCLOSURES).find(([, text]) => text.includes(clause));
+  if (entry === undefined) throw new Error(`clause not in the disclosure: ${clause}`);
+  const [key, text] = entry;
+  return disclosureEdit(key, text.replace(clause, ''));
 }
 
 const copyMutation = (clause, guards) => ({
@@ -83,9 +99,9 @@ const MUTATIONS = [
   // The browser-level permission gate.
   // -------------------------------------------------------------------------
   {
-    name: 'the browser permission never consulted at all (AND removed)',
+    name: 'the browser permission never consulted for usage events (AND removed)',
     test: GATE_TEST,
-    guards: 'sends nothing when the browser denies',
+    guards: 'sends no usage events when the browser denies',
     edits: [
       {
         file: HELPERS,
@@ -97,13 +113,41 @@ const MUTATIONS = [
   {
     name: 'OR instead of AND, so either consent alone is enough',
     test: GATE_TEST,
-    guards: 'sends nothing when the browser denies / when the wallet setting is off',
+    guards: 'sends no usage events when the browser denies / when the wallet setting is off',
     edits: [
       {
         file: HELPERS,
         find: GATE_BODY,
         replace: `  const stored = await readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
   return stored || (await isDataCollectionPermitted());`
+      }
+    ]
+  },
+  {
+    name: 'the browser permission bypassed only for crash reports',
+    test: GATE_TEST,
+    guards: 'reports nothing when Firefox denies and usage sharing is false or true',
+    edits: [
+      {
+        file: HELPERS,
+        find: CRASH_GATE_BODY,
+        replace: `export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return Promise.resolve(true);
+}`
+      }
+    ]
+  },
+  {
+    name: 'usage consent incorrectly required for crash reports',
+    test: GATE_TEST,
+    guards: 'reports crashes when usage sharing is unset or off',
+    edits: [
+      {
+        file: HELPERS,
+        find: CRASH_GATE_BODY,
+        replace: `export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isTelemetryEnabledAsync();
+}`
       }
     ]
   },
@@ -189,47 +233,49 @@ const MUTATIONS = [
   })),
 
   // -------------------------------------------------------------------------
-  // The consent copy — the new crash-reporting clause first, since it is the
-  // one this run exists to protect.
+  // The rendered disclosure, including crash reporting independent of usage consent.
   // -------------------------------------------------------------------------
-  copyMutation('If the app crashes, ', 'names crash reporting — /if the app crashes/'),
-  copyMutation('it also sends a crash report', 'names crash reporting — /crash report/'),
-  copyMutation(' and where it happened in the code', 'names crash reporting — /where it happened in the code/'),
-  copyMutation(', scrubbed to remove sensitive data before sending', 'names crash reporting — /scrubbed to remove sensitive data/'),
+  copyMutation('Crash reports ', 'names crash reporting - /crash reports/'),
+  copyMutation('are sent either way, ', 'states crash reporting is independent of usage sharing'),
+  copyMutation(' and where it happened in the code', 'names crash report contents - /where it happened in the code/'),
+  copyMutation('scrubbed to remove sensitive data, ', 'names crash scrubbing - /scrubbed to remove sensitive data/'),
+  copyMutation('with no identifier for you or your device', 'rules out identifying you or your device'),
   {
-    name: '"anonymous" smuggled into the new crash-reporting clause',
+    name: '"anonymous" smuggled into the crash-reporting clause',
     test: COPY_TEST,
     guards: 'never claims anonymity, in the buttons or the body',
     edits: [
-      {
-        file: EN_JSON,
-        find: DESCRIPTION,
-        replace: DESCRIPTION.replace('it also sends a crash report', 'it also sends an anonymous crash report')
-      }
+      disclosureEdit(
+        'helpImproveWalletCrashReports',
+        DISCLOSURES.helpImproveWalletCrashReports.replace('Crash reports', 'Anonymous crash reports')
+      )
     ]
   },
 
   // ...and every pre-existing clause, so the new assertions have not been
   // bolted onto a string whose other halves nobody checks.
-  copyMutation('which parts of Wallet you use, ', 'names what IS collected — /which parts of Wallet you use/'),
+  copyMutation('Which parts of Wallet you use, ', 'names what IS collected - /which parts of Wallet you use/'),
   copyMutation('where you get stuck, ', 'names what IS collected — /where you get stuck/'),
   copyMutation('broad error categories, ', 'names what IS collected — /broad error categories/'),
   copyMutation('the app version, ', 'names what IS collected — /the app version/'),
-  copyMutation('and your platform, ', 'names what IS collected — /your platform/'),
+  copyMutation('and your platform.', 'names what IS collected - /your platform/'),
   copyMutation('Never your keys, ', 'names what is NOT collected — /never your keys/'),
   copyMutation('recovery phrase, ', 'names what is NOT collected — /recovery phrase/'),
   copyMutation('password, ', 'names what is NOT collected — /password/'),
   copyMutation('addresses, ', 'names what is NOT collected — /addresses/'),
   copyMutation('balances, ', 'names what is NOT collected — /balances/'),
   copyMutation('amounts, ', 'names what is NOT collected — /amounts/'),
-  copyMutation('or transaction contents. ', 'names what is NOT collected — /transaction contents/'),
+  copyMutation('or transaction contents.', 'names what is NOT collected - /transaction contents/'),
   copyMutation('No tracking across other apps or sites, ', 'rules out tracking — /no tracking across other apps or sites/'),
   copyMutation('nothing used for advertising, ', 'rules out advertising — /nothing used for advertising/'),
   copyMutation(
-    'and nothing sold or shared with data brokers. ',
-    'rules out sale to brokers — /nothing sold or shared with data brokers/'
+    'and nothing sold or shared with data brokers.',
+    'rules out sale to brokers - /nothing sold or shared with data brokers/'
   ),
-  copyMutation('You can change this any time.', 'tells the user the choice is reversible — /change this any time/')
+  copyMutation(
+    'You can change this any time in Settings.',
+    'tells the user the choice is reversible - /change this any time/'
+  )
 ];
 
 // ---------------------------------------------------------------------------

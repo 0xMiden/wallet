@@ -5,7 +5,17 @@ import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnFlowHeader, EarnHero, MetricCard, EarnSummaryPanel } from './components';
+import {
+  EarnAmountUnit,
+  EarnAssetMark,
+  EarnFlowHeader,
+  EarnHero,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnVaultClosedNotice,
+  MetricCard,
+  EarnSummaryPanel
+} from './components';
 import { EARN_PLACEHOLDER } from './earn-mapping';
 import { EarnSummary, EarnVault } from './types';
 
@@ -21,8 +31,9 @@ jest.mock('lib/woozie', () => ({
 
 // Stub react-i18next so `t(key)` echoes the key, letting us assert on
 // translation keys instead of English (matches the sibling earn-flow tests).
+const mockTranslate = jest.fn((key: string) => key);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: mockTranslate })
 }));
 
 // Stub the two child widgets to probes that surface the props `components.tsx`
@@ -201,6 +212,21 @@ describe('EarnFlowHeader', () => {
 });
 
 describe('EarnHero', () => {
+  it('puts the caption over the figure and draws meta as given with layout="label-first"', () => {
+    const { container } = render(
+      <EarnHero layout="label-first" labelId="l" value="$1" label="Total" meta={<span data-testid="meta">pill</span>} />
+    );
+
+    const section = container.querySelector('section') as HTMLElement;
+    expect(section.textContent).toBe('Total$1pill');
+    // Meta is the caller's own element, not wrapped in the default rate line's positive text.
+    expect(screen.getByTestId('meta').closest('p')).toBeNull();
+    expect(screen.getByText('Total')).toHaveAttribute('id', 'l');
+    // The 16px label, not the 13px caption the figure-first hero takes.
+    expect(screen.getByText('Total')).toHaveClass('text-row-title', 'text-muted');
+    expect(screen.getByText('Total')).not.toHaveClass('text-label');
+  });
+
   it('leads with the figure, then its caption, then the change line', () => {
     const { container } = render(<EarnHero labelId="hero-label" value="5.24%" label="Current APY" meta="+0.02%" />);
 
@@ -282,17 +308,45 @@ describe('MetricCard', () => {
 });
 
 describe('EarnSummaryPanel', () => {
-  it('leads with the figure, then the caption and the blended APY line', () => {
+  it('leads with the caption, then the figure, then the blended APY as a positive pill', () => {
     const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
     // Both figures are `AnimatedNumber`s, so the type is on the slot the hero renders around them.
-    expect(screen.getByText('$218.32').closest('div')).toHaveClass('text-display', 'text-ink');
-    expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-label', 'text-muted');
-    expect(screen.getByText('earnEarningBlendedApy').closest('p')).toHaveClass('text-value', 'text-positive-tint-ink');
-    // The figure precedes its caption — the same order the vault page's APY hero takes.
-    expect((container.querySelector('section') as HTMLElement).textContent).toBe(
-      '$218.32earnTotalEarnedRewardsearnEarningBlendedApy'
-    );
+    expect(screen.getByText('$218.32').closest('.text-display')).toHaveClass('text-ink');
+    expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-row-title', 'text-muted');
+    const apy = screen.getByTestId('earn-summary-apy');
+    expect(apy).toHaveTextContent('earnPositionsApy');
+    expect(apy).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
+    // Caption over the figure, the APY under it: the tab root's total reads with no page title above.
+    const section = container.querySelector('section') as HTMLElement;
+    const caption = screen.getByText('earnTotalEarnedRewards');
+    const figure = section.querySelector('.text-display') as HTMLElement;
+    expect(caption.compareDocumentPosition(figure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(figure.compareDocumentPosition(apy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('sets the whole summary in Nunito, pill and metric figures included', () => {
+    const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" className="panel-class" />);
+
+    const section = container.querySelector('section') as HTMLElement;
+    expect(section).toHaveClass('face-heading', 'panel-class');
+    expect(section).toContainElement(screen.getByTestId('earn-summary-apy'));
+    expect(section).toContainElement(screen.getByText('$4,218.32'));
+  });
+
+  it('draws the figure in one colour, and both metric values in ink alike', () => {
+    render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+
+    // One element, one colour: no muted cents.
+    const figure = screen.getByText('$218.32');
+    expect(figure.closest('.text-display')).toHaveClass('text-ink');
+    expect(figure.closest('.text-muted')).toBeNull();
+    // The two tiles read as a pair: neither value takes its own colour.
+    for (const value of ['$4,218.32', '+$24.50']) {
+      const slot = screen.getByText(value).closest('.text-value') as HTMLElement;
+      expect(slot).toHaveClass('text-ink');
+      expect(slot).not.toHaveClass('text-positive-tint-ink');
+    }
   });
 
   it('links the section to the caption via titleId, and leaves the h1 to the page', () => {
@@ -352,10 +406,11 @@ describe('EarnSummaryPanel', () => {
 
       expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
       expect(screen.queryByText('+$0.00')).not.toBeInTheDocument();
+      // One each for the total, the deposits and the estimate: the split figure draws one, not two.
       expect(screen.getAllByText(EARN_PLACEHOLDER)).toHaveLength(3);
-      expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+      expect(screen.getByTestId('earn-summary-apy')).toHaveTextContent('earnPositionsApy');
       expect((container.querySelector('section') as HTMLElement).textContent).toMatch(
-        new RegExp(`^${EARN_PLACEHOLDER}earnTotalEarnedRewards`)
+        new RegExp(`^earnTotalEarnedRewards${EARN_PLACEHOLDER}`)
       );
     });
 
@@ -414,5 +469,63 @@ describe('EarnAmountUnit', () => {
 
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
     expect(screen.getByText('USDC')).toHaveClass('text-entry-unit', 'text-ink');
+  });
+});
+
+it('names Miden USDCx funding without labelling the EVM underlying as USDCx', () => {
+  mockTranslate.mockClear();
+  render(<EarnSubjectSubtitle subject={{ ...VAULT, fundingAsset: 'USDCx' }} />);
+  expect(mockTranslate).toHaveBeenCalledWith('earnAssetOnNetwork', { asset: 'USDCx', network: 'Miden' });
+});
+
+it('gives the native funding label its matching USDCx logo and Miden mark', () => {
+  render(<EarnFlowHeader subject={{ ...VAULT, fundingAsset: 'USDCx' }} />);
+  expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDCx');
+  expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
+});
+
+it("titles a subject with the document's name of its vault, else its protocol", () => {
+  expect(earnSubjectTitle({ ...VAULT, name: 'Aave V3 USDC', protocol: 'Aave V3' })).toBe('Aave V3 USDC');
+  expect(earnSubjectTitle({ ...VAULT, protocol: 'Aave V3' })).toBe('Aave V3');
+});
+
+it('puts the market name first for a subject that has one, so two markets of one protocol read differently', () => {
+  mockTranslate.mockClear();
+  render(<EarnSubjectSubtitle subject={{ ...VAULT, protocol: 'Morpho', marketName: 'Morpho uniBTC-USDC 77' }} />);
+  expect(mockTranslate).toHaveBeenCalledWith('earnMarketAssetOnNetwork', {
+    market: 'Morpho uniBTC-USDC 77',
+    asset: 'USDC',
+    network: 'Ethereum'
+  });
+  expect(mockTranslate).not.toHaveBeenCalledWith('earnAssetOnNetwork', expect.anything());
+});
+
+describe('EarnVaultClosedNotice', () => {
+  it('says that the vault accepts no deposits now, as a warning', () => {
+    render(<EarnVaultClosedNotice canOpen={false} className="mx-4" />);
+
+    const notice = screen.getByTestId('earn-vault-closed-notice');
+    expect(notice).toHaveAttribute('data-tone', 'warning');
+    expect(notice).toHaveClass('mx-4');
+    expect(notice).toHaveTextContent('earnVaultClosedTitle');
+    expect(notice).toHaveTextContent('earnVaultClosedBody');
+  });
+
+  it('says that the wallet has paused deposits into a vault whose deposits the document stops', () => {
+    render(<EarnVaultClosedNotice canOpen={false} depositsEnabled={false} />);
+
+    const notice = screen.getByTestId('earn-vault-closed-notice');
+    expect(notice).toHaveTextContent('earnVaultClosedTitle');
+    expect(notice).toHaveTextContent('earnVaultDepositsPausedBody');
+    expect(notice).not.toHaveTextContent('earnVaultClosedBody');
+  });
+
+  it.each([
+    ['an open vault', true],
+    ['a vault not yet known', undefined]
+  ])('shows nothing for %s', (_name, canOpen) => {
+    render(<EarnVaultClosedNotice canOpen={canOpen} />);
+
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
   });
 });

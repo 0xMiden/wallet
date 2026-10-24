@@ -31,6 +31,11 @@ export interface CreateEarnP2IDENoteArgs {
   /** Fired the instant the `earn-deposit` row is created (before proving/submit). */
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  allocatorUrl?: string;
+  /** Protocol string a deposit hashes. Stored on the row with `chainId`. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain of the Earn market the deposit opens. */
+  chainId?: number;
 }
 
 /**
@@ -70,7 +75,7 @@ export async function createEarnP2IDENote(
   } = args;
   try {
     console.log('[epoch] creating earn note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
-    const requestBytes = await buildEpochCollateralRequestBytes({
+    const { requestBytes } = await buildEpochCollateralRequestBytes({
       senderAccountId,
       allocatorId,
       faucetId,
@@ -93,7 +98,10 @@ export async function createEarnP2IDENote(
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
       true,
       requestBytes,
-      spendingLimitAuthorization
+      spendingLimitAuthorization,
+      args.allocatorUrl,
+      args.protocol,
+      args.chainId
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.

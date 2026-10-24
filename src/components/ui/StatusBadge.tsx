@@ -13,6 +13,12 @@ export type Status =
   | 'pending'
   | 'inProgress'
   | 'confirmed'
+  // A USDCx deposit whose minted note the wallet received
+  | 'completed'
+  | 'burnPending'
+  | 'burnConsuming'
+  | 'burnConfirmed'
+  | 'burnDiscarded'
   | 'failed'
   | 'cancelled'
   | 'unconfirmed'
@@ -30,8 +36,13 @@ export type Status =
   | 'partiallyFilledReclaimed'
   // Its own word, not `reclaimed`: several locales translate the order's state differently
   | 'orderReclaimed'
+  | 'reclaiming'
+  // A swap whose payout claim keeps failing
+  | 'paybackStuck'
   | 'loading'
   | 'unavailable'
+  // A guardian switch whose commit was submitted but never confirmed
+  | 'guardianSwitchSubmitted'
   // The guardian's connection
   | 'online'
   | 'offline'
@@ -64,6 +75,11 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   pending: { labelKey: 'pending', tone: 'pending' },
   inProgress: { labelKey: 'inProgress', tone: 'pending' },
   confirmed: { labelKey: 'confirmed', tone: 'positive' },
+  completed: { labelKey: 'completed', tone: 'positive' },
+  burnPending: { labelKey: 'usdcxBurnPending', tone: 'pending' },
+  burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
+  burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
+  burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
@@ -78,8 +94,11 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   partiallyFilled: { labelKey: 'orderStatusPartiallyFilled', tone: 'pending' },
   partiallyFilledReclaimed: { labelKey: 'orderStatusPartiallyFilledReclaimed', tone: 'neutral' },
   orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
+  reclaiming: { labelKey: 'swapReclaiming', tone: 'pending' },
+  paybackStuck: { labelKey: 'swapPaybackStuck', tone: 'negative' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
+  guardianSwitchSubmitted: { labelKey: 'guardianSwitchSubmittedChip', tone: 'pending' },
   online: { labelKey: 'online', tone: 'positive' },
   offline: { labelKey: 'guardianOfflineLabel', tone: 'negative' },
   needsAttention: { labelKey: 'guardianNeedsAttentionLabel', tone: 'negative' },

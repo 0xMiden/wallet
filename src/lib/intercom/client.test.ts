@@ -1,4 +1,7 @@
+import { MidenMessageType } from 'lib/miden/types';
 import { isDesktop, isMobile } from 'lib/platform';
+import { WalletMessageType } from 'lib/shared/types';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import { createIntercomClient, IntercomClient } from './client';
 import { MessageType } from './types';
@@ -229,6 +232,102 @@ describe('IntercomClient', () => {
 
     const result = await requestPromise;
     expect(result).toEqual({ result: 'correct' });
+  });
+
+  it('annotates concurrent failed requests with their own authoritative type only', async () => {
+    await flushPromises();
+    const first = client.request({ type: WalletMessageType.UnlockRequest, password: 'secret' });
+    const second = client.request({ type: WalletMessageType.GetStateRequest, payload: 'secret' });
+    const firstError = first.catch(error => error);
+    const secondError = second.catch(error => error);
+    await flushPromises();
+    deliverToPort(0, { type: MessageType.Err, reqId: 1, data: { message: 'second failure' } });
+    deliverToPort(0, { type: MessageType.Err, reqId: 0, data: { message: 'first failure' } });
+    expect(snapshotCrashDiagnostics(await firstError)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.UnlockRequest,
+      portReconnected: false
+    });
+    expect(snapshotCrashDiagnostics(await secondError)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.GetStateRequest,
+      portReconnected: false
+    });
+    expect(mockPostMessage.mock.calls.map(call => Object.keys(call[0]).sort())).toEqual([
+      ['data', 'reqId', 'type'],
+      ['data', 'reqId', 'type']
+    ]);
+  });
+
+  it("names the background's confirmation state, and whether the port was rebuilt, on a Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    const notFound = (code: string) => ['Not Found', undefined, 'Error', undefined, { code }];
+
+    const beforeRebuild = client.request(payloadRequest).catch(error => error);
+    await flushPromises();
+    deliverToPort(0, { type: MessageType.Err, reqId: 0, data: notFound('confirmation_expired') });
+    const expired = await beforeRebuild;
+    expect(expired.message).toBe('Not Found');
+    expect(snapshotCrashDiagnostics(expired)).toEqual({
+      operation: 'intercom_request',
+      requestType: MidenMessageType.DAppGetPayloadRequest,
+      confirmationHandler: 'expired',
+      pageNavigation: 'unknown',
+      portReconnected: false
+    });
+
+    disconnectCallback!();
+    jest.advanceTimersByTime(1000);
+    await flushPromises();
+    expect(ports).toHaveLength(2);
+
+    const afterRebuild = client.request(payloadRequest).catch(error => error);
+    await flushPromises();
+    deliverToPort(1, { type: MessageType.Err, reqId: 1, data: notFound('confirmation_unknown') });
+    expect(snapshotCrashDiagnostics(await afterRebuild)).toEqual({
+      operation: 'intercom_request',
+      requestType: MidenMessageType.DAppGetPayloadRequest,
+      confirmationHandler: 'unknown',
+      pageNavigation: 'unknown',
+      portReconnected: true
+    });
+  });
+
+  it("adds the background's labels and how this page was loaded to an approval's Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    Object.defineProperty(performance, 'getEntriesByType', {
+      configurable: true,
+      value: (type: string) => (type === 'navigation' ? [{ type: 'reload' }] : [])
+    });
+    try {
+      const failed = client.request(payloadRequest).catch(error => error);
+      await flushPromises();
+      deliverToPort(0, {
+        type: MessageType.Err,
+        reqId: 0,
+        data: [
+          'Not Found',
+          undefined,
+          'Error',
+          undefined,
+          { code: 'confirmation_unknown:array_with_string:empty:under_10s' }
+        ]
+      });
+      expect(snapshotCrashDiagnostics(await failed)).toEqual({
+        operation: 'intercom_request',
+        requestType: MidenMessageType.DAppGetPayloadRequest,
+        confirmationHandler: 'unknown',
+        confirmationRequestShape: 'array_with_string',
+        confirmationRegistry: 'empty',
+        backgroundAge: 'under_10s',
+        pageNavigation: 'reload',
+        portReconnected: false
+      });
+    } finally {
+      Reflect.deleteProperty(performance, 'getEntriesByType');
+    }
   });
 
   it('increments reqId for each request', async () => {
@@ -477,6 +576,30 @@ describe('MobileIntercomClientWrapper', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('keeps the native request failure identity and safe request type', async () => {
+    const failure = new Error('native request failed');
+    mockMobileAdapter.request.mockRejectedValueOnce(failure);
+    const client = createIntercomClient();
+    await expect(client.request({ type: WalletMessageType.UnlockRequest, password: 'secret' })).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.UnlockRequest
+    });
+  });
+
+  it('ignores a hostile diagnostic type getter while preserving the native failure', async () => {
+    const failure = new Error('native request failed');
+    mockMobileAdapter.request.mockRejectedValueOnce(failure);
+    const payload = {
+      get type() {
+        throw new Error('hostile type accessor');
+      }
+    };
+    const client = createIntercomClient();
+    await expect(client.request(payload)).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'intercom_request' });
+  });
+
   it('subscribe wires the callback through after the adapter resolves', async () => {
     const innerUnsub = jest.fn();
     mockMobileAdapter.subscribe.mockReturnValue(innerUnsub);
@@ -522,6 +645,30 @@ describe('DesktopIntercomClientWrapper', () => {
     const result = await client.request({ x: 1 });
     expect(mockDesktopAdapter.request).toHaveBeenCalledWith({ x: 1 }, undefined);
     expect(result).toEqual({ from: 'desktop' });
+  });
+
+  it('keeps the native request failure identity and safe request type', async () => {
+    const failure = new Error('native request failed');
+    mockDesktopAdapter.request.mockRejectedValueOnce(failure);
+    const client = createIntercomClient();
+    await expect(client.request({ type: WalletMessageType.UnlockRequest, password: 'secret' })).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.UnlockRequest
+    });
+  });
+
+  it('ignores a hostile diagnostic type getter while preserving the native failure', async () => {
+    const failure = new Error('native request failed');
+    mockDesktopAdapter.request.mockRejectedValueOnce(failure);
+    const payload = {
+      get type() {
+        throw new Error('hostile type accessor');
+      }
+    };
+    const client = createIntercomClient();
+    await expect(client.request(payload)).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'intercom_request' });
   });
 
   it('subscribe wires the callback through after the adapter resolves', async () => {

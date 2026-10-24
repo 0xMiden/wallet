@@ -1,3 +1,5 @@
+import { syncStatusBar } from 'lib/mobile/status-bar';
+
 import { ResolvedTheme, ThemeSetting } from './constants';
 import { getThemeSetting, setThemeSetting } from './helpers';
 
@@ -24,6 +26,7 @@ export function applyTheme(setting: ThemeSetting) {
   } else {
     doc.classList.remove('dark');
   }
+  syncStatusBar(resolved === 'dark');
   // Paint BOTH <html> and <body>. The HTML shells (fullpage.html, mobile.html,
   // desktop.html, popup.html) hard-code a light inline `background-color` on
   // <html> for pre-React paint — without overriding it here, switching to dark

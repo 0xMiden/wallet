@@ -19,8 +19,7 @@ jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
   IconName: {
     Checkmark: 'Checkmark',
-    SettingsNew: 'SettingsNew',
-    Add: 'Add'
+    SettingsNew: 'SettingsNew'
   }
 }));
 
@@ -108,35 +107,30 @@ describe('AccountsDrawer', () => {
     expect(screen.getByTestId('drawer').getAttribute('data-open')).toBe('false');
   });
 
-  it('renders the title, card-color label, and both action buttons', () => {
+  it('renders the title, card-color label, and the Settings action only', () => {
     renderDrawer();
 
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
     expect(screen.getByText('settings')).toBeTruthy();
-    expect(screen.getByText('importAccount')).toBeTruthy();
+    // The wallet holds one account, so the private-key import row is gone.
+    expect(screen.queryByText('importAccount')).toBeNull();
   });
 
-  it('draws the Settings and Import Account actions as one grouped fill list with chevrons', () => {
+  it('draws the Settings action as a grouped fill list row with a chevron', () => {
     renderDrawer();
 
-    const rows = [
-      screen.getByText('settings').closest('button')!,
-      screen.getByText('importAccount').closest('button')!
-    ];
-    const group = rows[0]!.parentElement!;
+    const row = screen.getByText('settings').closest('button')!;
+    const group = row.parentElement!;
     expect(group.className).toContain('bg-fill');
     expect(group.className).toContain('rounded-2xl');
-    expect(rows[1]!.parentElement).toBe(group);
 
-    for (const row of rows) {
-      // A row that navigates carries the chevron, and the hairline is inset past its icon.
-      expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
-      expect(row.className).toContain('before:bg-hairline');
-      expect(row.className).toContain('active:bg-fill-pressed');
-      expect(row.className).not.toContain('#ECEAE7');
-      expect(row.className).not.toContain('dark:text-pure-white');
-    }
+    // A row that navigates carries the chevron, and the hairline is inset past its icon.
+    expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    expect(row.className).toContain('before:bg-hairline');
+    expect(row.className).toContain('active:bg-fill-pressed');
+    expect(row.className).not.toContain('#ECEAE7');
+    expect(row.className).not.toContain('dark:text-pure-white');
   });
 
   it('renders one swatch per card color with its background class', () => {
@@ -194,19 +188,5 @@ describe('AccountsDrawer', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(navigate).toHaveBeenCalledWith('/settings');
-  });
-
-  it('closes the drawer, fires haptics, and opens private-key import', () => {
-    const onOpenChange = jest.fn();
-    renderDrawer({ onOpenChange });
-
-    const addButton = screen.getByText('importAccount').closest('button')!;
-    expect(addButton).toBeEnabled();
-
-    fireEvent.click(addButton);
-
-    expect(hapticLight).toHaveBeenCalledTimes(1);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(navigate).toHaveBeenCalledWith('/import-account');
   });
 });

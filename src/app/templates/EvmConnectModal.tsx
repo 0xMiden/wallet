@@ -1,12 +1,13 @@
 import React, { useCallback } from 'react';
 
-import { useAppKit } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
@@ -17,8 +18,9 @@ interface EvmConnectModalProps {
 
 export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
-  const { open: connect } = useAppKit();
   const { status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
+  const testNetwork = getTestNetworkNameKey() !== null;
+  useUserVisibleError(open && nativeReown.error ? 'raw_bridge_connect_failed' : null, 'inline');
 
   const handleConnect = useCallback(async () => {
     hapticMedium();
@@ -27,11 +29,13 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
         await nativeReown.present();
         return;
       }
-      await connect({ view: 'Connect', namespace: 'eip155' });
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
+      await appkit.openConnectModal();
     } catch (err) {
       console.error('[EvmConnectModal] connect failed', err);
     }
-  }, [connect, nativeReown, useNativeReownWallet]);
+  }, [nativeReown, useNativeReownWallet]);
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-connect">
@@ -46,17 +50,19 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
             <DrawerDescription>{t('connectEvmWalletDescription')}</DrawerDescription>
 
             <div className="flex flex-col gap-4 px-4">
-              {/* Shown before the WalletConnect handshake (#875): the bridge only
-                  works on Ethereum Sepolia, so a wallet that holds real funds has
-                  nothing to gain here and everything to lose. */}
-              <Notice
-                tone="warning"
-                icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-                title={t('evmConnectTestWalletTitle')}
-                data-testid="evm-connect-test-wallet-warning"
-              >
-                {t('evmConnectTestWalletBody')}
-              </Notice>
+              {/* Shown before the WalletConnect handshake (#875) on a test network: the bridge
+                  then only moves test tokens, so a wallet that holds real funds has nothing to
+                  gain here and everything to lose. On mainnet the funds are real and it is not shown. */}
+              {testNetwork && (
+                <Notice
+                  tone="warning"
+                  icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+                  title={t('evmConnectTestWalletTitle')}
+                  data-testid="evm-connect-test-wallet-warning"
+                >
+                  {t('evmConnectTestWalletBody')}
+                </Notice>
+              )}
 
               {status === 'connecting' && (
                 <div className="flex items-center justify-center py-12 text-body-sm text-muted">{t('preparing')}</div>

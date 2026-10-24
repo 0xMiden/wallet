@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
-import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { AssetMetadata } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
 
 export interface TokenBalanceData {
@@ -15,6 +17,7 @@ export interface TokenBalanceData {
   tokenSlug: string;
   metadata: AssetMetadata;
   balance: number;
+  balanceBaseUnits?: string;
   fiatPrice: number;
   change24h: number;
 }
@@ -29,16 +32,20 @@ const DEDUPING_INTERVAL = 10_000;
  * loading state drive a skeleton. This avoids flashing a row with the wrong
  * tokenId while discovery is in flight on first install.
  */
-function buildDefaultZeroBalance(tokenPrices: TokenPrices): TokenBalanceData[] {
-  const midenFaucetId = getNativeAssetIdSync();
+function buildDefaultZeroBalance(
+  tokenPrices: TokenPrices,
+  midenFaucetId: string | null,
+  nativeMetadata: AssetMetadata
+): TokenBalanceData[] {
   if (!midenFaucetId) return [];
   return [
     {
       tokenId: midenFaucetId,
-      tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
-      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
-      balance: 0
+      tokenSlug: nativeMetadata.symbol,
+      metadata: nativeMetadata,
+      ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
+      balance: 0,
+      balanceBaseUnits: '0'
     }
   ];
 }
@@ -60,13 +67,18 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   // Derive values with stable defaults
   // Show 0 MIDEN immediately before any async lookup completes — only once
   // the native asset ID has been learned, otherwise show `[]` (skeleton).
-  const balances = balancesMap[address] ?? buildDefaultZeroBalance(tokenPrices);
+  const midenFaucetId = getNativeAssetIdSync();
+  const { symbol, name, decimals, scaleIsUnknown } = getNativeDisplayMetadataSync();
+  // The same array while its inputs hold: Send's amount check sets state in an effect on the rows,
+  // so a new array per render loops it until a read lands.
+  const defaultZeroBalance = useMemo(
+    () => buildDefaultZeroBalance(tokenPrices, midenFaucetId, { symbol, name, decimals, scaleIsUnknown }),
+    [tokenPrices, midenFaucetId, symbol, name, decimals, scaleIsUnknown]
+  );
+  const balances = balancesMap[address] ?? defaultZeroBalance;
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;
-
-  // Track if component is mounted
-  const mountedRef = useRef(true);
 
   // Use refs for values that shouldn't trigger callback recreation
   const tokenMetadatasRef = useRef(tokenMetadatas);
@@ -113,7 +125,9 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
 
   // Initial fetch and polling
   useEffect(() => {
-    mountedRef.current = true;
+    // Per run, not per component: an address change re-runs this effect, and a tick the old run
+    // deferred must not wake up into the new run's liveness and fetch the old address.
+    let live = true;
 
     // Initial fetch
     fetchBalancesWithDeduping();
@@ -123,13 +137,16 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // single-threaded-WASM read - otherwise the read is livelocked on mobile.
     // No-op in production (tree-shaken).
     const intervalId = setInterval(() => {
-      if (mountedRef.current && !isTestSyncPaused()) {
-        fetchBalancesWithDeduping();
+      if (live && !isTestSyncPaused()) {
+        // The poll's store write re-renders Home; wait out a moving pager (capped).
+        void whenInteractionIdle().then(() => {
+          if (live && !isTestSyncPaused()) void fetchBalancesWithDeduping();
+        });
       }
     }, REFRESH_INTERVAL);
 
     return () => {
-      mountedRef.current = false;
+      live = false;
       clearInterval(intervalId);
     };
   }, [fetchBalancesWithDeduping]);

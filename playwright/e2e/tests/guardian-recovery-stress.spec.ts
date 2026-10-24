@@ -3,7 +3,7 @@ import { expect, test } from '../fixtures/two-wallets';
 import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // The wallet's guardian operator for the active network: the local container on
-// localhost, the real operator (e.g. guardian.openzeppelin.com) on
+// localhost, the real operator (e.g. guardian-testnet.openzeppelin.com) on
 // devnet/testnet. Fault injection keys on this origin (see harness/guardian-
 // fault.ts), so the spec exercises whichever guardian the wallet actually talks
 // to — not just the local container.

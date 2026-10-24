@@ -102,7 +102,8 @@ describe('lib/store/types', () => {
       const slice: BalancesSlice = {
         balances: { addr: [] },
         balancesLoading: { addr: true },
-        balancesLastFetched: { addr: 1234 }
+        balancesLastFetched: { addr: 1234 },
+        balancesDisplayFaucetId: { addr: 'faucet' }
       };
       expect(slice.balances.addr).toEqual([]);
       expect(slice.balancesLoading.addr).toBe(true);
@@ -110,8 +111,9 @@ describe('lib/store/types', () => {
     });
 
     it('AssetsSlice holds a metadata record', () => {
-      const slice: AssetsSlice = { assetsMetadata: {} };
+      const slice: AssetsSlice = { assetsMetadata: {}, tokenMetadataOverrides: {} };
       expect(slice.assetsMetadata).toEqual({});
+      expect(slice.tokenMetadataOverrides).toEqual({});
     });
 
     it('UISlice supports the null (no selection / no confirmation) branch', () => {

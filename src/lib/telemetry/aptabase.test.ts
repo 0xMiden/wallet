@@ -30,7 +30,8 @@ const started: TelemetryWirePayload = {
   flowId: 'flow-1',
   runId: 'r1',
   appVersion: '1.15.21',
-  platform: 'extension'
+  platform: 'extension',
+  network: 'testnet'
 };
 
 const ended: TelemetryWirePayload = {
@@ -42,7 +43,8 @@ const ended: TelemetryWirePayload = {
   errorKind: 'proving',
   durationMs: 1234,
   appVersion: '1.15.21',
-  platform: 'extension'
+  platform: 'extension',
+  network: 'testnet'
 };
 
 /**
@@ -92,7 +94,7 @@ const ERROR_KINDS: readonly TelemetryErrorKind[] = Object.values(EVERY_ERROR_KIN
 
 /** Every payload the wire type can hold, so the assertions below are exhaustive. */
 const EVERY_PAYLOAD: readonly TelemetryWirePayload[] = FLOWS.flatMap(flow => [
-  { phase: 'started', flow, flowId: 'f', runId: 'r1', appVersion: '1.15.21', platform: 'ios' },
+  { phase: 'started', flow, flowId: 'f', runId: 'r1', appVersion: '1.15.21', platform: 'ios', network: 'mainnet' },
   ...RESULTS.map(
     (result): TelemetryWirePayload => ({
       phase: 'ended',
@@ -102,7 +104,8 @@ const EVERY_PAYLOAD: readonly TelemetryWirePayload[] = FLOWS.flatMap(flow => [
       result,
       durationMs: 7,
       appVersion: '1.15.21',
-      platform: 'android'
+      platform: 'android',
+      network: 'testnet'
     })
   ),
   ...ERROR_KINDS.map(
@@ -115,7 +118,8 @@ const EVERY_PAYLOAD: readonly TelemetryWirePayload[] = FLOWS.flatMap(flow => [
       errorKind,
       durationMs: 7,
       appVersion: '1.15.21',
-      platform: 'extension'
+      platform: 'extension',
+      network: 'devnet'
     })
   )
 ]);
@@ -257,17 +261,18 @@ describe('systemProps carries the minimum and no fingerprint', () => {
 });
 
 describe('props is built field by field from the allowlist', () => {
-  it('sends nothing but the pairing key for a started event', () => {
+  it('sends nothing but the pairing key and the network for a started event', () => {
     // A `started` has no outcome, no duration and no step yet. The flow id is
     // there because without it the matching `ended` has nothing to join to.
-    expect(buildEnvelope(started, NOW).props).toEqual({ flowId: 'flow-1' });
+    expect(buildEnvelope(started, NOW).props).toEqual({ flowId: 'flow-1', network: 'testnet' });
   });
 
   it('sends the result and the duration for an ended event', () => {
     expect(buildEnvelope({ ...ended, result: 'completed', errorKind: undefined }, NOW).props).toEqual({
       flowId: 'flow-1',
       result: 'completed',
-      durationMs: 1234
+      durationMs: 1234,
+      network: 'testnet'
     });
   });
 
@@ -276,9 +281,17 @@ describe('props is built field by field from the allowlist', () => {
       flowId: 'flow-1',
       result: 'errored',
       errorKind: 'proving',
-      durationMs: 1234
+      durationMs: 1234,
+      network: 'testnet'
     });
     expect('errorKind' in buildEnvelope({ ...ended, errorKind: undefined }, NOW).props).toBe(false);
+  });
+
+  // A custom prop, because Aptabase reads only its own systemProps fields, and that allowlist stays as it is.
+  it('sends the network in props and never in systemProps', () => {
+    const envelope = buildEnvelope({ ...started, network: 'mainnet' }, NOW);
+    expect(envelope.props.network).toBe('mainnet');
+    expect('network' in envelope.systemProps).toBe(false);
   });
 
   it('sends the step only when the flow recorded one', () => {
@@ -310,7 +323,13 @@ describe('props is built field by field from the allowlist', () => {
     const smuggled = Object.assign({ ...ended }, { locale: 'en-GB', deviceModel: 'Pixel 8', account: 'mtst1aqs' });
     const envelope = buildEnvelope(smuggled, NOW);
 
-    expect(envelope.props).toEqual({ flowId: 'flow-1', result: 'errored', errorKind: 'proving', durationMs: 1234 });
+    expect(envelope.props).toEqual({
+      flowId: 'flow-1',
+      result: 'errored',
+      errorKind: 'proving',
+      durationMs: 1234,
+      network: 'testnet'
+    });
     expect(JSON.stringify(envelope)).not.toContain('en-GB');
     expect(JSON.stringify(envelope)).not.toContain('Pixel 8');
     expect(JSON.stringify(envelope)).not.toContain('mtst1aqs');

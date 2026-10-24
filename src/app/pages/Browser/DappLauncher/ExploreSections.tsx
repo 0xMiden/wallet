@@ -1,5 +1,5 @@
 /**
- * Renders Explore's catalog sections from config: each section's `kind` picks its layout, and a
+ * Renders Explore's catalog sections: each section's `kind` picks its layout, and a
  * chip that leaves nothing to show gets a "Coming soon to Miden" state instead, and a search
  * with no match "No results".
  *
@@ -11,7 +11,6 @@
 import React, { type FC } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { useTranslation } from 'react-i18next';
 
 import { type IconName } from 'app/icons/v2';
 import { EmptyState } from 'components/ui/EmptyState';
@@ -111,7 +110,6 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
   firstRevealIndex,
   staggered
 }) => {
-  const { t } = useTranslation();
   const motionTokens = useExploreMotion();
 
   const shown = sections.filter(({ section }) => section.kind !== 'recents' || recents.length > 0);
@@ -146,7 +144,7 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
               <motion.section
                 key={section.id}
                 {...motionProps}
-                aria-label={t(section.titleKey)}
+                aria-label={section.title}
                 data-testid={`explore-section-${section.id}`}
                 data-kind={section.kind}
                 // The reveal order, rendered so it can be read: `style.opacity` is identical for
@@ -157,7 +155,7 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
               >
                 <div className="px-4">
                   <SectionHeader size="xl" className="px-0 pb-3">
-                    {t(section.titleKey)}
+                    {section.title}
                   </SectionHeader>
                 </div>
                 <SectionBody resolved={resolved} recents={recents} onOpen={onOpen} />

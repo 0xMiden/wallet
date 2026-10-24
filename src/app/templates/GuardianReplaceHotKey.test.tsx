@@ -3,8 +3,11 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 
 import { isExtension } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import GuardianReplaceHotKey from './GuardianReplaceHotKey';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mocks.
@@ -152,7 +155,10 @@ describe('GuardianReplaceHotKey — rendering', () => {
     const section = screen.getByTestId('replace-hot-key-section');
     expect(section.tagName).toBe('SECTION');
     // The section label is the shared SectionHeader (an h2), not hand-styled text.
-    expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass('text-muted', 'text-label');
+    expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass(
+      'text-muted',
+      'text-row-title'
+    );
     expect(screen.getByText('replaceHotKeyDescription').parentElement).toHaveClass('text-body', 'text-muted');
     // One maintenance action on a page of links: border-only, 36px, not the page's primary CTA.
     expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'ghost');
@@ -308,6 +314,10 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await confirmRotate();
 
     expect(screen.getByText('initiate exploded')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_replace_hot_key_failed', 'inline');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 

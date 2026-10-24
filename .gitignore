@@ -90,6 +90,9 @@ MidenWallet.*/
 # superpowers SDD scratch (progress ledger, etc.)
 .superpowers/
 
+# Headless home-swipe bench: Chrome profile, vite log, result traces.
+/.bench
+
 # Track the shared frontend skill for Claude while keeping all other
 # machine-local Claude runtime state out of the repository.
 .claude/*
@@ -99,3 +102,7 @@ MidenWallet.*/
 
 # Built output of the in-house key-derivation package (rebuilt by postinstall)
 /packages/hd-key/dist
+
+# Built output of the Bread Connect packages (the protocol one is rebuilt by postinstall)
+/packages/bread-connect/dist
+/packages/bread-connect-capacitor/dist

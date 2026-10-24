@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { useMidenContext, useAccount } from 'lib/miden/front';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useRetryableSWR } from 'lib/swr';
 import { useConfirm } from 'lib/ui/dialog';
 
@@ -66,6 +67,15 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Apps: 'apps' }
 }));
 
+// The build's network unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
+
 // `lib/miden/front` is a barrel over the SDK; mock only the two members used.
 jest.mock('lib/miden/front', () => ({
   useMidenContext: jest.fn(),
@@ -123,6 +133,7 @@ const setData = (data: Record<string, Session[]>) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockWalletNetwork = MIDEN_NETWORK_NAME.TESTNET;
   removeDAppSession.mockResolvedValue(undefined);
   confirm.mockResolvedValue(true);
   getAllDAppSessions.mockResolvedValue(DATA);
@@ -160,9 +171,8 @@ describe('DAppSettings', () => {
   it('renders network, account and both permission labels', () => {
     render(<DAppSettings />);
 
-    // Networks (capitalized via CSS, text unchanged).
-    expect(screen.getByText('testnet')).toBeInTheDocument();
-    expect(screen.getByText('localnet')).toBeInTheDocument();
+    // The wallet's network on every card, whatever each dApp claimed when it connected.
+    expect(screen.getAllByTestId('dapp-session-network').map(row => row.textContent)).toEqual(['testnet', 'testnet']);
 
     // A literal, not `truncateAddress(ACCOUNT_ID, false, 8)`: recomputing the component's own
     // expression mirrors it, so it could not catch the arguments changing.
@@ -177,6 +187,17 @@ describe('DAppSettings', () => {
     expect(screen.getAllByText('permissionLabel')).toHaveLength(2);
   });
 
+  it("names the wallet's own network, not the testnet a dApp claimed, on a mainnet wallet", () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setData({
+      'https://app.example.com': [{ network: 'testnet', accountId: ACCOUNT_ID, privateDataPermission: UPON_REQUEST }]
+    });
+    render(<DAppSettings />);
+
+    expect(screen.getByTestId('dapp-session-network')).toHaveTextContent(/^mainnet$/);
+    expect(screen.queryByText('testnet')).not.toBeInTheDocument();
+  });
+
   it('renders each dApp through SubPageLayout as a labelled section over a detail card', () => {
     render(<DAppSettings />);
 
@@ -186,7 +207,10 @@ describe('DAppSettings', () => {
     expect(sections[0]!.parentElement).toBe(page.querySelector('[data-slot="body"]'));
     // The hostname is the section label; the rows sit in the shared DetailCard, labels without
     // the legacy trailing colon.
-    expect(within(sections[0]!).getByRole('heading', { name: 'app.example.com' })).toHaveClass('text-muted');
+    expect(within(sections[0]!).getByRole('heading', { name: 'app.example.com' })).toHaveClass(
+      'text-muted',
+      'text-row-title'
+    );
     expect(within(sections[0]!).getByText('originLabel').closest('.rounded-2xl')).toHaveClass('bg-fill');
     // Permissions are Pills; the explorer link is named for assistive tech.
     expect(within(sections[0]!).getByText('permissionLabel').closest('.rounded-full')).not.toBeNull();

@@ -36,6 +36,7 @@ const EarnPositions: FC = () => {
       ) : pending ? null : empty ? (
         <EmptyState
           surface="dashed"
+          size="compact"
           icon={IconName.Earn}
           title={t('earnNoActivePositionsTitle')}
           description={t('earnNoActivePositionsBody')}
@@ -73,7 +74,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
+          <ProviderLogo protocol={position.protocol} logoUrl={position.logoUrl} className="h-4 w-4" />
           <div className="truncate text-row-title text-ink">{earnSubjectTitle(position)}</div>
         </div>
         {/* The APY reads as a figure, like the tab page's card: the tinted ink, not the raw

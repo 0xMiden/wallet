@@ -1,5 +1,6 @@
 import type { FlowAccent } from 'components/flow/accent';
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import type { TransactionStepDef } from './constants';
 
@@ -20,8 +21,9 @@ export interface GeneratingTransactionProps {
   activeType?: ITransactionType;
   /**
    * Whether the sending account is a Guardian account. Selects the step set:
-   * Guardian sends show co-sign → prove → submit → guardian-sync; standard
-   * sends show prove → submit (the guardian-only steps are omitted).
+   * Guardian sends show co-sign → prove → submit → guardian-sync, and a private
+   * send its delivery after that; standard sends show prove → submit (the
+   * guardian-only steps are omitted).
    */
   isGuardian: boolean;
   /** The in-flight tx, used by the summary badge under the title. */
@@ -49,6 +51,8 @@ export interface GeneratingTransactionProps {
   isRetrying?: boolean;
   /** Error message from a failed retry attempt, shown under the buttons. */
   retryError?: string | null;
+  /** Closed identity for the displayed retry error; null marks a non-error display. */
+  retryErrorId?: UserErrorId | null;
 }
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
@@ -72,7 +76,8 @@ export interface StatusIndicatorProps {
 }
 
 export interface TransactionStepRowProps {
-  step: TransactionStep;
+  /** The row reads only the id and the label; a step list with no stage timings passes just those. */
+  step: Pick<TransactionStep, 'id' | 'labelKey' | 'defaultLabel'>;
   state: TransactionStepState;
   isLast: boolean;
   label?: string;

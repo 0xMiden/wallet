@@ -21,6 +21,7 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
@@ -51,6 +52,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authErrorId, setAuthErrorId] = useState<UserErrorId | null>(null);
   const { copy, copied } = useClipboardCopy(mnemonic ?? '');
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
@@ -66,6 +68,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
     reset,
     formState: { errors }
   } = useForm<FormData>();
+  const [passwordErrorId, setPasswordErrorId] = useState<UserErrorId | null>(null);
   const passwordField = register('password', { required: t('required') });
   const passwordValue = watch('password');
 
@@ -95,11 +98,13 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         if (password === undefined) {
           if (generation !== secretGeneration.current) return;
           setAuthError(message);
+          setAuthErrorId('raw_seed_verification_reveal_failed');
         } else {
           await new Promise(res => setTimeout(res, 300));
           // Defensive: the reset on entering auth already keeps a late error off screen;
           // this also keeps it out of form state once the attempt is abandoned.
           if (generation !== secretGeneration.current) return;
+          setPasswordErrorId('raw_seed_verification_reveal_failed');
           setError('password', { type: 'submit-error', message });
         }
       } finally {
@@ -195,6 +200,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
       setCredential(undefined);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : t('seedRemovalFailed'));
+      setAuthErrorId(error instanceof Error ? 'raw_seed_remove_failed' : 'seedRemovalFailed');
     } finally {
       setIsSubmitting(false);
     }
@@ -211,7 +217,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
       >
         <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>}>
-          <ErrorLine>{authError}</ErrorLine>
+          <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
         </SubPageSection>
       </SubPageLayout>
     );
@@ -239,7 +245,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         }
       >
         <SubPageSection description={t('removeSeedPhraseConfirmation')}>
-          <ErrorLine>{authError}</ErrorLine>
+          <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
         </SubPageSection>
       </SubPageLayout>
     );
@@ -273,7 +279,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
           <SeedPhrasePlaceholder />
           {probeFailed && <ProtectorProbeErrorNotice className="mt-3" onRetry={retry} retrying={retrying} />}
           {authError && (
-            <Notice tone="negative" role="alert" title={t('error')} className="mt-3">
+            <Notice errorId={authErrorId} tone="negative" role="alert" title={t('error')} className="mt-3">
               {authError}
             </Notice>
           )}
@@ -290,10 +296,15 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
     if (isMobile()) {
       return (
         <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-auth">
-          <SubPageSection title={t('enterYourPasscode')} description={t('verifySeedPhrasePasswordBody')} />
+          <SubPageSection
+            title={t('enterYourPasscode')}
+            titleSize="md"
+            description={t('verifySeedPhrasePasswordBody')}
+          />
           <PasscodeEntry
             onSubmit={code => revealPhrase(code)}
             onChange={() => clearErrors()}
+            errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
             error={errors.password?.message ?? null}
             isSubmitting={isSubmitting}
             className="mt-auto pb-2"
@@ -318,7 +329,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
           />
         }
       >
-        <SubPageSection title={t('enterPassword')} description={t('verifySeedPhrasePasswordBody')}>
+        <SubPageSection title={t('enterPassword')} titleSize="md" description={t('verifySeedPhrasePasswordBody')}>
           {/* One password field and no submit button: Enter submits the form on its own. */}
           <form onSubmit={handleSubmit(onPasswordSubmit)}>
             <TextField
@@ -327,6 +338,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
               id="verify-seed-phrase-password"
               type="password"
               placeholder="********"
+              errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
               error={errors.password?.message}
               errorTestId="verify-seed-password-error"
               onChange={e => {

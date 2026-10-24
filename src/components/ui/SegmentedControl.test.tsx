@@ -389,20 +389,27 @@ describe('SegmentedControl — layouts', () => {
     renderControl();
 
     const group = screen.getByRole('radiogroup');
-    expect(group).toHaveClass('overflow-x-auto', 'no-scrollbar');
+    expect(group).toHaveClass('flex', 'overflow-x-auto', 'no-scrollbar');
     expect(group).toHaveAttribute('data-layout-scroll', 'true');
     expect(getRadio('All')).toHaveClass('shrink-0');
     expect(getRadio('All')).not.toHaveClass('flex-1');
   });
 
-  it('fill: equal-width items across the full width, no scrolling', () => {
+  it('fill: a full-width grid of equal columns, no scrolling', () => {
     renderControl({ layout: 'fill' });
 
     const group = screen.getByRole('radiogroup');
-    expect(group).toHaveClass('w-full');
+    expect(group).toHaveClass('grid', 'w-full', 'grid-flow-col', 'auto-cols-fr');
+    expect(group).not.toHaveClass('flex');
     expect(group).not.toHaveClass('overflow-x-auto');
     expect(group).toHaveAttribute('data-layout-scroll', 'false');
-    expect(getRadio('All')).toHaveClass('flex-1', 'min-w-0');
+  });
+
+  it('fill: items take their grid column, not a flex share', () => {
+    renderControl({ layout: 'fill' });
+
+    expect(getRadio('All')).toHaveClass('min-w-0');
+    expect(getRadio('All')).not.toHaveClass('flex-1');
   });
 
   it('sizes: sm is 32px, md (default) is 40px', () => {
@@ -414,7 +421,27 @@ describe('SegmentedControl — layouts', () => {
     expect(getRadio('All')).toHaveClass('h-10', 'px-4');
   });
 
-  it('scrolls the selected item into view on a change, but never on mount', () => {
+  it('reveals a clipped initial selection by scrolling only its own row', () => {
+    const width = jest.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    const contentWidth = jest.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(600);
+    const bounds = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement
+    ) {
+      return this.getAttribute('role') === 'radio' ? new DOMRect(450, 0, 100, 40) : new DOMRect(0, 0, 300, 48);
+    });
+    try {
+      renderControl({ value: 'received' });
+      expect(screen.getByRole('radiogroup').scrollLeft).toBe(250);
+      expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+      expect(hapticSelection).not.toHaveBeenCalled();
+    } finally {
+      width.mockRestore();
+      contentWidth.mockRestore();
+      bounds.mockRestore();
+    }
+  });
+
+  it('scrolls the selected item into view on a change, but never scrolls ancestors on mount', () => {
     const { rerender } = renderControl({ value: 'all' });
     // Mounting a page is not a selection change, and this call would scroll the page, not the row.
     expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();

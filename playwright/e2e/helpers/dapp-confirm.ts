@@ -18,6 +18,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test';
 
+import { CONFIRM_ACTIONS } from './confirm-actions';
 import { acknowledgeNetworkNotice } from './network-notice';
 import { passImportConfirmation } from './onboarding-confirmation';
 import { dismissTelemetryConsent } from './telemetry-consent';
@@ -29,15 +30,13 @@ import { dismissTelemetryConsent } from './telemetry-consent';
  */
 export const FIXTURE_DAPP_ORIGIN = 'https://miden-dapp-fixture.invalid';
 
-/**
- * Mirrors the `ConfirmPageSelectors` values that reach the DOM, which are not
- * importable from a Playwright spec. Only the actions currently driven are
- * listed — an unused selector here would be dead weight, not documentation.
- */
+export { CONFIRM_ACTIONS, type ConfirmKind } from './confirm-actions';
+
+/** The three actions the provider and spending-limit specs drive, named as before. */
 export const CONFIRM_TESTID = {
-  connectApprove: 'ConfirmPage/ConnectAction/ConnectButton',
-  signDecline: 'ConfirmPage/SignData/RejectButton',
-  transactionApprove: 'ConfirmPage/TransactionAction/AcceptButton'
+  connectApprove: CONFIRM_ACTIONS.connect.approve,
+  signDecline: CONFIRM_ACTIONS.sign.decline,
+  transactionApprove: CONFIRM_ACTIONS.transaction.approve
 } as const;
 
 /** One queued row from the wallet's own Dexie DB (`TridentMain` / `transactions`). */
@@ -93,9 +92,11 @@ export async function openFixtureDapp(context: BrowserContext, timeoutMs = 30_00
 
   // contentScript.js runs at document_start and appends addToWindow.js, which
   // defines window.midenWallet asynchronously.
-  await page.waitForFunction(() => typeof (window as unknown as { midenWallet?: unknown }).midenWallet === 'object', {
-    timeout: timeoutMs
-  });
+  await page.waitForFunction(
+    () => typeof (window as unknown as { midenWallet?: unknown }).midenWallet === 'object',
+    undefined,
+    { timeout: timeoutMs }
+  );
 
   return page;
 }
@@ -186,6 +187,8 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
   await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
+  // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
+  await page.getByTestId('reused-phrase-acknowledge').click({ timeout: ACTION_TIMEOUT });
   await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
   await passImportConfirmation(page, timeoutMs);

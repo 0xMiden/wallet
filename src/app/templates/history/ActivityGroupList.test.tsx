@@ -13,7 +13,11 @@ const FAUCET = 'miden-native-faucet';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) =>
-      key === 'activityGroupPartialCount' ? `${options?.count}+` : key
+      key === 'activityGroupPartialCount'
+        ? `${options?.count}+`
+        : key === 'swapProgressPercent'
+          ? `swapProgressPercent_${options?.percentage}`
+          : key
   })
 }));
 
@@ -347,6 +351,62 @@ describe('ActivityGroupList', () => {
 
     expect(screen.getByText('swap MIDEN → USDC · 2 hours')).toBeTruthy();
     expect(screen.getByText('cancelled · 2 hours')).toBeTruthy();
+  });
+
+  it('states partial-fill progress beside the swap pair, including zero and below 0.1%', () => {
+    for (const percentage of ['40', '0', '<0.1']) {
+      const view = renderList([
+        entry({
+          txType: 'swap',
+          token: 'MIDEN',
+          requestedToken: 'USDC',
+          swapFillProgress: percentage
+        })
+      ]);
+
+      expect(
+        screen.getByText(`swap MIDEN → USDC · amountFilled: swapProgressPercent_${percentage} · 2 hours`)
+      ).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  it('does not show swap progress without both tokens', () => {
+    for (const swap of [
+      entry({ txType: 'swap', message: 'Swapped', token: 'MIDEN', swapFillProgress: '40' }),
+      entry({ txType: 'swap', message: 'Swapped', requestedToken: 'USDC', swapFillProgress: '40' })
+    ]) {
+      const view = renderList([swap]);
+
+      expect(screen.queryByText(/swapProgressPercent/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('keeps cancelled and unconfirmed swap statuses ahead of fill progress', () => {
+    for (const [status, expected] of [
+      [{ isCancelled: true }, 'cancelled · 2 hours'],
+      [{ isUnconfirmed: true }, 'notConfirmed · 2 hours']
+    ] as const) {
+      const view = renderList([
+        entry({
+          txType: 'swap',
+          token: 'MIDEN',
+          requestedToken: 'USDC',
+          swapFillProgress: '40',
+          ...status
+        })
+      ]);
+
+      expect(screen.getByText(expected)).toBeTruthy();
+      expect(screen.queryByText(/swapProgressPercent/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('localizes a failed group whose latest message is the English sentinel', () => {
+    renderList([entry({ message: 'Transaction failed', secondaryAddress: 'mtst1alice' })]);
+    expect(screen.getByText('transactionFailedNotificationTitle · 2 hours')).toBeTruthy();
   });
 
   it('badges a group that still has something in flight, and counts it', () => {

@@ -1,5 +1,6 @@
 import {
   FungibleAsset,
+  NonFungibleAsset,
   Note,
   NoteFile,
   TransactionRequest,
@@ -8,8 +9,12 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
+import type { NoteDecodeOptions } from 'lib/miden/note-quarantine';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { nftKey, toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
+
+export type { NftAsset };
 
 export interface AssetAmount {
   faucetId: string;
@@ -23,6 +28,16 @@ export interface TxAssetView {
   outgoing: AssetAmount[];
   /** Assets entering the account (consumed notes / added vault assets). */
   incoming: AssetAmount[];
+  /** NFTs leaving the account. Always empty on the summary path, which cannot list them: see `unlistedAssets`. */
+  outgoingNfts: NftAsset[];
+  /** NFTs entering the account (consumed notes). Always empty on the summary path. */
+  incomingNfts: NftAsset[];
+  /**
+   * Vault changes the view cannot list. The summary path reads a vault delta whose non-fungible side the SDK does
+   * not expose, so it counts them instead: `numAssets()` less the fungible entries it did list. Non-zero must be
+   * shown as a warning, never as "no assets move".
+   */
+  unlistedAssets: number;
   inputNotesConsumed: number;
   /** User-created notes only. The kernel's fee note is reported in `fee`, not counted here. */
   outputNotesCreated: number;
@@ -51,9 +66,21 @@ function toAmounts(assets: FungibleAsset[]): AssetAmount[] {
   return assets.map(a => ({ faucetId: getBech32AddressFromAccountId(a.faucetId()), amount: a.amount() }));
 }
 
-function noteAssets(note: { assets(): { fungibleAssets(): any[] } | undefined } | undefined): AssetAmount[] {
+type NoteWithAssets = {
+  assets(): { fungibleAssets(): any[]; nonFungibleAssets(): NonFungibleAsset[] } | undefined;
+};
+
+function noteAssets(note: NoteWithAssets | undefined): AssetAmount[] {
   const na = note?.assets();
   return na ? toAmounts(na.fungibleAssets()) : [];
+}
+
+function noteNftAssets(note: NoteWithAssets | undefined): NonFungibleAsset[] {
+  return note?.assets()?.nonFungibleAssets() ?? [];
+}
+
+function noteNfts(note: NoteWithAssets | undefined): NftAsset[] {
+  return noteNftAssets(note).map(toNft);
 }
 
 /**
@@ -61,19 +88,46 @@ function noteAssets(note: { assets(): { fungibleAssets(): any[] } | undefined } 
  * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
  * one format would throw for the other and blank the declared incoming assets.
  */
-export function importedNoteAssets(b64: string): AssetAmount[] {
+function importedNoteContents(
+  b64: string,
+  options: NoteDecodeOptions = {}
+): { amounts: AssetAmount[]; nfts: NftAsset[] } {
   const bytes = b64ToU8(b64);
+  const contentsOf = (note: NoteWithAssets | undefined) => ({ amounts: noteAssets(note), nfts: noteNfts(note) });
   try {
     const nf = NoteFile.deserialize(bytes);
-    return noteAssets(nf.note() ?? nf.noteDetails());
-  } catch {
+    return contentsOf(nf.note() ?? nf.noteDetails());
+  } catch (error) {
+    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
     // Not a NoteFile — try a bare Note below.
   }
   try {
-    return noteAssets(Note.deserialize(bytes));
-  } catch {
-    return [];
+    return contentsOf(Note.deserialize(bytes));
+  } catch (error) {
+    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
+    return { amounts: [], nfts: [] };
   }
+}
+
+/** The fungible side of {@link importedNoteContents}, which is all a spending limit reads. */
+export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {}): AssetAmount[] {
+  return importedNoteContents(b64, options).amounts;
+}
+
+/**
+ * The NFTs a summary's NET vault delta moves. One consumed into a created note never touches the vault, so it
+ * appears on neither side, exactly as a fungible amount that nets to zero does.
+ */
+function netNfts(
+  created: NonFungibleAsset[],
+  consumed: NonFungibleAsset[]
+): { leaving: NftAsset[]; entering: NftAsset[] } {
+  const createdKeys = new Set(created.map(nftKey));
+  const consumedKeys = new Set(consumed.map(nftKey));
+  return {
+    leaving: created.filter(nft => !consumedKeys.has(nftKey(nft))).map(toNft),
+    entering: consumed.filter(nft => !createdKeys.has(nftKey(nft))).map(toNft)
+  };
 }
 
 /**
@@ -121,16 +175,24 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
   // executed transaction's. Counting it claimed a note the user did not create.
   const { feeNote, userNotes } = splitExecutedOutputNotes(ts);
   const fee = (feeNote ? noteAssets(feeNote) : [])[0];
-  const { incoming, outgoing } = reconcileFee(
-    toAmounts(vault.addedFungibleAssets()),
-    toAmounts(vault.removedFungibleAssets()),
-    fee
+  const added = vault.addedFungibleAssets();
+  const removed = vault.removedFungibleAssets();
+  const { incoming, outgoing } = reconcileFee(toAmounts(added), toAmounts(removed), fee);
+  const inputNotes = ts.inputNotes();
+  const { leaving, entering } = netNfts(
+    userNotes.flatMap(note => noteNftAssets(note)),
+    inputNotes.notes().flatMap(note => noteNftAssets(note.note()))
   );
   return {
     account: getBech32AddressFromAccountId(delta.id()),
     outgoing,
     incoming,
-    inputNotesConsumed: ts.inputNotes().numNotes(),
+    outgoingNfts: leaving,
+    incomingNfts: entering,
+    // The SDK exposes the vault delta's NFT side only as a count. One delta entry per faucet makes the fungible
+    // entries the two lists' lengths together, and the NFTs read from the notes are the entries it explains.
+    unlistedAssets: Math.max(0, vault.numAssets() - added.length - removed.length - leaving.length - entering.length),
+    inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee,
     storageChanged: !delta.storage().isEmpty()
@@ -217,6 +279,9 @@ export function executedBytesToView(executedB64: string): TxAssetView {
     account: getBech32AddressFromAccountId(executed.accountId()),
     outgoing: userNotes.flatMap(note => noteAssets(note)),
     incoming: inputNotes.notes().flatMap(note => noteAssets(note.note())),
+    outgoingNfts: userNotes.flatMap(note => noteNfts(note)),
+    incomingNfts: inputNotes.notes().flatMap(note => noteNfts(note.note())),
+    unlistedAssets: 0,
     inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee: (feeNote ? noteAssets(feeNote) : [])[0],
@@ -233,12 +298,32 @@ export function executedBytesToView(executedB64: string): TxAssetView {
  */
 export function declaredRequestToView(requestB64: string, importNotes: string[] = []): TxAssetView {
   const request = TransactionRequest.deserialize(b64ToU8(requestB64));
+  return declaredTransactionRequestToView(request, importNotes);
+}
+
+/**
+ * Build the unverified asset view after the caller has established that the
+ * serialized request is a valid `TransactionRequest`.
+ *
+ * Keeping deserialization separate lets request entry points reject malformed
+ * bytes while still treating a failure to summarize a valid request as an
+ * opaque transaction that the user may review.
+ */
+export function declaredTransactionRequestToView(
+  request: TransactionRequest,
+  importNotes: string[] = [],
+  options: NoteDecodeOptions = {}
+): TxAssetView {
   const outputNotes = request.expectedOutputOwnNotes();
+  const imported = importNotes.map(b64 => importedNoteContents(b64, options));
 
   return {
     account: undefined,
     outgoing: outputNotes.flatMap(n => noteAssets(n)),
-    incoming: importNotes.flatMap(b64 => importedNoteAssets(b64)),
+    incoming: imported.flatMap(note => note.amounts),
+    outgoingNfts: outputNotes.flatMap(n => noteNfts(n)),
+    incomingNfts: imported.flatMap(note => note.nfts),
+    unlistedAssets: 0,
     // Only counts the carried `importNotes`; it may undercount notes consumed
     // from the wallet's own store (referenced by inputNoteIds, not carried
     // here as full note bytes). This is the explicitly-unverified "declared"

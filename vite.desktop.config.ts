@@ -11,10 +11,17 @@ import wasm from 'vite-plugin-wasm';
 
 import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
 
+import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
+import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
+
+const walletBuildIdentity = readWalletBuildIdentity(__dirname);
+
 const pkg = require('./package.json');
 
 export default defineConfig({
   plugins: [
+    walletCrashArtifactRegistry(),
     tailwindcss(),
     react(),
     // SVG → React component transform
@@ -112,6 +119,15 @@ export default defineConfig({
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+      process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+    ),
+    // Bridge config E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
+    // Explore catalog E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
@@ -119,15 +135,9 @@ export default defineConfig({
     'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
-    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
-    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
-      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
-    ),
-    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
-      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
-    ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
     // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
     // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
     // every config that bundles either module — an un-defined `process.env.X` read
@@ -144,7 +154,12 @@ export default defineConfig({
     // toggle still offers it, which is the worst of the three outcomes.
     'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
     'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.WALLET_BUILD_TARGET': JSON.stringify('desktop'),
+    'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
+    'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
     'process.browser': 'true',
     global: 'globalThis'
   },

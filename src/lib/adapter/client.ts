@@ -191,6 +191,26 @@ export async function signBytes(sourceAccountId: string, sourcePublicKey: string
   return res.signature;
 }
 
+export async function requestLoginKey(sourceAccountId: string) {
+  const res = await request({
+    type: MidenDAppMessageType.LoginKeyRequest,
+    sourceAccountId
+  });
+  assertResponse(res.type === MidenDAppMessageType.LoginKeyResponse);
+  return res.loginKey;
+}
+
+export async function signLoginBytes(sourceAccountId: string, message: string, kind: 'word') {
+  const res = await request({
+    type: MidenDAppMessageType.LoginSignRequest,
+    sourceAccountId,
+    payload: message,
+    kind
+  });
+  assertResponse(res.type === MidenDAppMessageType.LoginSignResponse);
+  return res.signature;
+}
+
 export async function requestAssets(sourcePublicKey: string) {
   const res = await request({
     type: MidenDAppMessageType.AssetsRequest,

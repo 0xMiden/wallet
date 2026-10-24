@@ -9,6 +9,7 @@ import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { OnboardingType } from 'screens/onboarding/types';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
@@ -25,6 +26,7 @@ export interface ConfirmationScreenProps {
    * leaving the user on a wiped wallet with no explanation (#630).
    */
   recoveryError?: string | null;
+  recoveryErrorId?: UserErrorId | null;
   /**
    * Side panel handoff (Chrome): the wallet is being registered (created or
    * restored) in the background before the user opens it. While true, show a
@@ -45,6 +47,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   biometricAttempts = 0,
   biometricError,
   recoveryError,
+  recoveryErrorId = 'raw_onboarding_recovery_failed',
   creating = false,
   onboardingType,
   onSubmit,
@@ -118,7 +121,8 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
     >
       {/* Every line of the screen is Nunito: the body styles that read `--font-sans` resolve to the
           heading face here. */}
-      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center face-heading">
+      {/* Bottom-weighted padding lifts the centred block above true centre, so it doesn't read as sitting low. */}
+      <div className="my-auto flex flex-col items-center gap-4 pt-6 pb-24 text-center face-heading">
         <Hero
           nameAs="h1"
           nameSize="lg"
@@ -145,7 +149,14 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         )}
 
         {hasFailure && (
-          <Notice tone="negative" role="alert" className="text-left">
+          // E2E drivers read a failed attempt here. Retry keeps the submit id, which passImportConfirmation relies on.
+          <Notice
+            errorId={hasRecoveryError ? recoveryErrorId : 'biometricFailed'}
+            tone="negative"
+            role="alert"
+            className="text-left"
+            data-testid="onboarding-confirmation-failed"
+          >
             <span className="flex flex-col gap-1">
               {hasRecoveryError && (
                 <span className="select-text" data-testid="onboarding-recovery-error">

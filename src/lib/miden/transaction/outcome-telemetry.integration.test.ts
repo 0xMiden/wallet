@@ -17,6 +17,10 @@
  * implementations — the reporter is the only thing stubbed, because it is the
  * boundary under test.
  */
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from 'lib/miden/back/background-notification';
 import * as Repo from 'lib/miden/repo';
 import { SettledOperation } from 'lib/telemetry/report-operation';
 
@@ -60,7 +64,10 @@ jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn()
 }));
 jest.mock('lib/platform', () => ({ isMobile: () => false, isExtension: () => true, isDesktop: () => false }));
-jest.mock('lib/mobile/background-time', () => ({ hiddenSecondsSince: () => 0 }));
+jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
+  hiddenSecondsSince: () => 0
+}));
 
 /** Started 30 seconds ago, so the reported duration is a real elapsed time. */
 const STARTED_SECONDS_AGO = 30;
@@ -163,6 +170,8 @@ describe('what is not a failure', () => {
     await cancelTransaction(tx, reason);
 
     expect(reported).toEqual([]);
+    expect(jest.mocked(notifyBackgroundTransactionFailed).mock.calls).toEqual([]);
+    expect(jest.mocked(notifyBackgroundTransactionNotConfirmed).mock.calls).toEqual([]);
   });
 
   it('DOES report a consume the node said never landed, despite the reason being named an interruption', async () => {
@@ -291,7 +300,7 @@ describe('a transaction that succeeded', () => {
     await Repo.transactions.add(tx);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {});
-    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route', 12345);
+    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route');
 
     expect(reported).toEqual([
       { operation: 'tx_bridge', result: 'completed', durationMs: expect.any(Number) },
