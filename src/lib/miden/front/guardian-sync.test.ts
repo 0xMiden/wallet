@@ -64,6 +64,7 @@ const storeState: {
   persistNewHotKey: jest.Mock;
   swapHotKey: jest.Mock;
   setGuardianEndpoint: jest.Mock;
+  markHotKeyRotatedOut: jest.Mock;
   revertGuardianEndpointAfterDiscard: jest.Mock;
   checkGuardianDrift: jest.Mock;
   signTransaction: jest.Mock;
@@ -74,6 +75,7 @@ const storeState: {
   persistNewHotKey: jest.fn(),
   swapHotKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
+  markHotKeyRotatedOut: jest.fn(async () => undefined),
   revertGuardianEndpointAfterDiscard: jest.fn(async () => 'reverted'),
   checkGuardianDrift: jest.fn(),
   signTransaction: jest.fn()
@@ -1690,6 +1692,38 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith(
+      'acct-closed-budget',
+      'hot',
+      '0xsomeotherdeviceshotkey'
+    );
+    nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  });
+
+  // A verdict that could not be written is not a finding yet: the budget stays open so a later tick records it.
+  it('keeps the budget open while the rotated-out verdict cannot be written', async () => {
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.markHotKeyRotatedOut.mockRejectedValueOnce(new Error('intercom down'));
+    storeState.accounts = [
+      { publicKey: 'acct-verdict-retry', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+
+    expect(storeState.markHotKeyRotatedOut.mock.calls.length).toBeGreaterThanOrEqual(2);
     nowSpy.mockRestore();
     perfSpy.mockRestore();
   });
