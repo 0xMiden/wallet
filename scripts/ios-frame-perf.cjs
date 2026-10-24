@@ -97,8 +97,8 @@ const evaluate = (rd, body) => rd.executeAtom('execute_script', [body, []]);
 const RECORDER = `
 window.__PERF__ = window.__PERF__ || {};
 var P = window.__PERF__;
-if (P.version !== 8) {
-  P.version = 8;
+if (P.version !== 9) {
+  P.version = 9;
   P.frames = [];
   P.pings = [];
   P.rects = 0;
@@ -119,32 +119,28 @@ if (P.version !== 8) {
     mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
   }
 
-  P.findTrack = function () {
+  P.findPager = function () {
+    var scroller = document.querySelector('[data-home-pager]');
+    if (scroller) return { container: scroller, track: scroller.querySelector('[data-home-track]'), native: true };
     var container = document.querySelector('div.touch-pan-y');
-    return container ? container.firstElementChild : null;
+    return container ? { container: container, track: container.firstElementChild, native: false } : null;
   };
 
-  P.readX = function (el) {
-    if (!el) return null;
-    // Computed style first, deliberately. A compositor-driven release owns the
-    // transform without touching the inline style, so the inline value goes stale
-    // — reading it would report the track as motionless for the whole animation.
-    // This costs a forced style recalc per sample; acceptable for a probe, and
-    // the reason this harness reports its own overhead alongside the timings.
-    var cs = getComputedStyle(el).transform;
-    // An untransformed track (x === 0, e.g. the Overview page) reports 'none';
-    // that is a real position of 0, not an unreadable value.
-    if (cs === 'none') return 0;
-    if (cs) {
-      var parts = cs.match(/matrix.*\\((.+)\\)/);
-      if (parts) {
-        var nums = parts[1].split(',').map(parseFloat);
-        return nums.length === 6 ? nums[4] : nums[12];
-      }
-    }
-    var t = el.style.transform || '';
-    var m = t.match(/translateX\\(([-0-9.]+)px\\)/);
-    return m ? parseFloat(m[1]) : null;
+  P.findTrack = function () {
+    var pager = P.findPager();
+    return pager ? pager.track : null;
+  };
+
+  P.readX = function (pager) {
+    if (!pager || !pager.track) return null;
+    // Computed style, not the inline transform: a compositor-driven release owns
+    // the transform without touching the inline style. none is a real x of 0.
+    // The native pager also scrolls. A programmatic flip sets scrollLeft to the
+    // destination and paints the in-between frames on the track, so the sample
+    // is that translateX minus scrollLeft.
+    var transform = getComputedStyle(pager.track).transform;
+    var x = !transform || transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41;
+    return pager.native ? x - pager.container.scrollLeft : x;
   };
 
   /**
@@ -263,13 +259,13 @@ if (P.version !== 8) {
     P.generation = (P.generation || 0) + 1;
     var gen = P.generation;
 
-    var track = P.findTrack();
-    P.trackFound = !!track;
+    var pager = P.findPager();
+    P.trackFound = !!(pager && pager.track);
 
     var rafStep = function (t) {
       if (!P.recording || gen !== P.generation) return;
       P.frames.push(t);
-      P.xs.push(P.readX(track));
+      P.xs.push(P.readX(pager));
       requestAnimationFrame(rafStep);
     };
     requestAnimationFrame(rafStep);
@@ -609,17 +605,20 @@ async function cmdProbe() {
       rd,
       `
       var P = window.__PERF__;
-      var container = document.querySelector('div.touch-pan-y');
-      var track = P.findTrack();
+      var pager = P.findPager();
+      var container = pager ? pager.container : null;
+      var track = pager ? pager.track : null;
       return JSON.stringify({
+        native: pager ? pager.native : null,
+        scrollLeft: container ? container.scrollLeft : null,
         containerFound: !!container,
         containerClass: container ? container.className : null,
         trackFound: !!track,
         trackClass: track ? track.className : null,
-        inlineTransform: track ? (track.style.transform || '(empty)') : null,
+        inlineTransform: track && track.style ? (track.style.transform || '(empty)') : null,
         computedTransform: track ? getComputedStyle(track).transform : null,
-        readX: track ? P.readX(track) : null,
-        route: location.hash
+        readX: P.readX(pager),
+        route: typeof location === 'undefined' ? null : location.hash
       });
       `
     );
