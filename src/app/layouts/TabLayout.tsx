@@ -143,7 +143,8 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(({ 
   useImperativeHandle(ref, () => ({
     handleScroll: event => {
       const { target } = event;
-      if (!(target instanceof HTMLElement)) return;
+      // The Home pager scrolls sideways on every frame of a swipe; it is never a vertical scroll.
+      if (!(target instanceof HTMLElement) || target.hasAttribute('data-home-pager')) return;
       const top = target.scrollTop;
       const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
       lastScroll.current = { target, top };
