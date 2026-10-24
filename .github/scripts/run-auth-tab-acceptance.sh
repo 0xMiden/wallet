@@ -105,27 +105,34 @@ adb shell settings put global package_verifier_enable 0
 adb shell getprop ro.build.fingerprint > "$results_dir/emulator-fingerprint.txt"
 install_apk "$RUNNER_TEMP/firefox.apk"
 install_apk "$RUNNER_TEMP/ChromePublic.apk"
-# Chromium's first-run screens cover the Auth Tab until they are completed once, and this snapshot ignores
-# the command-line switches that would skip them, so walk them through the UI now.
-complete_chromium_first_run() {
-  adb shell am start -W -a android.intent.action.VIEW -d about:blank -n "$AUTH_TAB_PROVIDER/com.google.android.apps.chrome.Main" >/dev/null
-  for _ in $(seq 1 15); do
+# Each browser's first-run screens cover its Auth Tab or Custom Tab until they are completed once, and these
+# builds ignore the switches that would skip them, so walk them through the UI now.
+complete_first_run() {
+  local package=$1 activity idle=0
+  activity=$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER "$package" | tr -d '\r' | tail -1)
+  adb shell am start -W -n "$activity" >/dev/null
+  for _ in $(seq 1 20); do
     sleep 2
-    adb shell dumpsys window displays | grep -q 'mCurrentFocus=.*firstrun' || { adb shell am force-stop "$AUTH_TAB_PROVIDER"; return 0; }
-    adb shell uiautomator dump /sdcard/fre.xml >/dev/null 2>&1 || continue
+    adb shell uiautomator dump /sdcard/first-run.xml >/dev/null 2>&1 || continue
     local bounds
-    bounds=$(adb exec-out cat /sdcard/fre.xml | tr '>' '\n' \
-      | grep -E 'text="(Stay signed out|No thanks|Got it|Continue|Accept & continue|Use without an account)"' \
+    bounds=$(adb exec-out cat /sdcard/first-run.xml | tr '>' '\n' \
+      | grep -E 'text="(Continue|Not now|Skip|Maybe later|Stay signed out|No thanks|Got it|Use without an account|Don.t allow)"' \
       | head -1 | grep -o 'bounds="\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]"' | grep -o '[0-9]*' | tr '\n' ' ' || true)
-    [[ -z "$bounds" ]] && continue
+    if [[ -z "$bounds" ]]; then
+      idle=$((idle + 1))
+      [[ $idle -ge 2 ]] && { adb shell am force-stop "$package"; return 0; }
+      continue
+    fi
+    idle=0
     read -r x1 y1 x2 y2 <<< "$bounds"
     adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
   done
-  echo 'Chromium first run did not complete' >&2
-  adb exec-out screencap -p > "$results_dir/chromium-first-run.png" || true
+  echo "$package first run did not complete" >&2
+  adb exec-out screencap -p > "$results_dir/$package-first-run.png" || true
   return 1
 }
-complete_chromium_first_run
+complete_first_run "$AUTH_TAB_PROVIDER"
+complete_first_run org.mozilla.firefox
 # Auth Tab needs Chromium 137 or later; an older provider would only exercise the Custom Tab fallback.
 adb shell dumpsys package "$AUTH_TAB_PROVIDER" > "$results_dir/provider-package.txt"
 provider_version=$(grep -m1 -o 'versionName=[0-9.]*' "$results_dir/provider-package.txt" | cut -d= -f2)
