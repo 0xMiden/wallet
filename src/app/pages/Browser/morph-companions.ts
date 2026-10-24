@@ -122,11 +122,6 @@ function readCapsule(capsule: HTMLElement): { opacity: number; lift: number } {
 }
 
 function verticalOffset(transform: string): number {
-  const matrix = /matrix(3d)?\(([^)]+)\)/.exec(transform);
-  if (matrix?.[2]) {
-    const parts = matrix[2].split(',').map(part => parseFloat(part));
-    return (matrix[1] ? parts[13] : parts[5]) ?? 0;
-  }
-  const translate = /translateY\((-?[\d.]+)px\)/.exec(transform);
-  return translate?.[1] ? parseFloat(translate[1]) : 0;
+  if (!transform || transform === 'none') return 0;
+  return new DOMMatrixReadOnly(transform).m42;
 }
