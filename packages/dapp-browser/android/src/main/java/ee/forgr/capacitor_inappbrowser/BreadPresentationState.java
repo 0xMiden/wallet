@@ -23,6 +23,8 @@ final class BreadPresentationState {
     private boolean closed;
     private boolean fullscreen;
     private String token;
+    private Motion motion = Motion.NONE;
+    private long proxyNavigation = -1;
 
     BreadPresentationState(long timeout) { this(timeout, true); }
     BreadPresentationState(long timeout, boolean initiallyVisible) {
@@ -42,12 +44,17 @@ final class BreadPresentationState {
             && !failed && acknowledgedPolicy == policyRevision);
     }
     boolean active() { return visible && foreground && !closed; }
-    Motion motion() { return Motion.NONE; }
-    boolean beginMotion(Motion motion) { return false; }
-    void endMotion() { }
-    void captureProxy() { }
-    void dropProxy() { }
-    boolean proxyUsable() { return false; }
+    Motion motion() { return motion; }
+    boolean beginMotion(Motion value) {
+        if (closed || value == Motion.NONE) return false;
+        motion = value;
+        return true;
+    }
+    void endMotion() { motion = Motion.NONE; }
+    // Layout changes move generation, not the document a snapshot shows, so the proxy keys on navigation.
+    void captureProxy() { if (!closed) proxyNavigation = navigationGeneration; }
+    void dropProxy() { proxyNavigation = -1; }
+    boolean proxyUsable() { return !closed && proxyNavigation == navigationGeneration; }
 
     Phase phase() {
         if (closed) return Phase.CLOSED;
@@ -95,6 +102,7 @@ final class BreadPresentationState {
             acknowledgedPolicy = revision;
         }
         if (sequence != null) acknowledgedVisibilitySequence = sequence;
+        if (!value) motion = Motion.NONE;
         visibility(value, now);
         return true;
     }
@@ -144,6 +152,7 @@ final class BreadPresentationState {
     boolean close() {
         if (closed) return false;
         closed = true;
+        motion = Motion.NONE;
         generation++;
         navigationGeneration++;
         return true;
