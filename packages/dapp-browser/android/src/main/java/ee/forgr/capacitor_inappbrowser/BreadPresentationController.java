@@ -194,7 +194,8 @@ final class BreadPresentationController {
         back.setOnClickListener(v -> {
             if (!state.effectiveVisibility() || owner.managedClosing()) return;
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-            owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence());
+            long revision = state.policyRevision(), sequence = state.acknowledgedVisibilitySequence();
+            owner.presentationMinimizeRequested(revision, sequence, nativeCollapse());
         });
         GradientDrawable capsule = new GradientDrawable();
         capsule.setColor(0xcc292929);
@@ -426,6 +427,7 @@ final class BreadPresentationController {
             posed = true;
             webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             captureProxy();
+            if (fullscreen()) applyWindow();
             emit("started", 0, false);
         }
         morph.animateTo(0, landing, velocity(landing, vx, vy), BreadMorphPhysics.COLLAPSE);
@@ -458,6 +460,7 @@ final class BreadPresentationController {
         crossfaded = false;
         proxyCovering = state.proxyUsable() && proxyBitmap != null;
         morph.place(landing, 0);
+        morphFrame(0);
         if (previous != state.effectiveVisibility()) cancelPaint();
         render();
         emit("started", 1, false);
@@ -513,7 +516,15 @@ final class BreadPresentationController {
             velocity, tracking, morphSequence);
     }
 
+    private String nativeCollapse() {
+        if (posed) return morphId;
+        BreadMorphCard host = WebViewRegistry.getShared().morphCard();
+        String id = "native-" + java.util.UUID.randomUUID();
+        return collapse(host == null ? null : owner.hostCardToWindow(host), 0, 0, id, null) ? id : null;
+    }
+
     private void morphFrame(float p) {
+        if (fullscreen()) back.setAlpha(Math.max(0, Math.min(1, p)));
         if (state.motion() == BreadPresentationState.Motion.COLLAPSING && !crossfaded && p <= CROSSFADE_PROGRESS
             && proxyBitmap != null && state.proxyUsable()) {
             crossfaded = true;
@@ -546,6 +557,7 @@ final class BreadPresentationController {
         crossfaded = false;
         capture = null;
         morph.reset();
+        back.setAlpha(1);
         if (!state.surfaceVisibility()) { insetsDeferred = false; return; }
         if (insetsDeferred) {
             insetsDeferred = false;
@@ -832,9 +844,16 @@ final class BreadPresentationController {
             params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             window.setAttributes(params);
             WindowCompat.setDecorFitsSystemWindows(window, false);
-            window.setBackgroundDrawableResource(android.R.color.black);
-            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            controller.hide(WindowInsetsCompat.Type.systemBars());
+            if (posed) {
+                // The host shows around the moving page, with its own bars, until the page rests again.
+                window.setBackgroundDrawableResource(android.R.color.transparent);
+                controller.setSystemBarsBehavior(browserBarsBehavior);
+                controller.show(browserVisibleBars);
+            } else {
+                window.setBackgroundDrawableResource(android.R.color.black);
+                controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(WindowInsetsCompat.Type.systemBars());
+            }
             owner.findViewById(R.id.status_bar_color_view).setVisibility(View.GONE);
             owner.findViewById(R.id.app_bar_layout).setVisibility(View.GONE);
             View content = owner.findViewById(R.id.content_browser_layout);

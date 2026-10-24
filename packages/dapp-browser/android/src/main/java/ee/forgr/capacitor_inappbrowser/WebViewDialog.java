@@ -149,9 +149,20 @@ public class WebViewDialog extends Dialog {
         if (managedClose != null) managedClose.foreground(foreground);
         if (!managedClosing() && presentation != null) presentation.foreground(foreground);
     }
-    void presentationMinimizeRequested(long revision, long sequence) {
+    void presentationMinimizeRequested(long revision, long sequence, String morphId) {
         if (permanentlyClosed || managedClosing()) return;
-        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, null);
+        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, morphId);
+    }
+
+    BreadMorphCard hostCardToWindow(BreadMorphCard host) {
+        WindowManager.LayoutParams params = getWindow().getAttributes();
+        return BreadMorphGeometry.hostToWindow(host.rect.left, host.rect.top, host.rect.width(), host.rect.height(),
+            host.cornerRadius, getContext().getResources().getDisplayMetrics().density, statusBarHeightPx(), params.x, params.y);
+    }
+
+    private int statusBarHeightPx() {
+        int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return resourceId > 0 ? getContext().getResources().getDimensionPixelSize(resourceId) : 0;
     }
     void presentationChanged(boolean fullscreen, boolean resolved, long revision) {
         _options.getCallbacks().presentationChanged(fullscreen, resolved, revision,
@@ -3224,13 +3235,7 @@ public class WebViewDialog extends Dialog {
         // have to add the status bar inset ourselves or the
         // Dialog ends up ~24dp too high, overlapping the bottom
         // of the React CapsuleBar.
-        int statusBarHeightPx = 0;
-        int resourceId = getContext()
-            .getResources()
-            .getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) {
-            statusBarHeightPx = getContext().getResources().getDimensionPixelSize(resourceId);
-        }
+        int statusBarHeightPx = statusBarHeightPx();
 
         // Miden patch: the Dialog frame is set to match the slot
         // rect passed by the wallet — same y/width/height, just

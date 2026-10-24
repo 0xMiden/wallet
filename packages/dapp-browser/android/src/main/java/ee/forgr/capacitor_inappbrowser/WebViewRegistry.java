@@ -68,6 +68,9 @@ public class WebViewRegistry {
         instances.clear();
     }
 
-    synchronized BreadMorphCard morphCard() { return null; }
-    synchronized void setMorphCard(BreadMorphCard card) { }
+    // The landing card in host-viewport dp as the host published it; each dialog converts it for its own window.
+    private BreadMorphCard morphCard;
+
+    synchronized BreadMorphCard morphCard() { return morphCard; }
+    synchronized void setMorphCard(BreadMorphCard card) { morphCard = card; }
 }
