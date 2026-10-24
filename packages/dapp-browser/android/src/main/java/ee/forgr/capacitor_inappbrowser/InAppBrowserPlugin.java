@@ -1419,6 +1419,16 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         );
     }
 
+    @PluginMethod
+    public void morph(PluginCall call) {
+        call.resolve(new JSObject().put("accepted", false));
+    }
+
+    @PluginMethod
+    public void setMorphTarget(PluginCall call) {
+        call.resolve();
+    }
+
     /**
      * Miden plugin method (PR-4 chunk 5): list every currently registered
      * instance id. Used by the wallet's PR-6 cold-bubble restore logic and

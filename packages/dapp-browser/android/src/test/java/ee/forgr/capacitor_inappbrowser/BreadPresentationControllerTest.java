@@ -2145,4 +2145,132 @@ public class BreadPresentationControllerTest {
         assertEquals(1, root.getScaleX(), 0);
         assertEquals(2, bars().getSystemBarsBehavior());
     }
+
+    private InAppBrowserPlugin morphPlugin() {
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        return plugin;
+    }
+
+    private PluginCall morphCall(String id, String token, Integer sequence, String to, JSObject card) {
+        PluginCall call = mock(PluginCall.class);
+        when(call.getString("id")).thenReturn(id);
+        when(call.getString("managedHostCloseToken")).thenReturn(token);
+        when(call.getInt("visibilitySequence")).thenReturn(sequence);
+        when(call.getInt("policyRevision")).thenReturn((int) controller.state.policyRevision());
+        when(call.getString("to")).thenReturn(to);
+        when(call.getString("morphId")).thenReturn("plugin-" + sequence);
+        when(call.getObject("card")).thenReturn(card);
+        return call;
+    }
+
+    private JSObject cardJson(BreadMorphCard host) {
+        return new JSObject().put("x", host.rect.left).put("y", host.rect.top).put("width", host.rect.width())
+            .put("height", host.rect.height()).put("cornerRadius", host.cornerRadius);
+    }
+
+    private boolean accepted(PluginCall call) {
+        org.mockito.ArgumentCaptor<JSObject> result = org.mockito.ArgumentCaptor.forClass(JSObject.class);
+        verify(call).resolve(result.capture());
+        return Boolean.TRUE.equals(result.getValue().getBool("accepted"));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void morphRejectsAStaleLifetimeOrSequence() throws Exception {
+        openMorph(false);
+        reveal();
+        int last = acknowledgementSequence;
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {});
+        InAppBrowserPlugin plugin = morphPlugin();
+        PluginCall otherLifetime = morphCall("managed", "other", last + 1, "collapsed", null);
+        plugin.morph(otherLifetime);
+        assertFalse(accepted(otherLifetime));
+        PluginCall unsequenced = morphCall("managed", "lifetime", null, "collapsed", null);
+        plugin.morph(unsequenced);
+        assertFalse(accepted(unsequenced));
+        PluginCall stale = morphCall("managed", "lifetime", last, "collapsed", null);
+        plugin.morph(stale);
+        assertFalse(accepted(stale));
+        PluginCall missing = morphCall("missing", "lifetime", last + 1, "collapsed", null);
+        plugin.morph(missing);
+        assertFalse(accepted(missing));
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
+        PluginCall current = morphCall("managed", "lifetime", last + 1, "collapsed", null);
+        plugin.morph(current);
+        assertTrue(accepted(current));
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, controller.state.motion());
+        List<BreadMorphEvent> events = morphEvents("plugin-" + (last + 1));
+        assertEquals("started", events.get(0).phase);
+        assertEquals(last + 1, events.get(0).sequence);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void morphNotifiesTheNavbarOnAVisibilityChange() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        WebViewRegistry.getShared().register("navbar", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
+            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
+        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
+        PluginCall call = morphCall("navbar", null, nextSequence(), "expanded", cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
+        plugin.morph(call);
+        assertTrue(accepted(call));
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+        verify(navbar).notifyDialogVisibilityChanged(dialog);
+        assertEquals(0.25f, root.getScaleX(), 1e-3f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void setMorphTargetIsReadByTheNativeCollapse() throws Exception {
+        openMorph(true);
+        reveal();
+        InAppBrowserPlugin plugin = morphPlugin();
+        PluginCall target = mock(PluginCall.class);
+        when(target.getObject("card")).thenReturn(cardJson(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f)));
+        plugin.setMorphTarget(target);
+        verify(target).resolve();
+        assertNotNull(WebViewRegistry.getShared().morphCard());
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        capsule.performClick();
+        BreadMorphCard landing = driver().card();
+        assertNotNull(landing);
+        assertEquals(root.getWidth() * 0.6f, landing.rect.left, 0.5f);
+        assertEquals(root.getHeight() * 0.6f, landing.rect.top, 0.5f);
+        assertEquals(root.getWidth() * 0.3f, landing.rect.width(), 0.5f);
+        assertEquals(root.getHeight() * 0.25f, landing.rect.height(), 0.5f);
+        PluginCall clear = mock(PluginCall.class);
+        when(clear.getObject("card")).thenReturn(null);
+        plugin.setMorphTarget(clear);
+        verify(clear).resolve();
+        assertNull(WebViewRegistry.getShared().morphCard());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void snapshotResolvesAsynchronously() throws Exception {
+        openMorph(false);
+        reveal();
+        WebViewRegistry.getShared().register("snapshot", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        PluginCall call = mock(PluginCall.class);
+        when(call.getString("id")).thenReturn("snapshot");
+        when(call.getFloat("scale")).thenReturn(0.5f);
+        when(call.getFloat("quality")).thenReturn(0.7f);
+        plugin.snapshot(call);
+        assertEquals(1, snapshots.captures.size());
+        verify(call, never()).resolve(any());
+        snapshots.runEncodesOffTheMainThread();
+        verify(call, never()).resolve(any());
+        shadowOf(Looper.getMainLooper()).idle();
+        org.mockito.ArgumentCaptor<JSObject> result = org.mockito.ArgumentCaptor.forClass(JSObject.class);
+        verify(call).resolve(result.capture());
+        assertTrue(result.getValue().getString("data").startsWith("data:image/jpeg;base64,"));
+        verify(call, never()).reject(anyString());
+    }
 }
