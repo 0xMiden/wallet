@@ -36,10 +36,10 @@ trap write_acceptance_evidence EXIT
 install_apk() {
   local apk=$1
   for _ in $(seq 1 30); do adb shell pm path android >/dev/null 2>&1 && break; sleep 2; done
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5 6; do
     if adb install -r -t --no-streaming "$apk"; then return 0; fi
-    [[ $attempt -eq 3 ]] && return 1
-    sleep 10
+    [[ $attempt -eq 6 ]] && return 1
+    sleep 15
   done
 }
 
@@ -68,6 +68,9 @@ adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
 device_pin=1234
 adb shell locksettings set-pin "$device_pin" >/dev/null
+# Play Protect verifies each adb install on Play images; skipping it removes one source of dropped install commits.
+adb shell settings put global verifier_verify_adb_installs 0
+adb shell settings put global package_verifier_enable 0
 adb shell getprop ro.build.fingerprint > "$results_dir/emulator-fingerprint.txt"
 # Auth Tab needs Chrome 137 or later; an older preinstalled Chrome would only exercise the Custom Tab fallback.
 adb shell dumpsys package com.android.chrome > "$results_dir/chrome-package.txt"
