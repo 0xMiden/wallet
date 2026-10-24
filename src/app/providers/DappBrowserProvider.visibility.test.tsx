@@ -34,6 +34,7 @@ const mockClose = jest.fn(async (_id: string) => {});
 const mockMorph = jest.fn(async (_id: string, _request: unknown) => ({ accepted: false }));
 const mockSetMorphTarget = jest.fn(async (_card: unknown) => {});
 const mockUpsertSession = jest.fn(async (_session: unknown) => {});
+const mockLoadPersisted = jest.fn(async (): Promise<unknown[]> => []);
 const nativeListeners = new Map<
   string,
   (event: {
@@ -164,7 +165,7 @@ jest.mock('lib/dapp-browser/snapshot-store', () => ({
 jest.mock('lib/dapp-browser', () => ({
   INJECTION_SCRIPT: 'INJECTED;',
   parseOrigin: (url: string) => new URL(url).origin,
-  loadPersistedSessions: async () => [],
+  loadPersistedSessions: () => mockLoadPersisted(),
   readSnapshotFromDisk: async () => null,
   removePersistedSession: () => mockRemoveSession(),
   removeSnapshotFromDisk: () => mockRemoveSnapshot(),
@@ -356,6 +357,7 @@ beforeEach(async () => {
   mockMorph.mockReset().mockResolvedValue({ accepted: false });
   mockSetMorphTarget.mockClear();
   mockUpsertSession.mockClear();
+  mockLoadPersisted.mockReset().mockResolvedValue([]);
   mockCompleteClose.mockClear();
   mockRemoveSession.mockReset().mockResolvedValue(undefined);
   mockRemoveSnapshot.mockReset().mockResolvedValue(undefined);
@@ -1616,5 +1618,122 @@ describe('native morph collapse', () => {
     await act(async () => parking);
 
     expect(parked()).toEqual(['origin']);
+  });
+});
+
+describe('native morph expand', () => {
+  const VELOCITY = { x: 0, y: -900 };
+
+  async function parkedForeground() {
+    await openForeground();
+    await act(async () => control().park('origin'));
+    mockSetVisible.mockClear();
+    mockMorph.mockReset().mockResolvedValue({ accepted: true });
+  }
+
+  it('restores through morph with the card rect and release velocity, committing the foreground at once', async () => {
+    await parkedForeground();
+    let moved: Promise<boolean> = Promise.resolve(false);
+
+    act(() => {
+      moved = control().restore('origin', { card: CARD, velocity: VELOCITY });
+    });
+    expect(control().mode).toBe('active');
+    expect(control().session?.id).toBe('origin');
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded', outgoingId: null });
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await moved;
+    });
+    expect(accepted).toBe(true);
+    expect(morphRequests()).toEqual([
+      { to: 'expanded', card: CARD, morphId: expect.stringMatching(UUID), velocity: VELOCITY }
+    ]);
+    emitMorph('started', 'expanded');
+    expect(mockSetVisible).not.toHaveBeenCalled();
+    emitMorph('settled', 'expanded');
+    await settle();
+    expect(control().motion).toBeNull();
+    expect(lastVisibility()).toBe(true);
+  });
+
+  it('restores without a card from the switcher after it closes', async () => {
+    await parkedForeground();
+    act(() => control().openSwitcher());
+
+    await act(async () => control().restore('origin'));
+    expect(mockMorph).not.toHaveBeenCalled();
+    await act(async () => control().park('origin'));
+    act(() => control().closeSwitcher());
+    await act(async () => control().restore('origin'));
+
+    expect(morphRequests()).toEqual([{ to: 'expanded', card: null, morphId: expect.stringMatching(UUID) }]);
+  });
+
+  it('keeps the outgoing foreground visible until the new one settles, then parks it', async () => {
+    await parkedForeground();
+    act(() => control().open(session('second')));
+    await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+    mockSetVisible.mockClear();
+
+    await act(async () => control().restore('origin', { card: CARD }));
+    emitMorph('started', 'expanded');
+    await settle();
+    expect(control().motion?.outgoingId).toBe('second');
+    expect(mockSetVisible).not.toHaveBeenCalledWith('second', false);
+    expect(control().sessionStates.find(state => state.session.id === 'second')?.status).toBe('active');
+
+    emitMorph('settled', 'expanded');
+    await waitFor(() => expect(parked()).toEqual(['second']));
+    expect(lastVisibility('second')).toBe(false);
+    expect(control().session?.id).toBe('origin');
+  });
+
+  it('a host overlay mid-expand hides at once and re-shows without motion on release', async () => {
+    await parkedForeground();
+    await act(async () => control().restore('origin', { card: CARD }));
+    emitMorph('started', 'expanded');
+
+    currentTree!.rerender(<Tree held />);
+    expect(lastVisibility()).toBe(false);
+    emitMorph('cancelled', 'expanded');
+    expect(control().motion).toBeNull();
+    currentTree!.rerender(<Tree />);
+
+    await waitFor(() => expect(lastVisibility()).toBe(true));
+    expect(mockMorph).toHaveBeenCalledTimes(1);
+    expect(control().mode).toBe('active');
+  });
+
+  it('an unaccepted expand shows the page through the position effect', async () => {
+    await parkedForeground();
+    mockMorph.mockResolvedValue({ accepted: false });
+
+    let accepted = true;
+    await act(async () => {
+      accepted = await control().restore('origin', { card: CARD });
+    });
+
+    expect(accepted).toBe(false);
+    await waitFor(() => expect(lastVisibility()).toBe(true));
+    expect(control().motion).toBeNull();
+    expect(control().session?.id).toBe('origin');
+  });
+
+  it('never morphs a cold session', async () => {
+    mockLoadPersisted.mockResolvedValue([{ ...session('cold'), parkedAt: 1 }]);
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(control().parkedSessions.map(state => state.session.id)).toEqual(['cold']));
+    mockMorph.mockResolvedValue({ accepted: true });
+
+    let accepted = true;
+    await act(async () => {
+      accepted = await control().restore('cold', { card: CARD });
+    });
+
+    expect(accepted).toBe(false);
+    expect(mockMorph).not.toHaveBeenCalled();
+    expect(control().sessionStates[0]?.status).toBe('loading');
   });
 });

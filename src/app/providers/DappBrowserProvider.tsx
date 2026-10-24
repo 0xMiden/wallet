@@ -58,6 +58,7 @@ import {
   type HostCloseRequest,
   InAppBrowser,
   type MorphCard,
+  type MorphVelocity,
   type PresentationMorphEvent,
   ToolBarType,
   dappWebViewManager
@@ -218,8 +219,11 @@ interface DappBrowserContextValue {
   close: (sessionId?: string) => Promise<void>;
   /** Park a session — snapshot, hide native window, show bubble. */
   park: (sessionId?: string) => Promise<void>;
-  /** Restore a parked session to the foreground. */
-  restore: (sessionId: string) => Promise<void>;
+  /**
+   * Restore a parked session to the foreground, from the card the gesture started on. Resolves true when the native
+   * morph carries the page to the slot, false when it is shown without one.
+   */
+  restore: (sessionId: string, gesture?: RestoreGesture) => Promise<boolean>;
   /** The native morph in flight (#1817), null at rest. */
   motion: DappMotion | null;
   /** Publish the peek card a collapse lands on, null while no card is on screen. */
@@ -244,6 +248,12 @@ interface DappBrowserContextValue {
 }
 
 type ParkGuard = (afterHide: boolean) => boolean;
+
+/** Where a restore gesture started: the peek card's rect and the release velocity, in host CSS px. */
+export interface RestoreGesture {
+  card: MorphCard;
+  velocity?: MorphVelocity;
+}
 
 /** The native morph the provider follows, with what it needs to commit or abandon it. */
 interface MorphFlight {
@@ -445,7 +455,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // `open`, the confirmation auto-restore effect) can invoke it without
   // a circular useCallback dependency. Populated after `restore` is
   // defined below.
-  const restoreRef = useRef<((sessionId: string) => Promise<void>) | null>(null);
+  const restoreRef = useRef<((sessionId: string) => Promise<boolean>) | null>(null);
   const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
   const nativeMinimizations = useRef(new Set<string>());
 
@@ -501,6 +511,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     revision: number;
     rect: WebViewRect;
   } | null>(null);
+  const presentationLayoutRef = useRef(presentationLayout);
+  presentationLayoutRef.current = presentationLayout;
   const reportPresentationLayout = useCallback((id: string, lifetime: string, revision: number, rect: WebViewRect) => {
     if (managedTokens.current.get(id) !== lifetime || rect.width <= 0 || rect.height <= 0) return;
     setPresentationLayout(previous =>
@@ -1244,14 +1256,37 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (flightRef.current === flight) setMotion(next);
   }, []);
 
+  // The foreground an expand replaced stayed shown under it; once that motion ends it parks, unless the motion that
+  // replaced this one carries it on.
+  const parkOutgoing = useCallback(
+    (flight: MorphFlight, next?: MorphFlight) => {
+      const outgoing = flight.motion.outgoingId;
+      if (outgoing && outgoing !== next?.motion.id && outgoing !== next?.motion.outgoingId) void parkLegacy(outgoing);
+    },
+    [parkLegacy]
+  );
+
   // Reversed, cancelled or replaced: the session stays as it was, so nothing is committed here.
-  const endFlight = useCallback((flight: MorphFlight, parked: boolean) => {
-    if (flightRef.current === flight) {
-      flightRef.current = null;
-      setMotion(null);
-    }
-    flight.finish(parked);
-  }, []);
+  const endFlight = useCallback(
+    (flight: MorphFlight, parked: boolean) => {
+      if (flightRef.current === flight) {
+        flightRef.current = null;
+        setMotion(null);
+      }
+      flight.finish(parked);
+      parkOutgoing(flight);
+    },
+    [parkOutgoing]
+  );
+
+  const supersede = useCallback(
+    (previous: MorphFlight, next: MorphFlight) => {
+      // Native retargeted the replaced spring, so that motion ends without parking.
+      previous.finish(false);
+      parkOutgoing(previous, next);
+    },
+    [parkOutgoing]
+  );
 
   // A close, or a reopen under the same id, leaves a flight without its page.
   const flightLive = useCallback(
@@ -1259,6 +1294,17 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       !finalizations.current.has(flight.motion.id) &&
       getSessionStateById(flight.motion.id)?.instance === flight.instance,
     [getSessionStateById]
+  );
+
+  // Native leaves a morph it rejects untouched, so whatever was flying still is; a settled collapse is dropped instead,
+  // since its acknowledgement may have passed while the rejected morph was followed.
+  const restoreFlight = useCallback(
+    (rejected: MorphFlight, previous: MorphFlight | null) => {
+      if (flightRef.current !== rejected) return;
+      flightRef.current = previous && flightLive(previous) && !previous.motion.acknowledging ? previous : null;
+      setMotion(flightRef.current?.motion ?? null);
+    },
+    [flightLive]
   );
 
   // The settled page holds the card pose until its card has painted under it (two frames, at most the timeout); the
@@ -1295,6 +1341,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         setForegroundId(null);
       }
       void upsertPersistedSession({ ...toPersisted(state.session), origin: state.origin });
+      parkOutgoing(flight);
       // The snapshot may still be encoding; it is persisted when it lands, unless the session went away meanwhile.
       void (flight.snapshot ?? requestParkSnapshot(id)).then(dataUrl => {
         if (dataUrl && flightLive(flight)) void writeSnapshotToDisk(id, dataUrl);
@@ -1303,7 +1350,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       flight.finish(true);
       acknowledgeCollapse(flight);
     },
-    [acknowledgeCollapse, endFlight, flightLive, getSessionStateById, updateFlight, updateSession]
+    [acknowledgeCollapse, endFlight, flightLive, getSessionStateById, parkOutgoing, updateFlight, updateSession]
   );
 
   const handleMorphEvent = useCallback(
@@ -1371,19 +1418,105 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         morphId: flight.motion.morphId
       });
       if (!accepted) {
-        // Native leaves a morph it rejects untouched, so whatever was flying still is.
-        if (flightRef.current === flight) {
-          flightRef.current = previous && flightLive(previous) ? previous : null;
-          setMotion(flightRef.current?.motion ?? null);
-        }
+        restoreFlight(flight, previous);
         return 'unaccepted';
       }
-      // Native retargeted the replaced spring, so that motion ends without parking.
-      if (previous && previous !== flight) previous.finish(false);
+      if (previous && previous !== flight) supersede(previous, flight);
       if (flightRef.current === flight) flight.snapshot = requestParkSnapshot(id);
       return parked;
     },
-    [flightLive, getSessionStateById]
+    [getSessionStateById, restoreFlight, supersede]
+  );
+
+  // Sent with an expand only once the host acknowledged the session's current policy, as the position effect does.
+  const acknowledgedRevision = useCallback(
+    (id: string): number | undefined => {
+      const state = getSessionStateById(id);
+      const layout = presentationLayoutRef.current;
+      return state?.policyResolved &&
+        layout?.id === id &&
+        layout.lifetime === state.policyLifetime &&
+        layout.revision === state.policyRevision
+        ? state.policyRevision
+        : undefined;
+    },
+    [getSessionStateById]
+  );
+
+  // A parked page, or one collapsing toward its card, expands natively. A cold one has no page yet, a pending approval
+  // keeps its page hidden behind the modal, and a host hold would cancel the motion on its first frame.
+  const canExpandByMorph = useCallback((id: string, state: DappSessionState): boolean => {
+    const token = managedTokens.current.get(id);
+    const flight = flightRef.current;
+    const collapsing = flight?.motion.id === id && flight.motion.target === 'collapsed' && !flight.motion.acknowledging;
+    return (
+      !!state.instance &&
+      !state.isCold &&
+      !!token &&
+      !managedClosings.current.has(token) &&
+      !foregroundBlockedRef.current &&
+      !dappConfirmationStore.getPendingRequest(id) &&
+      (state.status === 'parked' || collapsing)
+    );
+  }, []);
+
+  /**
+   * Commits `id` as the foreground at once and expands its page natively from the gesture's card. A foreground it
+   * replaces stays shown under it until the motion ends. Resolves whether native accepted the expand.
+   */
+  const restoreByMorph = useCallback(
+    async (id: string, instance: DappWebViewInstance, gesture?: RestoreGesture): Promise<boolean> => {
+      const lifetime = managedTokens.current.get(id);
+      if (!lifetime) return false;
+      const current = foregroundIdRef.current;
+      const outgoingId = current && current !== id ? current : null;
+      updateSession(id, s => ({ ...s, status: 'active' }));
+      // Eager, so an event or a minimize handled before the next render already sees the new foreground.
+      foregroundIdRef.current = id;
+      setForegroundId(id);
+      setActiveDappSession(id);
+      const previous = flightRef.current;
+      const flight: MorphFlight = {
+        motion: {
+          id,
+          lifetime,
+          morphId: crypto.randomUUID(),
+          target: 'expanded',
+          outgoingId,
+          started: false,
+          acknowledging: false,
+          progress: 0,
+          velocity: 0,
+          tracking: false,
+          eventSeq: 0
+        },
+        instance,
+        finish: () => undefined,
+        snapshot: null
+      };
+      flightRef.current = flight;
+      setMotion(flight.motion);
+      // From another tab the capsule and slot exist only once DappActive mounts on /browser.
+      if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) navigate('/browser');
+      const policyRevision = acknowledgedRevision(id);
+      const accepted = await sendMorph(instance, {
+        to: 'expanded',
+        card: gesture?.card ?? null,
+        morphId: flight.motion.morphId,
+        ...(gesture?.velocity ? { velocity: gesture.velocity } : {}),
+        ...(policyRevision === undefined ? {} : { policyRevision })
+      });
+      if (!accepted) {
+        // The position effect shows the page the way it always has; the replaced foreground parks now, so a collapse
+        // of it that was flying is not resumed.
+        restoreFlight(flight, previous?.motion.id === outgoingId ? null : previous);
+        if (outgoingId) void parkLegacy(outgoingId);
+        return false;
+      }
+      if (previous && previous !== flight) supersede(previous, flight);
+      return true;
+    },
+    [acknowledgedRevision, parkLegacy, restoreFlight, setActiveDappSession, supersede, updateSession]
   );
 
   // Deduped by value: the tray republishes on every layout change and resize, and each one is a bridge call.
@@ -1427,11 +1560,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   const restore = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, gesture?: RestoreGesture): Promise<boolean> => {
       const state = getSessionStateById(sessionId);
       const lifetime = sessionLifetimes.current.get(sessionId);
-      if (!state || !lifetime) return;
+      if (!state || !lifetime) return false;
       foregroundOwnershipRevision.current++;
+      // A warm page expands natively; every other restore takes the path below.
+      if (state.instance && canExpandByMorph(sessionId, state))
+        return restoreByMorph(sessionId, state.instance, gesture);
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
@@ -1447,7 +1583,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           setForegroundId(null);
           setActiveDappSession(null);
         }
-        return;
+        return false;
       }
       // PR-6 cold-bubble lifecycle: if this session has no live native
       // instance yet (rehydrated from persistence at app launch), mark
@@ -1479,8 +1615,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) {
         navigate('/browser');
       }
+      return false;
     },
-    [getSessionStateById, parkLegacy, setActiveDappSession, updateSession]
+    [canExpandByMorph, getSessionStateById, parkLegacy, restoreByMorph, setActiveDappSession, updateSession]
   );
 
   // Populate the forward ref so earlier-declared callbacks (`open`, the

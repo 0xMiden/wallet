@@ -1608,7 +1608,7 @@ describe('native presentation lifecycle', () => {
           finish = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1662,7 +1662,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1715,7 +1715,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
