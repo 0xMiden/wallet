@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { HistoryAction } from 'lib/woozie';
+
 import { EncryptedFileFlow, EncryptedFileManager } from './EncryptedFileManager';
 import { EncryptedFileStep } from './types';
 
@@ -79,6 +81,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
   navigate: (...a: unknown[]) => navigateMock(...a)
 }));
 
@@ -228,18 +231,18 @@ describe('EncryptedFileFlow / wallet-password step', () => {
     expect(screen.getByTestId('wps-password')).toHaveTextContent('super-secret');
   });
 
-  it('closes the flow (navigate /settings) from the shared header back', () => {
+  it('replaces the cold-entry fallback from the shared header back', () => {
     setWalletStep();
     renderFlow();
     fireEvent.click(screen.getByTestId('subpage-back'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
   });
 
   it('closes the flow when the wallet-password step goes back', () => {
     setWalletStep();
     renderFlow();
     fireEvent.click(screen.getByTestId('wps-back'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
   });
 
   it('advances to the export-password step on next', () => {
@@ -292,7 +295,7 @@ describe('export chrome / renderStep', () => {
     setExportStep();
     renderFlow();
     fireEvent.click(screen.getByTestId('subpage-back'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
   });
 
   it('renders the export-password step and wires its callbacks', () => {
@@ -343,9 +346,9 @@ describe('export chrome / renderStep', () => {
     fireEvent.click(screen.getByTestId('ec-back'));
     expect(goBackMock).toHaveBeenCalledTimes(1);
 
-    // Done -> onClose -> navigate('/settings').
+    // Done uses the same guarded exit as the header.
     fireEvent.click(screen.getByTestId('ec-done'));
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
   });
 
   it('falls back to empty strings for an unset complete-step password (?? branch)', () => {
@@ -392,7 +395,7 @@ describe('mobile back handler', () => {
     });
     expect(result).toBe(true);
     expect(goBackMock).not.toHaveBeenCalled();
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
   });
 });
 

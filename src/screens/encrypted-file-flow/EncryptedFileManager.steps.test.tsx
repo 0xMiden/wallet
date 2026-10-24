@@ -3,6 +3,7 @@ import React from 'react';
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import { createLocationState, HistoryAction, navigate, resetHistoryPosition } from 'lib/woozie';
 
 import { EncryptedFileFlow } from './EncryptedFileManager';
 
@@ -78,10 +79,6 @@ jest.mock('lib/platform', () => ({
   isIOS: () => false,
   isAndroid: () => false,
   isExtension: () => true
-}));
-
-jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -371,5 +368,39 @@ describe('EncryptedFileFlow focus on entry under the Settings host', () => {
     await advanceToExportStep();
 
     expect(screen.getByTestId('export-file-name-input')).toHaveFocus();
+  });
+});
+
+describe('EncryptedFileFlow routed exit', () => {
+  const openFrom = (origin: string) => {
+    navigate(origin, HistoryAction.Replace);
+    resetHistoryPosition();
+    navigate('/settings/encrypted-wallet-file');
+    render(<EncryptedFileFlow />);
+  };
+
+  it('pops to Settings so its next Back can leave Settings', async () => {
+    openFrom('/settings');
+    await screen.findByTestId('encrypted-file-wallet-password-input');
+    fireEvent.click(screen.getByTestId('page-back'));
+    await waitFor(() => expect(createLocationState().pathname).toBe('/settings'));
+    expect(createLocationState().historyPosition).toBe(0);
+  });
+
+  it('returns to the originating Profile screen', async () => {
+    openFrom('/me');
+    await screen.findByTestId('encrypted-file-wallet-password-input');
+    fireEvent.click(screen.getByTestId('page-back'));
+    await waitFor(() => expect(createLocationState().pathname).toBe('/me'));
+  });
+
+  it('replaces with Settings after a cold entry', async () => {
+    navigate('/settings/encrypted-wallet-file', HistoryAction.Replace);
+    resetHistoryPosition();
+    render(<EncryptedFileFlow />);
+    await screen.findByTestId('encrypted-file-wallet-password-input');
+    fireEvent.click(screen.getByTestId('page-back'));
+    await waitFor(() => expect(createLocationState().pathname).toBe('/settings'));
+    expect(createLocationState().historyPosition).toBe(0);
   });
 });
