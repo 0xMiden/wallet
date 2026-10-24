@@ -56,6 +56,18 @@ describe('interaction priority', () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  it('holds a wait that starts between the last end and its idle frame', async () => {
+    const end = beginInteraction();
+    end();
+    const done = jest.fn();
+    void whenInteractionIdle().then(done);
+    await flushMicrotasks();
+    expect(done).not.toHaveBeenCalled();
+    flushFrame();
+    await flushMicrotasks();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps waiting when a new interaction starts before the frame', async () => {
     const end = beginInteraction();
     const done = jest.fn();

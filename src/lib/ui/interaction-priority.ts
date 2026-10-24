@@ -78,7 +78,8 @@ export function isInteracting(): boolean {
  * finger cannot starve background work forever.
  */
 export function whenInteractionIdle(): Promise<void> {
-  if (active === 0) return Promise.resolve();
+  // The idle frame after the last end still belongs to the busy period.
+  if (active === 0 && !frameScheduled) return Promise.resolve();
   return new Promise<void>(resolve => {
     const remaining = Math.max(0, busySince + pagerMotion.interactionDeferCapMs - Date.now());
     const waiter: Waiter = { resolve, capTimer: setTimeout(() => settle(waiter), remaining) };
