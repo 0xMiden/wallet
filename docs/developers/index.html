@@ -227,8 +227,6 @@ p { margin: 0 0 1em; }
 .btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%); transform: translateX(-120%); transition: transform 0.7s ease; }
 .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -10px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.35); }
 .btn-primary:hover::after { transform: translateX(120%); }
-.btn-ghost { color: var(--ink); background: var(--surface); border: 1px solid var(--hairline-strong); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-.btn-ghost:hover { transform: translateY(-2px); background: var(--fill); }
 .btn:active { transform: translateY(0) scale(0.97); }
 .btn svg { width: 18px; height: 18px; transition: transform 0.25s ease; }
 .btn:hover svg { transform: translateX(3px); }
@@ -668,7 +666,6 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       <p class="lead">Bread is the Miden wallet for Chrome, Firefox, iOS, Android and desktop. Connect with the Miden wallet adapter, ask for sends, consumes and custom transactions, sign people in with a key made for your site, and on phones take the whole screen with one meta tag.</p>
       <div class="cta">
         <a class="btn btn-primary" href="#quickstart">Start building <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
-        <a class="btn btn-ghost" href="#fullscreen">See fullscreen</a>
       </div>
       <div class="install" role="group" aria-label="Install command">
         <span class="prompt" aria-hidden="true">$</span>
