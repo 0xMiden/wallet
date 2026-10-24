@@ -120,10 +120,6 @@ final class BreadMorphController {
         listener.onFrame(p);
     }
 
-    void release(float velocityP) {
-        animateTo(target, card, velocityP, BreadMorphPhysics.RELEASE);
-    }
-
     float finishAtNearestEnd() {
         float end = progress >= 0.5f ? 1 : 0;
         spring.cancel();
