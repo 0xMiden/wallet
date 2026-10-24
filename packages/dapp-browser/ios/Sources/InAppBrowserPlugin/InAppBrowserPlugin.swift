@@ -869,11 +869,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 // so iOS handles both visual compositing and
                 // hit-testing natively. The wallet frontend does not
                 // currently call it; its navigation is React BottomNav.
-                let window = UIWindow(windowScene: scene)
-                window.frame = CGRect(x: x, y: y, width: w, height: h)
-                window.windowLevel = UIWindow.Level.normal + 100
-                window.backgroundColor = .clear
-                window.rootViewController = instance.navigationController
+                let window = Self.makeContainerWindow(scene: scene, rect: CGRect(x: x, y: y, width: w, height: h), instance: instance)
                 instance.installContainerWindow(window, hostWindow: self.bridge?.viewController?.view?.window)
                 presentedInWindow = true
             }
@@ -1490,6 +1486,15 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             overlay.windowScene = nil
         }
         navbarOverlay = nil
+    }
+
+    static func makeContainerWindow(scene: UIWindowScene, rect: CGRect, instance: WKWebViewInstance) -> UIWindow {
+        let window = UIWindow(windowScene: scene)
+        window.frame = rect
+        window.windowLevel = UIWindow.Level.normal + 100
+        window.backgroundColor = .clear
+        window.rootViewController = instance.navigationController
+        return window
     }
 
     /// Shared teardown for Architecture A dApp container windows.

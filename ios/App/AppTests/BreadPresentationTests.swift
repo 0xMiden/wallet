@@ -20,6 +20,101 @@ private final class PolicyRecordingPlugin: InAppBrowserPlugin {
     }
 }
 
+@MainActor fileprivate struct LivePresentation {
+    let owner: WKWebViewController
+    let web: WKWebView
+    let presentation: BreadPresentationController
+    let window: UIWindow
+    let host: UIWindow?
+    let instance: WKWebViewInstance
+
+    var cover: UIView { owner.view.subviews.first { view in view.subviews.contains { $0 is UIStackView } }! }
+    func dispose() {
+        owner.cleanupWebView()
+        InAppBrowserPlugin.releaseContainerWindow(window)
+        WebViewRegistry.shared.remove(id: instance.id)
+        host?.makeKey()
+    }
+}
+
+@MainActor
+fileprivate extension XCTestCase {
+    func livePresentation(initiallyVisible: Bool = true, morph: Bool = false,
+                          container: ((UINavigationController) -> BreadMorphContainerViewController)? = nil) async throws -> LivePresentation {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let host = scene.windows.first { $0.isKeyWindow }
+        let owner = WKWebViewController(url: URL(string: "about:blank")!, headers: [:], isInspectable: true,
+            preventDeeplink: false, blankNavigationTab: true, enabledSafeBottomMargin: false,
+            blockedHosts: [], authorizedAppLinks: [], enabledSafeTopMargin: false, breadPresentation: [
+                "script": "window.__breadPresentationToken='live'; window.__breadPresentationRespond=()=>{}; window.__breadPresentationUpdate=()=>{};",
+                "backLabel": "Back", "hintLabel": "Return", "retryLabel": "Retry", "errorLabel": "Error"
+            ], initiallyVisible: initiallyVisible)
+        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
+        navigation.setNavigationBarHidden(true, animated: false)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
+        instance.rect = scene.coordinateSpace.bounds
+        let window: UIWindow
+        if let container {
+            window = UIWindow(windowScene: scene)
+            window.frame = instance.rect
+            window.windowLevel = .normal + 100
+            let root = container(navigation)
+            instance.morphContainer = root
+            window.rootViewController = root
+        } else if morph {
+            window = InAppBrowserPlugin.makeContainerWindow(scene: scene, rect: instance.rect, instance: instance)
+        } else {
+            window = UIWindow(windowScene: scene)
+            window.frame = instance.rect
+            window.windowLevel = .normal + 100
+            window.rootViewController = navigation
+        }
+        instance.containerWindow = window
+        WebViewRegistry.shared.register(instance)
+        let web = try XCTUnwrap(owner.capableWebView)
+        let presentation = try XCTUnwrap(owner.breadPresentation)
+        instance.installContainerWindow(window, hostWindow: host)
+        web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
+        let loaded = try await eventually {
+            guard !web.isLoading else { return false }
+            return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
+        }
+        XCTAssertTrue(loaded)
+        return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
+    }
+
+    func eventually(_ condition: () async throws -> Bool) async throws -> Bool {
+        for _ in 0..<150 {
+            if try await condition() { return true }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return false
+    }
+
+    func configure(_ live: LivePresentation, theme: String?, display: String = "fullscreen") async throws {
+        var message = ["token": "live", "type": "configure", "display": display]
+        message["themeColor"] = theme
+        let json = String(data: try JSONSerialization.data(withJSONObject: message), encoding: .utf8)!
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify(\(json))); true")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        try await publicVisibility(live, visible: live.presentation.state.desiredVisibility,
+            revision: live.presentation.state.policyRevision)
+    }
+
+    func publicVisibility(_ live: LivePresentation, visible: Bool, revision: Int? = nil,
+                                  lifetime: String? = nil, sequence: Int? = nil) async throws {
+        let completed = expectation(description: "public visibility command")
+        var options: [String: Any] = ["id": live.instance.id, "visible": visible]
+        if let revision { options["policyRevision"] = revision }
+        if let lifetime { options["managedHostCloseToken"] = lifetime }
+        if let sequence { options["visibilitySequence"] = sequence }
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "policy", methodName: "setVisible", options: options,
+            success: { _, _ in completed.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
+        InAppBrowserPlugin().setVisible(call)
+        await fulfillment(of: [completed], timeout: 2)
+    }
+}
+
 @MainActor
 final class BreadPresentationTests: XCTestCase {
     private var screenshotRequestDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("bread-rotation-regression")
@@ -524,85 +619,6 @@ final class BreadPresentationTests: XCTestCase {
         }
         XCTAssertNil(WebViewRegistry.shared.get(id: id))
         XCTAssertNil(window.rootViewController)
-    }
-
-    @MainActor private struct LivePresentation {
-        let owner: WKWebViewController
-        let web: WKWebView
-        let presentation: BreadPresentationController
-        let window: UIWindow
-        let host: UIWindow?
-        let instance: WKWebViewInstance
-
-        var cover: UIView { owner.view.subviews.first { view in view.subviews.contains { $0 is UIStackView } }! }
-        func dispose() {
-            owner.cleanupWebView()
-            InAppBrowserPlugin.releaseContainerWindow(window)
-            WebViewRegistry.shared.remove(id: instance.id)
-            host?.makeKey()
-        }
-    }
-
-    private func livePresentation(initiallyVisible: Bool = true) async throws -> LivePresentation {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
-        let host = scene.windows.first { $0.isKeyWindow }
-        let owner = WKWebViewController(url: URL(string: "about:blank")!, headers: [:], isInspectable: true,
-            preventDeeplink: false, blankNavigationTab: true, enabledSafeBottomMargin: false,
-            blockedHosts: [], authorizedAppLinks: [], enabledSafeTopMargin: false, breadPresentation: [
-                "script": "window.__breadPresentationToken='live'; window.__breadPresentationRespond=()=>{}; window.__breadPresentationUpdate=()=>{};",
-                "backLabel": "Back", "hintLabel": "Return", "retryLabel": "Retry", "errorLabel": "Error"
-            ], initiallyVisible: initiallyVisible)
-        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
-        navigation.setNavigationBarHidden(true, animated: false)
-        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
-        instance.rect = scene.coordinateSpace.bounds
-        let window = UIWindow(windowScene: scene)
-        window.frame = instance.rect
-        window.windowLevel = .normal + 100
-        window.rootViewController = navigation
-        instance.containerWindow = window
-        WebViewRegistry.shared.register(instance)
-        let web = try XCTUnwrap(owner.capableWebView)
-        let presentation = try XCTUnwrap(owner.breadPresentation)
-        instance.installContainerWindow(window, hostWindow: host)
-        web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
-        let loaded = try await eventually {
-            guard !web.isLoading else { return false }
-            return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
-        }
-        XCTAssertTrue(loaded)
-        return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
-    }
-
-    private func eventually(_ condition: () async throws -> Bool) async throws -> Bool {
-        for _ in 0..<150 {
-            if try await condition() { return true }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return false
-    }
-
-    private func configure(_ live: LivePresentation, theme: String?) async throws {
-        var message = ["token": "live", "type": "configure", "display": "fullscreen"]
-        message["themeColor"] = theme
-        let json = String(data: try JSONSerialization.data(withJSONObject: message), encoding: .utf8)!
-        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify(\(json))); true")
-        try await Task.sleep(nanoseconds: 60_000_000)
-        try await publicVisibility(live, visible: live.presentation.state.desiredVisibility,
-            revision: live.presentation.state.policyRevision)
-    }
-
-    private func publicVisibility(_ live: LivePresentation, visible: Bool, revision: Int? = nil,
-                                  lifetime: String? = nil, sequence: Int? = nil) async throws {
-        let completed = expectation(description: "public visibility command")
-        var options: [String: Any] = ["id": live.instance.id, "visible": visible]
-        if let revision { options["policyRevision"] = revision }
-        if let lifetime { options["managedHostCloseToken"] = lifetime }
-        if let sequence { options["visibilitySequence"] = sequence }
-        let call = try XCTUnwrap(CAPPluginCall(callbackId: "policy", methodName: "setVisible", options: options,
-            success: { _, _ in completed.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
-        InAppBrowserPlugin().setVisible(call)
-        await fulfillment(of: [completed], timeout: 2)
     }
 
     func testFirstMetadataPublishesResolvedPolicyBeforeReadyAndNavigationPublishesPending() async throws {
@@ -1533,5 +1549,187 @@ final class BreadMorphStateTests: XCTestCase {
         state.close()
         XCTAssertEqual(state.motion, Motion.none)
         XCTAssertFalse(state.proxyUsable)
+    }
+}
+
+@MainActor fileprivate struct MorphContainerFixture {
+    let window: UIWindow
+    let container: BreadMorphContainerViewController
+    let web: WKWebView
+
+    func dispose() { InAppBrowserPlugin.releaseContainerWindow(window) }
+}
+
+@MainActor fileprivate func morphContainerFixture(size: CGSize = CGSize(width: 402, height: 753)) throws -> MorphContainerFixture {
+    let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+    let content = UIViewController()
+    let web = WKWebView(frame: content.view.bounds)
+    web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    content.view.addSubview(web)
+    let navigation = StatusBarForwardingNavigationController(rootViewController: content)
+    navigation.setNavigationBarHidden(true, animated: false)
+    let container = BreadMorphContainerViewController(child: navigation)
+    let window = UIWindow(windowScene: scene)
+    window.frame = CGRect(origin: .zero, size: size)
+    window.windowLevel = .normal + 100
+    window.rootViewController = container
+    window.isHidden = false
+    window.layoutIfNeeded()
+    return MorphContainerFixture(window: window, container: container, web: web)
+}
+
+fileprivate let morphClipKeys = ["transform.scale", "position", "bounds.size.height", "cornerRadius", "opacity"]
+fileprivate let morphShadowKeys = ["transform.scale", "position", "bounds.size.height", "shadowPath", "shadowOpacity"]
+
+fileprivate func morphKeys(_ layer: CALayer) -> [String] {
+    (layer.animationKeys() ?? []).filter { $0.hasPrefix("bread.morph.") }
+}
+
+fileprivate func number(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
+
+fileprivate func point(_ value: Any?) -> CGPoint? { (value as? NSValue)?.cgPointValue }
+
+fileprivate func poseNumbers(_ pose: BreadMorphPose) -> [String: Double] {
+    ["transform.scale": Double(pose.scale), "bounds.size.height": Double(pose.cropHeight), "cornerRadius": Double(pose.cornerRadius),
+     "opacity": Double(pose.alpha), "shadowOpacity": Double(pose.shadowOpacity)]
+}
+
+@MainActor fileprivate func assertModelAtRest(_ container: BreadMorphContainerViewController, file: StaticString = #filePath, line: UInt = #line) {
+    let bounds = container.view.bounds
+    for layer in [container.clipView.layer, container.shadowView.layer] {
+        XCTAssertTrue(CATransform3DIsIdentity(layer.transform), file: file, line: line)
+        XCTAssertEqual(layer.position, .zero, file: file, line: line)
+        XCTAssertEqual(layer.bounds, bounds, file: file, line: line)
+    }
+    XCTAssertEqual(container.clipView.layer.cornerRadius, 0, file: file, line: line)
+    XCTAssertEqual(container.clipView.layer.opacity, 1, file: file, line: line)
+    XCTAssertEqual(container.shadowView.layer.shadowOpacity, 0, file: file, line: line)
+    XCTAssertEqual(container.view.layer.opacity, 1, file: file, line: line)
+}
+
+@MainActor fileprivate func assertHeld(_ container: BreadMorphContainerViewController, at pose: BreadMorphPose,
+                                       file: StaticString = #filePath, line: UInt = #line) {
+    let layers: [(CALayer, [String])] = [(container.clipView.layer, morphClipKeys), (container.shadowView.layer, morphShadowKeys)]
+    for (layer, keys) in layers {
+        XCTAssertEqual(Set(morphKeys(layer)), Set(keys.map { "bread.morph." + $0 }), file: file, line: line)
+        for key in keys {
+            guard let hold = layer.animation(forKey: "bread.morph." + key) as? CABasicAnimation else {
+                XCTFail("no held \(key)", file: file, line: line); continue
+            }
+            XCTAssertFalse(hold is CASpringAnimation, key, file: file, line: line)
+            XCTAssertEqual(hold.fillMode, .forwards, key, file: file, line: line)
+            XCTAssertFalse(hold.isRemovedOnCompletion, key, file: file, line: line)
+            if key == "position" {
+                XCTAssertEqual(point(hold.fromValue), pose.origin, key, file: file, line: line)
+                XCTAssertEqual(point(hold.toValue), pose.origin, key, file: file, line: line)
+            } else if let expected = poseNumbers(pose)[key] {
+                XCTAssertEqual(number(hold.fromValue) ?? .nan, expected, accuracy: 1e-6, key, file: file, line: line)
+                XCTAssertEqual(number(hold.toValue) ?? .nan, expected, accuracy: 1e-6, key, file: file, line: line)
+            }
+        }
+    }
+}
+
+private final class CountingMorphContainer: BreadMorphContainerViewController {
+    var statusBarUpdates = 0
+    override func setNeedsStatusBarAppearanceUpdate() {
+        statusBarUpdates += 1
+        super.setNeedsStatusBarAppearanceUpdate()
+    }
+}
+
+@MainActor
+final class BreadMorphContainerTests: XCTestCase {
+    private let card = BreadMorphCard(rect: CGRect(x: 282, y: 650, width: 104, height: 132), cornerRadius: 16)
+
+    func testMorphContainerForwardsImmersiveSystemPolicies() {
+        let navigation = StatusBarForwardingNavigationController(rootViewController: WKWebViewController())
+        let container = BreadMorphContainerViewController(child: navigation)
+        XCTAssertTrue(container.childForStatusBarHidden === navigation)
+        XCTAssertTrue(container.childForStatusBarStyle === navigation)
+        XCTAssertTrue(container.childForHomeIndicatorAutoHidden === navigation)
+        XCTAssertTrue(container.childForScreenEdgesDeferringSystemGestures === navigation)
+    }
+
+    func testMorphContainerKeepsChildAtSlotSizeWhileTheClipShrinks() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let webBounds = fixture.web.bounds
+        let pose = BreadMorphPose.at(0, card: card, slot: container.view.bounds.size)
+        container.morphing = true
+        container.apply(pose)
+        container.view.setNeedsLayout()
+        fixture.window.layoutIfNeeded()
+        XCTAssertEqual(container.child.view.frame, CGRect(x: 0, y: 0, width: 402, height: 753))
+        let held = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.bounds.size.height") as? CABasicAnimation)
+        XCTAssertEqual(number(held.toValue) ?? .nan, Double(pose.cropHeight), accuracy: 1e-6)
+        XCTAssertEqual(fixture.web.bounds, webBounds)
+        XCTAssertEqual(webBounds.size, CGSize(width: 402, height: 753))
+    }
+
+    func testApplyHoldsThePoseWithoutWritingTheModel() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let pose = BreadMorphPose.at(0, card: card, slot: fixture.container.view.bounds.size)
+        fixture.container.apply(pose)
+        assertModelAtRest(fixture.container)
+        assertHeld(fixture.container, at: pose)
+        XCTAssertTrue(fixture.container.morphing)
+    }
+
+    func testPresentationFrameReadsTheHeldPose() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        fixture.container.apply(BreadMorphPose.at(0, card: card, slot: fixture.container.view.bounds.size))
+        CATransaction.flush()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let frame = fixture.container.presentationFrame()
+        XCTAssertEqual(frame.minX, 282, accuracy: 0.5)
+        XCTAssertEqual(frame.minY, 650, accuracy: 0.5)
+        XCTAssertEqual(frame.width, 104, accuracy: 0.5)
+        XCTAssertEqual(frame.height, 132, accuracy: 0.5)
+    }
+
+    func testMorphContainerRestsAtIdentity() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        container.apply(BreadMorphPose.at(0, card: card, slot: container.view.bounds.size))
+        container.layoutAtRest()
+        for layer in [container.clipView.layer, container.shadowView.layer, container.view.layer] {
+            XCTAssertTrue(morphKeys(layer).isEmpty)
+        }
+        assertModelAtRest(container)
+        XCTAssertNotNil(container.shadowView.layer.shadowPath)
+        XCTAssertFalse(container.morphing)
+        XCTAssertEqual(container.clipView.layer.cornerCurve, .circular)
+        XCTAssertTrue(container.clipView.clipsToBounds)
+        XCTAssertEqual(container.child.view.frame, container.view.bounds)
+    }
+
+    func testContainerWindowInstallsTheMorphContainer() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let owner = WKWebViewController()
+        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
+        let rect = CGRect(x: 0, y: 90, width: 402, height: 663)
+        let window = InAppBrowserPlugin.makeContainerWindow(scene: scene, rect: rect, instance: instance)
+        defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        let container = try XCTUnwrap(instance.morphContainer)
+        XCTAssertTrue(window.rootViewController === container)
+        XCTAssertTrue(container.child === navigation)
+        XCTAssertEqual(window.windowLevel, UIWindow.Level.normal + 100)
+        XCTAssertEqual(window.frame, rect)
+        XCTAssertEqual(window.backgroundColor, UIColor.clear)
+    }
+
+    func testRenderRefreshesTheContainerSystemPolicies() async throws {
+        let live = try await livePresentation(container: { CountingMorphContainer(child: $0) })
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer as? CountingMorphContainer)
+        let before = container.statusBarUpdates
+        live.presentation.setVisible(false)
+        XCTAssertGreaterThan(container.statusBarUpdates, before)
     }
 }
