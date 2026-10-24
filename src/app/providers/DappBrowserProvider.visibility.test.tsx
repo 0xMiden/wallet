@@ -2219,6 +2219,48 @@ describe('native morph adoption', () => {
       expect(control().motion).toBeNull();
     });
 
+    it('keeps the outgoing session restored while the expand that replaced it is in flight', async () => {
+      await openForeground();
+      await act(async () => control().park('origin'));
+      act(() => control().open(session('second')));
+      await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+      const answer = holdMorph();
+      act(() => void control().restore('origin', { card: CARD }));
+      await settle();
+      expect(control().motion).toMatchObject({ id: 'origin', outgoingId: 'second' });
+      expect(statusOf('second')).toBe('active');
+
+      await act(async () => void control().restore('second'));
+      await settle();
+      await act(async () => answer({ accepted: true }));
+      emitMorph('settled', 'expanded');
+      await settle();
+
+      expect(control().session?.id).toBe('second');
+      expect(statusOf('second')).toBe('active');
+      expect(parked()).toEqual(['origin']);
+      expect(lastVisibility('second')).toBe(true);
+    });
+
+    it('still parks the outgoing session when the expand target is restored again', async () => {
+      await openForeground();
+      await act(async () => control().park('origin'));
+      act(() => control().open(session('second')));
+      await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+      const answer = holdMorph();
+      act(() => void control().restore('origin', { card: CARD }));
+      await settle();
+
+      await act(async () => void control().restore('origin'));
+      await settle();
+      await act(async () => answer({ accepted: true }));
+      emitMorph('settled', 'expanded');
+      await settle();
+
+      expect(statusOf('second')).toBe('parked');
+      expect(parked()).toContain('second');
+    });
+
     it('requests one park snapshot when the settle overtakes the accepted collapse', async () => {
       await openForeground();
       jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
