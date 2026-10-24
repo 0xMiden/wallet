@@ -847,6 +847,43 @@ describe('the first read for an address (#1123)', () => {
       });
       expect(fetchBalancesMock()).not.toHaveBeenCalled();
     });
+
+    it('does not fetch the previous address when the address changes during a deferred tick', async () => {
+      testContainer = document.createElement('div');
+      testRoot = createRoot(testContainer);
+      const Consumer = ({ address }: { address: string }) => {
+        useAllBalances(address, {});
+        return <div />;
+      };
+      await act(async () => {
+        testRoot!.render(<Consumer address="first-address" />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fetchBalancesMock().mockClear();
+      useWalletStore.setState({ balancesLastFetched: {} });
+
+      await act(async () => {
+        jest.advanceTimersByTime(4_000);
+      });
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+
+      await act(async () => {
+        testRoot!.render(<Consumer address="second-address" />);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledWith('second-address', expect.anything(), expect.anything());
+
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalledWith('first-address', expect.anything(), expect.anything());
+    });
   });
 
   it('stays loading when the read is skipped by the fuse', async () => {
