@@ -558,12 +558,13 @@ describe('Receive - Address', () => {
   });
 
   it('leaves the horizontal swipe to the home carousel', async () => {
-    // A pane that can pan sideways takes the carousel's drag before HomeSwipeContainer sees it.
+    // The pager is a native scroller: a body that allowed only `pan-y` would swallow the sideways
+    // pan, and one that scrolled sideways itself would take it.
     const container = await renderReceive();
 
     const page = container.querySelector<HTMLElement>('[data-testid="receive-page"]')!;
-    expect(page.style.touchAction).toBe('pan-y');
-    expect(page).toHaveClass('overflow-x-hidden');
+    expect(page.style.touchAction).toBe('pan-x pan-y');
+    expect(page).toHaveClass('overflow-x-hidden', 'overscroll-y-contain');
   });
 
   describe('the receive green', () => {

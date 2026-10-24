@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 
 import { analyzeSwipe, frameHealth, homePath, judge, summarize } from './home-swipe-score.mjs';
 
@@ -144,4 +146,106 @@ test('judge keeps a clear improvement and rejects noise or a missed landing', ()
   assert.equal(judge(baseline, winner).winner, true);
   assert.equal(judge(baseline, noise).winner, false);
   assert.equal(judge(baseline, missed).winner, false);
+});
+
+const perfSource = readFileSync(new URL('./ios-frame-perf.cjs', import.meta.url), 'utf8');
+
+// Template literal bodies are read as text because loading the script connects to a device.
+function templateAfter(marker) {
+  const open = perfSource.indexOf('`', perfSource.indexOf(marker));
+  const close = perfSource.indexOf('`;', open);
+  const end = marker === 'const RECORDER' ? close : perfSource.indexOf('`', open + 1);
+  return vm.runInNewContext('`' + perfSource.slice(open + 1, end) + '`');
+}
+
+const recorderCode = templateAfter('const RECORDER');
+const probeCode = templateAfter('async function cmdProbe');
+
+function matrixX(transform) {
+  if (!transform || transform === 'none') return 0;
+  const nums = transform.match(/\((.+)\)/)[1].split(',').map(parseFloat);
+  return nums.length === 6 ? nums[4] : nums[12];
+}
+
+function recorderWebView(fixture) {
+  class Element {
+    getBoundingClientRect() {
+      return {};
+    }
+  }
+  const make = (props = {}) => Object.assign(new Element(), { firstElementChild: null, scrollLeft: 0 }, props);
+  const frames = [];
+  const bySelector = {};
+  const lookup = sel => bySelector[sel] || null;
+  Element.prototype.querySelector = lookup;
+  const ctx = {
+    Element,
+    document: { querySelector: lookup, documentElement: make() },
+    MutationObserver: class { observe() {} },
+    MessageChannel: class {
+      constructor() {
+        this.port1 = {};
+        this.port2 = { postMessage() {} };
+      }
+    },
+    DOMMatrixReadOnly: class {
+      constructor(transform) {
+        this.m41 = matrixX(transform);
+      }
+    },
+    performance: { now: () => 0 },
+    requestAnimationFrame: cb => frames.push(cb),
+    getComputedStyle: el => ({ transform: el._transform })
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  fixture({ make, bySelector });
+  return {
+    ctx,
+    run: code => vm.runInContext(`(function () { ${code}\n})()`, ctx),
+    fireFrame: () => frames.splice(0).forEach(cb => cb(16))
+  };
+}
+
+// The pre-fix recorder, as an already-instrumented WebView still holds it.
+const LEGACY_HELPERS = `
+  P.findPager = function () { return document.querySelector('div.touch-pan-y'); };
+  P.findTrack = function () { var c = P.findPager(); return c ? c.firstElementChild : null; };
+  P.readX = function (el) {
+    var cs = el ? getComputedStyle(el).transform : null;
+    return cs && cs !== 'none' ? parseFloat(cs.match(/\\((.+)\\)/)[1].split(',')[4]) : 0;
+  };
+`;
+
+test('native flip position is translateX minus scrollLeft', () => {
+  const view = recorderWebView(({ make, bySelector }) => {
+    const legacyTrack = make({ _transform: 'matrix(1, 0, 0, 1, -40, 0)' });
+    bySelector['[data-home-pager]'] = make({ scrollLeft: 780 });
+    bySelector['[data-home-track]'] = make({ _transform: 'matrix(1, 0, 0, 1, 390, 0)' });
+    bySelector['div.touch-pan-y'] = make({ firstElementChild: legacyTrack });
+  });
+  view.run(recorderCode);
+  view.run('var P = window.__PERF__; P.version = 8;' + LEGACY_HELPERS);
+  view.run(recorderCode);
+  view.run('window.__PERF__.start();');
+  view.fireFrame();
+  const P = view.ctx.__PERF__;
+
+  assert.equal(P.xs[0], -390, 'native flip position is translateX minus scrollLeft');
+  assert.equal(P.trackFound, true, 'native flip position is translateX minus scrollLeft');
+  const probe = JSON.parse(view.run(probeCode));
+  assert.equal(probe.readX, -390, 'native flip position is translateX minus scrollLeft');
+});
+
+test('legacy framer pager position is the track translateX', () => {
+  const view = recorderWebView(({ make, bySelector }) => {
+    const track = make({ _transform: 'matrix(1, 0, 0, 1, -80, 0)' });
+    bySelector['div.touch-pan-y'] = make({ scrollLeft: 15, firstElementChild: track });
+  });
+  view.run(recorderCode);
+  view.run('window.__PERF__.start();');
+  view.fireFrame();
+
+  assert.equal(view.ctx.__PERF__.xs[0], -80, 'legacy framer pager position is the track translateX');
+  assert.equal(view.ctx.__PERF__.trackFound, true);
 });
