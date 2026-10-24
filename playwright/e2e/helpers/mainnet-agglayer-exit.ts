@@ -51,6 +51,19 @@ const EXITS_PAGE = 10;
 const MAX_EXIT_PAGES = 50;
 const INDEXER_TIMEOUT_MS = 15_000;
 
+/**
+ * `total_cnt` is a non-negative integer, whether the JSON value is a number or a string of digits. Missing, blank,
+ * negative, and non-whole values are not a complete listing.
+ */
+function indexedDepositTotal(value: unknown, url: string): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  throw new Error(`the AggLayer indexer answered ${url} with a total_cnt that is not a non-negative integer`);
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 function isDeposit(value: unknown): value is AgglayerDeposit {
@@ -95,7 +108,7 @@ export async function fetchIndexedDeposits(
       throw new Error(`the AggLayer indexer answered ${url} with an unreadable deposit list`);
     }
     found.push(...deposits);
-    total = isRecord(body) && typeof body.total_cnt === 'string' ? Number(body.total_cnt) : found.length;
+    total = indexedDepositTotal(isRecord(body) ? body.total_cnt : undefined, url);
     if (deposits.length === 0) break;
   }
   if (found.length < total && Number.isFinite(total)) {

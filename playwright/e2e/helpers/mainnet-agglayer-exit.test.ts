@@ -237,5 +237,55 @@ describe('reading the indexer', () => {
         url.endsWith('offset=0') ? page([exit()], 3) : page([], 3)
       )
     ).rejects.toThrow('more than 1 read');
+    const numeric = (deposits: unknown[]): IndexerResponse => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ deposits, total_cnt: 3 })
+    });
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async url =>
+        url.endsWith('offset=0') ? numeric([exit()]) : numeric([])
+      )
+    ).rejects.toThrow('more than 1 read');
+  });
+
+  it('refuses a page whose total_cnt is missing or not a whole number', async () => {
+    const full = Array.from({ length: 10 }, (_, index) => exit({ deposit_cnt: index }));
+    const listing = (body: Record<string, unknown>): IndexerResponse => ({
+      ok: true,
+      status: 200,
+      json: async () => body
+    });
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async () => listing({ deposits: full }))
+    ).rejects.toThrow('total_cnt');
+    for (const total_cnt of ['nope', '', '   ', -1, '-2', 1.5, '1.5']) {
+      await expect(
+        fetchIndexedDeposits('https://indexer/api', ME, async () => listing({ deposits: full, total_cnt }))
+      ).rejects.toThrow('total_cnt');
+    }
+  });
+
+  it('reads a numeric total_cnt', async () => {
+    const first = Array.from({ length: 10 }, (_, index) => exit({ deposit_cnt: index }));
+    const urls: string[] = [];
+    const read = jest.fn(async (url: string) => {
+      urls.push(url);
+      const deposits = url.endsWith('offset=0') ? first : [exit({ deposit_cnt: 10 }), exit({ deposit_cnt: 11 })];
+      return { ok: true, status: 200, json: async () => ({ deposits, total_cnt: 12 }) };
+    });
+    const found = await fetchIndexedDeposits('https://indexer/api', ME, read);
+    expect(found.map(deposit => deposit.deposit_cnt)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(urls).toEqual([
+      `https://indexer/api/bridges/${ME}?limit=10&offset=0`,
+      `https://indexer/api/bridges/${ME}?limit=10&offset=10`
+    ]);
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ deposits: [], total_cnt: 0 })
+      }))
+    ).resolves.toEqual([]);
   });
 });

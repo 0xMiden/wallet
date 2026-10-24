@@ -142,6 +142,10 @@ export async function bridgeEthToMiden(args: {
   return hash;
 }
 
+function isFetchTimeout(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
 export async function claimAgglayerOnEthereum(args: {
   key: Hex;
   chain: Chain;
@@ -151,12 +155,18 @@ export async function claimAgglayerOnEthereum(args: {
   deposit: AgglayerDeposit & { global_index?: string | number };
 }): Promise<Hex> {
   const proof = await fetch(
-    `${args.indexerUrl}/merkle-proof?deposit_cnt=${args.deposit.deposit_cnt}&net_id=${args.deposit.network_id}`
-  ).then(async response => {
-    if (!response.ok) throw new Error(`AggLayer merkle proof answered ${response.status}`);
-    const body = (await response.json()) as { proof: AgglayerMerkleProof };
-    return body.proof;
-  });
+    `${args.indexerUrl}/merkle-proof?deposit_cnt=${args.deposit.deposit_cnt}&net_id=${args.deposit.network_id}`,
+    { signal: AbortSignal.timeout(15_000) }
+  )
+    .then(async response => {
+      if (!response.ok) throw new Error(`AggLayer merkle proof answered ${response.status}`);
+      const body = (await response.json()) as { proof: AgglayerMerkleProof };
+      return body.proof;
+    })
+    .catch((error: unknown) => {
+      if (!isFetchTimeout(error)) throw error;
+      throw new Error('the AggLayer merkle proof was not read within 15s', { cause: error });
+    });
   if (args.deposit.global_index === undefined) {
     throw new Error('AggLayer deposit has no global index, so the claim was not sent');
   }

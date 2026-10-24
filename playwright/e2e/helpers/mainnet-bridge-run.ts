@@ -17,11 +17,20 @@ export function mainnetEvmKey(): Hex {
   return raw.startsWith('0x') ? `0x${raw.slice(2)}` : `0x${raw}`;
 }
 
+function isFetchTimeout(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
 export async function loadMainnetDocument(): Promise<MainnetUsdcxDocument> {
-  const response = await fetch(CONFIG_URL);
-  if (!response.ok) throw new Error(`the mainnet config answered ${response.status}`);
-  const doc: MainnetUsdcxDocument = await response.json();
-  return doc;
+  try {
+    const response = await fetch(CONFIG_URL, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error(`the mainnet config answered ${response.status}`);
+    const doc: MainnetUsdcxDocument = await response.json();
+    return doc;
+  } catch (error) {
+    if (!isFetchTimeout(error)) throw error;
+    throw new Error('the mainnet config was not read within 15s', { cause: error });
+  }
 }
 
 export async function readEthereumFunds(address: `0x${string}`): Promise<{ wei: bigint; maxFeePerGas: bigint }> {
