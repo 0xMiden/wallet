@@ -210,6 +210,7 @@ public class BreadMorphControllerTest {
             if ("bread_morph_p".equals(counter.getName())) values.add(counter.getValue());
         }
         assertTrue(values.size() > 5);
+        assertTrue(values.stream().anyMatch(v -> v > 0 && v < 10000));
         assertEquals(Long.valueOf(0), values.get(values.size() - 1));
         int sections = 0;
         for (ShadowTrace.AsyncTraceSection section : ShadowTrace.getPreviousAsyncSections()) {
