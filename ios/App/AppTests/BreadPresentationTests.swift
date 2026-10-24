@@ -1808,6 +1808,24 @@ final class BreadMorphAnimatorTests: XCTestCase {
         XCTAssertTrue(container.morphing)
     }
 
+    func testSettlesOnTheDisplayFrameThatReachesTheSpringsEnd() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let animator = clocked(fixture.container)
+        var settled = 0
+        let start = CACurrentMediaTime()
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: { settled += 1 })
+        let duration = try XCTUnwrap(fixture.container.clipView.layer.animation(forKey: "bread.morph.position")).duration
+        animator.displayFrame(start + duration - 0.02)
+        XCTAssertEqual(settled, 0)
+        XCTAssertNotNil(animator.spring)
+        animator.displayFrame(CACurrentMediaTime() + duration + 0.001)
+        XCTAssertEqual(settled, 1)
+        XCTAssertNil(animator.spring)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: duration + 0.1))
+        XCTAssertEqual(settled, 1)
+    }
+
     func testShadowLandsAtFourteenBlurAndTenOffsetOnScreen() throws {
         let fixture = try morphContainerFixture()
         defer { fixture.dispose() }

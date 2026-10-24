@@ -295,6 +295,8 @@ final class BreadMorphAnimator {
 
     func velocity() -> Double { spring?.sample(at: now()).velocity ?? 0 }
 
+    func displayFrame(_ targetTimestamp: CFTimeInterval) {}
+
     func presentationFrame() -> CGRect { container?.presentationFrame() ?? .zero }
 
     func run(to target: Double, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics, onSettle: @escaping () -> Void) {
