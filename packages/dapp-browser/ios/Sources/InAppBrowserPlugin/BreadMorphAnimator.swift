@@ -160,22 +160,47 @@ final class BreadMorphFrameTarget: NSObject {
     }
 }
 
+// Holds the display at full rate from a touch-down until a morph's own link takes over, or until it lapses.
 final class BreadFrameRateBoost {
     static let shared = BreadFrameRateBoost()
     static let duration: CFTimeInterval = 0.6
     private let now: () -> CFTimeInterval
     private(set) var link: CADisplayLink?
+    private var expiry: CFTimeInterval = 0
     var active: Bool { link != nil }
 
     init(now: @escaping () -> CFTimeInterval = CACurrentMediaTime) {
         self.now = now
     }
 
-    func hold(for duration: CFTimeInterval = BreadFrameRateBoost.duration) {}
+    deinit { link?.invalidate() }
 
-    func release() {}
+    func hold(for duration: CFTimeInterval = BreadFrameRateBoost.duration) {
+        expiry = max(expiry, now() + duration)
+        guard link == nil else { return }
+        let link = CADisplayLink(target: BreadFrameRateBoostTarget(boost: self), selector: #selector(BreadFrameRateBoostTarget.frame(_:)))
+        link.preferredFrameRateRange = BreadMorphAnimator.frameRate
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
 
-    func tick() {}
+    func release() {
+        link?.invalidate()
+        link = nil
+        expiry = 0
+    }
+
+    func tick() { if now() >= expiry { release() } }
+}
+
+final class BreadFrameRateBoostTarget: NSObject {
+    weak var boost: BreadFrameRateBoost?
+
+    init(boost: BreadFrameRateBoost) {
+        self.boost = boost
+    }
+
+    @objc func frame(_ link: CADisplayLink) { boost?.tick() }
 }
 
 final class BreadMorphAnimator {
@@ -212,6 +237,7 @@ final class BreadMorphAnimator {
         link.preferredFrameRateRange = Self.frameRate
         link.add(to: .main, forMode: .common)
         self.link = link
+        BreadFrameRateBoost.shared.release()
     }
 
     func releaseBoost() {

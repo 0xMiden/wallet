@@ -201,6 +201,11 @@ final class BreadPresentationController {
             long revision = state.policyRevision(), sequence = state.acknowledgedVisibilitySequence();
             owner.presentationMinimizeRequested(revision, sequence, nativeCollapse());
         });
+        back.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) BreadFrameBoost.hold(v, BreadFrameBoost.DURATION_MS);
+            else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) BreadFrameBoost.release();
+            return false;
+        });
         GradientDrawable capsule = new GradientDrawable();
         capsule.setColor(0xcc292929);
         capsule.setCornerRadius(dp(28));

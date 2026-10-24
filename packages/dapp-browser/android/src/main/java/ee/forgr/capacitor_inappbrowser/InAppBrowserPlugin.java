@@ -1475,7 +1475,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
      */
     @PluginMethod
     public void prepareMorph(PluginCall call) {
-        call.resolve();
+        Integer requested = call.getInt("durationMs");
+        long duration = requested == null ? BreadFrameBoost.DURATION_MS : Math.max(0, Math.min(2000, requested));
+        this.getActivity().runOnUiThread(() -> {
+            BreadFrameBoost.hold(getBridge() == null ? null : getBridge().getWebView(), duration);
+            call.resolve();
+        });
     }
 
     /**

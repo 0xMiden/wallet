@@ -1392,7 +1392,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     /// control that can start a morph, so the display is at speed when it moves.
     /// A morph that starts takes the request over; without one it lapses after `durationMs`.
     @objc func prepareMorph(_ call: CAPPluginCall) {
-        call.resolve()
+        let duration = min(2, max(0, Double(call.getInt("durationMs") ?? 600) / 1000))
+        DispatchQueue.main.async {
+            BreadFrameRateBoost.shared.hold(for: duration)
+            call.resolve()
+        }
     }
 
     /// Miden plugin method (PR-4 chunk 4): list all currently registered

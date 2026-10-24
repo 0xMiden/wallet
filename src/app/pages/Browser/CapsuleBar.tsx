@@ -35,6 +35,7 @@ import {
   getFallbackLetter,
   getFaviconUrl
 } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { hapticLight } from 'lib/mobile/haptics';
 
 interface CapsuleBarProps {
@@ -149,6 +150,7 @@ export const CapsuleBar = forwardRef<HTMLElement, CapsuleBarProps>(function Caps
         {onMinimize && (
           <button
             type="button"
+            onPointerDown={() => void prepareMorph()}
             onClick={() => {
               hapticLight();
               onMinimize();

@@ -648,6 +648,10 @@ export interface MorphResult {
 export interface MorphTargetOptions {
     card: MorphCard | null;
 }
+export interface PrepareMorphOptions {
+    /** How long the request lasts when no morph takes it over; native clamps it to 0-2000 ms. */
+    durationMs: number;
+}
 export interface PresentationMorphEvent {
     id: string;
     morphId: string;
@@ -896,6 +900,12 @@ export interface InAppBrowserPlugin {
      * on; null when no card is visible.
      */
     setMorphTarget(options: MorphTargetOptions): Promise<void>;
+    /**
+     * Miden patch (#1817): hold the display's full frame rate from a touch-down on a control that can start a
+     * morph, so the panel is at speed when the page's first frame moves. The morph native then runs takes the
+     * request over; without one it lapses after durationMs. Android requests it on API 35+ only.
+     */
+    prepareMorph(options: PrepareMorphOptions): Promise<void>;
     /**
      * Miden patch (PR-4 chunk 4): list every currently registered instance
      * id. Used by the wallet's PR-6 cold-bubble restore logic and the LRU

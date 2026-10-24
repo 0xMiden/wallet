@@ -64,5 +64,9 @@ export class InAppBrowserWeb extends WebPlugin {
         console.log('setMorphTarget', options);
         return;
     }
+    async prepareMorph(options) {
+        console.log('prepareMorph', options);
+        return;
+    }
 }
 //# sourceMappingURL=web.js.map

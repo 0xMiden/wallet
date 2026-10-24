@@ -856,9 +856,9 @@ final class BreadPresentationController: NSObject {
         owner?.reload()
     }
 
-    @objc private func capsuleTouchDown() { animator?.boost() }
+    @objc private func capsuleTouchDown() { BreadFrameRateBoost.shared.hold() }
 
-    @objc private func capsuleTouchEnded() { if !moving { animator?.reset() } }
+    @objc private func capsuleTouchEnded() { BreadFrameRateBoost.shared.release() }
 
     @objc private func minimizeTapped() {
         guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else {

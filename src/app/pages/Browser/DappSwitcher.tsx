@@ -27,6 +27,7 @@ import {
   getFallbackColor,
   getFallbackLetter
 } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
@@ -198,6 +199,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       <button
         type="button"
         className="absolute inset-0 cursor-pointer"
+        onPointerDown={() => void prepareMorph()}
         onClick={() => onTap(session)}
         aria-label={t('dappSwitcherCardActivate', { name: displayName })}
         data-testid="dapp-switcher-card"

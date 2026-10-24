@@ -72,6 +72,7 @@ final class BreadMorphController {
         if (!running) measure();
         target = to;
         if (!ValueAnimator.areAnimatorsEnabled()) {
+            BreadFrameBoost.release();
             spring.cancel();
             land(to);
             return;
@@ -190,6 +191,7 @@ final class BreadMorphController {
         boosted = true;
         if (Build.VERSION.SDK_INT >= 29) Trace.beginAsyncSection("bread_morph", ++section);
         if (Build.VERSION.SDK_INT >= 35) container.setRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_HIGH);
+        BreadFrameBoost.release();
     }
 
     private void idle() {

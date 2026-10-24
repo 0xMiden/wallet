@@ -39,6 +39,7 @@ import type { MorphVelocity } from '@miden/dapp-browser';
 import { Icon, IconName } from 'app/icons/v2';
 import { MORPH_TIMING, springs } from 'lib/animation';
 import { type DappSession, getDappDisplayName, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
 export const CARD_WIDTH = 104;
@@ -315,6 +316,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       />
       <button
         type="button"
+        // A tap or a swipe up can restore, so the frame rate rises with the finger, and again on a slow drag's release.
+        onPointerDown={() => void prepareMorph()}
+        onPointerUp={() => void prepareMorph()}
         onClick={handleTap}
         aria-label={t('restoreDappCard', { name: displayName })}
         data-testid="dapp-peek-card"
