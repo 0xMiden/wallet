@@ -522,9 +522,9 @@ const History = memo<HistoryProps>(
 
     // Labelled here, over the paged rows too, so every row and the search below follow a config publish.
     const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-    // Only the re-render matters: the rows read the id during render (`isFaucetRequest`) and are false
-    // while it is unknown, so one that mounted before the id was discovered is relabelled by this.
-    useNativeFeeFaucetId();
+    // The rows read the id during render (`isFaucetRequest`), which is false while it is unknown, and
+    // they are memoized on the entry object, so discovery must recompute `allEntries` to relabel them.
+    const nativeFaucetId = useNativeFeeFaucetId();
     // Don't sort the pending transactions, earliest should come first as they are processed first.
     // No network hides a row here: a Mainnet consume of the native asset sent by its faucet is a
     // bridge-in, since the USDCx faucet mints every bridged-in note, not a faucet drip.
@@ -537,7 +537,9 @@ const History = memo<HistoryProps>(
           )
         )
         .map(entry => labelHistoryEntry(bridgeConfig, entry));
-    }, [bridgeConfig, latestHistoryPage, restEntries, pendingTransactions]);
+      // `nativeFaucetId` is a trigger only: the labelled entries are new objects once it changes.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [bridgeConfig, latestHistoryPage, restEntries, pendingTransactions, nativeFaucetId]);
 
     const loadMore = async (_page: number) => {
       if (!readingCompletedRef.current) return;

@@ -1588,33 +1588,35 @@ describe('History', () => {
       utils.unmount();
     });
 
-    // The rows read the id during render (`isFaucetRequest`), so only a re-render of History relabels
-    // rows that mounted while it was unknown.
-    it('renders again once the native faucet id resolves', async () => {
+    // The rows read the id during render (`isFaucetRequest`) and the row components are memoized on the
+    // entry, so a row that mounted while the id was unknown is relabelled only by a new entry object.
+    it('hands the rows new entries once the native faucet id resolves', async () => {
       mockNativeAssetId = null;
       let resolveLookup!: (id: string) => void;
       mockNativeAssetLookup = new Promise(resolve => {
         resolveLookup = resolve;
       });
-      let renders = 0;
+      let seen: any;
       const utils = await renderHistory({
-        renderEntries: () => {
-          renders += 1;
+        renderEntries: (view: any) => {
+          seen = view;
           return <div data-testid="history-view" />;
         }
       });
-      // Let the load settle, so only the id can cause the next render.
+      await waitFor(() => expect(seen?.initialLoading).toBe(false));
+      // Let the load settle, so only the id can replace the entries.
       await act(async () => {
         await new Promise(resolve => setTimeout(resolve, 50));
       });
-      const before = renders;
+      const before = seen.entries[0];
+      expect(before).toBeDefined();
 
       mockNativeAssetId = 'NATIVE';
       await act(async () => {
         resolveLookup('NATIVE');
       });
 
-      await waitFor(() => expect(renders).toBeGreaterThan(before));
+      await waitFor(() => expect(seen.entries[0]).not.toBe(before));
       utils.unmount();
     });
   });
