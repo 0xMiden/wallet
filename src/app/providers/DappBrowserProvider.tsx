@@ -1476,7 +1476,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             morphId,
             target: 'collapsed',
             outgoingId: null,
-            started: false,
+            // Native started it before the minimize event, and may have emitted `started` before it too (Android).
+            started: true,
             acknowledging: false,
             progress: 1,
             velocity: 0,

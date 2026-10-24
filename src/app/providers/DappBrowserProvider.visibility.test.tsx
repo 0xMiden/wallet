@@ -1766,6 +1766,18 @@ describe('native morph adoption', () => {
     expect(control().mode).toBe('launcher');
   });
 
+  it('follows an adopted native collapse as started when its started event came first', async () => {
+    await openForeground();
+
+    emitMorph('started', 'collapsed', 'native-1');
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: 'native-1' })));
+    expect(control().motion).toMatchObject({ morphId: 'native-1', target: 'collapsed', started: true });
+    emitMorph('settled', 'collapsed', 'native-1');
+    await settle();
+
+    expect(parked()).toEqual(['origin']);
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 
