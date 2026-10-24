@@ -162,7 +162,7 @@ final class BreadMorphFrameTarget: NSObject {
 
 // Holds the display at full rate from a touch-down until a morph's own link takes over, or until it lapses.
 final class BreadFrameRateBoost {
-    static let shared = BreadFrameRateBoost()
+    static let shared = BreadFrameRateBoost(window: BreadFrameRateBoost.visibleWindow)
     static let duration: CFTimeInterval = 0.6
     private let now: () -> CFTimeInterval
     private let window: () -> UIWindow?
@@ -185,15 +185,51 @@ final class BreadFrameRateBoost {
         link.preferredFrameRateRange = BreadMorphAnimator.frameRate
         link.add(to: .main, forMode: .common)
         self.link = link
+        startPulse()
     }
 
     func release() {
         link?.invalidate()
         link = nil
         expiry = 0
+        guard let pulse else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pulse.removeFromSuperlayer()
+        CATransaction.commit()
+        self.pulse = nil
     }
 
     func tick() { if now() >= expiry { release() } }
+
+    // A display link alone leaves an idle compositor idle; an animation the render server runs keeps it drawing at
+    // the requested rate, so the morph's first frame lands on a 120 Hz panel. One point, below 1% opacity.
+    private func startPulse() {
+        guard let host = window()?.layer else { return }
+        let layer = CALayer()
+        layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        layer.backgroundColor = UIColor.black.cgColor
+        layer.opacity = 0.004
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = NSNumber(value: Float(0.004))
+        animation.toValue = NSNumber(value: Float(0.008))
+        animation.duration = 0.25
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.preferredFrameRateRange = BreadMorphAnimator.frameRate
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.add(animation, forKey: "bread.boost")
+        host.addSublayer(layer)
+        CATransaction.commit()
+        pulse = layer
+    }
+
+    static func visibleWindow() -> UIWindow? {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }.flatMap(\.windows).filter { !$0.isHidden }
+        return windows.first(where: \.isKeyWindow) ?? windows.first
+    }
 }
 
 final class BreadFrameRateBoostTarget: NSObject {
