@@ -346,6 +346,13 @@ jobs:
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
       AUTH_TAB_FIREFOX_URL: https://ftp.mozilla.org/pub/fenix/releases/158.0.2/android/fenix-158.0.2-android-x86_64/fenix-158.0.2.multi.android-x86_64.apk
       AUTH_TAB_FIREFOX_SHA256: 75273e0088f22d3cde1a298f694e91d5ddb096b040487569f534636dcc3ac2b3
+      # No emulator image ships an Auth Tab Chrome that runs here: Android 36 bundles Chrome 133, and every Android 37
+      # image aborts surfaceflinger in a loop on GitHub's runners (hasReadColorBufferDma). Chromium from a pinned
+      # x86_64 snapshot is the Auth Tab provider instead; its APK is signed with Chromium's public debug key, so the
+      # SHA-256 pin is the only trust anchor.
+      AUTH_TAB_CHROMIUM_URL: https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1726326/chrome-android-desktop.zip
+      AUTH_TAB_CHROMIUM_SHA256: c3abec16d5daaabe4583d5792f000043694595f31d30c1efad39e348b5f98a08
+      AUTH_TAB_PROVIDER: org.chromium.chrome
       ANDROID_SERIAL: emulator-5554
     steps:
       - uses: actions/checkout@v4
@@ -381,6 +388,13 @@ jobs:
           curl --fail --location --retry 3 "$AUTH_TAB_FIREFOX_URL" --output "$RUNNER_TEMP/firefox.apk"
           echo "$AUTH_TAB_FIREFOX_SHA256  $RUNNER_TEMP/firefox.apk" | sha256sum --check
 
+      - name: Download pinned Chromium provider
+        run: |
+          curl --fail --location --retry 3 "$AUTH_TAB_CHROMIUM_URL" --output "$RUNNER_TEMP/chromium.zip"
+          unzip -q -j "$RUNNER_TEMP/chromium.zip" 'chrome-android-desktop/apks/ChromePublic.apk' -d "$RUNNER_TEMP"
+          rm "$RUNNER_TEMP/chromium.zip"
+          echo "$AUTH_TAB_CHROMIUM_SHA256  $RUNNER_TEMP/ChromePublic.apk" | sha256sum --check
+
       - name: Inject linked web-sdk PR
         id: inject-web-sdk
         uses: ./.github/actions/inject-linked-web-sdk-pr
@@ -395,8 +409,15 @@ jobs:
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
 
+      # The wallet fails closed on its startup eligibility check; without this fixture onboarding never renders.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build debug APK
-        run: yarn test:e2e:android:build
+        run: |
+          yarn test:e2e:android:build
+          # The script installs both APKs itself; the daemon would only hold memory the emulator needs.
+          (cd android && ./gradlew :app:assembleDebugAndroidTest && ./gradlew --stop)
 
       - name: Generate run-scoped fixture CA and TLS certificate
         shell: bash
@@ -465,6 +486,8 @@ jobs:
             echo "emulator_step_outcome=${{ steps.auth-tab-emulator.outcome }}"
             echo 'emulator_image=android-36;google_apis_playstore;x86_64'
             echo 'emulator_avd=Pixel_API_36_AuthTab'
+            sdkmanager --list_installed 2>/dev/null | grep -F 'system-images;android-36;google_apis_playstore;x86_64' || echo 'emulator_image_revision=unread'
+            echo "auth_tab_provider=$AUTH_TAB_PROVIDER chromium_sha256=$AUTH_TAB_CHROMIUM_SHA256"
             echo 'firefox_package=org.mozilla.firefox version=158.0.2 authTabSupported=false'
             if [[ -f test-results-auth-tab/results.json ]]; then
               if ! node <<'NODE'
