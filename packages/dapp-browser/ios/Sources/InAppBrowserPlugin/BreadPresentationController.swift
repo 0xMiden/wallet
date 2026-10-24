@@ -22,8 +22,13 @@ struct BreadPresentationOptions {
     }
 }
 
+enum BreadMorphTarget: String { case collapsed, expanded }
+
 final class BreadPresentationController: NSObject {
     let state: BreadPresentationState
+    let proxy = UIImageView()
+    private(set) var animator: BreadMorphAnimator?
+    private(set) var morphId: String?
     private let options: BreadPresentationOptions
     private weak var owner: WKWebViewController?
     private weak var webView: WKWebView?
@@ -117,6 +122,14 @@ final class BreadPresentationController: NSObject {
     }
 
     func updateSlot() { if state.display == .browser { render() } }
+
+    @discardableResult
+    func morph(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, morphId: String,
+               policyRevision: Int?, sequence: Int?) -> Bool {
+        false
+    }
+
+    func dropProxy() {}
 
     func layoutChanged() {
         guard let owner, state.phase != .closed else { return }
