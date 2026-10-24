@@ -3,7 +3,6 @@ import React, { ReactNode, useId, useRef } from 'react';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
 import { useImperativeModalFocus } from 'lib/ui/host-modal';
 import { cn } from 'lib/ui/util';
@@ -28,6 +27,8 @@ export interface AlertSheetProps {
   /** Names the sheet's overlay screen-key segment (`drawer:<screenKey>`). E2E-only. */
   screenKey?: string;
 }
+
+const noop = () => {};
 
 function AlertBack({ dismiss }: { dismiss: () => void }) {
   useCloseOnBack(true, dismiss);
@@ -68,9 +69,10 @@ export function AlertSheet({
   const hasDescription = children !== undefined && children !== null && children !== '';
 
   useHideDappBubblesWhileOpen(open);
-  useMobileBackHandler(() => open && !dismissible, [open, dismissible], { overlay: true });
 
   const dismiss = onCancel ?? onAction;
+  // A sheet that cannot be dismissed still takes mobile back, so the press never reaches the page beneath.
+  const back = dismissible ? dismiss : noop;
 
   return (
     <Drawer
@@ -84,7 +86,7 @@ export function AlertSheet({
       noBodyStyles
       screenKey={screenKey}
     >
-      {open && <AlertBack dismiss={dismiss} />}
+      {open && <AlertBack dismiss={back} />}
       <DrawerContent
         role="alertdialog"
         aria-describedby={hasDescription ? descriptionId : undefined}
