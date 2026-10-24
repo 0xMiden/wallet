@@ -42,4 +42,5 @@ Removal affects this local wallet. It does not delete backups that you previousl
 
 ## More
 
+- [Developer guide](https://0xmiden.github.io/wallet/developers/) for building dApps for Bread
 - [Privacy Policy](https://0xmiden.github.io/wallet/privacy/)

@@ -9,6 +9,8 @@
 
 A secure, cross-platform wallet for the [Miden](https://miden.xyz) blockchain. Available as a browser extension, desktop application, and mobile app.
 
+**Building a dApp for Bread?** Read the [developer guide](https://0xmiden.github.io/wallet/developers/): connecting, transactions, sign-in, fullscreen in the mobile browser and getting listed in Explore.
+
 ## Platforms
 
 | Platform | Technology | Status |
