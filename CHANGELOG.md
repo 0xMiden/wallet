@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][all] Activity shows every accepted transfer on mainnet. A mainnet-only rule hid a consume of the native asset sent by its faucet as a faucet drip, but on mainnet that faucet is the USDCx minter, so every bridged-in claim and its pending card vanished from the feed, the filters and the search. Such a row, card, badge and receipt now read as an ordinary receive on mainnet, grouped under the sender, and as a faucet claim on every other network.
 - [FIX][all] Activity Groups handles recovered and legacy history without stored messages, shares action titles with List, and offers a scoped retry or Return to List if the group renderer fails.
 
 - [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).

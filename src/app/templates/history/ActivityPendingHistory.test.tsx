@@ -465,52 +465,27 @@ describe('a faucet claim card by network', () => {
   });
   const faucetCard = () => screen.getByTestId('timeline').querySelector('[data-pending-note-id="faucet-note"]');
 
-  it('shows the card off Mainnet', () => {
-    mockWalletNetwork = 'testnet';
+  it.each(['testnet', 'mainnet'])('shows the card on %s and counts it for Accept All', network => {
+    // On Mainnet the native faucet is the USDCx minter, so such a note is a bridge-in, never noise.
+    mockWalletNetwork = network;
     render(<ActivityPendingHistory search="" filter="pending" />);
     expect(faucetCard()).not.toBeNull();
-  });
-
-  it('hides the card on Mainnet, keeps it out of Accept All and keeps the other cards', () => {
-    mockWalletNetwork = 'mainnet';
-    render(<ActivityPendingHistory search="" filter="pending" />);
-    expect(faucetCard()).toBeNull();
-    expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
     expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual([
       'first',
       'second',
-      'third'
+      'third',
+      'faucet-note'
     ]);
   });
 
-  it('hides the card on Mainnet once the native faucet id resolves', async () => {
-    mockWalletNetwork = 'mainnet';
-    mockNativeAssetId = null;
-    let resolveLookup!: (id: string) => void;
-    mockNativeAssetLookup = new Promise(resolve => {
-      resolveLookup = resolve;
-    });
-    render(<ActivityPendingHistory search="" filter="pending" />);
-    // With the id unknown nothing recognises a faucet claim yet.
-    expect(faucetCard()).not.toBeNull();
-
-    mockNativeAssetId = NATIVE;
-    await act(async () => {
-      resolveLookup(NATIVE);
-    });
-
-    await waitFor(() => expect(faucetCard()).toBeNull());
-    expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).not.toBeNull();
-  });
-
-  it('does not count a declined faucet claim for Restore on Mainnet', () => {
+  it('counts a declined faucet claim for Restore on Mainnet', () => {
     mockWalletNetwork = 'mainnet';
     mockState.items = [faucetItem];
     mockHidden.ids = new Set(['faucet-note']);
     render(<ActivityPendingHistory search="" filter="pending" />);
-    expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).not.toBeNull();
   });
 });
 
