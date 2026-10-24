@@ -240,9 +240,16 @@ final class BreadPresentationController {
         webView.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> {
             int width = r - l, height = b - t;
             if (width != layoutWidth || height != layoutHeight) {
+                boolean resized = layoutWidth != 0 && layoutHeight != 0;
                 layoutWidth = width;
                 layoutHeight = height;
                 finishMotion();
+                if (resized) {
+                    // The proxy is a frame of the old size; the next expand must not show it.
+                    proxyBitmap = null;
+                    state.dropProxy();
+                    hideProxy();
+                }
                 invalidateLayout();
             }
         });
@@ -634,13 +641,16 @@ final class BreadPresentationController {
         Rect page = new Rect(0, 0, webView.getWidth(), webView.getHeight());
         container.offsetDescendantRectToMyCoords(webView, page);
         int dx = page.left - overlay.getLeft(), dy = page.top - overlay.getTop();
+        boolean painted = state.phase() == BreadPresentationState.Phase.VISIBLE;
         capturing = true;
         owner.captureWebView(bitmap -> {
             if (epoch != captureEpoch) return;
             capturing = false;
             boolean current = bitmap != null && navigation == state.navigationGeneration()
                 && state.phase() != BreadPresentationState.Phase.CLOSED;
-            if (current) adopt(bitmap, dx, dy);
+            // A covered page or a resized WebView would make the proxy show a frame that is not the page.
+            boolean sameSize = bitmap != null && bitmap.getWidth() == webView.getWidth() && bitmap.getHeight() == webView.getHeight();
+            if (current && painted && sameSize) adopt(bitmap, dx, dy);
             List<Consumer<Bitmap>> waiters = new ArrayList<>(captureWaiters);
             captureWaiters.clear();
             for (Consumer<Bitmap> waiter : waiters) waiter.accept(current ? bitmap : null);
