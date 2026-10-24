@@ -81,11 +81,9 @@ final class BreadMorphController {
         SpringForce force = spring.getSpring();
         force.setStiffness(physics.stiffness);
         force.setDampingRatio(physics.dampingRatio);
-        if (running) {
-            spring.animateToFinalPosition(to * RANGE);
-            return;
-        }
+        // Not animateToFinalPosition: its queued target survives a cancel and steers the next flight.
         force.setFinalPosition(to * RANGE);
+        if (running) return;
         spring.setStartValue(progress * RANGE);
         spring.setStartVelocity(velocityP * RANGE);
         spring.start();
