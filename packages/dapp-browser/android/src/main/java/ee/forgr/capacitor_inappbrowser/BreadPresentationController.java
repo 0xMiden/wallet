@@ -451,10 +451,13 @@ final class BreadPresentationController {
         beginFlight(BreadPresentationState.Motion.COLLAPSING, id, sequence);
         headTo(0);
         if (flying) {
-            if (waiting) cancelCollapseFlight();
             emit("retargeted", 0, false);
-            // The queued copy has not happened yet, so a collapse retarget takes it before it moves.
-            if (waiting) captureProxy();
+            if (waiting) {
+                // The queued runnable still copies the capsule-free frame first, then moves toward this landing.
+                collapseLanding = landing;
+                collapseVelocity = speed;
+                return true;
+            }
         } else {
             posed = true;
             webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
@@ -641,7 +644,7 @@ final class BreadPresentationController {
         if (collapseFlight != null && !morph.running()) {
             BreadMorphCard landing = collapseLanding;
             cancelCollapseFlight();
-            captureProxy();
+            // No capsule-free frame has been drawn yet, so this park keeps no copy rather than one with the capsule.
             morph.place(landing, 0);
             morph.finishAtNearestEnd();
             return;
@@ -893,7 +896,7 @@ final class BreadPresentationController {
 
     void visibility(boolean visible, Integer policyRevision, Integer sequence) {
         boolean previous = state.effectiveVisibility();
-        BreadMorphEvent cancelled = flying() ? event("cancelled", morph.target(), false, morph.velocity()) : null;
+        BreadMorphEvent cancelled = flying() ? event("cancelled", collapseFlight != null ? 0 : morph.target(), false, morph.velocity()) : null;
         if (!state.requestVisibility(visible, policyRevision, sequence, SystemClock.uptimeMillis())) return;
         if (!visible) {
             morphId = null;
