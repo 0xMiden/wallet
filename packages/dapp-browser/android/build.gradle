@@ -39,6 +39,12 @@ android {
     }
     testOptions {
         unitTests.includeAndroidResources = true
+        unitTests.all {
+            testLogging {
+                events "passed", "failed", "skipped"
+                exceptionFormat "full"
+            }
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21
