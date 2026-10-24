@@ -452,7 +452,7 @@ jobs:
           force-avd-creation: true
           emulator-boot-timeout: 600
           cores: 4
-          ram-size: 6144M
+          ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics
           script: bash .github/scripts/run-auth-tab-acceptance.sh

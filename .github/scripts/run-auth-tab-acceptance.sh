@@ -39,9 +39,10 @@ wait_for_stable_system() {
   local last='' same=0
   for _ in $(seq 1 60); do
     local pid
-    pid=$(adb shell pidof system_server 2>/dev/null | tr -d '\r')
+    pid=$(timeout 10s adb shell pidof system_server 2>/dev/null | tr -d '\r')
+    starts=$(timeout 10s adb shell getprop sys.system_server.start_count 2>/dev/null | tr -d '\r')
     if [[ -n "$pid" && "$pid" == "$last" ]]; then same=$((same + 1)); else same=0; fi
-    echo "$(date +%T) system_server=${pid:-none}" >> "$results_dir/system-server-pids.txt"
+    echo "$(date +%T) system_server=${pid:-none} start_count=${starts:-none}" | tee -a "$results_dir/system-server-pids.txt"
     last=$pid
     [[ $same -ge 6 ]] && return 0
     sleep 5
@@ -54,10 +55,12 @@ install_apk() {
   for attempt in 1 2 3; do
     wait_for_stable_system || true
     adb shell pm path android >/dev/null 2>&1 || sleep 5
-    if adb install -r -t --no-streaming "$apk"; then return 0; fi
+    if timeout 240s adb install -r -t --no-streaming "$apk"; then return 0; fi
     echo "$(date +%T) install failed: $apk attempt=$attempt" >> "$results_dir/system-server-pids.txt"
   done
   timeout 15s adb logcat -d -b crash > "$results_dir/logcat-crash.txt" 2>&1 || true
+  echo '--- crash buffer (last 80 lines) ---'
+  tail -80 "$results_dir/logcat-crash.txt" || true
   timeout 15s adb logcat -d -b system,main -t 3000 > "$results_dir/logcat-system.txt" 2>&1 || true
   return 1
 }
