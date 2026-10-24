@@ -77,6 +77,15 @@ it.each([
   expect(Math.sign(sample.velocity)).toBe(Math.sign(value - from));
 });
 
+it('keeps the first arrival at a value behind a launch from rest at the target', () => {
+  // Launched up from rest at 0, the release spring swings back below 0 before it settles.
+  const seconds = springTimeToReach(springs.morphRelease, 0, 0, 8, -0.0005);
+  expect(seconds).not.toBeNull();
+  const sample = springProgressAt(springs.morphRelease, seconds ?? 0, 0, 0, 8);
+  expect(Math.abs(sample.value + 0.0005)).toBeLessThanOrEqual(1e-4);
+  expect(sample.velocity).toBeLessThan(0);
+});
+
 it('returns null for a value the spring never reaches', () => {
   expect(springTimeToReach(springs.morphExpand, 0, 1, 0, 1.5)).toBeNull();
 });
