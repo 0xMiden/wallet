@@ -29,6 +29,15 @@ let capsule: HTMLElement;
 let launcher: HTMLElement;
 const of = (element: Element) => played.filter(entry => entry.element === element);
 
+// jsdom has no DOMMatrixReadOnly; this reads a computed transform the way an engine does, for its m42 alone.
+class EngineMatrix {
+  m42 = 0;
+  constructor(transform: string) {
+    const values = /matrix(3d)?\(([^)]+)\)/.exec(transform);
+    if (values?.[2]) this.m42 = Number(values[2].split(',')[values[1] ? 13 : 5]);
+  }
+}
+
 afterEach(() => {
   capsule.remove();
   launcher.remove();
@@ -40,6 +49,7 @@ beforeEach(() => {
   mockLinear.value = true;
   capsule = document.body.appendChild(document.createElement('header'));
   launcher = document.body.appendChild(document.createElement('div'));
+  Object.defineProperty(globalThis, 'DOMMatrixReadOnly', { configurable: true, value: EngineMatrix });
   Object.defineProperty(Element.prototype, 'animate', {
     configurable: true,
     value: function (this: Element, keyframes: Frame[], options: Options) {
@@ -68,7 +78,7 @@ it('collapse fades and lifts the capsule over 160 ms and stops its pointer event
 
 it('expand fades the capsule in from progress 0.6', () => {
   capsule.style.opacity = '0';
-  capsule.style.transform = 'translateY(-8px)';
+  capsule.style.transform = 'matrix(1, 0, 0, 1, 0, -8)';
 
   startMorphCompanions({ capsule, launcher }, { target: 'expanded', progress: 0, velocity: 0 }, false);
 
@@ -134,6 +144,15 @@ it('an expand retarget holds the sampled capsule through its fade-in delay', () 
   expect(fade?.options.delay).toBeGreaterThan(0);
   expect(fade?.options).toMatchObject({ fill: 'both' });
   expect(fade?.keyframes[0]).toMatchObject({ opacity: 0.25 });
+});
+
+it('a retarget reads a 3d capsule transform', () => {
+  capsule.style.opacity = '0.5';
+  capsule.style.transform = 'matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -4, 0, 1)';
+
+  startMorphCompanions({ capsule, launcher }, { target: 'expanded', progress: 0.4, velocity: 0 }, false);
+
+  expect(of(capsule)[0]?.keyframes[0]).toEqual({ opacity: 0.5, transform: 'translateY(-4px)' });
 });
 
 it('snaps when linear() is unsupported', () => {
