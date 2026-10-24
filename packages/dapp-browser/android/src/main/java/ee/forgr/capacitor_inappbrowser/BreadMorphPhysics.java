@@ -8,8 +8,10 @@ final class BreadMorphPhysics {
     final float stiffness;
     final float dampingRatio;
 
+    // The wallet's springs (src/lib/animation/springs.ts) take the same response and damping ratio, mass 1.
     private BreadMorphPhysics(float response, float dampingRatio) {
-        this.stiffness = 0;
-        this.dampingRatio = 0;
+        double frequency = 2 * Math.PI / response;
+        this.stiffness = (float) (frequency * frequency);
+        this.dampingRatio = dampingRatio;
     }
 }
