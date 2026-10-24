@@ -43,10 +43,15 @@ private final class PolicyRecordingPlugin: InAppBrowserPlugin {
     }
 }
 
+fileprivate typealias FixtureProbe = (WKWebViewInstance, UIWindow) throws -> Void
+
+fileprivate struct LiveFixtureAbort: Error {}
+
 @MainActor
 fileprivate extension XCTestCase {
     func livePresentation(initiallyVisible: Bool = true, morph: Bool = false,
-                          container: ((UINavigationController) -> BreadMorphContainerViewController)? = nil) async throws -> LivePresentation {
+                          container: ((UINavigationController) -> BreadMorphContainerViewController)? = nil,
+                          probe: FixtureProbe? = nil) async throws -> LivePresentation {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let host = scene.windows.first { $0.isKeyWindow }
         let owner = WKWebViewController(url: URL(string: "about:blank")!, headers: [:], isInspectable: true,
@@ -86,6 +91,7 @@ fileprivate extension XCTestCase {
             return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
         }
         XCTAssertTrue(loaded)
+        try probe?(instance, window)
         return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
     }
 
@@ -125,7 +131,8 @@ fileprivate extension XCTestCase {
         return BreadMorphCard(rect: CGRect(x: bounds.maxX - 120, y: bounds.maxY - 230, width: 104, height: 132), cornerRadius: 16)
     }
 
-    func revealedMorph(display: String = "browser", counting: Bool = false) async throws -> (LivePresentation, PolicyRecordingPlugin) {
+    func revealedMorph(display: String = "browser", counting: Bool = false,
+                       probe: FixtureProbe? = nil) async throws -> (LivePresentation, PolicyRecordingPlugin) {
         let live = try await livePresentation(morph: true, container: counting ? { CountingMorphContainer(child: $0) } : nil)
         let plugin = PolicyRecordingPlugin()
         live.owner.capBrowserPlugin = plugin
@@ -133,10 +140,12 @@ fileprivate extension XCTestCase {
         _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
         let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
         XCTAssertTrue(revealed)
+        try probe?(live.instance, live.window)
         return (live, plugin)
     }
 
-    func parkedWithProxy(display: String = "browser", counting: Bool = false) async throws -> (LivePresentation, PolicyRecordingPlugin) {
+    func parkedWithProxy(display: String = "browser", counting: Bool = false,
+                         probe: FixtureProbe? = nil) async throws -> (LivePresentation, PolicyRecordingPlugin) {
         let (live, plugin) = try await revealedMorph(display: display, counting: counting)
         XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
                                               policyRevision: nil, sequence: nil))
@@ -144,6 +153,7 @@ fileprivate extension XCTestCase {
         XCTAssertTrue(parked)
         live.presentation.setVisible(false)
         XCTAssertTrue(live.window.isHidden)
+        try probe?(live.instance, live.window)
         return (live, plugin)
     }
 
@@ -2242,6 +2252,32 @@ private final class SnapshotLog {
 @MainActor
 final class BreadMorphPresentationTests: XCTestCase {
     private typealias Motion = BreadPresentationState.Motion
+
+    func testAThrowingFixtureReleasesTheWindowAndTheRegistryEntry() async throws {
+        for arm in ["livePresentation", "revealedMorph", "parkedWithProxy"] {
+            var captured: (id: String, window: UIWindow)?
+            let abort: FixtureProbe = { instance, window in
+                captured = (instance.id, window)
+                throw LiveFixtureAbort()
+            }
+            do {
+                switch arm {
+                case "livePresentation": _ = try await livePresentation(morph: true, probe: abort)
+                case "revealedMorph": _ = try await revealedMorph(probe: abort)
+                default: _ = try await parkedWithProxy(probe: abort)
+                }
+                XCTFail("\(arm) returned past its probe")
+            } catch is LiveFixtureAbort {}
+            let (id, window) = try XCTUnwrap(captured, arm)
+            XCTAssertNil(window.windowScene, "\(arm): a throw after install leaves the window in the scene")
+            XCTAssertNil(WebViewRegistry.shared.get(id: id), "\(arm): a throw after install leaves the registry entry")
+            if let leaked = WebViewRegistry.shared.get(id: id) {
+                leaked.controller.cleanupWebView()
+                InAppBrowserPlugin.releaseContainerWindow(window)
+                WebViewRegistry.shared.remove(id: id)
+            }
+        }
+    }
 
     private func holdFrames(_ live: LivePresentation) async throws {
         _ = try await live.web.evaluateJavaScript("window.heldFrames=[]; window.realRAF=window.realRAF||window.requestAnimationFrame; window.requestAnimationFrame=callback=>heldFrames.push(callback); true")
