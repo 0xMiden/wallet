@@ -232,12 +232,14 @@ p { margin: 0 0 1em; }
 .btn svg { width: 18px; height: 18px; transition: transform 0.25s ease; }
 .btn:hover svg { transform: translateX(3px); }
 .install {
-  margin-top: 26px; display: inline-flex; align-items: center; gap: 12px; max-width: 100%; padding: 8px 8px 8px 16px; border-radius: 14px;
+  margin-top: 26px; display: inline-flex; align-items: flex-start; gap: 12px; max-width: 100%; padding: 8px 8px 8px 16px; border-radius: 14px;
   background: var(--code-bg); color: var(--code-ink); font: 500 14px/1.2 var(--font-mono); border: 1px solid rgba(255,255,255,0.08);
   box-shadow: var(--shadow);
 }
-.install .prompt { color: var(--accent); user-select: none; }
-.install code { background: none; border: 0; padding: 0; color: inherit; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.install .prompt { color: var(--accent); user-select: none; padding: 5px 0; line-height: 20px; }
+/* The command wraps only between words: a package name never splits at its hyphens */
+.install code { background: none; border: 0; padding: 5px 0; color: inherit; font-size: 13.5px; line-height: 20px; min-width: 0; }
+.install code span { white-space: nowrap; }
 
 .stage { position: relative; display: grid; place-items: center; min-height: 600px; }
 .stage::before { content: ''; position: absolute; width: 78%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, var(--accent-glow), transparent 65%); filter: blur(30px); z-index: -1; }
@@ -430,6 +432,7 @@ p { margin: 0 0 1em; }
 }
 .step:not(:last-child)::after { content: ''; position: absolute; left: 19px; top: 48px; bottom: -16px; width: 2px; background: linear-gradient(var(--accent), transparent); opacity: 0.4; }
 .step h3 { margin: 6px 0 8px; font-size: 20px; }
+.step p code { white-space: nowrap; }
 
 .code {
   position: relative; margin: 18px 0 26px; border-radius: var(--radius-md); overflow: hidden; background: var(--code-bg); color: var(--code-ink);
@@ -631,7 +634,9 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
   .step { padding-left: 0; padding-top: 52px; }
   .step:not(:last-child)::after { display: none; }
   pre { font-size: 12.6px; }
-  .install code { font-size: 12px; }
+  .install code { font-size: 11.5px; }
+  .install .copy { width: 30px; padding: 0; justify-content: center; }
+  .install .copy span { display: none; }
   .stage-chips { width: 260px; }
   .cta .btn { flex: 1 1 auto; justify-content: center; }
   .stage-chips span { font-size: 11.5px; }
@@ -721,8 +726,8 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       </div>
       <div class="install" role="group" aria-label="Install command">
         <span class="prompt" aria-hidden="true">$</span>
-        <code>npm i @miden-sdk/miden-wallet-adapter-react</code>
-        <button class="copy" type="button" data-copy="npm i @miden-sdk/miden-wallet-adapter-react" aria-label="Copy install command"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+        <code><span>npm i</span> <span>@miden-sdk/miden-wallet-adapter</span> <span>@miden-sdk/miden-sdk</span> <span>@miden-sdk/react</span></code>
+        <button class="copy" type="button" data-copy="npm i @miden-sdk/miden-wallet-adapter @miden-sdk/miden-sdk @miden-sdk/react" aria-label="Copy install command"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
       </div>
     </div>
 
@@ -866,7 +871,7 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
         <div class="steps">
           <div class="step reveal">
             <h3>Install the adapter</h3>
-            <p>The React package brings the Bread adapter and its base types. It expects React, <code>@miden-sdk/react</code> and <code>@miden-sdk/miden-sdk</code> 0.17 as peers. Without React, install the base and miden packages and the SDK.</p>
+            <p><code>@miden-sdk/miden-wallet-adapter</code> is the umbrella package: the Bread adapter, its types, the React hooks and the UI components in one install. It imports <code>@miden-sdk/miden-sdk</code> and <code>@miden-sdk/react</code> 0.17 but installs neither, so name both. npm 7+ and pnpm 8+ add the SDK on their own as a required peer; nothing adds <code>@miden-sdk/react</code>, an optional peer, and Yarn adds no peers.</p>
             <div class="code reveal-code" data-tabs>
               <div class="code-bar">
                 <div class="tabs" role="tablist" aria-label="Package manager">
@@ -875,21 +880,25 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
                 </div>
                 <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
               </div>
-              <div class="panel" role="tabpanel"><pre class="nolines"><code data-lang="bash">npm install @miden-sdk/miden-wallet-adapter-react \
-  @miden-sdk/miden-wallet-adapter-miden @miden-sdk/miden-wallet-adapter-base \
+              <div class="panel" role="tabpanel"><pre class="nolines"><code data-lang="bash">npm i @miden-sdk/miden-wallet-adapter \
   @miden-sdk/miden-sdk @miden-sdk/react</code></pre></div>
-              <div class="panel" role="tabpanel" hidden><pre class="nolines"><code data-lang="bash">npm install @miden-sdk/miden-wallet-adapter-miden \
-  @miden-sdk/miden-wallet-adapter-base @miden-sdk/miden-sdk</code></pre></div>
+              <div class="panel" role="tabpanel" hidden><pre class="nolines"><code data-lang="bash">npm i @miden-sdk/miden-sdk \
+  @miden-sdk/miden-wallet-adapter-miden \
+  @miden-sdk/miden-wallet-adapter-base</code></pre></div>
             </div>
+            <p>The umbrella needs React 19.1 or later and pulls React into any app that imports it. Without React, or on React 18, install its parts, the <code>@miden-sdk/miden-wallet-adapter-*</code> packages: <code>-miden</code> and <code>-base</code> for the adapter, <code>-react</code> for the hooks (React 18 or 19) and <code>-reactui</code> for the UI (React 19.1). They export the same names: <code>MidenWalletAdapter</code> and <code>MidenWalletName</code> come from <code>-miden</code>, <code>WalletProvider</code> and <code>useWallet</code> from <code>-react</code>, and every other name in these samples from <code>-base</code>.</p>
           </div>
           <div class="step reveal">
             <h3>Wrap your app</h3>
             <p><code>WalletProvider</code> holds the connection. Its <code>network</code>, <code>privateDataPermission</code> and <code>allowedPrivateData</code> props are what it asks Bread for when it connects.</p>
             <div class="code reveal-code">
               <div class="code-bar"><span class="fname">main.tsx</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
-              <pre><code data-lang="tsx">import { WalletProvider } from '@miden-sdk/miden-wallet-adapter-react';
-import { MidenWalletAdapter } from '@miden-sdk/miden-wallet-adapter-miden';
-import { PrivateDataPermission, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+              <pre><code data-lang="tsx">import {
+  MidenWalletAdapter,
+  PrivateDataPermission,
+  WalletAdapterNetwork,
+  WalletProvider
+} from '@miden-sdk/miden-wallet-adapter';
 
 // Create adapters once, outside render: a new adapter disconnects the old one.
 const wallets = [new MidenWalletAdapter({ appName: 'My dApp' })];
@@ -919,9 +928,13 @@ export function Root() {
                 <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
               </div>
               <div class="panel" role="tabpanel"><pre><code data-lang="tsx">import { useEffect } from 'react';
-import { useWallet } from '@miden-sdk/miden-wallet-adapter-react';
-import { MidenWalletName } from '@miden-sdk/miden-wallet-adapter-miden';
-import { PrivateDataPermission, SendTransaction, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import {
+  MidenWalletName,
+  PrivateDataPermission,
+  SendTransaction,
+  useWallet,
+  WalletAdapterNetwork
+} from '@miden-sdk/miden-wallet-adapter';
 
 export function App() {
   const { wallet, select, connect, connected, address, requestSend, waitForTransaction } = useWallet();
@@ -1074,7 +1087,7 @@ const guardian = await adapter.requestGuardianInfo();
             </div>
             <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
           </div>
-          <div class="panel" role="tabpanel"><pre><code data-lang="ts">import { SendTransaction } from '@miden-sdk/miden-wallet-adapter-base';
+          <div class="panel" role="tabpanel"><pre><code data-lang="ts">import { SendTransaction } from '@miden-sdk/miden-wallet-adapter';
 
 const txId = await adapter.requestSend(
   new SendTransaction(
@@ -1085,7 +1098,7 @@ const txId = await adapter.requestSend(
     250_000          // integer, smallest unit
   )
 );</code></pre></div>
-          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { ConsumeTransaction } from '@miden-sdk/miden-wallet-adapter-base';
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { ConsumeTransaction } from '@miden-sdk/miden-wallet-adapter';
 
 // Claim a note addressed to the connected account.
 const txId = await adapter.requestConsume(
@@ -1094,7 +1107,7 @@ const txId = await adapter.requestConsume(
 
 // A private note the wallet has not seen yet travels with its bytes:
 // new ConsumeTransaction(faucetId, noteId, 'private', amount, noteBytes)</code></pre></div>
-          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { Transaction } from '@miden-sdk/miden-wallet-adapter-base';
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { Transaction } from '@miden-sdk/miden-wallet-adapter';
 import type { TransactionRequest } from '@miden-sdk/miden-sdk';
 
 // Build any TransactionRequest with the Miden SDK, then hand it to Bread.
@@ -1442,6 +1455,7 @@ if (window.bread?.auth) {
         <div class="table-wrap"><table>
           <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
           <tbody>
+            <tr><td>Could not resolve <code>@miden-sdk/react</code></td><td>The adapter's React hooks import it, but it is an optional peer, so no package manager installs it. Install it, or without React use the <code>-miden</code> and <code>-base</code> packages.</td></tr>
             <tr><td>Bread never detected on phones</td><td>The provider arrives after page load. Wait for the adapter's <code>readyState</code>, don't read <code>window.midenWallet</code> once at startup.</td></tr>
             <tr><td>React <code>connect()</code> ignores my network</td><td><code>WalletProvider</code> connects with its own props. Set <code>network</code> and the permissions there.</td></tr>
             <tr><td>Connect works once, then the account is gone</td><td>Adapters created inside render are new each time, and a replaced adapter disconnects. Create them at module scope.</td></tr>
