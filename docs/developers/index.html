@@ -1436,6 +1436,8 @@ if (window.bread?.auth) {
     try { localStorage.setItem('bread-dev-theme', next); } catch (e) {}
   });
 
+  // A rule's optional third entry checks the character before a match: lookbehind would not parse on iOS 15.
+  function after(re) { return function (src, i) { return i > 0 && re.test(src[i - 1]); }; }
   var ID = '[A-Za-z_$][\\w$]*';
   var JS = [
     ['com', /\/\/[^\n]*|\/\*[\s\S]*?\*\//y],
@@ -1444,7 +1446,7 @@ if (window.bread?.auth) {
     ['num', /\b(?:0x[\da-fA-F]+|\d[\d_]*(?:\.\d+)?n?)\b/y],
     ['type', /\b[A-Z][A-Za-z0-9_]*\b/y],
     ['fn', new RegExp(ID + '(?=\\s*\\()', 'y')],
-    ['prop', new RegExp('(?<=\\.)' + ID, 'y')],
+    ['prop', new RegExp(ID, 'y'), after(/\./)],
     ['', new RegExp(ID, 'y')]
   ];
   var TSX = [['tag', /<\/?[A-Za-z][\w.]*|\/?>(?=\s*$|\s*[\n)<{;])/y]].concat(JS);
@@ -1469,8 +1471,8 @@ if (window.bread?.auth) {
     ],
     bash: [
       ['com', /#[^\n]*/y],
-      ['fn', /(?:^|(?<=\n))(?:npm|yarn|pnpm|npx)\b/y],
-      ['kw', /(?<=\s)(?:install|add|i)\b/y],
+      ['fn', /(?:npm|yarn|pnpm|npx)\b/y, function (src, i) { return i === 0 || src[i - 1] === '\n'; }],
+      ['kw', /(?:install|add|i)\b/y, after(/\s/)],
       ['str', /'[^']*'|"[^"]*"/y]
     ]
   };
@@ -1483,7 +1485,7 @@ if (window.bread?.auth) {
         var re = rules[r][1];
         re.lastIndex = i;
         var m = re.exec(src);
-        if (m && m[0].length) { hit = [rules[r][0], m[0]]; break; }
+        if (m && m[0].length && (!rules[r][2] || rules[r][2](src, i))) { hit = [rules[r][0], m[0]]; break; }
       }
       if (hit) {
         if (plain) { out.push(['', plain]); plain = ''; }
