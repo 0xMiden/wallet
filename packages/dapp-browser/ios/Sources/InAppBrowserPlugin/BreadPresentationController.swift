@@ -131,6 +131,8 @@ final class BreadPresentationController: NSObject {
 
     func dropProxy() {}
 
+    func adoptProxy(_ image: UIImage) {}
+
     func handleTap() {}
 
     func handleGrab(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {}

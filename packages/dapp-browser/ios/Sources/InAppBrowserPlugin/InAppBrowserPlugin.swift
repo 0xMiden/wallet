@@ -58,6 +58,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
         // Miden patch (PR-4 chunk 4): multi-instance management methods.
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "morph", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setMorphTarget", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
         // Miden patch: retained native navbar overlay API. A caller can render a
@@ -1332,6 +1334,19 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             call.resolve()
         }
+    }
+
+    /// Miden plugin method (#1817): run one native minimize or maximize morph on an
+    /// instance's live page. Resolves `{ accepted }`; progress arrives as
+    /// `presentationMorph` events carrying the caller's `morphId`.
+    @objc func morph(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(["accepted": false]) }
+    }
+
+    /// Miden plugin method (#1817): publish the landing card, in host viewport
+    /// points, that the native Bread button collapses toward. `card: null` clears it.
+    @objc func setMorphTarget(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve() }
     }
 
     /// Miden plugin method (PR-4 chunk 4): list all currently registered

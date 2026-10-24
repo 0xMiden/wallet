@@ -84,6 +84,10 @@ import UIKit
         }
     }
 
+    func retainProxy(for id: String) {}
+
+    func dropAllProxies() {}
+
     /// Remove ALL registered instances. Caller is responsible for tearing
     /// down the underlying webviews / windows. Used by `closeAll` and on
     /// app shutdown.

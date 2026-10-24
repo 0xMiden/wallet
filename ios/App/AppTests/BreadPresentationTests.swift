@@ -2642,3 +2642,158 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(live.presentation.state.motion, .collapsing)
     }
 }
+
+private final class EncodeThreads {
+    private let lock = NSLock()
+    private var values = [Bool]()
+    func append(_ value: Bool) { lock.lock(); values.append(value); lock.unlock() }
+    var all: [Bool] { lock.lock(); defer { lock.unlock() }; return values }
+}
+
+@MainActor
+final class BreadMorphPluginTests: XCTestCase {
+    private func card(in live: LivePresentation) -> [String: Any] {
+        let bounds = live.window.bounds
+        return ["x": bounds.maxX - 120 + live.window.frame.minX, "y": bounds.maxY - 230 + live.window.frame.minY,
+                "width": 104, "height": 132, "cornerRadius": 16]
+    }
+
+    private func revealed() async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let live = try await livePresentation(morph: true)
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        try await configure(live, theme: nil, display: "browser")
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let shown = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(shown)
+        return (live, plugin)
+    }
+
+    private func call(_ method: String, _ options: [String: Any], onResolve: @escaping ([String: Any]?) -> Void = { _ in }) async throws {
+        let resolved = expectation(description: method)
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: method, methodName: method, options: options,
+            success: { result, _ in onResolve(result?.data); resolved.fulfill() },
+            error: { error in XCTFail(String(describing: error?.message)); resolved.fulfill() }))
+        let plugin = InAppBrowserPlugin()
+        switch method {
+        case "morph": plugin.morph(call)
+        case "setMorphTarget": plugin.setMorphTarget(call)
+        default: plugin.snapshot(call)
+        }
+        await fulfillment(of: [resolved], timeout: 3)
+    }
+
+    private func morph(_ options: [String: Any]) async throws -> Bool {
+        var accepted: Bool?
+        try await call("morph", options) { accepted = $0?["accepted"] as? Bool }
+        return try XCTUnwrap(accepted)
+    }
+
+    func testMorphMethodAppliesTheLifetimeAndSequenceGuards() async throws {
+        let (live, plugin) = try await revealed()
+        defer { live.dispose() }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "lifetime"], instance: live.instance,
+            host: { nil }, notify: { _ in }, finish: {}))
+        live.instance.managedClose = managed
+        live.owner.managedClose = managed
+        let base: [String: Any] = ["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "p1"]
+        var stale = base
+        stale["managedHostCloseToken"] = "stale"
+        stale["visibilitySequence"] = 5
+        let staleToken = try await morph(stale)
+        XCTAssertFalse(staleToken)
+        var unsequenced = base
+        unsequenced["managedHostCloseToken"] = "lifetime"
+        let missingSequence = try await morph(unsequenced)
+        XCTAssertFalse(missingSequence)
+        var matching = unsequenced
+        matching["visibilitySequence"] = 5
+        let accepted = try await morph(matching)
+        XCTAssertTrue(accepted)
+        var older = matching
+        older["morphId"] = "p2"
+        older["visibilitySequence"] = 4
+        let staleSequence = try await morph(older)
+        XCTAssertFalse(staleSequence)
+        let settled = try await eventually { plugin.phases("p1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertTrue(plugin.phases("p2").isEmpty)
+        XCTAssertEqual(plugin.morphs.first?["visibilitySequence"] as? Int, 5)
+    }
+
+    func testMorphWithoutAContainerIsNotAccepted() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        try await configure(live, theme: nil, display: "browser")
+        let accepted = try await morph(["id": live.instance.id, "to": "collapsed", "card": NSNull(), "morphId": "legacy"])
+        XCTAssertFalse(accepted)
+        XCTAssertNil(live.instance.morphContainer)
+        XCTAssertNil(live.presentation.animator)
+        XCTAssertEqual(live.presentation.state.motion, BreadPresentationState.Motion.none)
+    }
+
+    func testAcceptedMorphCallHoldsTheFrameRateLinkWhenItResolves() async throws {
+        let (live, _) = try await revealed()
+        defer { live.dispose() }
+        let animator = try XCTUnwrap(live.presentation.animator)
+        var boostingAtResolve: Bool?
+        try await call("morph", ["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c1"]) { result in
+            XCTAssertEqual(result?["accepted"] as? Bool, true)
+            boostingAtResolve = animator.boosting
+        }
+        XCTAssertEqual(boostingAtResolve, true)
+        live.presentation.setVisible(false)
+        XCTAssertFalse(animator.boosting)
+        try await call("morph", ["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c2",
+                                 "managedHostCloseToken": "unknown"]) { result in
+            XCTAssertEqual(result?["accepted"] as? Bool, false)
+            boostingAtResolve = animator.boosting
+        }
+        XCTAssertEqual(boostingAtResolve, false)
+    }
+
+    func testSetMorphTargetStoresTheCardForTheNativeCollapse() async throws {
+        defer { WebViewRegistry.shared.morphCard = nil }
+        try await call("setMorphTarget", ["card": ["x": 10, "y": 20, "width": 104, "height": 132, "cornerRadius": 16]])
+        XCTAssertEqual(WebViewRegistry.shared.morphCard?.rect, CGRect(x: 10, y: 20, width: 104, height: 132))
+        XCTAssertEqual(WebViewRegistry.shared.morphCard?.cornerRadius, 16)
+        try await call("setMorphTarget", ["card": NSNull()])
+        XCTAssertNil(WebViewRegistry.shared.morphCard)
+    }
+
+    func testSnapshotEncodesOffTheMainThreadFromTheCollapseProxy() async throws {
+        let (live, _) = try await revealed()
+        defer { live.dispose(); WKWebViewController.snapshotEncodeHook = nil }
+        let threads = EncodeThreads()
+        WKWebViewController.snapshotEncodeHook = { threads.append($0) }
+        let accepted = try await morph(["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c1"])
+        XCTAssertTrue(accepted)
+        var dataURL: String?
+        try await call("snapshot", ["id": live.instance.id, "scale": 0.5, "quality": 0.7]) { dataURL = $0?["data"] as? String }
+        let encoded = try XCTUnwrap(dataURL)
+        let prefix = "data:image/jpeg;base64,"
+        XCTAssertTrue(encoded.hasPrefix(prefix))
+        let image = try XCTUnwrap(Data(base64Encoded: String(encoded.dropFirst(prefix.count))).flatMap { UIImage(data: $0) })
+        let proxy = try XCTUnwrap(live.presentation.proxy.image)
+        XCTAssertTrue(live.presentation.state.proxyUsable)
+        XCTAssertEqual(image.size.width, live.web.bounds.width * 0.5 * proxy.scale, accuracy: 1)
+        XCTAssertEqual(threads.all, [false])
+    }
+
+    func testProxyCacheKeepsThreeAndDropsOnMemoryWarning() async throws {
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        var lives = [LivePresentation]()
+        defer { lives.forEach { $0.dispose() } }
+        for _ in 0..<4 { lives.append(try await livePresentation(morph: true)) }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }
+        for live in lives { live.presentation.adoptProxy(image) }
+        XCTAssertEqual(lives.map { $0.presentation.state.proxyUsable }, [false, true, true, true])
+        XCTAssertNil(lives[0].presentation.proxy.image)
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        XCTAssertEqual(lives.map { $0.presentation.state.proxyUsable }, [false, false, false, false])
+        XCTAssertTrue(lives.allSatisfy { $0.presentation.proxy.image == nil })
+    }
+}

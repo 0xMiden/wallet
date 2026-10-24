@@ -2174,6 +2174,8 @@ extension WKWebViewController: WKNavigationDelegate {
         applyCustomDimensions()
     }
 
+    static var snapshotEncodeHook: ((Bool) -> Void)?
+
     /// Miden patch: take a JPEG snapshot of the current webview content.
     /// `scale` < 1 downsamples for memory; `quality` is JPEG compression 0..1.
     open func takeSnapshotData(scale: CGFloat, quality: CGFloat, completion: @escaping (String?) -> Void) {
