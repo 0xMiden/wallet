@@ -2270,6 +2270,11 @@ export class Vault {
       if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
         throw new PublicError('This account has no recovery key to rotate with');
       }
+      // Only a persisted verdict about this very key may retire it: a healthy account's live key is
+      // never droppable by a request that merely knows its public key.
+      if (account.hotKeyRotatedOut?.hotPublicKey !== expectedHotPubKey) {
+        throw Object.assign(new PublicError('The account hot key is not rotated out'), { code: HOT_KEY_CHANGED });
+      }
       // The pointer moves FIRST, as in swapHotKey: a release that lands before the
       // write would leave the account pointing at a deleted key.
       const newAllAccounts = allAccounts.map(acc =>
@@ -2278,7 +2283,11 @@ export class Vault {
           : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
-      await this.releaseHotKeyBlobs(expectedHotPubKey, 'retireRotatedOutHotKey');
+      // The pointer has moved, so a failed release only orphans inert blobs: it must not fail the
+      // call and leave the caller on the stale record.
+      await this.releaseHotKeyBlobs(expectedHotPubKey, 'retireRotatedOutHotKey').catch(releaseError => {
+        console.warn('retireRotatedOutHotKey: failed to remove old key blobs (non-fatal):', releaseError);
+      });
       const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };
     });

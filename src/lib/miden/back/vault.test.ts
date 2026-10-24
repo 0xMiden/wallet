@@ -1591,6 +1591,18 @@ describe('Vault rotated-out hot key', () => {
     expect(mockDeleteHotKey).not.toHaveBeenCalled();
   });
 
+  it('retireRotatedOutHotKey refuses a live key that carries no verdict', async () => {
+    const vault = await seedRotatedOutAccount({ hotKeyRotatedOut: undefined });
+
+    await expect(vault.retireRotatedOutHotKey('guardian-acc-1', 'hot-pub-hex')).rejects.toMatchObject({
+      code: HOT_KEY_CHANGED
+    });
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+  });
+
   // A hot-key-only import has nothing to sign the rotation with.
   it('retireRotatedOutHotKey refuses an account without a cold key', async () => {
     const vault = await seedRotatedOutAccount({ coldPublicKey: undefined });
