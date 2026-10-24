@@ -2234,4 +2234,174 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertTrue(plugin.phases("stale").isEmpty)
         XCTAssertTrue(plugin.phases("stale-expand").isEmpty)
     }
+
+    private func collapse(_ live: LivePresentation, _ morphId: String, sequence: Int? = nil) -> Bool {
+        live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: morphId,
+                                policyRevision: nil, sequence: sequence)
+    }
+
+    func testCollapseKeepsTheWindowVisibleUntilTheHiddenAcknowledgement() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertFalse(live.window.isHidden)
+        assertHeld(container, at: BreadMorphPose.at(0, card: landing(live), slot: live.window.bounds.size))
+        assertModelAtRest(container)
+        XCTAssertEqual(live.window.backgroundColor, UIColor.clear)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+        assertModelAtRest(container)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed")
+        XCTAssertEqual(plugin.morphs.last?["progress"] as? Double, 0)
+    }
+
+    func testCollapseCrossfadesToTheProxyBelowThirtyFivePercent() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        let spring = try XCTUnwrap(live.presentation.animator?.spring)
+        let crossing = try XCTUnwrap(spring.time(reaching: 0.35))
+        XCTAssertEqual(live.presentation.proxy.alpha, 0)
+        while CACurrentMediaTime() < crossing - 0.01 {
+            XCTAssertEqual(live.presentation.proxy.alpha, 0, "the live page shows above p 0.35")
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let faded = try await eventually { live.presentation.proxy.alpha == 1 && !live.presentation.proxy.isHidden }
+        XCTAssertTrue(faded)
+        XCTAssertLessThanOrEqual(CACurrentMediaTime(), crossing + 0.1 + 0.3)
+        XCTAssertNotNil(live.presentation.proxy.image)
+    }
+
+    func testHiddenRequestMidFlightCancelsAndHidesAtOnce() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "cancelled"])
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        XCTAssertNil(live.presentation.morphId)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "cancelled"])
+    }
+
+    func testFlightChangesNoSafeAreaAndARealChangeStillInvalidates() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let navigation = live.instance.navigationController
+        let insets = [navigation.view.safeAreaInsets, live.owner.view.safeAreaInsets, live.web.safeAreaInsets]
+        let bounds = [navigation.view.bounds, live.owner.view.bounds, live.web.bounds]
+        XCTAssertTrue(collapse(live, "c1"))
+        while plugin.phases("c1").last != "settled" {
+            XCTAssertEqual([navigation.view.safeAreaInsets, live.owner.view.safeAreaInsets, live.web.safeAreaInsets], insets)
+            XCTAssertEqual([navigation.view.bounds, live.owner.view.bounds, live.web.bounds], bounds)
+            XCTAssertEqual(live.presentation.state.phase, .visible)
+            XCTAssertTrue(live.cover.isHidden)
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(live.presentation.state.proxyUsable)
+        XCTAssertTrue(expand(live, "e1"))
+        navigation.additionalSafeAreaInsets = UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        navigation.view.setNeedsLayout()
+        navigation.view.layoutIfNeeded()
+        live.owner.view.layoutIfNeeded()
+        XCTAssertEqual(live.presentation.state.phase, .preparing)
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+        navigation.additionalSafeAreaInsets = .zero
+    }
+
+    func testBackgroundingMidFlightFinishesAtNearestEndBeforePrivacyCover() async throws {
+        let (live, plugin) = try await parkedWithProxy(display: "fullscreen")
+        defer { live.dispose() }
+        XCTAssertTrue(expand(live, "e1"))
+        let spring = try XCTUnwrap(live.presentation.animator?.spring)
+        let at = try XCTUnwrap(spring.time(reaching: 0.6))
+        while CACurrentMediaTime() < at { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertTrue(live.presentation.preparePrivacyCover())
+        XCTAssertEqual(plugin.phases("e1"), ["started", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    func testFrameChangeMidFlightFinishesMotionThenAppliesFrame() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        XCTAssertTrue(expand(live, "e1"))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let rect = CGRect(x: 0, y: 40, width: live.instance.rect.width, height: live.instance.rect.height - 40)
+        live.instance.rect = rect
+        live.presentation.updateSlot()
+        XCTAssertEqual(plugin.phases("e1"), ["started", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(live.window.frame, rect)
+        XCTAssertEqual(live.presentation.state.phase, .preparing)
+        XCTAssertTrue(veiled(live))
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+    }
+
+    func testWebViewIgnoresTouchesDuringFlight() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(live.web.isUserInteractionEnabled)
+        XCTAssertTrue(collapse(live, "c1"))
+        XCTAssertFalse(live.web.isUserInteractionEnabled)
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertTrue(expand(live, "e1"))
+        XCTAssertFalse(live.web.isUserInteractionEnabled)
+        let settled = try await eventually { plugin.phases("e1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertTrue(live.web.isUserInteractionEnabled)
+    }
+
+    func testManagedCloseMidFlightCancelsWithoutEvents() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        live.presentation.close()
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertNil(live.presentation.morphId)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(plugin.phases("c1"), ["started"])
+    }
+
+    func testProxyFadeCannotCompleteAfterInvalidation() async throws {
+        for action in ["hide", "navigation", "layout", "close"] {
+            let (live, _) = try await parkedWithProxy()
+            defer { live.dispose() }
+            try await holdFrames(live)
+            XCTAssertTrue(expand(live, "e-\(action)"), action)
+            live.presentation.state.layoutPrepared(generation: live.presentation.state.generation)
+            live.presentation.setVisible(true)
+            XCTAssertEqual(live.presentation.proxy.alpha, 0, action)
+            switch action {
+            case "hide": live.presentation.setVisible(false)
+            case "navigation": live.presentation.beginNavigation()
+            case "layout":
+                live.owner.view.bounds.size.width -= 1
+                live.presentation.layoutChanged()
+            default: live.presentation.close()
+            }
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertTrue(veiled(live), action)
+            XCTAssertTrue(live.web.accessibilityElementsHidden, action)
+        }
+    }
 }
