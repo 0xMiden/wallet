@@ -686,7 +686,7 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       </div>
       <div class="float-card vars" aria-hidden="true">
         <span class="k">.hud</span> {<br>
-        &nbsp;&nbsp;<span class="a">left</span>: <span class="v">var(--bread-control-left)</span>;<br>
+        &nbsp;&nbsp;<span class="a">top</span>: <span class="v">var(--bread-control-top)</span>;<br>
         }
       </div>
       <div class="phone" aria-hidden="true">
@@ -889,7 +889,8 @@ import {
 
 const adapter = new MidenWalletAdapter({ appName: 'My dApp' });
 
-// The adapter polls for window.midenWallet; wait for it before connecting.
+// The adapter polls for window.midenWallet and may find it at once, in its constructor.
+if (adapter.readyState === WalletReadyState.Installed) enableConnectButton();
 adapter.on('readyStateChange', state =&gt; {
   if (state === WalletReadyState.Installed) enableConnectButton();
 });
@@ -1098,8 +1099,8 @@ const signature = await adapter.signBytes(word.serialize(), 'word');
             </div>
             <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
           </div>
-          <div class="panel" role="tabpanel"><pre><code data-lang="ts">// After connecting. Not in the adapter: call the provider directly.
-const wallet = window.midenWallet;
+          <div class="panel" role="tabpanel"><pre><code data-lang="ts">// After connecting. Not in the adapter or its types: call the provider directly.
+const wallet = (window as any).midenWallet;
 
 if (wallet?.requestLoginKey) {
   const { loginKey } = await wallet.requestLoginKey(); // 32 bytes, no prompt
@@ -1187,8 +1188,8 @@ quitButton.onclick = async () =&gt; {
   margin-left: calc(var(--bread-control-left) + var(--bread-control-width) + 12px);
 }
 
-/* Older hosts: reserve the whole top row */
-.hud {
+/* No rectangle, as on older hosts: reserve the whole top row */
+:root:not([data-bread-control-bounds='true']) .hud {
   padding-top: var(--bread-control-inset-top, 0px);
 }
 
@@ -1234,7 +1235,7 @@ quitButton.onclick = async () =&gt; {
             <button type="button" data-region="capsule" aria-pressed="true"><span class="sw s-capsule"></span><span><b>Bread capsule</b>The translucent "Back to Bread" button. One tap minimizes your page.<span class="vars"><code>--bread-control-left</code><code>--bread-control-top</code><code>--bread-control-width</code><code>--bread-control-height</code></span></span></button>
             <button type="button" data-region="header" aria-pressed="false"><span class="sw s-header"></span><span><b>Your header</b>Place it beside the capsule instead of below it. Valid only while the root has this attribute.<span class="vars"><code>data-bread-control-bounds="true"</code></span></span></button>
             <button type="button" data-region="safe" aria-pressed="false"><span class="sw s-safe"></span><span><b>Safe areas</b>Keep interactive controls inside.<span class="vars"><code>--bread-safe-area-top</code><code>--bread-safe-area-left</code><code>--bread-safe-area-right</code><code>--bread-safe-area-bottom</code></span></span></button>
-            <button type="button" data-region="inset" aria-pressed="false"><span class="sw s-inset"></span><span><b>Legacy inset row</b>Older hosts give one number that reserves a full-width top row.<span class="vars"><code>--bread-control-inset-top</code></span></span></button>
+            <button type="button" data-region="inset" aria-pressed="false"><span class="sw s-inset"></span><span><b>Top-row inset</b>One number that reserves a full-width top row: the fallback while the rectangle is unavailable, as on older hosts.<span class="vars"><code>--bread-control-inset-top</code></span></span></button>
             <button type="button" data-region="controls" aria-pressed="false"><span class="sw s-controls"></span><span><b>Your controls</b>Buttons and inputs sit inside the safe areas, clear of the home indicator.</span></button>
             <button type="button" data-region="bleed" aria-pressed="false"><span class="sw s-bleed"></span><span><b>Full bleed</b>Backgrounds may run to every edge of the display. No toolbar padding is added in fullscreen.</span></button>
           </div>
