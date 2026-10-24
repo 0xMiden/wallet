@@ -300,6 +300,7 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 ## How long we keep data
 
 - Usage data, crash reports and the diagnostic records sent with them: 90 days at most, then deleted automatically (see "Identifiers").
+- Diagnostic records sent with crash reports: 30 days, then deleted automatically by the crash-reporting service; the crash reports themselves are kept for 90 days.
 - Compliance records (block, unblock and legal-process records): at least five years. These are separate from the transient eligibility-service records below.
 - Eligibility-service records: feature decisions expire after five minutes; caller records expire after five minutes without a request and are removed in batches. Caller identifiers are keyed hashes that rotate daily. The App keeps its eligibility decision in memory for at most 60 seconds and writes no geographic answer to device storage.
 - Data held by your Guardian Operator: as set out in its privacy notice.
