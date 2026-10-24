@@ -1,7 +1,7 @@
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
-import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
+import { bridgeReceiveIdentity, bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 
 import { type NativeFeeFields, readNativeFeeFields } from './fees';
 import {
@@ -93,6 +93,15 @@ if (registration?.type !== 'return') throw new Error('Reown was not registered')
 const rawNativeReown = jest.mocked(registration.value);
 const rawNativeSend = rawNativeReown.sendTransaction;
 const rawNativeRequest = rawNativeReown.request;
+const emitStateBeforeNativeListenerSettles = (state: ReownState) => {
+  const addStateListener = rawNativeReown.addListener as unknown as jest.MockedFunction<
+    (eventName: 'stateChanged', listenerFunc: (state: ReownState) => void) => Promise<{ remove: () => Promise<void> }>
+  >;
+  addStateListener.mockImplementationOnce(async (_event, listener) => {
+    listener(state);
+    return { remove: mockRemoveListener };
+  });
+};
 const ESTIMATE: NativeFeeFields = { maxFeePerGas: '0x64', maxPriorityFeePerGas: '0x2' };
 const provider = buildNativeReownProvider({ chainId: 11155111, address: '0xowner', rpcUrl: 'https://rpc.test' });
 const send = (tx: Record<string, string>) =>
@@ -704,6 +713,143 @@ describe('waiting for the session to approve an added chain', () => {
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
   });
 
+  it('does not let the initial state read replace a deletion that arrived while it was in flight', async () => {
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(deleted)
+      .mockImplementationOnce(() => stale);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(deleted);
+    releaseStale(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
+  it('does not let a reread after a rejected switch replace a deletion that arrived while it was in flight', async () => {
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(deleted)
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockImplementationOnce(() => stale);
+    jest.mocked(rawNativeReown.request).mockRejectedValueOnce(new Error('User rejected'));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(deleted);
+    releaseStale(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
+  it('does not let a state read that started before a deletion replace that deletion', async () => {
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockImplementationOnce(() => stale);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    updateSession(deleted);
+    releaseStale(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
+  it('does not wait out the deadline when the session approved the chain before the wait starts', async () => {
+    let releaseSwitch: (value: { result: null }) => void = () => undefined;
+    const switching = new Promise<{ result: null }>(resolve => {
+      releaseSwitch = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(sessionState([SEPOLIA, ARC]));
+    releaseSwitch({ result: null });
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not let a reread restore an approval that a deletion superseded before the wait', async () => {
+    let releaseSwitch: (value: { result: null }) => void = () => undefined;
+    const switching = new Promise<{ result: null }>(resolve => {
+      releaseSwitch = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA, ARC]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(sessionState([SEPOLIA, ARC]));
+    updateSession({ configured: true, connected: false, accounts: [] });
+    releaseSwitch({ result: null });
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.settled).toBe(false);
+
+    updateSession(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('accepts a state read that starts after a deletion and then approves the chain', async () => {
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA, ARC]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    await jest.advanceTimersByTimeAsync(500);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+  });
+
   it('refuses the chain at once when the wallet rejected the switch', async () => {
     jest
       .mocked(rawNativeReown.request)
@@ -715,7 +861,442 @@ describe('waiting for the session to approve an added chain', () => {
 
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
     expect(rawNativeRequest).toHaveBeenCalledTimes(2);
-    expect(NativeReown.addListener).not.toHaveBeenCalled();
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('keeps an approval that arrived while the switch was pending when the rejection reread lacks the chain', async () => {
+    let rejectSwitch: (error: Error) => void = () => undefined;
+    const switching = new Promise<never>((_resolve, reject) => {
+      rejectSwitch = reject;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(sessionState([SEPOLIA, ARC]));
+    rejectSwitch(new Error('User rejected'));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    { eventTiming: 'during the add', method: 'wallet_addEthereumChain', reread: 'approved' },
+    { eventTiming: 'during the switch', method: 'wallet_switchEthereumChain', reread: 'approved' },
+    { eventTiming: 'during the switch', method: 'wallet_switchEthereumChain', reread: 'legacy' },
+    { eventTiming: 'during the initial read', method: 'wallet_switchEthereumChain', reread: 'approved' },
+    { eventTiming: 'during the initial read', method: 'wallet_switchEthereumChain', reread: 'legacy' }
+  ])(
+    'refuses when a rejected $method follows an unapproved event $eventTiming and rereads $reread state',
+    async ({ eventTiming, method, reread }) => {
+      let rejectRequest: (error: Error) => void = () => undefined;
+      const failedRequest = new Promise<never>((_resolve, reject) => {
+        rejectRequest = reject;
+      });
+      let releaseInitialRead: (state: ReownState) => void = () => undefined;
+      const initialRead = new Promise<ReownState>(resolve => {
+        releaseInitialRead = resolve;
+      });
+      let releaseStaleRead: (state: ReownState) => void = () => undefined;
+      const staleRead = new Promise<ReownState>(resolve => {
+        releaseStaleRead = resolve;
+      });
+      const request = jest.mocked(rawNativeReown.request);
+      if (method === 'wallet_addEthereumChain') {
+        request.mockImplementationOnce(() => failedRequest);
+      } else {
+        request.mockResolvedValueOnce({ result: null }).mockImplementationOnce(() => failedRequest);
+      }
+      const getState = jest.mocked(rawNativeReown.getState).mockReset();
+      if (eventTiming === 'during the initial read') {
+        getState.mockImplementationOnce(() => initialRead).mockImplementationOnce(() => staleRead);
+      } else {
+        getState.mockResolvedValueOnce(sessionState([SEPOLIA])).mockImplementationOnce(() => staleRead);
+      }
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(0);
+      if (eventTiming === 'during the initial read') {
+        updateSession(sessionState([SEPOLIA]));
+        releaseInitialRead(sessionState([SEPOLIA, ARC]));
+        await jest.advanceTimersByTimeAsync(0);
+      } else {
+        updateSession(sessionState([SEPOLIA]));
+      }
+      rejectRequest(new Error('User rejected'));
+      await jest.advanceTimersByTimeAsync(0);
+      releaseStaleRead(reread === 'approved' ? sessionState([SEPOLIA, ARC]) : sessionState(undefined));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    }
+  );
+
+  it.each(['wallet_addEthereumChain', 'wallet_switchEthereumChain'])(
+    'does not let an approval emitted before the initial read settle the wait after %s succeeds',
+    async method => {
+      const approved = sessionState([SEPOLIA, ARC]);
+      emitStateBeforeNativeListenerSettles(approved);
+      if (method === 'wallet_switchEthereumChain') {
+        jest.mocked(rawNativeReown.request).mockResolvedValueOnce({ result: null });
+      }
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(watched.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(5000);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    }
+  );
+
+  it('names a deletion that arrived while the add was pending when the rejection reread throws', async () => {
+    let rejectAdd: (error: Error) => void = () => undefined;
+    const adding = new Promise<never>((_resolve, reject) => {
+      rejectAdd = reject;
+    });
+    jest.mocked(rawNativeReown.request).mockImplementationOnce(() => adding);
+    const reread = new Error('reread down');
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockRejectedValueOnce(reread);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    rejectAdd(new Error('User rejected'));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(watched.error).not.toBe(reread);
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: watched.error });
+    expect(report).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt rejected_unread; evm error none'
+    );
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('names a deletion that arrived while the add was pending when the rejection reread returns the old session', async () => {
+    let rejectAdd: (error: Error) => void = () => undefined;
+    const adding = new Promise<never>((_resolve, reject) => {
+      rejectAdd = reject;
+    });
+    jest.mocked(rawNativeReown.request).mockImplementationOnce(() => adding);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    rejectAdd(new Error('User rejected'));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: watched.error });
+    expect(report).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt rejected; evm error none'
+    );
+  });
+
+  it('names a deletion that arrived while the switch was pending when the wait reread throws', async () => {
+    let releaseSwitch: (value: { result: null }) => void = () => undefined;
+    const switching = new Promise<{ result: null }>(resolve => {
+      releaseSwitch = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockRejectedValue(new Error('reread down'))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    releaseSwitch({ result: null });
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(jest.getTimerCount()).toBe(0);
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: watched.error });
+    expect(report).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt unconfirmed; evm error none'
+    );
+  });
+});
+
+describe('native session precheck reasons', () => {
+  const chainId = String(ARC);
+  const chainHex = '0x4cef52';
+  const topic = 'topic-secret';
+  const amount = '1.25';
+  const rpcUrl = 'https://rpc.example/secret';
+  const address = `0x${'ab'.repeat(20)}`;
+  const secrets = [
+    chainId,
+    chainHex,
+    '4cef52',
+    'eip155',
+    'Arc Testnet',
+    'WalletConnect',
+    '0x',
+    topic,
+    'topic-1',
+    amount,
+    rpcUrl,
+    address
+  ];
+
+  const expectReason = (cause: unknown, failure: string, attempt: string, evm: string) => {
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause });
+    expect(report).toBe(
+      `via usdcx; failed at precheck_session_chain; precheck ${failure}; attempt ${attempt}; evm error ${evm}`
+    );
+    for (const secret of secrets) expect(report).not.toContain(secret);
+  };
+
+  const watch = (pending: Promise<void>) => {
+    const watched: { settled: boolean; error?: unknown } = { settled: false };
+    pending.then(
+      () => {
+        watched.settled = true;
+      },
+      (error: unknown) => {
+        watched.settled = true;
+        watched.error = error;
+      }
+    );
+    return watched;
+  };
+
+  const updateSession = (state: ReownState) => mockStateListeners.forEach(listener => listener(state));
+
+  it('names a state read that threw, and keeps the plugin error', async () => {
+    const leaked = `plugin down ${topic} ${address} amount ${amount} ${rpcUrl} eip155:${chainId} ${chainHex}`;
+    const cause = new Error(leaked);
+    rawNativeReown.getState.mockRejectedValueOnce(cause);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
+    expect(cause.message).toBe(leaked);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'state_unread', 'not_attempted', 'other');
+  });
+
+  it('keeps an initial state read failure when a session event arrives during that read', async () => {
+    jest.useFakeTimers();
+    const cause = new Error(`state read failed ${topic}`);
+    rawNativeReown.getState.mockImplementationOnce(async () => {
+      updateSession(sessionState([SEPOLIA]));
+      throw cause;
+    });
+
+    try {
+      const watched = watch(prepareNativeSessionChain(ARC));
+      await jest.advanceTimersByTimeAsync(5000);
+
+      expect(watched.error).toBe(cause);
+      expect(rawNativeRequest).not.toHaveBeenCalled();
+      expectReason(watched.error, 'state_unread', 'not_attempted', 'other');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('names a state read that threw a function, and rethrows that function', async () => {
+    const cause = () => undefined;
+    rawNativeReown.getState.mockRejectedValueOnce(cause);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'state_unread', 'not_attempted', 'none');
+  });
+
+  it('rethrows a primitive state-read failure unchanged and leaves the precheck unnamed', async () => {
+    const cause = `plugin down ${topic} ${address}`;
+    rawNativeReown.getState.mockRejectedValueOnce(cause);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: error });
+    expect(report).toBe('via usdcx; failed at precheck_session_chain; evm error other');
+    for (const secret of secrets) expect(report).not.toContain(secret);
+  });
+
+  it('names a missing session when no add or switch was sent', async () => {
+    rawNativeReown.getState.mockResolvedValueOnce({
+      configured: true,
+      connected: false,
+      accounts: [address],
+      address,
+      topic
+    });
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect((error as Error).message).toContain('Arc Testnet');
+    expect((error as Error).message).toContain(chainId);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'session_missing', 'not_attempted', 'none');
+  });
+
+  it('names an unapproved chain that cannot be proposed', async () => {
+    rawNativeReown.getState.mockResolvedValueOnce(sessionState([SEPOLIA]));
+
+    const missingRpc = await rejectionOf(prepareNativeSessionChain(NO_PUBLIC_RPC));
+
+    expect(missingRpc.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect((missingRpc.error as Error).message).toContain('No Public RPC');
+    expect((missingRpc.error as Error).message).toContain(String(NO_PUBLIC_RPC));
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    const missingRpcReport = bridgeReceiveIdentity({
+      route: 'usdcx',
+      step: 'precheck_session_chain',
+      cause: missingRpc.error
+    });
+    expect(missingRpcReport).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck chain_unapproved; attempt unsupported; evm error none'
+    );
+    for (const secret of ['990001', 'No Public RPC', 'eip155', 'WalletConnect', rpcUrl, topic, amount, address]) {
+      expect(missingRpcReport).not.toContain(secret);
+    }
+
+    rawNativeRequest.mockClear();
+    rawNativeReown.getState.mockResolvedValueOnce(sessionState([]));
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'chain_unapproved', 'unsupported', 'none');
+  });
+
+  it('names a refused add and keeps the native rejection snapshot off the report text', async () => {
+    jest.mocked(isAndroid).mockReturnValue(true);
+    const rejection = Object.assign(new Error(`User rejected ${amount} ${rpcUrl} ${topic}`), {
+      code: nativeFailureCode
+    });
+    rawNativeRequest.mockRejectedValueOnce(rejection);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(error).not.toHaveProperty('cause');
+    expect((error as Error).message).toContain(chainId);
+    expect(String(error)).not.toContain('User rejected');
+    expect(readReownNativeFailure(error)).toEqual(expectedSnapshot);
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    expectReason(error, 'chain_unapproved', 'rejected', 'none');
+  });
+
+  it('names a refused add whose session state could not be read again', async () => {
+    const reread = new Error(`reread down ${topic} ${address} amount ${amount} ${rpcUrl} ${chainHex}`);
+    rawNativeRequest.mockRejectedValueOnce(new Error(`User rejected ${amount}`));
+    rawNativeReown.getState.mockResolvedValueOnce(sessionState([SEPOLIA])).mockRejectedValueOnce(reread);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(error).not.toBe(reread);
+    expect(error).not.toHaveProperty('cause');
+    expect((error as Error).message).toContain('Arc Testnet');
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    expectReason(error, 'chain_unapproved', 'rejected_unread', 'none');
+  });
+
+  it('names a switch that returned while the session still had not approved the chain', async () => {
+    jest.useFakeTimers();
+    try {
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(4999);
+      expect(watched.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(rawNativeRequest).toHaveBeenCalledTimes(2);
+      expect((watched.error as Error).message).toContain(chainId);
+      expectReason(watched.error, 'chain_unapproved', 'unconfirmed', 'none');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('names a session that disappeared while waiting for the chain', async () => {
+    jest.useFakeTimers();
+    try {
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(1000);
+      const deleted: ReownState = { configured: true, connected: false, accounts: [address], address, topic };
+      rawNativeReown.getState.mockResolvedValue(deleted);
+      updateSession(deleted);
+      await jest.advanceTimersByTimeAsync(4000);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect((watched.error as Error).message).toContain('eip155');
+      expectReason(watched.error, 'session_missing', 'unconfirmed', 'none');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ignores a pre-read approval when the switch state cannot be read again', async () => {
+    jest.useFakeTimers();
+    try {
+      emitStateBeforeNativeListenerSettles(sessionState([SEPOLIA, ARC]));
+      rawNativeReown.getState.mockReset();
+      rawNativeReown.getState.mockRejectedValue(
+        new Error(`read failed ${rpcUrl} ${chainHex} amount ${amount} ${topic} ${address}`)
+      );
+      rawNativeReown.getState.mockResolvedValueOnce(sessionState([SEPOLIA]));
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(4999);
+      expect(watched.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(rawNativeRequest).toHaveBeenCalledTimes(2);
+      expect((watched.error as Error).message).toContain(chainId);
+      expectReason(watched.error, 'chain_unapproved', 'unconfirmed_unread', 'none');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
