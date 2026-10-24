@@ -2038,8 +2038,11 @@ public class BreadPresentationControllerTest {
         List<Integer> received = new ArrayList<>();
         webView.setOnTouchListener((view, event) -> { received.add(event.getActionMasked()); return true; });
         long t = android.os.SystemClock.uptimeMillis();
-        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 5, 5, t));
-        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, 5, 5, t + 20));
+        int[] at = new int[2];
+        webView.getLocationInWindow(at);
+        float cx = at[0] + webView.getWidth() / 2f, cy = at[1] + webView.getHeight() / 2f;
+        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, cx, cy, t));
+        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, cx, cy, t + 20));
         assertEquals(2, received.size());
         received.clear();
         assertTrue(collapse(card(), "m1"));
