@@ -12,6 +12,8 @@
 
 ### Fixes
 
+- [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
+
 - [FIX][all] Activity shows every accepted transfer on mainnet. A mainnet-only rule hid a consume of the native asset sent by its faucet as a faucet drip, but on mainnet that faucet is the USDCx minter, so every bridged-in claim and its pending card vanished from the feed, the filters and the search. Such a row, card, badge and receipt now read as an ordinary receive on mainnet, grouped under the sender, and as a faucet claim on every other network.
 - [FIX][all] Activity Groups handles recovered and legacy history without stored messages, shares action titles with List, and offers a scoped retry or Return to List if the group renderer fails.
 - [FIX][mobile] A failed native bridge session precheck names the failed condition and what the add-and-switch attempt did, in fixed values only, so a report that previously named only the session step can be told apart (Sentry BREAD-WALLET-1X, #1636). These values are part of the report title, so these failures start new crash-report issues; the privacy policy lists every value.

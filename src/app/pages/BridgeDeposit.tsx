@@ -3,6 +3,7 @@ import React, { useCallback } from 'react';
 import { useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
@@ -52,6 +53,7 @@ const ConnectStep: React.FC<ConnectStepProps> = ({ number, title, body, current 
 
 export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { t } = useTranslation();
+  const goBack = useBackWithFallback();
   const currentMidenAccount = useWalletStore(s => s.currentAccount);
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
@@ -71,10 +73,10 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       onClose();
       return;
     }
-    navigate('/receive');
-  }, [onClose]);
+    goBack();
+  }, [goBack, onClose]);
 
-  // The X leaves the flow altogether: back steps to Receive, close returns Home.
+  // The X leaves the flow altogether: back returns to the previous screen, close returns Home.
   const handleExit = useCallback(() => {
     if (onClose) {
       onClose();

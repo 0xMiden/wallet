@@ -1,9 +1,10 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { createLocationState, HistoryAction, navigate, resetHistoryPosition } from 'lib/woozie';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
@@ -46,10 +47,7 @@ jest.mock('lib/store', () => ({
     select({ currentAccount: { publicKey: 'miden-account' } })
 }));
 
-const mockNavigate = jest.fn();
-jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
-
-jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
 
 let mockUsdcxDepositAvailable = false;
 let mockBridgeIn: FeatureAvailability = { state: 'available' };
@@ -82,19 +80,14 @@ jest.mock('components/ui/Button', () => ({
   )
 }));
 
-jest.mock('components/PageHeader', () => ({
-  PageHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
-    <div>
-      {title}
-      <button type="button" aria-label="close" onClick={onBack}>
-        close
+jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
+  EvmBridgeDepositScreen: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="bridge-deposit-screen">
+      <button type="button" onClick={onClose}>
+        back
       </button>
     </div>
   )
-}));
-
-jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: () => <div data-testid="bridge-deposit-screen" />
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -108,7 +101,8 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'available' };
     mockUsdcxDepositAvailable = false;
     mockEffectiveNetwork = 'testnet';
-    mockNavigate.mockClear();
+    navigate('/bridge/deposit', HistoryAction.Replace);
+    resetHistoryPosition();
   });
 
   // The NOT-YET-CONNECTED prompt. `beforeEach` sets `connected: false`, and this suite stubs
@@ -131,11 +125,44 @@ describe('BridgeDeposit (#875)', () => {
     expect(nextStep).not.toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
   });
 
-  it('closes via the header, falling back to /receive with no onClose prop', () => {
+  it.each([
+    { origin: '/', connected: false },
+    { origin: '/receive', connected: false },
+    { origin: '/', connected: true },
+    { origin: '/receive', connected: true }
+  ])('returns to $origin on back with connected=$connected', async ({ origin, connected }) => {
+    mockConnection = connected ? { address: '0xabc', connected: true } : { address: undefined, connected: false };
+    navigate(origin, HistoryAction.Replace);
+    navigate('/bridge/deposit');
+
     render(<BridgeDeposit />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'close' }));
-    expect(mockNavigate).toHaveBeenCalledWith('/receive');
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    await waitFor(() => expect(createLocationState().pathname).toBe(origin));
+    expect(createLocationState()).toMatchObject({ trigger: HistoryAction.Pop, historyPosition: 0 });
+  });
+
+  it('returns a deposit opened without history to Home without adding a history entry', () => {
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(createLocationState()).toMatchObject({
+      pathname: '/',
+      trigger: HistoryAction.Replace,
+      historyPosition: 0
+    });
+  });
+
+  it('uses an explicit close handler when provided', () => {
+    const onClose = jest.fn();
+    render(<BridgeDeposit onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(createLocationState().pathname).toBe('/bridge/deposit');
   });
 
   it('warns to connect a test wallet only while no EVM wallet is connected', () => {
