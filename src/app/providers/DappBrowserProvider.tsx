@@ -1746,9 +1746,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Stored before either body, including when this session is already foreground, so a legacy park of it that is
       // still awaiting its snapshot cannot mark it parked once this restore has begun.
       restoreGeneration.current.set(sessionId, (restoreGeneration.current.get(sessionId) ?? 0) + 1);
-      // The outgoing page of an expand in flight is being brought back, so that expand's end must not park it.
-      const flight = flightRef.current;
-      if (flight?.motion.outgoingId === sessionId) updateFlight(flight, { ...flight.motion, outgoingId: null });
       // A warm page expands natively; every other restore takes the path below.
       if (state.instance && canExpandByMorph(sessionId, state))
         return restoreByMorph(sessionId, state.instance, gesture);
@@ -1758,14 +1755,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const currentForeground = foregroundIdRef.current;
       let parkedForeground = false;
       if (currentForeground && currentForeground !== sessionId) {
-        const generation = restoreGeneration.current.get(currentForeground);
-        parkedForeground =
-          (await parkLegacy(
-            currentForeground,
-            () => restoreGeneration.current.get(currentForeground) === generation
-          )) === true;
-        // A newer restore of that foreground began during the park. It owns the status and the foreground now.
-        if (restoreGeneration.current.get(currentForeground) !== generation) return false;
+        parkedForeground = (await parkLegacy(currentForeground)) === true;
       }
       const target = getSessionStateById(sessionId);
       if (!target || finalizations.current.has(sessionId) || sessionLifetimes.current.get(sessionId) !== lifetime) {
@@ -1808,15 +1798,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
       return false;
     },
-    [
-      canExpandByMorph,
-      getSessionStateById,
-      parkLegacy,
-      restoreByMorph,
-      setActiveDappSession,
-      updateFlight,
-      updateSession
-    ]
+    [canExpandByMorph, getSessionStateById, parkLegacy, restoreByMorph, setActiveDappSession, updateSession]
   );
 
   // Populate the forward ref so earlier-declared callbacks (`open`, the

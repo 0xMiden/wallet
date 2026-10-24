@@ -2106,27 +2106,6 @@ describe('native morph adoption', () => {
       return (result: { accepted: boolean }) => answer(result);
     }
 
-    it("keeps a reopened foreground when another restore's park of it lands late", async () => {
-      await openForeground();
-      act(() => control().open(session('second')));
-      await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
-      await act(async () => control().park('second'));
-      await act(async () => void control().restore('origin'));
-      await settle();
-      act(() => control().openSwitcher());
-      const release = holdSnapshot();
-
-      act(() => void control().restore('second'));
-      await settle();
-      act(() => control().open(session('origin')));
-      await settle();
-      await act(async () => release(null));
-      await settle();
-
-      expect(control().session?.id).toBe('origin');
-      expect(statusOf('origin')).toBe('active');
-    });
-
     it('keeps a reopened foreground when the park of it that open started lands late', async () => {
       await openForeground();
       const release = holdSnapshot();
@@ -2217,29 +2196,6 @@ describe('native morph adoption', () => {
       expect(control().mode).toBe('active');
       expect(lastVisibility()).toBe(true);
       expect(control().motion).toBeNull();
-    });
-
-    it('keeps the outgoing session restored while the expand that replaced it is in flight', async () => {
-      await openForeground();
-      await act(async () => control().park('origin'));
-      act(() => control().open(session('second')));
-      await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
-      const answer = holdMorph();
-      act(() => void control().restore('origin', { card: CARD }));
-      await settle();
-      expect(control().motion).toMatchObject({ id: 'origin', outgoingId: 'second' });
-      expect(statusOf('second')).toBe('active');
-
-      await act(async () => void control().restore('second'));
-      await settle();
-      await act(async () => answer({ accepted: true }));
-      emitMorph('settled', 'expanded');
-      await settle();
-
-      expect(control().session?.id).toBe('second');
-      expect(statusOf('second')).toBe('active');
-      expect(parked()).toEqual(['origin']);
-      expect(lastVisibility('second')).toBe(true);
     });
 
     it('still parks the outgoing session when the expand target is restored again', async () => {
