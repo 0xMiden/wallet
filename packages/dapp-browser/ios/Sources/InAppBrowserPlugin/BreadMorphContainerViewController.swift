@@ -6,12 +6,27 @@ struct BreadMorphValue {
     let value: Any
 }
 
-class BreadMorphContainerViewController: UIViewController {
+final class BreadMorphContainerView: UIView {
+    weak var controller: BreadMorphContainerViewController?
+
+    // The model spans the whole slot while the page flies, so touches route by hand against the presentation.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard controller?.morphing == true else { return super.hitTest(point, with: event) }
+        return isUserInteractionEnabled && !isHidden && self.point(inside: point, with: event) ? self : nil
+    }
+}
+
+class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDelegate {
     static let keyPrefix = "bread.morph."
     let child: UIViewController
     let shadowView = UIView()
     let clipView = UIView()
-    var morphing = false
+    var morphing = false {
+        didSet {
+            tap.isEnabled = morphing
+            pan.isEnabled = morphing
+        }
+    }
     let tap = UITapGestureRecognizer()
     let pan = UIPanGestureRecognizer()
     var onTap: (() -> Void)?
@@ -20,13 +35,22 @@ class BreadMorphContainerViewController: UIViewController {
     init(child: UIViewController) {
         self.child = child
         super.init(nibName: nil, bundle: nil)
+        tap.isEnabled = false
+        pan.isEnabled = false
+        tap.addTarget(self, action: #selector(tapped))
+        pan.addTarget(self, action: #selector(panned(_:)))
+        tap.delegate = self
+        pan.delegate = self
     }
 
     required init?(coder: NSCoder) { return nil }
 
     override func loadView() {
-        let view = UIView()
+        let view = BreadMorphContainerView()
+        view.controller = self
         view.backgroundColor = .clear
+        view.addGestureRecognizer(tap)
+        view.addGestureRecognizer(pan)
         self.view = view
     }
 
@@ -138,5 +162,15 @@ class BreadMorphContainerViewController: UIViewController {
         return CGRect(x: layer.position.x, y: layer.position.y, width: layer.bounds.width * scale, height: layer.bounds.height * scale)
     }
 
-    func acceptsTouch(at point: CGPoint) -> Bool { false }
+    func acceptsTouch(at point: CGPoint) -> Bool { morphing && presentationFrame().contains(point) }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        acceptsTouch(at: touch.location(in: view))
+    }
+
+    @objc private func tapped() { onTap?() }
+
+    @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        onPan?(recognizer.state, recognizer.translation(in: view), recognizer.velocity(in: view))
+    }
 }

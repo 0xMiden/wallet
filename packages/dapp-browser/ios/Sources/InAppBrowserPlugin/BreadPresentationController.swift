@@ -63,6 +63,7 @@ final class BreadPresentationController: NSObject {
     private var proxyCapture = 0
     private var capturing = false
     private var snapshotWaiters: [(UIImage?) -> Void] = []
+    private var grab: (start: Double, target: Double, raw: Double)?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
         self.options = options
@@ -116,6 +117,10 @@ final class BreadPresentationController: NSObject {
             let animator = BreadMorphAnimator(container: container)
             animator.companions = [capsuleBackground.layer, button.layer]
             self.animator = animator
+            container.onTap = { [weak self] in self?.handleTap() }
+            container.onPan = { [weak self] phase, translation, velocity in
+                self?.handleGrab(phase, translation: translation, velocity: velocity)
+            }
         }
         render()
     }
@@ -304,6 +309,7 @@ final class BreadPresentationController: NSObject {
 
     private func stopMorph() {
         morphId = nil
+        grab = nil
         crossfade?.cancel()
         crossfade = nil
         proxyFade?.stopAnimation(true)
@@ -358,6 +364,7 @@ final class BreadPresentationController: NSObject {
     @discardableResult private func completeMotion(at end: BreadMorphTarget) -> Bool {
         guard let id = morphId else { return false }
         morphId = nil
+        grab = nil
         crossfade?.cancel()
         crossfade = nil
         if end == .expanded {
@@ -391,9 +398,64 @@ final class BreadPresentationController: NSObject {
         owner.capBrowserPlugin?.notifyListeners("presentationMorph", data: data)
     }
 
-    func handleTap() {}
+    func handleTap() {
+        guard let id = morphId, let animator, grab == nil else { return }
+        let target: BreadMorphTarget = heading == .collapsed ? .expanded : .collapsed
+        retarget(id, to: target, velocity: animator.velocity(), physics: target == .expanded ? .expand : .collapse)
+    }
 
-    func handleGrab(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {}
+    func handleGrab(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {
+        guard let id = morphId, let animator, !UIAccessibility.isReduceMotionEnabled else { return }
+        let path = morphPath()
+        let length = Double(hypot(path.x, path.y))
+        switch phase {
+        case .began:
+            crossfade?.cancel()
+            crossfade = nil
+            let start = animator.freeze()
+            grab = (start: start, target: heading == .expanded ? 1 : 0, raw: start)
+            emit(.retargeted, id: id, target: heading, progress: start, velocity: 0, tracking: true)
+        case .changed:
+            guard var current = grab, length > 0 else { return }
+            current.raw = current.start + Double(translation.x * path.x + translation.y * path.y) / (length * length)
+            grab = current
+            animator.track(banded(current.raw, length: length))
+        case .ended, .cancelled, .failed:
+            guard let current = grab else { return }
+            grab = nil
+            let along = length > 0 ? Double(velocity.x * path.x + velocity.y * path.y) / length : 0
+            let progressVelocity = length > 0 ? min(8, max(-8, along / length)) : 0
+            let travel = current.raw + 0.3 * progressVelocity - current.start
+            let end: Double
+            if abs(travel) >= 0.3 { end = travel > 0 ? 1 : 0 } else if abs(along) >= 450 { end = along > 0 ? 1 : 0 } else { end = current.target }
+            retarget(id, to: end == 1 ? .expanded : .collapsed, velocity: progressVelocity, physics: .release)
+        default:
+            break
+        }
+    }
+
+    private func retarget(_ id: String, to target: BreadMorphTarget, velocity: Double, physics: BreadMorphPhysics) {
+        guard let animator else { return }
+        let turned = heading != target
+        state.beginMotion(target == .expanded ? .expanding : .collapsing)
+        if turned {
+            if target == .expanded { beginExpandVisuals(fromRest: false) } else { beginCollapseVisuals() }
+        }
+        run(to: target, card: animator.card, velocity: velocity, physics: physics)
+        emit(.retargeted, id: id, target: target, progress: animator.progress(), velocity: animator.velocity())
+    }
+
+    private func morphPath() -> CGPoint {
+        guard let bounds = instance?.morphContainer?.view.bounds else { return .zero }
+        guard let card = animator?.card?.rect else { return CGPoint(x: 0, y: -bounds.height / 2) }
+        return CGPoint(x: bounds.midX - card.midX, y: bounds.midY - card.midY)
+    }
+
+    private func banded(_ p: Double, length: Double) -> Double {
+        if p > 1 { return 1 + BreadMorphGeometry.rubberBand((p - 1) * length, length: length) / length }
+        if p < 0 { return BreadMorphGeometry.rubberBand(p * length, length: length) / length }
+        return p
+    }
 
     func layoutChanged() {
         guard let owner, state.phase != .closed else { return }
