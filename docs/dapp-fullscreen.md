@@ -1,4 +1,11 @@
+---
+title: Fullscreen dApps in Bread
+permalink: /developers/fullscreen/
+---
+
 # Fullscreen dApps in Bread
+
+Part of the [Bread developer guide](../). This page is the detailed reference, including the native integration.
 
 A dApp opened inside the native Bread mobile browser can request fullscreen presentation in its initial HTML head:
 
@@ -26,7 +33,7 @@ Native preparation allows 30 seconds of foreground time before offering Retry an
 
 Closing allows five seconds of foreground preparation before showing Retry and Exit now. Retry starts a fresh close request; Exit now closes that page immediately if the prepared return cannot complete. Closing rejects that page's unanswered wallet confirmation and removes its saved session and preview; an already submitted transaction continues independently.
 
-Older Android WebViews without the required navigation identity open the page in Bread's normal browser mode, with its ordinary toolbar.
+Older Android WebViews without the required navigation identity open the page in Bread's normal browser mode, with its ordinary toolbar. `window.bread.presentation` still exists there, but `ready()` and `close()` reject with "Native presentation is unsupported in this WebView", so treat a rejection as browser mode.
 
 Older hosts expose a scalar CSS pixel metric that reserves a complete row:
 
@@ -80,7 +87,7 @@ Native handlers must validate main-frame provenance and compare `token` with `wi
 
 Emit plugin event `presentationChanged` with `{id, display: 'browser' | 'fullscreen', policyResolved, policyRevision, managedHostCloseToken}`. The provider registers listeners before opening and records events against an existing session ID even before opening returns. Reject events from an old instance lifetime or a superseded policy revision. While policy is unresolved, keep the launcher mounted and the ordinary browser slot measurable but inactive. Before showing a resolved page, commit its host layout, await native bounds, and acknowledge that policy revision through the lifetime-bound `setVisible` call.
 
-Every managed visibility command carries the instance lifetime and a monotonically increasing `visibilitySequence`; a show also acknowledges the current `policyRevision`. Reject stale commands so a delayed popup dismissal cannot reveal a replaced or closed instance. Native visibility and resize handlers preserve preparation, fullscreen layout, rotation, accessible controls, haptics, and reduced motion.
+Every managed visibility command carries the instance lifetime and a monotonically increasing `visibilitySequence`; a show sent once the committed host layout matches the policy also acknowledges the current `policyRevision`. Reject stale commands so a delayed popup dismissal cannot reveal a replaced or closed instance. Native visibility and resize handlers preserve preparation, fullscreen layout, rotation, accessible controls, haptics, and reduced motion.
 
 Managed close emits `hostCloseRequested` and accepts `completeManagedClose` only for the matching lifetime and request. Prepare the retained launcher or current legitimate destination, then complete from its committed host layout. Native paint fences precede normal dismissal. Reserve the session ID until both native terminal acknowledgement and its serialized storage cleanup finish; late callbacks cannot recreate it. These host fields are internal integration details, separate from the webpage API above.
 
