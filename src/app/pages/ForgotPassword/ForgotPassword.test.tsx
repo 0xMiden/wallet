@@ -137,11 +137,13 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
 }));
 
 let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+let mockDeveloperChoice = false;
 // A stored network choice takes effect at once, as the real override cache does.
 const mockApply = jest.fn<Promise<void>, [EndpointOverride]>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: () => mockNetwork,
+  hasDeveloperNetworkChoice: () => mockDeveloperChoice,
   applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
 }));
 
@@ -271,6 +273,7 @@ beforeEach(() => {
   mockRealFlow = false;
   mockSnapshot = readySnapshot();
   mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockDeveloperChoice = false;
   mockApply.mockReset().mockImplementation(async override => {
     mockNetwork = override.networkName;
   });
@@ -1049,6 +1052,14 @@ describe('ForgotPassword on an invite-only network', () => {
     expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
   });
 
+  it('keeps Get started and Recover after launch when Developer Settings chose the network', () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    mockDeveloperChoice = true;
+    renderPage();
+    expect(screen.getByTestId('onboarding-get-started')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+  });
+
   it('keeps Get started and Recover on a network that is not invite-only', () => {
     renderPage();
     expect(screen.getByTestId('onboarding-get-started')).toBeInTheDocument();
@@ -1097,6 +1108,16 @@ describe('ForgotPassword recovery on an invite-only config', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockApply).toHaveBeenCalledTimes(1);
     expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers on the chosen network without switching when Developer Settings chose it', async () => {
+    mockDeveloperChoice = true;
+    renderPage();
+    await recover();
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
   });
 

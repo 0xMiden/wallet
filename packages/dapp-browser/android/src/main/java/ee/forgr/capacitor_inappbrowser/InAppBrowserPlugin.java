@@ -76,6 +76,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     @Override
     public void load() {
         super.load();
+        BreadAuthTabLauncher.hostLoaded(getActivity());
         IabLog.setDebuggable((getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),

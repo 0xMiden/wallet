@@ -9,6 +9,7 @@ import android.webkit.HttpAuthHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
+import androidx.activity.ComponentActivity;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -40,6 +41,7 @@ public class BridgeLogPrivacyTest {
     private static final String MARKER = "bread-log-marker-1582";
     private static final String INSTANCE_ID = "bridge-log-fixture";
     private Activity activity;
+    private ComponentActivity resultHost;
     private RecordingPlugin plugin;
     private WebViewDialog dialog;
     private WebViewCallbacks callbacks;
@@ -57,6 +59,9 @@ public class BridgeLogPrivacyTest {
         originalFlags = applicationInfo.flags;
         plugin = spy(new RecordingPlugin());
         AppCompatActivity pluginActivity = mock(AppCompatActivity.class);
+        resultHost = Robolectric.buildActivity(ComponentActivity.class).setup().get();
+        doReturn(resultHost.getActivityResultRegistry()).when(pluginActivity).getActivityResultRegistry();
+        doReturn(resultHost.getSavedStateRegistry()).when(pluginActivity).getSavedStateRegistry();
         doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
         doReturn(pluginActivity).when(plugin).getActivity();
         doReturn(activity.getApplication()).when(plugin).getContext();
@@ -89,6 +94,7 @@ public class BridgeLogPrivacyTest {
         shadowOf(activity.getApplication()).checkActivities(false);
         applicationInfo.flags = originalFlags;
         plugin.load();
+        resultHost.finish();
         activity.finish();
         ShadowLog.clear();
     }

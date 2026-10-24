@@ -17,7 +17,7 @@ import { ErrorLine } from 'components/ui/ErrorLine';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { prepareMainnet } from 'lib/miden/prepare-mainnet';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, hasDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { isInviteOnlyRequired, useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -36,7 +36,7 @@ export const OnboardingNetwork: FC<{
   const { t } = useTranslation();
   const launched = useMainnetLaunched();
   const status = useWalletStore(s => s.status);
-  const required = isInviteOnlyRequired(launched, getEffectiveNetworkName());
+  const required = isInviteOnlyRequired(launched, getEffectiveNetworkName(), hasDeveloperNetworkChoice());
   const [inviteOnly, setInviteOnly] = useState(required);
   const [state, setState] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [attempt, setAttempt] = useState(0);

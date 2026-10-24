@@ -4,7 +4,7 @@ import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { inStorageTurn, rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY, forgetDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -160,6 +160,9 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
+  // A reset wallet must not stay on the developer's network choice, so the kept override loses it before anything
+  // is wiped: a failure here leaves the wallet as it was, and no later failure can leave the choice behind.
+  if (keepEndpointOverride) await forgetDeveloperNetworkChoice();
   // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
   // key-value clear empties localStorage, and the extension's service worker has none.
   if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);

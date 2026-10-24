@@ -356,6 +356,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
       'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
+      'e2e-dapp-browser.yml android-auth-tab-acceptance: push 60, dispatch 90',
       'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
       'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',
       'e2e-dapp.yml dapp-e2e-android: push 145, dispatch 190',
