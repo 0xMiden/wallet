@@ -179,8 +179,8 @@ jest.mock('./transactionUtils', () => ({
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 
-// The chain's native asset, which the Mainnet faucet guard reads to recognise a faucet claim. A case
-// can start with it unknown and resolve its lookup later.
+// The chain's native asset, which the Groups view reads to recognise a faucet claim. A case can
+// start with it unknown and resolve its lookup later.
 let mockNativeAssetId: string | null = 'NATIVE';
 let mockNativeAssetLookup: Promise<string> | undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -1557,83 +1557,67 @@ describe('History', () => {
       };
     };
 
-    it('shows the faucet rows off Mainnet', async () => {
-      const { rerender } = await renderHistory();
-      const views = await viewsOf(rerender);
+    it.each([MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.MAINNET])(
+      'shows the faucet rows on %s in every filter and in the search',
+      async network => {
+        // On Mainnet the native faucet is the USDCx minter, so a consume of the native asset sent by
+        // its faucet is a bridge-in; hiding such rows there hid every bridged-in claim (#1655 follow-up).
+        mockWalletNetwork = network;
+        const { rerender } = await renderHistory();
+        const views = await viewsOf(rerender);
 
-      expect(views.all).toEqual(expect.arrayContaining(['completed-FC', 'completed-FF', 'pending-PF']));
-      expect(views.pending).toContain('pending-PF');
-      expect(views.transfer).toEqual(expect.arrayContaining(['completed-FC', 'pending-PF']));
-      expect(views.search.sort()).toEqual(['completed-FC', 'pending-PF']);
-    });
-
-    it('hides the faucet rows on Mainnet from every filter and from the search', async () => {
-      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
-      const { rerender } = await renderHistory();
-      const views = await viewsOf(rerender);
-
-      for (const keys of [views.all, views.pending, views.transfer, views.others, views.search]) {
-        expect(keys).not.toContain('completed-FC');
-        expect(keys).not.toContain('completed-FF');
-        expect(keys).not.toContain('pending-PF');
+        expect(views.all).toEqual(expect.arrayContaining(['completed-FC', 'completed-FF', 'pending-PF']));
+        expect(views.pending).toContain('pending-PF');
+        expect(views.transfer).toEqual(expect.arrayContaining(['completed-FC', 'pending-PF']));
+        expect(views.search.sort()).toEqual(['completed-FC', 'pending-PF']);
       }
-      expect(views.search).toEqual([]);
-      // The other rows stay.
-      expect(views.all).toEqual(expect.arrayContaining(['completed-P', 'completed-SD', 'pending-PQ']));
+    );
+
+    // `isFaucetRequest` is mocked here, so only `transactionUtils.test` and `activityGroups.test` can
+    // say that Mainnet groups such a row under its sender instead.
+    it('gives the Groups view a faucet group off Mainnet', async () => {
+      let seen: any;
+      const utils = await renderHistory({
+        renderEntries: (view: any) => {
+          seen = view;
+          return <div data-testid="history-view" />;
+        }
+      });
+      await waitFor(() => expect(seen?.initialLoading).toBe(false));
+      expect(groupActivityEntries(seen.entries).map(group => group.kind)).toContain('faucet');
+      utils.unmount();
     });
 
-    it('hides the faucet rows once the native faucet id resolves on Mainnet', async () => {
-      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    // The rows read the id during render (`isFaucetRequest`) and the row components are memoized on the
+    // entry, so a row that mounted while the id was unknown is relabelled only by a new entry object.
+    it('hands the rows new entries once the native faucet id resolves', async () => {
       mockNativeAssetId = null;
       let resolveLookup!: (id: string) => void;
       mockNativeAssetLookup = new Promise(resolve => {
         resolveLookup = resolve;
       });
-      await renderHistory();
-      // With the id unknown nothing recognises a faucet claim yet.
-      expect(entryKeys()).toEqual(expect.arrayContaining(['completed-FC', 'completed-FF', 'pending-PF']));
+      let seen: any;
+      const utils = await renderHistory({
+        renderEntries: (view: any) => {
+          seen = view;
+          return <div data-testid="history-view" />;
+        }
+      });
+      await waitFor(() => expect(seen?.initialLoading).toBe(false));
+      // Let the load settle, so only the id can replace the entries.
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+      const before = seen.entries[0];
+      expect(before).toBeDefined();
 
       mockNativeAssetId = 'NATIVE';
       await act(async () => {
         resolveLookup('NATIVE');
       });
 
-      await waitFor(() => expect(entryKeys()).not.toContain('completed-FC'));
-      expect(entryKeys()).not.toContain('completed-FF');
-      expect(entryKeys()).not.toContain('pending-PF');
-      expect(entryKeys()).toEqual(expect.arrayContaining(['completed-P', 'completed-SD', 'pending-PQ']));
-    });
-
-    it('gives the Groups view no faucet row and so no faucet group on Mainnet', async () => {
-      const groupsOn = async (network: MIDEN_NETWORK_NAME) => {
-        mockWalletNetwork = network;
-        let seen: any;
-        const utils = await renderHistory({
-          renderEntries: (view: any) => {
-            seen = view;
-            return <div data-testid="history-view" />;
-          }
-        });
-        await waitFor(() => expect(seen?.initialLoading).toBe(false));
-        const kinds = groupActivityEntries(seen.entries).map(group => group.kind);
-        utils.unmount();
-        return kinds;
-      };
-
-      expect(await groupsOn(MIDEN_NETWORK_NAME.TESTNET)).toContain('faucet');
-      expect(await groupsOn(MIDEN_NETWORK_NAME.MAINNET)).not.toContain('faucet');
-    });
-
-    it('reads the network on each render, not once at load, so the next render after a switch hides the rows', async () => {
-      const { rerender } = await renderHistory();
-      expect(entryKeys()).toContain('completed-FC');
-
-      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
-      // A changed prop makes the memoized list render again.
-      await act(async () => {
-        rerender(<History address="0xme" className="next-render" />);
-      });
-      expect(entryKeys()).not.toContain('completed-FC');
+      await waitFor(() => expect(seen.entries[0]).not.toBe(before));
+      utils.unmount();
     });
   });
 
