@@ -1379,6 +1379,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       void (flight.snapshot ?? requestParkSnapshot(id)).then(dataUrl => {
         if (dataUrl && flightLive(flight)) void writeSnapshotToDisk(id, dataUrl);
       });
+      // Still followed: the page stays shown at the card pose until the acknowledgement hides it.
       updateFlight(flight, { ...flight.motion, acknowledging: true });
       flight.finish(true);
       acknowledgeCollapse(flight);
@@ -1394,6 +1395,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const action = classifyMorphEvent(flight.motion, event);
       if (action.kind === 'ignore') return;
       updateFlight(flight, applyMorphEvent(flight.motion, event));
+      // A retarget only changes where the page is headed; `settled` says where it ended.
       if (action.kind === 'settle' && action.target === 'collapsed') commitCollapse(flight);
       else if (action.kind === 'settle' || action.kind === 'cancel') endFlight(flight, false);
     },
@@ -1455,6 +1457,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         return 'unaccepted';
       }
       if (previous && previous !== flight) supersede(previous, flight);
+      // A collapse that already ended (cancelled before the answer arrived) needs no snapshot.
       if (flightRef.current === flight) flight.snapshot = requestParkSnapshot(id);
       return parked;
     },
@@ -1488,6 +1491,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         };
         flightRef.current = flight;
         setMotion(flight.motion);
+        // Native's own collapse replaced whatever motion this page had.
         if (previous && previous !== flight) supersede(previous, flight);
       });
     },
@@ -1578,6 +1582,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!lifetime) return false;
       const current = foregroundIdRef.current;
       const outgoingId = current && current !== id ? current : null;
+      // Committed before native answers, so DappActive mounts while the page is still small and its capsule can
+      // return alongside it.
       updateSession(id, s => ({ ...s, status: 'active' }));
       // Eager, so an event or a minimize handled before the next render already sees the new foreground.
       foregroundIdRef.current = id;
@@ -1621,6 +1627,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         if (outgoingId) void parkLegacy(outgoingId);
         return false;
       }
+      // Accepted: native retargeted whatever motion this page or the replaced one had.
       if (previous && previous !== flight) supersede(previous, flight);
       return true;
     },
@@ -1629,6 +1636,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Deduped by value: the tray republishes on every layout change and resize, and each one is a bridge call.
   const reportLandingCard = useCallback((card: MorphCard | null) => {
+    // A card with no size is published as none: native would collapse with the fade-scale for it anyway.
     const next = isMorphCard(card) ? card : null;
     const previous = landingCardRef.current;
     if (
