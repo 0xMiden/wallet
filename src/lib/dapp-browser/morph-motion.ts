@@ -44,11 +44,12 @@ const IGNORE: MorphEventAction = { kind: 'ignore' };
 /**
  * What `event` means for `motion`. Anything but the held session, lifetime and morph id is ignored,
  * which is how a superseded morph's late events fall away: JS swaps in the new id when it sends the
- * newer morph. A malformed event from the bridge is ignored too.
+ * newer morph. A malformed event from the bridge, a non-object included, is ignored before any field is read.
  */
-export function classifyMorphEvent(motion: DappMotion | null, event: PresentationMorphEvent): MorphEventAction {
+export function classifyMorphEvent(motion: DappMotion | null, event: unknown): MorphEventAction {
   if (
     !motion ||
+    !isEventObject(event) ||
     event.id !== motion.id ||
     event.managedHostCloseToken !== motion.lifetime ||
     event.morphId !== motion.morphId ||
@@ -108,6 +109,11 @@ export function isMorphCard(value: unknown): value is MorphCard {
     isFiniteNumber(cornerRadius) &&
     cornerRadius >= 0
   );
+}
+
+/** Only that `value` is a non-null object; its fields are checked by the caller. */
+function isEventObject(value: unknown): value is PresentationMorphEvent {
+  return typeof value === 'object' && value !== null;
 }
 
 function isMorphTarget(value: unknown): value is MorphTarget {

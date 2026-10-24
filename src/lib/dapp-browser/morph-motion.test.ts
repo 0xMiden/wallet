@@ -77,6 +77,7 @@ it('ignores a malformed event from the bridge', () => {
     expect(classifyMorphEvent(motion, event)).toEqual({ kind: 'ignore' });
     expect(applyMorphEvent(motion, event)).toBe(motion);
   }
+  expect(classifyMorphEvent(motion, undefined)).toEqual({ kind: 'ignore' });
 });
 
 it('ignores a superseded morph id once the caller holds a newer one', () => {
