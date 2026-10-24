@@ -15,6 +15,7 @@ import { DappPeekTray } from './DappPeekTray';
 type Rect = { x: number; y: number; width: number; height: number };
 type Motion = { id: string; target: 'collapsed' | 'expanded'; started: boolean };
 type CardProps = React.ComponentProps<typeof import('./DappPeekCard').DappPeekCard>;
+type OverlayProps = { sourceRect: Rect; targetRect: Rect; origin: string; onDone: () => void };
 
 const session = (id: string): DappSession => ({
   id,
@@ -50,7 +51,7 @@ const mockBrowser: {
   reportLandingCard: jest.fn(),
   slotRect: null
 };
-const mockOverlayProps: { sourceRect: Rect; targetRect: Rect; onDone: () => void }[] = [];
+const mockOverlayProps: OverlayProps[] = [];
 const mockCardProps: CardProps[] = [];
 const mockSnapshots = new Map<string, string>();
 const mockSnapshotListeners = new Set<() => void>();
@@ -65,7 +66,7 @@ jest.mock('lib/dapp-browser/snapshot-store', () => ({
   }
 }));
 jest.mock('./DappExpanderOverlay', () => ({
-  DappExpanderOverlay: (props: { sourceRect: Rect; targetRect: Rect; onDone: () => void }) => {
+  DappExpanderOverlay: (props: OverlayProps) => {
     mockOverlayProps.push(props);
     return <div data-testid="expander-overlay" />;
   }
@@ -376,6 +377,85 @@ describe('DappPeekTray cold restore overlay', () => {
     await act(async () => fireEvent.click(screen.getByTestId('dapp-peek-card')));
 
     expect(mockOverlayProps.at(-1)?.targetRect).toEqual(measured);
+  });
+
+  const cold = (s: DappSession) => ({ session: s, instance: null, isCold: true });
+  const pending = () => {
+    let settle: (moved: boolean) => void = () => undefined;
+    const promise = new Promise<boolean>(resolve => (settle = resolve));
+    return { promise, settle };
+  };
+  const commit = (id: string) =>
+    act(async () =>
+      mockCardProps
+        .filter(props => props.session.id === id)
+        .at(-1)
+        ?.onCommitRestore(new DOMRect(), { x: 0, y: 0 })
+    );
+  const overlay = () => screen.queryByTestId('expander-overlay');
+
+  it('keeps the cold-expand overlay on the latest gesture', async () => {
+    const warmRestore = pending();
+    mockBrowser.restore.mockImplementation((id: string) => (id === 's1' ? warmRestore.promise : Promise.resolve(true)));
+    mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }];
+    mockBrowser.sessionStates = [warm(S1), cold(S2)];
+    render(<DappPeekTray />);
+
+    await commit('s1');
+    await commit('s2');
+    expect(mockOverlayProps.at(-1)?.origin).toBe('https://s2.example');
+    await act(async () => warmRestore.settle(false));
+
+    expect(overlay()).toBeInTheDocument();
+    expect(mockOverlayProps.at(-1)?.origin).toBe('https://s2.example');
+  });
+
+  it('a finished earlier overlay does not clear the latest one', async () => {
+    mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }];
+    mockBrowser.sessionStates = [cold(S1), cold(S2)];
+    render(<DappPeekTray />);
+
+    await commit('s1');
+    const firstDone = mockOverlayProps.at(-1)?.onDone;
+    await commit('s2');
+    act(() => firstDone?.());
+
+    expect(overlay()).toBeInTheDocument();
+    expect(mockOverlayProps.at(-1)?.origin).toBe('https://s2.example');
+  });
+
+  it('clears the overlay when the session leaves before restore settles', async () => {
+    const restore = pending();
+    mockBrowser.restore.mockReturnValue(restore.promise);
+    mockBrowser.parkedSessions = [{ session: S1 }];
+    mockBrowser.sessionStates = [cold(S1)];
+    const { rerender } = render(<DappPeekTray />);
+
+    await commit('s1');
+    expect(overlay()).toBeInTheDocument();
+    mockBrowser.parkedSessions = [];
+    mockBrowser.sessionStates = [];
+    rerender(<DappPeekTray />);
+    expect(overlay()).toBeNull();
+
+    await act(async () => restore.settle(false));
+    expect(overlay()).toBeNull();
+  });
+
+  it('does not install a warm fallback for a session that closed', async () => {
+    const restore = pending();
+    mockBrowser.restore.mockReturnValue(restore.promise);
+    mockBrowser.parkedSessions = [{ session: S1 }];
+    mockBrowser.sessionStates = [warm(S1)];
+    const { rerender } = render(<DappPeekTray />);
+
+    await commit('s1');
+    mockBrowser.parkedSessions = [];
+    mockBrowser.sessionStates = [];
+    rerender(<DappPeekTray />);
+    await act(async () => restore.settle(false));
+
+    expect(overlay()).toBeNull();
   });
 });
 
