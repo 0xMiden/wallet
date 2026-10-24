@@ -32,7 +32,7 @@
 
 import React, { type FC, useRef, useState } from 'react';
 
-import { type PanInfo, motion } from 'framer-motion';
+import { type PanInfo, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import type { MorphVelocity } from '@miden/dapp-browser';
@@ -104,6 +104,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   onNavigate
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion() === true;
   const [faviconBroken, setFaviconBroken] = useState(false);
   // `exitMode` drives which exit animation AnimatePresence plays when
   // this card unmounts. We set it synchronously on commit inside the
@@ -137,7 +138,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   // The card's gradient, label, buttons and outer shadow layers; the contact shadow the native morph lands with stays.
   const chromeStyle: React.CSSProperties = {
     opacity: chromeVisible ? 1 : 0,
-    transition: chromeVisible ? `opacity ${MORPH_TIMING.chromeFadeMs}ms ease-out` : 'none',
+    transition: chromeVisible && !reduceMotion ? `opacity ${MORPH_TIMING.chromeFadeMs}ms ease-out` : 'none',
     pointerEvents: chromeVisible ? undefined : 'none'
   };
   // Hidden controls also leave the focus order and the accessibility tree; React 18 drops a boolean `inert`.
