@@ -1,4 +1,16 @@
 {
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": ""
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": ""
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": ""
+  },
   "seedBackupRequiredTitle": {
     "message": "시드 문구를 백업하세요",
     "englishSource": "Back up your recovery phrase"
