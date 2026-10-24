@@ -260,14 +260,24 @@ const TRACE_ID_FORMATS: Readonly<Record<string, RegExp>> = {
   parent_span_id: /^[0-9a-f]{16}$/
 };
 
-/** The SDK's own trace ids, which the hex rule would otherwise erase and with them the link to the run's records. */
+/**
+ * The trace ids of this client's own scope, which the hex rule would otherwise erase and with them the link to the
+ * run's records. A `trace` context set on a shared scope replaces the SDK's, so only a value equal to the scope's
+ * propagation context counts; a span id the SDK mints per event cannot be told from a foreign one and stays redacted.
+ */
 function sdkTraceIds(event: unknown): Record<string, string> {
   const trace = isRecord(event) && isRecord(event.contexts) ? event.contexts.trace : undefined;
-  if (!isRecord(trace)) return {};
+  if (!isRecord(trace) || typeof scope?.getPropagationContext !== 'function') return {};
+  const own = scope.getPropagationContext();
+  const expected: Record<string, unknown> = {
+    trace_id: own.traceId,
+    span_id: own.propagationSpanId,
+    parent_span_id: own.parentSpanId
+  };
   return Object.fromEntries(
     Object.entries(TRACE_ID_FORMATS).flatMap(([key, format]) => {
       const value = trace[key];
-      return typeof value === 'string' && format.test(value) ? [[key, value]] : [];
+      return typeof value === 'string' && format.test(value) && value === expected[key] ? [[key, value]] : [];
     })
   );
 }

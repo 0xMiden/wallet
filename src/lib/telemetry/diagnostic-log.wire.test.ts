@@ -193,3 +193,14 @@ it('gives a crash report the same trace id as the records sent before it', async
   expect(events).toHaveLength(1);
   expect(events[0]?.contexts?.trace?.trace_id).toBe(traceId);
 });
+
+it('sends no trace id that a shared scope sets in place of the client scope ones', async () => {
+  const foreign = ['d'.repeat(32), 'b'.repeat(16), 'c'.repeat(16)];
+  getGlobalScope().setContext('trace', { trace_id: foreign[0], span_id: foreign[1], parent_span_id: foreign[2] });
+  logOperationStep('swap', 'proposal_execute', 'failed');
+  captureCrash(new Error('proposal failed'));
+  await flushLogs();
+  expect(bodies.filter(body => body.includes('"type":"event"'))).toHaveLength(1);
+  for (const id of foreign) expect(bodies.join('\n')).not.toContain(id);
+  expect(wireLogs()[0]?.trace_id).toMatch(/^[0-9a-f]{32}$/);
+});
