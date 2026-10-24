@@ -113,14 +113,15 @@ complete_first_run() {
   adb shell am start -W -n "$activity" >/dev/null
   for _ in $(seq 1 30); do
     sleep 2
-    # A browser's first launch is slow; an empty screen counts only once its own window has focus.
-    adb shell dumpsys window displays | grep -q "mCurrentFocus=.*$package" || continue
     adb shell uiautomator dump /sdcard/first-run.xml >/dev/null 2>&1 || continue
     local bounds
     bounds=$(adb exec-out cat /sdcard/first-run.xml | tr '>' '\n' \
-      | grep -E 'text="(Continue|Not now|Skip|Maybe later|Stay signed out|No thanks|Got it|Use without an account|Don.t allow)"' \
+      | grep -E 'text="(Continue|Not now|Skip|Maybe later|Stay signed out|No thanks|Got it|Use without an account|Don.t allow|Cancel)"' \
       | head -1 | grep -o 'bounds="\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]"' | grep -o '[0-9]*' | tr '\n' ' ' || true)
     if [[ -z "$bounds" ]]; then
+      # A browser's first launch is slow; an empty screen counts only once its own window has focus. The
+      # default-browser prompt belongs to the system, so a button is tapped whichever window shows it.
+      adb shell dumpsys window displays | grep -q "mCurrentFocus=.*$package" || continue
       idle=$((idle + 1))
       [[ $idle -ge 3 ]] && { echo "$package first run complete"; adb shell am force-stop "$package"; return 0; }
       continue
