@@ -1391,6 +1391,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Miden plugin method (#1817): hold the full frame rate from a touch-down on a
     /// control that can start a morph, so the display is at speed when it moves.
     /// A morph that starts takes the request over; without one it lapses after `durationMs`.
+    /// A shown page also takes its collapse proxy here, off the collapse's frames.
     @objc func prepareMorph(_ call: CAPPluginCall) {
         let duration = min(2, max(0, Double(call.getInt("durationMs") ?? 600) / 1000))
         DispatchQueue.main.async {

@@ -64,6 +64,7 @@ final class BreadPresentationController: NSObject {
     private var proxyCapture = 0
     private var capturing = false
     private var snapshotWaiters: [(UIImage?) -> Void] = []
+    private var preparedProxy: (generation: Int, layout: Int, at: CFTimeInterval)?
     private var grab: (start: Double, target: Double, raw: Double)?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
@@ -178,7 +179,16 @@ final class BreadPresentationController: NSObject {
 
     func slotFrame() -> CGRect? { instance?.containerWindow.flatMap { slotFrame(for: $0) } }
 
-    func prepareMorph() {}
+    func prepareMorph() {
+        guard !moving, !capturing, !proxyPrepared, showsLivePage else { return }
+        captureProxy(prepared: true)
+    }
+
+    private var proxyPrepared: Bool {
+        guard proxyFresh, let prepared = preparedProxy else { return false }
+        return prepared.generation == state.generation && prepared.layout == layoutRevision
+            && CACurrentMediaTime() - prepared.at <= BreadFrameRateBoost.duration
+    }
 
     func dropProxy() {
         proxy.image = nil
@@ -278,16 +288,20 @@ final class BreadPresentationController: NSObject {
         guard !proxyCovering else { return }
         proxy.alpha = 0
         proxy.isHidden = false
-        if showsLivePage { captureProxy() }
+        if showsLivePage, !proxyPrepared { captureProxy() }
+        preparedProxy = nil
     }
 
-    private func captureProxy() {
+    private func captureProxy(prepared: Bool = false) {
         guard let webView else { return }
         let generation = state.generation
+        let layout = layoutRevision
+        let started = CACurrentMediaTime()
         proxyCapture += 1
         let serial = proxyCapture
         capturing = true
         proxyFresh = false
+        preparedProxy = nil
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = false
         Self.snapshotHook?(configuration)
@@ -301,6 +315,7 @@ final class BreadPresentationController: NSObject {
                 return
             }
             self.adoptProxy(image)
+            if prepared, self.layoutRevision == layout { self.preparedProxy = (generation, layout, started) }
             if self.state.motion == .collapsing, (self.animator?.progress() ?? 1) <= 0.35 { self.fadeInProxy() }
             waiters.forEach { $0(image) }
         }
@@ -775,8 +790,11 @@ final class BreadPresentationController: NSObject {
                     if case .success = result { self.preparePaint() }
                     return
                 }
+                // Only the wait for the screen update fences the paint; one point keeps the render server's copy free.
                 let configuration = WKSnapshotConfiguration()
                 configuration.afterScreenUpdates = true
+                configuration.rect = CGRect(x: 0, y: 0, width: 1, height: 1)
+                configuration.snapshotWidth = 1
                 Self.snapshotHook?(configuration)
                 webView.takeSnapshot(with: configuration) { [weak self] image, error in
                     guard let self, self.state.generation == generation, self.layoutRevision == revision,

@@ -903,7 +903,8 @@ export interface InAppBrowserPlugin {
     /**
      * Miden patch (#1817): hold the display's full frame rate from a touch-down on a control that can start a
      * morph, so the panel is at speed when the page's first frame moves. The morph native then runs takes the
-     * request over; without one it lapses after durationMs. Android requests it on API 35+ only.
+     * request over; without one it lapses after durationMs. Android requests it on API 35+ only. On iOS a shown page
+     * also takes the snapshot its collapse fades to here, so no snapshot lands on the collapse's frames.
      */
     prepareMorph(options: PrepareMorphOptions): Promise<void>;
     /**
