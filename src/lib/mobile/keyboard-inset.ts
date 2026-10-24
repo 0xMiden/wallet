@@ -43,8 +43,12 @@ import { holdNavbarHidden } from './useHideNavbarWhileOpen';
  * is applied only while an element of the wallet document is being edited.
  */
 
-/** True while the focused element of the wallet document takes keyboard input. */
+/**
+ * True while the focused element of the wallet document takes keyboard input. The page itself must
+ * hold focus too: when the dApp window takes it, the wallet field stays `document.activeElement`.
+ */
 function walletIsEditing(): boolean {
+  if (!document.hasFocus()) return false;
   const active = document.activeElement;
   if (!(active instanceof HTMLElement)) return false;
   return (

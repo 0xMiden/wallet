@@ -120,6 +120,23 @@ describe('keyboard-inset', () => {
     expect(document.body).toHaveAttribute('data-hide-navbar');
   });
 
+  it('ignores a dApp keyboard while a wallet field is still the active element of an unfocused page', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    // The dApp window took focus from the wallet page: the page is no longer focused, but the
+    // field it last edited stays document.activeElement.
+    const hasFocus = jest.spyOn(document, 'hasFocus').mockReturnValue(false);
+    try {
+      listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+      expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('');
+      expect(document.body).not.toHaveAttribute('data-hide-navbar');
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
   it('takes one hold however many times the keyboard reports it is showing', async () => {
     isMobileMock.mockReturnValue(true);
 
