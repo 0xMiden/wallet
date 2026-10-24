@@ -2058,6 +2058,31 @@ describe('native morph adoption', () => {
     expect(parked()).toEqual(['origin']);
   });
 
+  it('parks an outgoing session when a host alert opens while its outgoing park captures its snapshot', async () => {
+    await openForeground();
+    act(() => control().open(session('second')));
+    await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+    await act(async () => void control().restore('origin', { card: CARD }));
+    let release: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string | null>(resolve => {
+          release = resolve;
+        })
+    );
+    emitMorph('settled', 'expanded');
+    await settle();
+
+    act(() => externalPageFailed());
+    await settle();
+    await act(async () => release(null));
+    await settle();
+
+    expect(control().sessionStates.find(state => state.session.id === 'second')?.status).toBe('parked');
+    expect(parked()).toContain('second');
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 

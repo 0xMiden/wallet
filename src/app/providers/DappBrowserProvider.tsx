@@ -447,6 +447,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     !walletShellActive || !!request || switcherOpen || hostOverlays > 0 || alertParams.isOpen || confirmParams.isOpen;
   const foregroundBlockedRef = useRef(foregroundBlocked);
   const foregroundOwnershipRevision = useRef(0);
+  // Bumped only by restore, per session. A legacy park already in flight commits only while its captured value remains.
+  const restoreGeneration = useRef<Map<string, number>>(new Map());
   if (foregroundBlocked && !foregroundBlockedRef.current) foregroundOwnershipRevision.current++;
   foregroundBlockedRef.current = foregroundBlocked;
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
@@ -1300,7 +1302,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const parkOutgoing = useCallback(
     (flight: MorphFlight, next?: MorphFlight) => {
       const outgoing = flight.motion.outgoingId;
-      if (outgoing && outgoing !== next?.motion.id && outgoing !== next?.motion.outgoingId) void parkLegacy(outgoing);
+      if (outgoing && outgoing !== next?.motion.id && outgoing !== next?.motion.outgoingId) {
+        const generation = restoreGeneration.current.get(outgoing);
+        void parkLegacy(outgoing, () => restoreGeneration.current.get(outgoing) === generation);
+      }
     },
     [parkLegacy]
   );
@@ -1564,11 +1569,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       parkOutgoing(flight);
       const { id } = flight.motion;
       const { guard } = flight;
+      const generation = restoreGeneration.current.get(id);
       // The morph spent the visibility sequence the guard was taken at, so it is checked as after a hide.
-      void parkLegacy(id, guard && (() => guard(true))).then(committed => {
-        if (committed && foregroundIdRef.current === id) setForegroundId(null);
-        flight.finish(committed === true);
-      });
+      void parkLegacy(id, () => (!guard || guard(true)) && restoreGeneration.current.get(id) === generation).then(
+        committed => {
+          if (committed && foregroundIdRef.current === id) setForegroundId(null);
+          flight.finish(committed === true);
+        }
+      );
     },
     [endFlight, parkLegacy, parkOutgoing]
   );
@@ -1723,6 +1731,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const lifetime = sessionLifetimes.current.get(sessionId);
       if (!state || !lifetime) return false;
       foregroundOwnershipRevision.current++;
+      // Stored before either body, including when this session is already foreground, so a legacy park of it that is
+      // still awaiting its snapshot cannot mark it parked once this restore has begun.
+      restoreGeneration.current.set(sessionId, (restoreGeneration.current.get(sessionId) ?? 0) + 1);
       // A warm page expands natively; every other restore takes the path below.
       if (state.instance && canExpandByMorph(sessionId, state))
         return restoreByMorph(sessionId, state.instance, gesture);
