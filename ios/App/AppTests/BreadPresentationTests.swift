@@ -2406,4 +2406,141 @@ final class BreadMorphPresentationTests: XCTestCase {
             XCTAssertTrue(live.web.accessibilityElementsHidden, action)
         }
     }
+
+    private func path(_ live: LivePresentation) -> CGPoint {
+        let card = landing(live).rect
+        return CGPoint(x: live.window.bounds.midX - card.midX, y: live.window.bounds.midY - card.midY)
+    }
+
+    private func along(_ live: LivePresentation, _ fraction: CGFloat) -> CGPoint {
+        let vector = path(live)
+        return CGPoint(x: vector.x * fraction, y: vector.y * fraction)
+    }
+
+    private func speed(_ live: LivePresentation, _ pointsPerSecond: CGFloat) -> CGPoint {
+        let vector = path(live)
+        let length = hypot(vector.x, vector.y)
+        return CGPoint(x: vector.x / length * pointsPerSecond, y: vector.y / length * pointsPerSecond)
+    }
+
+    private func grab(_ live: LivePresentation, by fraction: CGFloat, release velocity: CGPoint) {
+        live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
+        live.presentation.handleGrab(.changed, translation: along(live, fraction), velocity: velocity)
+        live.presentation.handleGrab(.ended, translation: along(live, fraction), velocity: velocity)
+    }
+
+    func testTapOnTheMovingPageRetargetsToTheOppositeEndWithVelocity() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 80_000_000)
+        let animator = try XCTUnwrap(live.presentation.animator)
+        let before = animator.progress()
+        let velocity = animator.velocity()
+        live.presentation.handleTap()
+        let event = try XCTUnwrap(plugin.morphs.last)
+        XCTAssertEqual(event["phase"] as? String, "retargeted")
+        XCTAssertEqual(event["morphId"] as? String, "c1")
+        XCTAssertEqual(event["target"] as? String, "expanded")
+        XCTAssertEqual(event["tracking"] as? Bool, false)
+        XCTAssertEqual(event["progress"] as? Double ?? .nan, before, accuracy: 1e-3)
+        XCTAssertLessThan(velocity, 0)
+        XCTAssertLessThan(event["velocity"] as? Double ?? 0, 0)
+        XCTAssertEqual(animator.target, 1)
+        let scale = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(scale.stiffness), 223.8, accuracy: 0.1)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+    }
+
+    func testGrabTracksOneToOneThenSpringsWithReleasePhysics() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        let animator = try XCTUnwrap(live.presentation.animator)
+        live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
+        let start = animator.progress()
+        XCTAssertGreaterThan(start, 0.3)
+        live.presentation.handleGrab(.changed, translation: along(live, -0.25), velocity: .zero)
+        XCTAssertEqual(animator.progress(), start - 0.25, accuracy: 1e-6)
+        assertHeld(container, at: BreadMorphPose.at(start - 0.25, card: landing(live), slot: live.window.bounds.size))
+        assertModelAtRest(container)
+        live.presentation.handleGrab(.ended, translation: along(live, -0.25), velocity: .zero)
+        let spring = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(spring.stiffness), 246.7, accuracy: 0.1)
+        XCTAssertEqual(Double(spring.damping), 25.8, accuracy: 0.1)
+        XCTAssertEqual(number(spring.toValue) ?? .nan, Double(BreadMorphPose.at(0, card: landing(live), slot: live.window.bounds.size).scale), accuracy: 1e-6)
+        XCTAssertEqual(animator.target, 0)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testReleaseCommitsPastThirtyPercentOrFourHundredFiftyPointsPerSecond() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        grab(live, by: 0.31, release: .zero)
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded", "projected travel past 0.3 commits the dragged end")
+        XCTAssertEqual(live.presentation.state.motion, .expanding)
+        grab(live, by: -0.1, release: speed(live, -500))
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed", "a 500 pt/s flick commits the flicked end")
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        grab(live, by: 0.1, release: .zero)
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed", "a short slow drag keeps the pre-grab target")
+        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, false)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testGrabEmitsTrackingThenReleaseRetargets() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
+        XCTAssertEqual(plugin.morphs.last?["phase"] as? String, "retargeted")
+        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, true)
+        XCTAssertEqual(plugin.morphs.last?["morphId"] as? String, "c1")
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "retargeted"])
+        live.presentation.handleGrab(.changed, translation: along(live, -0.05), velocity: .zero)
+        live.presentation.handleGrab(.ended, translation: along(live, -0.05), velocity: .zero)
+        XCTAssertEqual(plugin.morphs.last?["phase"] as? String, "retargeted")
+        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, false)
+        XCTAssertEqual(plugin.morphs.last?["morphId"] as? String, "c1")
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+    }
+
+    func testFlightRoutesTouchesAgainstThePresentationRect() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        let center = CGPoint(x: container.view.bounds.midX, y: container.view.bounds.midY)
+        let corner = CGPoint(x: 2, y: 2)
+        let restHit = container.view.hitTest(center, with: nil)
+        XCTAssertFalse(restHit === container.view)
+        XCTAssertEqual(restHit?.isDescendant(of: container.child.view), true)
+        XCTAssertFalse(container.tap.isEnabled)
+        XCTAssertFalse(container.pan.isEnabled)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(container.view.hitTest(center, with: nil) === container.view)
+        XCTAssertTrue(container.view.hitTest(corner, with: nil) === container.view)
+        XCTAssertTrue(container.tap.isEnabled)
+        XCTAssertTrue(container.pan.isEnabled)
+        let frame = container.presentationFrame()
+        XCTAssertLessThan(frame.width, container.view.bounds.width)
+        XCTAssertTrue(container.acceptsTouch(at: CGPoint(x: frame.midX, y: frame.midY)))
+        XCTAssertFalse(container.acceptsTouch(at: corner))
+    }
 }

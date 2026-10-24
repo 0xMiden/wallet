@@ -131,6 +131,10 @@ final class BreadPresentationController: NSObject {
 
     func dropProxy() {}
 
+    func handleTap() {}
+
+    func handleGrab(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {}
+
     func layoutChanged() {
         guard let owner, state.phase != .closed else { return }
         if lastBounds != owner.view.bounds || lastSafeArea != owner.view.safeAreaInsets {
