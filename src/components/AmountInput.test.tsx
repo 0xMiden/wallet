@@ -392,6 +392,27 @@ describe('AmountInput', () => {
       expect(onValueChange).toHaveBeenCalled();
     });
 
+    it('preserves redundant trailing zeros while rejecting excess nonzero precision', () => {
+      const onValueChange = jest.fn();
+      render(
+        <AmountInput
+          value="1.23"
+          preservePrecision
+          decimalsLimit={2}
+          maxLength={80}
+          onValueChange={onValueChange}
+          data-testid={TESTID}
+        />
+      );
+
+      fireEvent.change(getInput(), { target: { value: '1.2300' } });
+      expect(onValueChange).toHaveBeenCalledWith('1.2300');
+
+      onValueChange.mockClear();
+      fireEvent.change(getInput(), { target: { value: '1.2301' } });
+      expect(onValueChange).not.toHaveBeenCalled();
+    });
+
     // #433 — on a comma-decimal keyboard/locale (es, de, fr, …) the user types a
     // comma for the decimal point. Group separators are disabled, so a comma can
     // only mean "decimal": normalize it to a dot before parsing so the emitted
