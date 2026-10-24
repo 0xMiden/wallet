@@ -58,6 +58,7 @@ jest.mock('@sentry/browser', () => ({
     setClient,
     setTag,
     setTags,
+    getPropagationContext: () => ({ traceId: 'a'.repeat(32), sampleRand: 0 }),
     captureException: (error: unknown, hint: unknown) => {
       captured.push(error);
       capturedHints.push(hint);
@@ -580,6 +581,27 @@ describe('scrubEvent — the beforeSend hook', () => {
     const text = JSON.stringify(scrubbed);
     expect(text).not.toContain('qr7qqq9wr6w');
     expect(text).toContain('import failed');
+  });
+
+  it("keeps only the client scope's own trace id and scrubs anything else under the trace context", () => {
+    const traceEvent = (traceId: string) => ({
+      contexts: {
+        trace: { trace_id: traceId, span_id: 'b'.repeat(16), parent_span_id: 'c'.repeat(16), note: PRIVATE_KEY_HEX }
+      }
+    });
+    const allRedacted = { trace_id: REDACTED, span_id: REDACTED, parent_span_id: REDACTED, note: REDACTED };
+    expect(scrubEvent(traceEvent('a'.repeat(32)))?.contexts.trace).toEqual(allRedacted);
+    initCrashReporting();
+    expect(scrubEvent(traceEvent('a'.repeat(32)))?.contexts.trace).toEqual({
+      ...allRedacted,
+      trace_id: 'a'.repeat(32)
+    });
+    expect(scrubEvent(traceEvent('d'.repeat(32)))?.contexts.trace).toEqual(allRedacted);
+    const forged = scrubEvent({
+      contexts: { trace: { trace_id: `${PRIVATE_KEY_HEX} ${COMPOSITE_ADDRESS}`, span_id: PRIVATE_KEY_HEX } }
+    });
+    expect(JSON.stringify(forged)).not.toContain('9f86d081');
+    expect(JSON.stringify(forged)).not.toContain('qr7qqq9wr6w');
   });
 
   it('scrubs secrets nested deep in extra, contexts, and breadcrumbs', () => {
