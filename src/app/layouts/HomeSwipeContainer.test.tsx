@@ -187,10 +187,17 @@ function measure(width: number) {
   });
 }
 
-function fire(target: EventTarget, type: string, touches?: number): Event {
+/** `touches` is the count still down, or the targets of the fingers still down. */
+function fire(target: EventTarget, type: string, touches?: number | EventTarget[]): Event {
   const init = { bubbles: true, cancelable: true };
   const event = type.startsWith('touch') ? new TouchEvent(type, init) : new Event(type, init);
-  if (touches !== undefined) Object.defineProperty(event, 'touches', { value: { length: touches } });
+  if (touches !== undefined) {
+    const down =
+      typeof touches === 'number'
+        ? Array.from({ length: touches }, () => ({ target }))
+        : touches.map(t => ({ target: t }));
+    Object.defineProperty(event, 'touches', { value: down });
+  }
   act(() => {
     target.dispatchEvent(event);
   });
@@ -465,6 +472,23 @@ describe('HomeSwipeContainer', () => {
       expect(mockNavigate).not.toHaveBeenCalled();
       idle(1);
       expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('leaves a tap slide to its own finish when an idle check armed before it comes due', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      scrollTo(scroller, 0);
+      route(rerender, '/send');
+      frame();
+      mockNavigate.mockClear();
+
+      scroller.scrollLeft = 4 * W;
+      idle(pagerMotion.settleIdleMs);
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      finishAnimation(lastAnimation());
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/swap');
     });
 
     it('waits for every scroll event, not the first', () => {

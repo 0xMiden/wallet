@@ -373,7 +373,8 @@ const HomeSwipeContainer: FC = () => {
     };
 
     const onIdle = () => {
-      if (touchDown) return;
+      // A slide owns the scroller until endFlip, which settles it if it ends off target.
+      if (touchDown || ignoreScroll()) return;
       const quiet = Date.now() - lastScrollAtRef.current;
       if (quiet < pagerMotion.settleIdleMs) {
         idleTimer = setTimeout(onIdle, pagerMotion.settleIdleMs - quiet);
