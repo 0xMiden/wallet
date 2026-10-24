@@ -2294,6 +2294,105 @@ public class BreadPresentationControllerTest {
         assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
     }
 
+    static final class HeldSnapshotter implements BreadSnapshotter {
+        final List<java.util.function.IntConsumer> pending = new ArrayList<>();
+        @Override public void capture(Window window, android.graphics.Rect rect, android.graphics.Bitmap into,
+                                      java.util.function.IntConsumer done) { pending.add(done); }
+        @Override public void encode(Runnable work) {}
+        void release() { pending.remove(0).accept(android.view.PixelCopy.SUCCESS); }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void centeredCardDragKeepsTheGrabbedProgress() throws Exception {
+        openMorph(false);
+        reveal();
+        float w = root.getWidth(), h = root.getHeight();
+        BreadMorphCard card = new BreadMorphCard(new RectF(rootOrigin[0] + w * 0.25f, rootOrigin[1] + h * 0.25f,
+            rootOrigin[0] + w * 0.75f, rootOrigin[1] + h * 0.75f), 16);
+        assertTrue(collapse(card, "centered"));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 60 && morph.progress() > 0.5f; i++) BreadMorphControllerTest.frame();
+        RectF page = controller.morphPageRect();
+        float slop = 2 * android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        float x = page.centerX(), y = page.centerY();
+        long t = android.os.SystemClock.uptimeMillis();
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, x, y, t)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, x + slop, y, t + 8)));
+        assertFalse(morph.running());
+        float grabbed = morph.progress();
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, x + slop + 40, y + 40, t + 24)));
+        assertEquals("centered drag keeps the grabbed progress", grabbed, morph.progress(), 0f);
+        assertFalse("container scale is a number", Float.isNaN(root.getScaleX()));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void reducedMotionCollapseRendersTheParkedPose() throws Exception {
+        openMorph(true);
+        reveal();
+        HeldSnapshotter held = new HeldSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", held);
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+            ReflectionHelpers.ClassParameter.from(float.class, 0f));
+        try {
+            assertTrue(collapse(card(), "still"));
+            assertFalse(driver().running());
+            assertEquals("reduced-motion collapse leaves the parked end pose", 0f, back.getAlpha(), 0f);
+            assertEquals(1, held.pending.size());
+            held.release();
+            assertEquals("a late capture still crossfades the parked card", View.VISIBLE, proxy.getVisibility());
+            assertEquals(1, proxy.getAlpha(), 0f);
+        } finally {
+            ReflectionHelpers.callStaticMethod(android.animation.ValueAnimator.class, "setDurationScale",
+                ReflectionHelpers.ClassParameter.from(float.class, 1f));
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void captureOfAnUnpaintedPageIsNotTheProxy() throws Exception {
+        openMorph(false);
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        assertTrue(collapse(card(), "unpainted"));
+        assertEquals(1, snapshots.captures.size());
+        assertFalse("proxy holds an unpainted frame", controller.state.proxyUsable());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void sizeChangeDropsTheParkedProxy() throws Exception {
+        open(true, true, "default");
+        controller.state.configure("doc", false, true);
+        acknowledgePolicy();
+        WebView page = webView;
+        morphFixture();
+        page.layout(0, 0, root.getWidth(), root.getHeight());
+        reveal();
+        park(card());
+        assertTrue(controller.state.proxyUsable());
+        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
+        assertFalse("proxy holds a frame of the old size", controller.state.proxyUsable());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void captureFinishingAfterASizeChangeIsNotTheProxy() throws Exception {
+        open(true, true, "default");
+        controller.state.configure("doc", false, true);
+        acknowledgePolicy();
+        WebView page = webView;
+        morphFixture();
+        page.layout(0, 0, root.getWidth(), root.getHeight());
+        reveal();
+        HeldSnapshotter held = new HeldSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", held);
+        List<String> results = new ArrayList<>();
+        dialog.takeSnapshotData(0.5f, 0.7f, results::add);
+        assertEquals(1, held.pending.size());
+        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
+        doReturn(root.getWidth() + 40).when(webView).getWidth();
+        held.release();
+        assertFalse("proxy holds a frame of the old size", controller.state.proxyUsable());
+    }
+
     @Test @Config(sdk = 35, shadows = PaintWebView.class)
     public void breadButtonTouchDownBoostsUntilTheCollapseTakesItOver() throws Exception {
         openMorph(true);
