@@ -1778,10 +1778,32 @@ describe('the never-committed verdict', () => {
         error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.'
       });
       const message = await reportedMessage();
-      expect(message).toContain(`; point node_verdict; never_committed; rule ${rule}. authentication`);
+      const proofWait = rule === 'expired' ? '; proof wait unavailable' : '';
+      expect(message).toContain(`; point node_verdict; never_committed; rule ${rule}${proofWait}. authentication`);
       expect(message).not.toContain('; network.');
     }
   );
+
+  it('adds only the prior failure identity and expiry-relative wait bucket', async () => {
+    const priorError = new Error(
+      `failed to execute transaction: failed to fetch transaction inputs from the data store: account with id ${ACCOUNT_HEX}, amount 4200`
+    );
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'send',
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
+      priorError,
+      proofWaitBlocks: 360,
+      expiryWindowBlocks: 600
+    });
+
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; point node_verdict; never_committed; rule expired; prior transaction_execution_failed; cause fetch_inputs; proof wait over_half_window. authentication'
+    );
+    expectNoTransactionData(message);
+  });
 
   it('names a verdict with no rule by its reason alone, and a rule outside the list as other', async () => {
     reportTransactionFailure({ point: 'guardian_node_verdict', type: 'switch-guardian', reason: 'never_committed' });

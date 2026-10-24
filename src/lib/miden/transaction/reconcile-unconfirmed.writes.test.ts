@@ -297,7 +297,14 @@ describe('the never-committed write (#1081)', () => {
   });
 
   it('moves an Unconfirmed row to Failed and reports the definitive verdict once', async () => {
-    await Repo.transactions.put(unconfirmed());
+    const priorError = 'failed to execute transaction: failed to fetch transaction inputs from the data store';
+    await Repo.transactions.put(
+      unconfirmed({
+        attemptId: 'a1',
+        rawError: priorError,
+        stageTimestamps: { executing: 1_000, submitting: 10_000 }
+      })
+    );
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
     expect((await read())?.status).toBe(ITransactionStatus.Failed);
     expect(jest.requireMock('lib/telemetry/report-operation').reportOperation).not.toHaveBeenCalled();
@@ -312,6 +319,9 @@ describe('the never-committed write (#1081)', () => {
       reason: 'never_committed',
       neverCommittedRule: 'expired',
       alreadyReported: false,
+      priorError,
+      proofWaitBlocks: 3,
+      expiryWindowBlocks: 600,
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
