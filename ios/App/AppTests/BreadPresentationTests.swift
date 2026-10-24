@@ -119,6 +119,38 @@ fileprivate extension XCTestCase {
         InAppBrowserPlugin().setVisible(call)
         await fulfillment(of: [completed], timeout: 2)
     }
+
+    func landing(_ live: LivePresentation) -> BreadMorphCard {
+        let bounds = live.window.bounds
+        return BreadMorphCard(rect: CGRect(x: bounds.maxX - 120, y: bounds.maxY - 230, width: 104, height: 132), cornerRadius: 16)
+    }
+
+    func revealedMorph(display: String = "browser", counting: Bool = false) async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let live = try await livePresentation(morph: true, container: counting ? { CountingMorphContainer(child: $0) } : nil)
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        try await configure(live, theme: nil, display: display)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(revealed)
+        return (live, plugin)
+    }
+
+    func parkedWithProxy(display: String = "browser", counting: Bool = false) async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let (live, plugin) = try await revealedMorph(display: display, counting: counting)
+        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
+                                              policyRevision: nil, sequence: nil))
+        let parked = try await eventually { plugin.phases("park").contains("settled") && live.presentation.state.proxyUsable }
+        XCTAssertTrue(parked)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        return (live, plugin)
+    }
+
+    func expand(_ live: LivePresentation, _ morphId: String, card: BreadMorphCard? = nil, sequence: Int? = nil) -> Bool {
+        live.presentation.morph(to: .expanded, card: card ?? landing(live), velocity: .zero, morphId: morphId,
+                                policyRevision: live.presentation.state.policyRevision, sequence: sequence)
+    }
 }
 
 @MainActor
@@ -2211,44 +2243,12 @@ private final class SnapshotLog {
 final class BreadMorphPresentationTests: XCTestCase {
     private typealias Motion = BreadPresentationState.Motion
 
-    private func landing(_ live: LivePresentation) -> BreadMorphCard {
-        let bounds = live.window.bounds
-        return BreadMorphCard(rect: CGRect(x: bounds.maxX - 120, y: bounds.maxY - 230, width: 104, height: 132), cornerRadius: 16)
-    }
-
-    private func revealedMorph(display: String = "browser", counting: Bool = false) async throws -> (LivePresentation, PolicyRecordingPlugin) {
-        let live = try await livePresentation(morph: true, container: counting ? { CountingMorphContainer(child: $0) } : nil)
-        let plugin = PolicyRecordingPlugin()
-        live.owner.capBrowserPlugin = plugin
-        try await configure(live, theme: nil, display: display)
-        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
-        let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
-        XCTAssertTrue(revealed)
-        return (live, plugin)
-    }
-
-    private func parkedWithProxy(display: String = "browser", counting: Bool = false) async throws -> (LivePresentation, PolicyRecordingPlugin) {
-        let (live, plugin) = try await revealedMorph(display: display, counting: counting)
-        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
-                                              policyRevision: nil, sequence: nil))
-        let parked = try await eventually { plugin.phases("park").contains("settled") && live.presentation.state.proxyUsable }
-        XCTAssertTrue(parked)
-        live.presentation.setVisible(false)
-        XCTAssertTrue(live.window.isHidden)
-        return (live, plugin)
-    }
-
     private func holdFrames(_ live: LivePresentation) async throws {
         _ = try await live.web.evaluateJavaScript("window.heldFrames=[]; window.realRAF=window.realRAF||window.requestAnimationFrame; window.requestAnimationFrame=callback=>heldFrames.push(callback); true")
     }
 
     private func releaseFrames(_ live: LivePresentation) async throws {
         _ = try await live.web.evaluateJavaScript("window.requestAnimationFrame=window.realRAF; while(heldFrames.length) heldFrames.shift()(performance.now()); true")
-    }
-
-    private func expand(_ live: LivePresentation, _ morphId: String, card: BreadMorphCard? = nil, sequence: Int? = nil) -> Bool {
-        live.presentation.morph(to: .expanded, card: card ?? landing(live), velocity: .zero, morphId: morphId,
-                                policyRevision: live.presentation.state.policyRevision, sequence: sequence)
     }
 
     private func veiled(_ live: LivePresentation) -> Bool {
@@ -3107,17 +3107,6 @@ final class BreadMorphPluginTests: XCTestCase {
                 "width": 104, "height": 132, "cornerRadius": 16]
     }
 
-    private func revealed() async throws -> (LivePresentation, PolicyRecordingPlugin) {
-        let live = try await livePresentation(morph: true)
-        let plugin = PolicyRecordingPlugin()
-        live.owner.capBrowserPlugin = plugin
-        try await configure(live, theme: nil, display: "browser")
-        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
-        let shown = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
-        XCTAssertTrue(shown)
-        return (live, plugin)
-    }
-
     private func call(_ method: String, _ options: [String: Any], onResolve: @escaping ([String: Any]?) -> Void = { _ in }) async throws {
         let resolved = expectation(description: method)
         let call = try XCTUnwrap(CAPPluginCall(callbackId: method, methodName: method,
@@ -3149,7 +3138,7 @@ final class BreadMorphPluginTests: XCTestCase {
     }
 
     func testMorphMethodAppliesTheLifetimeAndSequenceGuards() async throws {
-        let (live, plugin) = try await revealed()
+        let (live, plugin) = try await revealedMorph()
         defer { live.dispose() }
         let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "lifetime"], instance: live.instance,
             host: { nil }, notify: { _ in }, finish: {}))
@@ -3192,7 +3181,7 @@ final class BreadMorphPluginTests: XCTestCase {
     }
 
     func testAcceptedMorphCallHoldsTheFrameRateLinkWhenItResolves() async throws {
-        let (live, _) = try await revealed()
+        let (live, _) = try await revealedMorph()
         defer { live.dispose() }
         let animator = try XCTUnwrap(live.presentation.animator)
         var boostingAtResolve: Bool?
@@ -3221,7 +3210,7 @@ final class BreadMorphPluginTests: XCTestCase {
     }
 
     func testSnapshotEncodesOffTheMainThreadFromTheCollapseProxy() async throws {
-        let (live, _) = try await revealed()
+        let (live, _) = try await revealedMorph()
         defer { live.dispose(); WKWebViewController.snapshotEncodeHook = nil }
         let threads = EncodeThreads()
         WKWebViewController.snapshotEncodeHook = { threads.append($0) }
@@ -3240,7 +3229,7 @@ final class BreadMorphPluginTests: XCTestCase {
     }
 
     func testLegacyParkSnapshotLeavesAFullResolutionProxyForTheNextExpand() async throws {
-        let (live, plugin) = try await revealed()
+        let (live, plugin) = try await revealedMorph()
         defer { live.dispose() }
         XCTAssertNil(live.presentation.proxy.image)
         var dataURL: String?
@@ -3265,7 +3254,7 @@ final class BreadMorphPluginTests: XCTestCase {
     }
 
     func testPrepareMorphCapturesTheShownPageSoTheCollapseAndItsSnapshotTakeNone() async throws {
-        let (live, _) = try await revealed()
+        let (live, _) = try await revealedMorph()
         let log = SnapshotLog()
         BreadPresentationController.snapshotHook = { log.record($0) }
         defer { live.dispose(); BreadPresentationController.snapshotHook = nil; BreadFrameRateBoost.shared.release() }
@@ -3279,27 +3268,6 @@ final class BreadMorphPluginTests: XCTestCase {
         try await call("snapshot", ["id": live.instance.id, "scale": 0.5, "quality": 0.7]) { data = $0?["data"] as? String }
         XCTAssertEqual(data?.hasPrefix("data:image/jpeg;base64,"), true)
         XCTAssertEqual(log.configurations.count, 0)
-    }
-
-    private func landing(_ live: LivePresentation) -> BreadMorphCard {
-        let bounds = live.window.bounds
-        return BreadMorphCard(rect: CGRect(x: bounds.maxX - 120, y: bounds.maxY - 230, width: 104, height: 132), cornerRadius: 16)
-    }
-
-    private func parkedWithProxy() async throws -> (LivePresentation, PolicyRecordingPlugin) {
-        let (live, plugin) = try await revealed()
-        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
-                                              policyRevision: nil, sequence: nil))
-        let parked = try await eventually { plugin.phases("park").contains("settled") && live.presentation.state.proxyUsable }
-        XCTAssertTrue(parked)
-        live.presentation.setVisible(false)
-        XCTAssertTrue(live.window.isHidden)
-        return (live, plugin)
-    }
-
-    private func expand(_ live: LivePresentation, _ morphId: String) -> Bool {
-        live.presentation.morph(to: .expanded, card: landing(live), velocity: .zero, morphId: morphId,
-                                policyRevision: live.presentation.state.policyRevision, sequence: nil)
     }
 
     func testPrepareMorphNamingAParkedPageShowsItsWindowUnseenSoTheMorphsFirstFrameIsNotTheUnhide() async throws {
@@ -3345,7 +3313,7 @@ final class BreadMorphPluginTests: XCTestCase {
     }
 
     func testPrepareMorphHoldsTheFrameRateUntilAMorphTakesItOver() async throws {
-        let (live, _) = try await revealed()
+        let (live, _) = try await revealedMorph()
         let boost = BreadFrameRateBoost.shared
         defer { live.dispose(); boost.release() }
         let animator = try XCTUnwrap(live.presentation.animator)
