@@ -23,6 +23,12 @@ import UIKit
 
     private let lock = NSLock()
     private var instances: [String: WKWebViewInstance] = [:]
+    private var landingCard: BreadMorphCard?
+
+    var morphCard: BreadMorphCard? {
+        get { lock.lock(); defer { lock.unlock() }; return landingCard }
+        set { lock.lock(); defer { lock.unlock() }; landingCard = newValue }
+    }
 
     private override init() {
         super.init()

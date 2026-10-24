@@ -846,7 +846,7 @@ final class BreadPresentationTests: XCTestCase {
     }
 
     func testBreadCapsuleRequestsHostMinimizeWithoutClosingRetainedDocument() async throws {
-        let live = try await livePresentation()
+        let live = try await livePresentation(morph: true)
         defer { live.dispose() }
         let plugin = PolicyRecordingPlugin()
         live.owner.capBrowserPlugin = plugin
@@ -857,6 +857,9 @@ final class BreadPresentationTests: XCTestCase {
         capsule.sendActions(for: .touchUpInside)
         XCTAssertEqual(plugin.minimizations.count, 1)
         XCTAssertEqual(plugin.minimizations.first?["visibilitySequence"] as? Int, live.presentation.state.acknowledgedVisibilitySequence)
+        XCTAssertEqual((plugin.minimizations.first?["morphId"] as? String)?.hasPrefix("native-"), true)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        XCTAssertFalse(live.window.isHidden)
         XCTAssertEqual(live.presentation.state.generation, generation)
         XCTAssertTrue(WebViewRegistry.shared.get(id: live.instance.id) === live.instance)
     }
@@ -2542,5 +2545,100 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertLessThan(frame.width, container.view.bounds.width)
         XCTAssertTrue(container.acceptsTouch(at: CGPoint(x: frame.midX, y: frame.midY)))
         XCTAssertFalse(container.acceptsTouch(at: corner))
+    }
+
+    private func capsule(_ live: LivePresentation) throws -> UIButton {
+        try XCTUnwrap(live.owner.view.subviews.compactMap { $0 as? UIButton }
+            .first { $0.accessibilityIdentifier == "bread-presentation-minimize" })
+    }
+
+    func testFullscreenCapsuleCollapsesFromSceneBoundsTowardThePublishedCard() async throws {
+        let (live, plugin) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose(); WebViewRegistry.shared.morphCard = nil }
+        let scene = try XCTUnwrap(live.window.windowScene)
+        XCTAssertTrue(live.owner.prefersStatusBarHidden)
+        let card = landing(live)
+        WebViewRegistry.shared.morphCard = BreadMorphCard(rect: card.rect.offsetBy(dx: live.window.frame.minX, dy: live.window.frame.minY),
+                                                          cornerRadius: card.cornerRadius)
+        try capsule(live).sendActions(for: .touchUpInside)
+        let morphId = try XCTUnwrap(plugin.minimizations.last?["morphId"] as? String)
+        XCTAssertTrue(morphId.hasPrefix("native-"))
+        XCTAssertEqual(live.window.frame, scene.coordinateSpace.bounds)
+        XCTAssertEqual(live.presentation.animator?.card?.rect, card.rect)
+        XCTAssertEqual(live.presentation.animator?.target, 0)
+        XCTAssertFalse(live.owner.prefersStatusBarHidden)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(live.window.frame, scene.coordinateSpace.bounds)
+        XCTAssertEqual(plugin.phases(morphId).first, "started")
+        let settled = try await eventually { plugin.phases(morphId).last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testCapsuleWithoutAPublishedCardCollapsesWithFadeScale() async throws {
+        let (live, _) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose() }
+        WebViewRegistry.shared.morphCard = nil
+        try capsule(live).sendActions(for: .touchUpInside)
+        XCTAssertNil(live.presentation.animator?.card)
+        let scale = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(number(scale.toValue) ?? .nan, 0.9, accuracy: 1e-6)
+        let opacity = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.opacity") as? CASpringAnimation)
+        XCTAssertEqual(number(opacity.toValue) ?? .nan, 0, accuracy: 1e-6)
+    }
+
+    func testCardOutsideTheWindowFallsBackToFadeScale() async throws {
+        let (live, _) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose(); WebViewRegistry.shared.morphCard = nil }
+        let bounds = live.window.bounds
+        WebViewRegistry.shared.morphCard = BreadMorphCard(rect: CGRect(x: bounds.maxX - 50, y: bounds.maxY - 100, width: 104, height: 132), cornerRadius: 16)
+        try capsule(live).sendActions(for: .touchUpInside)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        XCTAssertNil(live.presentation.animator?.card)
+        let scale = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(number(scale.toValue) ?? .nan, 0.9, accuracy: 1e-6)
+    }
+
+    func testHostRejectionSpringsBack() async throws {
+        let (live, plugin) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose(); WebViewRegistry.shared.morphCard = nil }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "lifetime"], instance: live.instance,
+            host: { nil }, notify: { _ in }, finish: {}))
+        live.instance.managedClose = managed
+        live.owner.managedClose = managed
+        WebViewRegistry.shared.morphCard = landing(live)
+        try capsule(live).sendActions(for: .touchUpInside)
+        let nativeId = try XCTUnwrap(plugin.minimizations.last?["morphId"] as? String)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(live.presentation.morph(to: .expanded, card: nil, velocity: .zero, morphId: "reject",
+                                              policyRevision: live.presentation.state.policyRevision,
+                                              sequence: live.presentation.state.acknowledgedVisibilitySequence + 1))
+        var hidden = false
+        let deadline = CACurrentMediaTime() + 3
+        while plugin.phases("reject").last != "settled", CACurrentMediaTime() < deadline {
+            hidden = hidden || live.window.isHidden
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(plugin.phases("reject"), ["retargeted", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(plugin.phases(nativeId), ["started"])
+        XCTAssertFalse(hidden)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+    }
+
+    func testBreadButtonTouchDownBoostsTheFrameRate() async throws {
+        let (live, _) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose() }
+        let button = try capsule(live)
+        button.sendActions(for: .touchDown)
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        button.sendActions(for: .touchCancel)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        button.sendActions(for: .touchDown)
+        let link = try XCTUnwrap(live.presentation.animator?.link)
+        button.sendActions(for: .touchUpInside)
+        XCTAssertTrue(live.presentation.animator?.link === link)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
     }
 }
