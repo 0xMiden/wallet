@@ -10,7 +10,7 @@ title: Build for Bread
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Build for Bread - dApp developer guide</title>
-<meta name="description" content="How to build dApps for Bread, the Miden wallet: connect with the wallet adapter, send transactions, sign people in, go fullscreen in the mobile browser and get listed in Explore.">
+<meta name="description" content="How to build dApps for Bread, the Miden wallet: connect with the wallet adapter, send transactions, sign people in, and go fullscreen in the mobile browser.">
 <meta name="theme-color" content="#15120f" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#fff9f4" media="(prefers-color-scheme: light)">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='64 68 273 263.2'%3E%3Cpath fill='%23E77537' d='M305.773 187.624C336.332 200.049 344.631 237.592 329.924 265.52C319.99 284.382 300.867 296.923 281.208 304.023C250.87 314.976 216.662 321.919 185.637 331.178C176.552 331.574 147.489 319.23 140.04 313.405C133.399 308.213 128.994 299.181 128.336 290.813C125.828 258.868 130.286 223.723 128.319 191.447C89.7516 125.155 183.542 75.6996 238.899 85.6221C253.017 88.1537 273.729 93.2809 287.417 97.5932C302.217 102.255 315.288 112.783 320.915 127.477C329.447 149.755 320.607 170.694 305.778 187.635Z'/%3E%3Cpath fill='%23E77537' d='M206.299 76.0532C206.211 76.8855 203.732 77.0542 203.034 77.1415C149.848 83.6945 78.8709 130.188 116.163 190.806C116.443 224.327 115.71 257.878 116.111 291.399C116.152 294.949 117.089 298.307 116.134 302.125C115.459 302.823 108.732 299.995 107.428 299.488C90.615 292.953 74.9193 286.097 73.0978 265.792C70.4614 236.386 75.0415 203.184 73.0978 173.382C39.4134 116.686 106.561 74.4237 155.47 68.5691C173.516 66.41 189.299 70.7166 206.287 76.0591Z'/%3E%3C/svg%3E">
@@ -522,8 +522,6 @@ td.wrap code { white-space: normal; }
 .out span { overflow-wrap: anywhere; min-width: 0; }
 .out .lab { display: block; color: #a99f96; font: 600 11.5px/1.4 var(--font-body); margin-bottom: 2px; }
 
-.json-key { color: #e8b4ff; }
-
 .links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 22px 0; }
 .link-card { display: block; padding: 18px 20px; border-radius: 18px; text-decoration: none; color: var(--ink-2); border: 1px solid var(--hairline-strong); background: var(--surface); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); transition: transform 0.3s cubic-bezier(.2,.8,.2,1), box-shadow 0.3s ease, border-color 0.3s ease; }
 .link-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lift); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
@@ -651,7 +649,6 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       <a href="#quickstart">Quickstart</a>
       <a href="#transactions">Transactions</a>
       <a href="#fullscreen">Fullscreen</a>
-      <a href="#explore">Explore</a>
     </nav>
     <a class="icon-btn nav-gh" href="https://github.com/0xMiden/wallet" aria-label="Bread on GitHub">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
@@ -790,7 +787,7 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
         <li><a class="sub" href="#lifecycle">Lifecycle</a></li>
         <li><a href="#auth-sheet">Google and Apple sign-in</a></li>
         <li><a href="#deep-links">Open links</a></li>
-        <li><a href="#explore">Get listed in Explore</a></li>
+        <li><a href="#explore">Explore listing (optional)</a></li>
         <li><a href="#testing">Test your dApp</a></li>
         <li><a href="#gotchas">Gotchas</a></li>
         <li><a href="#under-the-hood">Under the hood</a></li>
@@ -1351,48 +1348,10 @@ if (window.bread?.auth) {
       </section>
 
       <section class="section" id="explore" aria-labelledby="h-explore">
-        <h2 id="h-explore"><a class="anchor" href="#explore">Get listed in Explore</a></h2>
-        <p class="intro">Explore is Bread's catalog of dApps, one JSON file per network in the public <a href="https://github.com/0xMiden/wallet-explore">0xMiden/wallet-explore</a> repository. A pull request is all it takes.</p>
-        <div class="steps">
-          <div class="step reveal"><h3>Add your entry</h3><p>Edit <code>mainnet.json</code>, <code>testnet.json</code> or <code>devnet.json</code>, add an item and a place for it in a section, and bump the file's <code>version</code>.</p></div>
-          <div class="step reveal"><h3>Open a pull request</h3><p>A <code>validate</code> check covers the document rules, the version bump, the 32 KiB size limit and every icon: PNG, square, at most 256 by 256 and 32 KiB.</p></div>
-          <div class="step reveal"><h3>Wallets pick it up</h3><p>After the merge, Bread fetches the file at its next hourly check, or on returning to the foreground once its copy is 15 minutes old, plus up to about five minutes of CDN cache.</p></div>
-        </div>
-        <div class="code reveal-code"><div class="code-bar"><span class="fname">testnet.json</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
-<pre><code data-lang="json">{
-  "network": "testnet",
-  "version": 3,
-  "items": [
-    {
-      "id": "skyline-run",
-      "name": { "en": "Skyline Run" },
-      "tagline": { "en": "Race the sunset, keep your high score on Miden" },
-      "url": "https://skyline-run.example/",
-      "category": "games",
-      "icon": "icons/skyline-run.png",
-      "brandColor": "#C43D6B",
-      "isExchange": false
-    }
-  ],
-  "sections": [
-    { "id": "games", "kind": "list", "title": { "en": "Games" }, "itemIds": ["skyline-run"] }
-  ]
-}</code></pre></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Field</th><th>Rule</th></tr></thead>
-          <tbody>
-            <tr><td><code>id</code></td><td>Lowercase letters, digits and hyphens; unique</td></tr>
-            <tr><td><code>name</code></td><td>Localized text, <code>en</code> required, up to 40 characters</td></tr>
-            <tr><td><code>tagline</code></td><td>Localized text, <code>en</code> required, up to 120 characters</td></tr>
-            <tr><td><code>url</code></td><td class="wrap">https only; no credentials, IP addresses, <code>localhost</code> or punycode hosts</td></tr>
-            <tr><td><code>category</code></td><td class="wrap"><code>tools</code>, <code>defi</code>, <code>games</code>, <code>nft</code> or <code>learn</code></td></tr>
-            <tr><td><code>icon</code></td><td class="wrap">Optional, <code>icons/&lt;name&gt;.png</code></td></tr>
-            <tr><td><code>brandColor</code></td><td>Optional, <code>#RRGGBB</code></td></tr>
-            <tr><td><code>isExchange</code></td><td>Required; exchanges are hidden where swaps are disabled</td></tr>
-          </tbody>
-        </table></div>
-        <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">Listing grants nothing</strong><p>There is no trust badge, and listed dApps get the same connect and signing prompts as any other site. The one difference: open links to a listed origin skip the "Open host?" question. A mainnet entry needs its production URL and readiness confirmed first.</p></div></div>
-        <p>Fullscreen is not a catalog field: it comes from the meta tag on your own page, wherever it is opened.</p>
+        <h2 id="h-explore"><a class="anchor" href="#explore">Explore listing (optional)</a></h2>
+        <p class="intro">Your dApp does not need to be listed. Any dApp connects to Bread and works in it without a listing, opened from its address, a link or the search box in Explore. The Explore catalog is only Bread's built-in discovery section.</p>
+        <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">Status: applications welcome, rollout to be announced</strong><p>Listing goes through a vetting process. Applications are welcome and each one is reviewed. The catalog's rollout is not defined yet: there is no timeline, and applying does not guarantee a listing.</p></div></div>
+        <p>To apply, <a href="https://github.com/0xMiden/wallet/issues">open an issue on the wallet repository</a>.</p>
       </section>
 
       <section class="section" id="testing" aria-labelledby="h-testing">
@@ -1442,7 +1401,6 @@ if (window.bread?.auth) {
           <a class="link-card" href="fullscreen/"><b>Fullscreen reference</b><span>Readiness, transport messages, presentation updates and native close semantics.</span></a>
           <a class="link-card" href="sign-in-sheet/"><b>Sign-in sheet reference</b><span>Every URL rule, the callback format and both platforms' transports.</span></a>
           <a class="link-card" href="https://github.com/0xMiden/wallet/blob/main/packages/bread-connect/PROTOCOL.md"><b>Bread Connect protocol</b><span>For native iOS and Android apps that use Bread as their wallet through app links.</span></a>
-          <a class="link-card" href="https://github.com/0xMiden/wallet-explore"><b>Explore catalog</b><span>The catalog files, schema checks and publishing steps.</span></a>
         </div>
         <p>Found something missing or wrong? <a href="https://github.com/0xMiden/wallet/issues">Open an issue</a>.</p>
       </section>
@@ -1509,12 +1467,6 @@ if (window.bread?.auth) {
       ['prop', /[a-z-]+(?=\s*:\s)/y],
       ['num', /#[\da-fA-F]{3,8}\b|-?\b\d+(?:\.\d+)?(?:px|rem|em|%|s|ms|vh|vw)?/y],
       ['type', /[.#][\w-]+|\[[^\]]+\]/y]
-    ],
-    json: [
-      ['prop', /"(?:\\.|[^"\\])*"(?=\s*:)/y],
-      ['str', /"(?:\\.|[^"\\])*"/y],
-      ['num', /-?\b\d+(?:\.\d+)?\b/y],
-      ['kw', /\b(?:true|false|null)\b/y]
     ],
     bash: [
       ['com', /#[^\n]*/y],
