@@ -2195,21 +2195,45 @@ describe('native morph adoption', () => {
       expect(statusOf('origin')).toBe('active');
     });
 
+    it('follows no flight after native rejects two overlapping collapses in order', async () => {
+      await openForeground();
+      const answerFirst = holdMorph();
+      const answerSecond = holdMorph();
+      act(() => void control().park('origin'));
+      await settle();
+      act(() => void control().park('origin'));
+      await settle();
+      await act(async () => answerFirst({ accepted: false }));
+      await settle();
+      await act(async () => answerSecond({ accepted: false }));
+      await settle();
+
+      expect(control().motion).toBeNull();
+      expect(control().mode).toBe('launcher');
+      expect(parked()).toEqual(['origin']);
+
+      await act(async () => void control().restore('origin', { card: CARD }));
+      await settle();
+      expect(control().mode).toBe('active');
+      expect(lastVisibility()).toBe(true);
+      expect(control().motion).toBeNull();
+    });
+
     it('requests one park snapshot when the settle overtakes the accepted collapse', async () => {
       await openForeground();
       jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
       const answer = holdMorph();
       act(() => void control().park('origin'));
       await settle();
-      const before = mockCaptureSnapshot.mock.calls.length;
+      expect(mockCaptureSnapshot).not.toHaveBeenCalled();
 
       emitMorph('settled', 'collapsed');
       await settle();
       await act(async () => answer({ accepted: true }));
       await settle();
 
-      expect(mockCaptureSnapshot.mock.calls.length - before).toBe(1);
-      expect(mockCaptureSnapshot).toHaveBeenLastCalledWith('origin', 0.5, 0.7);
+      expect(mockCaptureSnapshot).toHaveBeenCalledTimes(1);
+      expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7);
       expect(parked()).toEqual(['origin']);
     });
   });
