@@ -3219,6 +3219,27 @@ final class BreadMorphPluginTests: XCTestCase {
         XCTAssertEqual(log.configurations.count, 0)
     }
 
+    private func landing(_ live: LivePresentation) -> BreadMorphCard {
+        let bounds = live.window.bounds
+        return BreadMorphCard(rect: CGRect(x: bounds.maxX - 120, y: bounds.maxY - 230, width: 104, height: 132), cornerRadius: 16)
+    }
+
+    private func parkedWithProxy() async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let (live, plugin) = try await revealed()
+        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
+                                              policyRevision: nil, sequence: nil))
+        let parked = try await eventually { plugin.phases("park").contains("settled") && live.presentation.state.proxyUsable }
+        XCTAssertTrue(parked)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        return (live, plugin)
+    }
+
+    private func expand(_ live: LivePresentation, _ morphId: String) -> Bool {
+        live.presentation.morph(to: .expanded, card: landing(live), velocity: .zero, morphId: morphId,
+                                policyRevision: live.presentation.state.policyRevision, sequence: nil)
+    }
+
     func testPrepareMorphNamingAParkedPageShowsItsWindowUnseenSoTheMorphsFirstFrameIsNotTheUnhide() async throws {
         let (live, _) = try await parkedWithProxy()
         defer { live.dispose(); BreadFrameRateBoost.shared.release() }
@@ -3245,7 +3266,8 @@ final class BreadMorphPluginTests: XCTestCase {
         XCTAssertTrue(expand(live, "e1"))
         XCTAssertEqual(live.window.alpha, 1)
         XCTAssertFalse(live.window.isHidden)
-        XCTAssertLessThan(try XCTUnwrap(live.presentation.animator).progress(), 0.2)
+        let animator = try XCTUnwrap(live.presentation.animator)
+        XCTAssertLessThan(animator.progress(), 0.2)
         XCTAssertLessThan(container.presentationFrame().width, live.window.bounds.width / 2)
         let settled = try await eventually { plugin.phases("e1").last == "settled" }
         XCTAssertTrue(settled)
