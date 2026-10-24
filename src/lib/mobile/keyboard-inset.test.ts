@@ -137,6 +137,18 @@ describe('keyboard-inset', () => {
     }
   });
 
+  it('on Android holds the navbar for a keyboard report even when no wallet field is being edited', async () => {
+    isMobileMock.mockReturnValue(true);
+    isIOSMock.mockReturnValue(false);
+
+    await initKeyboardInset();
+
+    // The dApp window re-fit that dismisses its keyboard is iOS-only, so the gate is too.
+    walletField.blur();
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+  });
+
   it('takes one hold however many times the keyboard reports it is showing', async () => {
     isMobileMock.mockReturnValue(true);
 

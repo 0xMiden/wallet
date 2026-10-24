@@ -93,8 +93,9 @@ export async function initKeyboardInset(): Promise<void> {
   const registrations = await Promise.allSettled([
     Keyboard.addListener('keyboardWillShow', info => {
       if (!active) return;
-      // A keyboard raised by a dApp WebView: the wallet's layout is not under it.
-      if (!walletIsEditing()) return;
+      // A keyboard raised by a dApp WebView: the wallet's layout is not under it. iOS only: the
+      // dApp window re-fit that dismisses it is native iOS behavior.
+      if (ios && !walletIsEditing()) return;
       if (ios) root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);
       // A keyboard type change reports WillShow again without a hide: one hold, not two.
       releaseNavbar ??= holdNavbarHidden();
