@@ -39,8 +39,9 @@ export function startMorphCompanions(
   const collapsing = motion.target === 'collapsed';
   const capsuleFrom = capsule ? readCapsule(capsule) : null;
   const animations: Animation[] = [];
+  // 'both': a delayed fade must hold its sampled start, or the element shows its own style until the delay ends.
   const play = (element: HTMLElement, keyframes: Keyframe[], options: KeyframeAnimationOptions) => {
-    const animation = element.animate(keyframes, { fill: 'forwards', ...options });
+    const animation = element.animate(keyframes, { fill: 'both', ...options });
     animations.push(animation);
     running.set(element, [...(running.get(element) ?? []), animation]);
   };
