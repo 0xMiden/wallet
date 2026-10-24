@@ -3478,10 +3478,10 @@
     "message": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
     "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
     "placeholders": {
-      "newGuardian": {
+      "newguardian": {
         "content": "$1"
       },
-      "oldGuardian": {
+      "oldguardian": {
         "content": "$2"
       }
     }
@@ -6879,10 +6879,6 @@
       }
     }
   },
-  "otherGuardiansAvailable": {
-    "message": "Other Guardians available",
-    "englishSource": "Other Guardians available"
-  },
   "guardianCardMetaShort": {
     "message": "$operator$ · $location$",
     "englishSource": "$operator$ · $location$",
@@ -6894,6 +6890,10 @@
         "content": "$2"
       }
     }
+  },
+  "otherGuardiansAvailable": {
+    "message": "Other Guardians available",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "Couldn't check this wallet's unlock method. Try again.",

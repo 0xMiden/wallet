@@ -2810,8 +2810,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "아래에서 옵션을 선택하세요",
-    "englishSource": "Select an option below"
+    "message": "Guardian은 모든 거래를 확인하며, 계정 복구에 도움을 줄 수 있습니다.",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "어느 운영자가 가장 빨리 응답하는지 확인해 보겠습니다…",
@@ -2862,8 +2862,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "가디언(Guardian)은 사용자의 개인 계정 데이터를 백업하고 거래에 공동 서명합니다.",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "가디언(Guardian)은 사용자의 개인 계정 데이터를 백업하고 거래를 승인합니다.",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "새 휴대폰에서 복구하기",
@@ -2878,8 +2878,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Guardian은 사용자와 함께 공동 서명합니다. Guardian은 절대 단독으로 자금을 이동할 수 없습니다.",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "귀하의 Guardian은 귀하의 거래를 승인합니다. 이 계정은 절대 자체적으로 자금을 이동시킬 수 없습니다.",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "언제든지 전환 가능",
@@ -2971,16 +2971,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian은 <b>사용자의 지갑에서 발생하는 모든 거래</b>를 확인하여, 자가 보관(self-custody)을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "기능",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "모든 거래에 공동 서명을 합니다 — 사용자의 기기나 Guardian 어느 쪽도 단독으로 자금을 이동할 수 없습니다. 기기를 분실했을 때 계정을 복구하는 데 도움을 줍니다.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "모든 거래를 확인합니다 — 사용자의 기기나 가디언(Guardian) 어느 쪽도 단독으로 자금을 이동할 수 없습니다. 기기를 분실했을 때 계정을 복구할 수 있도록 도와줍니다.",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "할 수 없는 것",
@@ -2995,8 +2995,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "복구 문구를 사용하면 언제든지 다른 Guardian로 전환할 수 있습니다. 변경되는 것은 공동 서명자뿐이며, 계정과 자금은 그대로 유지됩니다.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "복구 문구를 사용하면 언제든지 다른 Guardian으로 전환할 수 있습니다. 변경되는 것은 귀하의 거래를 승인하는 주체뿐이며, 귀하의 계정과 자금은 그대로 유지됩니다.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "알겠습니다",
@@ -3383,8 +3383,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "변경이 제출되었지만 이 기기에서는 온체인에서 처리되었는지 확인할 수 없었습니다. 지갑에서는 확인해 드릴 수 없습니다. Guardian 설정과 이 거래의 활동 항목은 어느 쪽이든 새 Guardian을 표시합니다. 이후 거래가 공동 서명되지 않아 거부되면 변경을 다시 실행하세요.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "교체 요청이 제출되었으나, 이 기기는 해당 요청이 온체인에서 처리되었는지 확인할 수 없습니다. 지갑 내 어떤 기능도 이를 확인해 줄 수 없습니다. 어떤 경우든 귀하의 Guardian 설정과 해당 거래의 활동 내역에는 새로운 Guardian이 명시될 것입니다. 이후 거래가 확인되지 않아 거부된 경우, 교체 절차를 다시 실행하십시오.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "아직 이 기기에 저장되지 않았습니다.",
@@ -3411,8 +3411,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "변경이 온체인에서 확인되면 새 Guardian이 모든 트랜잭션에 공동 서명하며, 이전 Guardian은 더 이상 계정에 공동 서명할 수 없습니다.",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "체인상에서 전환이 확인되면, 새로운 가디언(Guardian)이 모든 거래를 승인하게 되며, 기존 가디언은 더 이상 해당 계정의 거래를 승인할 수 없습니다.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "전환은 온체인에서 확인되었지만 이 기기에서 새 Guardian의 주소를 저장하지 못했습니다. 지갑이 이를 자동으로 확인하고 필요하면 다시 입력하라는 안내를 표시합니다. 이로 인해 다른 전환이 시작되지는 않습니다. 안내가 표시되지 않으면 지원팀에 문의하세요.",
@@ -3423,8 +3423,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 귀하의 계정 거래에 공동 서명할 수 없습니다.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "새로운 Guardian은 지금부터 모든 거래를 승인하며, 기존 Guardian은 더 이상 귀하의 계정에 대한 거래를 승인할 수 없습니다.",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "사용자의 지갑 주소, 자금 및 내역은 변함이 없습니다. 로테이션 과정에서 이동된 항목은 없습니다.",
@@ -3439,12 +3439,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "새로운 ‘Guardian’이 공동 서명합니다",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "귀하의 새로운 가디언(Guardian)은 다음 사항을 인정합니다.",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "새로운 ‘Guardian’은 확인 후 한 번 공동 서명합니다",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "새로운 Guardian은 확인이 완료되면 이를 인정합니다.",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "아무것도 이동하지 않았습니다",
@@ -3473,6 +3473,22 @@
   "recoveryPhraseCold": {
     "message": "복구 문구 (콜드)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "이제부터 $newGuardian$가 $oldGuardian$ 대신 귀하의 거래를 승인합니다. 귀하의 주소, 자금 및 거래 내역은 그대로 유지됩니다.",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "다음과 같이 승인하십시오:",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "기존의 Guardian으로는 이를 차단할 수 없습니다",
@@ -3656,8 +3672,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "guardian가 응답하지 않아 거래를 공동 서명할 수 없습니다.",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "guardian가 응답하지 않아 거래를 승인할 수 없습니다.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Guardian 전환",
@@ -4039,8 +4055,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "이 계정을 복구하고 공동 서명하려면 guardian를 사용하십시오.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "이 계정의 거래를 복구하고 확인하려면 ‘가디언(guardian)’을 사용하십시오.",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "공개 계정 가져오기",
@@ -6862,6 +6878,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "이용 가능한 다른 가디언(Guardians)",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도해 주세요.",
