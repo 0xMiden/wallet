@@ -13,7 +13,7 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { type FC, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -47,7 +47,12 @@ const SETTLE_RETRY_MS = 50;
  */
 const SETTLE_TIMEOUT_MS = 3000;
 
-export const DappActive: FC = () => {
+interface DappActiveProps {
+  /** Reaches the capsule's header, for the morph's companions. */
+  capsuleRef?: Ref<HTMLElement>;
+}
+
+export const DappActive: FC<DappActiveProps> = ({ capsuleRef }) => {
   const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates, reportPresentationLayout } =
     useDappBrowser();
   const { t } = useTranslation();
@@ -271,6 +276,7 @@ export const DappActive: FC = () => {
       style={hiddenHost ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' } : undefined}
     >
       <CapsuleBar
+        ref={capsuleRef}
         session={session}
         onClose={() => void close()}
         onReload={handleReload}

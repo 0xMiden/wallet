@@ -97,6 +97,13 @@ describe('CapsuleBar', () => {
     expect(mockHapticLight).toHaveBeenCalledTimes(4);
   });
 
+  it('forwards its ref to the header', () => {
+    const ref = React.createRef<HTMLElement>();
+    render(<CapsuleBar ref={ref} session={SESSION} onClose={jest.fn()} onReload={jest.fn()} />);
+
+    expect(ref.current).toBe(screen.getByTestId('dapp-capsule'));
+  });
+
   it('hides the tabs badge while only one dApp is open', () => {
     renderBar({ tabsCount: 1 });
 

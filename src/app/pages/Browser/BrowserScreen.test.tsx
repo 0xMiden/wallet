@@ -11,7 +11,20 @@ import { BrowserScreen } from './BrowserScreen';
 let mockMode: 'active' | 'launcher' = 'active';
 let mockExtension = false;
 let mockPolicyPending = false;
-let mockMotion: { id: string; target: 'collapsed' | 'expanded' } | null = null;
+type Motion = {
+  id: string;
+  target: 'collapsed' | 'expanded';
+  morphId?: string;
+  started?: boolean;
+  acknowledging?: boolean;
+  tracking?: boolean;
+  progress?: number;
+  velocity?: number;
+  eventSeq?: number;
+};
+let mockMotion: Motion | null = null;
+const mockStopCompanions = jest.fn();
+const mockStartCompanions = jest.fn((..._args: unknown[]) => mockStopCompanions);
 let mockSession: { id: string } | null = { id: 's1' };
 const mockLauncherCommit = jest.fn();
 
@@ -37,6 +50,7 @@ jest.mock('lib/dapp-browser', () => ({
   recordRecentDapp: jest.fn()
 }));
 jest.mock('lib/platform', () => ({ isDesktop: () => false, isExtension: () => mockExtension }));
+jest.mock('./morph-companions', () => ({ startMorphCompanions: (...args: unknown[]) => mockStartCompanions(...args) }));
 jest.mock('./DappActive', () => {
   const ReactActual = jest.requireActual<typeof React>('react');
   return { DappActive: () => ReactActual.createElement('div', { 'data-testid': 'dapp-active' }) };
@@ -75,6 +89,8 @@ beforeEach(() => {
   mockPolicyPending = false;
   mockMotion = null;
   mockSession = { id: 's1' };
+  mockStartCompanions.mockClear();
+  mockStopCompanions.mockClear();
   mockLauncherCommit.mockClear();
   mockExtension = false;
   (recordRecentDapp as jest.Mock).mockReset();
@@ -193,7 +209,7 @@ describe('while the foreground page morphs', () => {
   const launcherBox = () => screen.getByTestId('dapp-launcher').parentElement!;
 
   it('renders the launcher inert behind the page while a motion runs', () => {
-    mockMotion = { id: 's1', target: 'collapsed' };
+    mockMotion = { id: 's1', target: 'collapsed', started: true };
     render(view(true));
 
     expect(launcherBox()).toBeVisible();
@@ -233,5 +249,49 @@ describe('while the foreground page morphs', () => {
     render(view(true));
 
     expect(launcherBox()).not.toBeVisible();
+  });
+});
+
+describe('morph companions', () => {
+  const event = (extra: Partial<Motion>): Motion => ({
+    id: 's1',
+    target: 'collapsed',
+    morphId: 'm1',
+    started: true,
+    acknowledging: false,
+    tracking: false,
+    progress: 0.9,
+    velocity: -2,
+    eventSeq: 1,
+    ...extra
+  });
+
+  it('runs on every started and retargeted event and stops when the motion ends', () => {
+    mockMotion = event({ started: false, eventSeq: 0 });
+    const { rerender } = render(view(true));
+    expect(mockStartCompanions).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dapp-launcher').parentElement).toHaveStyle({ opacity: '0' });
+
+    mockMotion = event({});
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenLastCalledWith(
+      { capsule: null, launcher: screen.getByTestId('dapp-launcher').parentElement },
+      mockMotion,
+      false
+    );
+    mockMotion = event({ target: 'expanded', eventSeq: 2 });
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenCalledTimes(2);
+
+    mockMotion = null;
+    rerender(view(true));
+    expect(mockStopCompanions).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the release while a finger holds the page', () => {
+    mockMotion = event({ tracking: true });
+    render(view(true));
+
+    expect(mockStartCompanions).not.toHaveBeenCalled();
   });
 });

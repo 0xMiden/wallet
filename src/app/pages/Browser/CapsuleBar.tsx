@@ -22,7 +22,7 @@
  * button so the user can tap it without opening anything.
  */
 
-import React, { type FC, useState } from 'react';
+import React, { forwardRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -58,15 +58,11 @@ interface CapsuleBarProps {
   onOpenActions?: () => void;
 }
 
-export const CapsuleBar: FC<CapsuleBarProps> = ({
-  session,
-  onClose,
-  onReload,
-  onMinimize,
-  onOpenSwitcher,
-  tabsCount = 1,
-  onOpenActions
-}) => {
+// The ref reaches the header, which the morph's companions fade and lift (`morph-companions`).
+export const CapsuleBar = forwardRef<HTMLElement, CapsuleBarProps>(function CapsuleBar(
+  { session, onClose, onReload, onMinimize, onOpenSwitcher, tabsCount = 1, onOpenActions },
+  ref
+) {
   const { t } = useTranslation();
   const [faviconBroken, setFaviconBroken] = useState(false);
 
@@ -98,6 +94,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
   return (
     <header
+      ref={ref}
       // In-flow (NOT position:fixed) so the body's env(safe-area-inset-top)
       // padding from mobile.html pushes it below the notch. A fixed header's
       // containing block is the viewport — body padding never offsets it —
@@ -231,4 +228,4 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
       <div className="h-px w-full bg-border-light" />
     </header>
   );
-};
+});
