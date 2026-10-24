@@ -2478,6 +2478,20 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(plugin.morphs.last?["progress"] as? Double, 0)
     }
 
+    func testCollapseStartEndsEditingInTheWebView() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        live.window.makeKey()
+        let field = UITextField(frame: CGRect(x: 0, y: 0, width: 120, height: 40))
+        live.web.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        XCTAssertTrue(collapse(live, "c1"))
+        XCTAssertFalse(field.isFirstResponder)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertFalse(live.window.isKeyWindow)
+    }
+
     func testCollapseCrossfadesToTheProxyBelowThirtyFivePercent() async throws {
         let (live, _) = try await revealedMorph()
         defer { live.dispose() }
