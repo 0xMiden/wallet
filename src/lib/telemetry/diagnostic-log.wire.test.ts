@@ -72,6 +72,7 @@ interface WireLog {
   body: unknown;
   level: unknown;
   attributes: Record<string, { value: unknown; type: unknown }>;
+  trace_id?: unknown;
   keys: string[];
 }
 
@@ -175,4 +176,20 @@ it('leaves crash reports as they were, beside the records', async () => {
   expect(wireLogs()).toHaveLength(1);
   const eventItems = bodies.flatMap(body => body.split('\n')).filter(line => line.includes('"type":"event"'));
   expect(eventItems).toHaveLength(1);
+});
+
+it('gives a crash report the same trace id as the records sent before it', async () => {
+  logOperationStep('swap', 'proposal_execute', 'failed');
+  captureCrash(new Error('proposal failed'));
+  await flushLogs();
+  const traceId = wireLogs()[0]?.trace_id;
+  expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+  const events = bodies.flatMap(body => {
+    const lines = body.split('\n');
+    return lines.flatMap((line, index) =>
+      line.includes('"type":"event"') ? [JSON.parse(lines[index + 1] ?? '{}')] : []
+    );
+  });
+  expect(events).toHaveLength(1);
+  expect(events[0]?.contexts?.trace?.trace_id).toBe(traceId);
 });

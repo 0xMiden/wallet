@@ -582,6 +582,19 @@ describe('scrubEvent — the beforeSend hook', () => {
     expect(text).toContain('import failed');
   });
 
+  it("keeps the SDK's own trace ids and scrubs anything else under the trace context", () => {
+    const traceId = 'a'.repeat(32);
+    const kept = scrubEvent({
+      contexts: { trace: { trace_id: traceId, span_id: 'b'.repeat(16), note: PRIVATE_KEY_HEX } }
+    });
+    expect(kept?.contexts.trace).toEqual({ trace_id: traceId, span_id: 'b'.repeat(16), note: REDACTED });
+    const forged = scrubEvent({
+      contexts: { trace: { trace_id: `${PRIVATE_KEY_HEX} ${COMPOSITE_ADDRESS}`, span_id: PRIVATE_KEY_HEX } }
+    });
+    expect(JSON.stringify(forged)).not.toContain('9f86d081');
+    expect(JSON.stringify(forged)).not.toContain('qr7qqq9wr6w');
+  });
+
   it('scrubs secrets nested deep in extra, contexts, and breadcrumbs', () => {
     const event = {
       extra: { request: { body: { password: 'hunter2' } } },
