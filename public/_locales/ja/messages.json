@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "利用可能残高を確認できませんでした。もう一度お試しください。",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "スワップを行う前に、保留中の取引が完了するのを待ってください。",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "正確な支払額",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "受取対象の推定支払額。完全約定の場合は支払額が多くなる可能性がありますが、部分約定の場合は満期時に受け取る金額が少なくなる可能性があります。",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "スリッページとは、要求した受取額が固定されたまま、計算された支払額が調整されることを指します。",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"

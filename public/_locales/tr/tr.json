@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "Harcanabilir bakiyenizi doğrulayamadık. Lütfen tekrar deneyin.",
+  "swapPendingSpend": "Takas yapmadan önce bekleyen işleminizin tamamlanmasını bekleyin.",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "Kesin ödeme tutarı",
+  "swapReceiveTargetNote": "Alım hedefiniz için tahmini ödeme tutarı. Tam doldurma daha fazla ödeme sağlayabilir; kısmi doldurmalar ise vade sonunda elinizde daha az tutar bırakabilir.",
+  "swapReceiveSlippageNote": "Kayma, talep ettiğiniz alım tutarı sabit kalırken hesaplanan ödeme tutarını ayarlar.",
   "bridgeRouteEpoch": "Hızlı · Epoch",
   "bridgeRouteAgglayer": "Yavaş · Agglayer",
   "bridgeRouteUnavailableBody": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",

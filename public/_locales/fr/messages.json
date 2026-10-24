@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "Impossible de vérifier votre solde disponible. Veuillez réessayer.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Attendez que votre transaction en attente soit finalisée avant de procéder à l’échange.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Montant exact du paiement",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Rémunération estimée pour votre cible de réception. Une exécution complète peut rapporter davantage ; les exécutions partielles peuvent vous laisser avec moins à l’échéance.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Le « slippage » ajuste le montant du paiement calculé tandis que le montant de réception que vous avez demandé reste fixe.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Rapide · Epoch",
     "englishSource": "Fast · Epoch"

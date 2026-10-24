@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "Impossible de vérifier votre solde disponible. Veuillez réessayer.",
+  "swapPendingSpend": "Attendez que votre transaction en attente soit finalisée avant de procéder à l’échange.",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "Montant exact du paiement",
+  "swapReceiveTargetNote": "Rémunération estimée pour votre cible de réception. Une exécution complète peut rapporter davantage ; les exécutions partielles peuvent vous laisser avec moins à l’échéance.",
+  "swapReceiveSlippageNote": "Le « slippage » ajuste le montant du paiement calculé tandis que le montant de réception que vous avez demandé reste fixe.",
   "bridgeRouteEpoch": "Rapide · Epoch",
   "bridgeRouteAgglayer": "Lent · Agglayer",
   "bridgeRouteUnavailableBody": "Cet itinéraire n’est pas disponible pour ce transfert. Vous pouvez continuer avec un autre itinéraire disponible. Aucune transaction n’a été soumise à partir de cet écran.",

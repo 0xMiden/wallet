@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "Nie udało się zweryfikować salda dostępnego do wydania. Spróbuj ponownie.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Przed dokonaniem wymiany poczekaj, aż zakończy się Twoja oczekująca transakcja.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Dokładna kwota wypłaty",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Szacowana wypłata dla Twojego odbiorcy. Pełne zrealizowanie zlecenia może zapewnić wyższą wypłatę; częściowe zrealizowanie może skutkować mniejszą kwotą w momencie wygaśnięcia.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Poślizg koryguje obliczoną kwotę wypłaty, podczas gdy żądana kwota odbioru pozostaje stała.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"

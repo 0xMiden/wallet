@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "사용 가능한 잔액을 확인할 수 없습니다. 다시 시도해 주십시오.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "스왑을 진행하기 전에 보류 중인 거래가 완료될 때까지 기다리십시오.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "정확한 지급 금액",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "수취 대상에 대한 예상 지급액입니다. 전체 체결 시 더 많은 금액을 받을 수 있으며, 부분 체결 시 만기 시점에 수령액이 줄어들 수 있습니다.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "슬리피지(Slippage)는 요청한 수취 금액은 고정된 상태로 유지하면서 계산된 지급 금액을 조정하는 것을 의미합니다.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"

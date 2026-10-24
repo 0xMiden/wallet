@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "Не удалось проверить ваш доступный для расходования баланс. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Дождитесь завершения вашей ожидающей транзакции, прежде чем осуществлять обмен.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Точная сумма выплаты",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Ориентировочная выплата по вашему целевому адресу получения. При полном исполнении выплата может быть выше; при частичном исполнении вы можете получить меньшую сумму по истечении срока действия.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Проскальзывание корректирует рассчитанную сумму выплаты, в то время как запрошенная вами сумма получения остается неизменной.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
