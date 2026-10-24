@@ -140,6 +140,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
     transition: chromeVisible ? `opacity ${MORPH_TIMING.chromeFadeMs}ms ease-out` : 'none',
     pointerEvents: chromeVisible ? undefined : 'none'
   };
+  // Hidden controls also leave the focus order and the accessibility tree; React 18 drops a boolean `inert`.
+  const hiddenChromeControl = chromeVisible ? {} : { 'aria-hidden': true, inert: '' };
 
   const displayName = getDappDisplayName(session);
   const fallbackColor = getFallbackColor(session.origin);
@@ -391,6 +393,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           data-testid="dapp-peek-card-close"
           data-peek-chrome=""
           style={chromeStyle}
+          {...hiddenChromeControl}
           className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-pure-black/55 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
@@ -407,6 +410,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           data-testid="dapp-peek-show-all"
           data-peek-chrome=""
           style={chromeStyle}
+          {...hiddenChromeControl}
           className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-pure-black/60 px-2 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-95"
         >
           <span className="text-[10px] font-bold text-pure-white">
