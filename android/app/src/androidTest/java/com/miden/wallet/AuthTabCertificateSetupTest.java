@@ -132,6 +132,7 @@ public class AuthTabCertificateSetupTest {
     private static void clickText(UiDevice device, String text) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (true) {
+            dismissPlayServicesPrompt(device);
             UiObject2 element = findText(device, text, UI_TIMEOUT_MS);
             assertNotNull("Settings text not found: " + text + "; on screen: " + visibleLabels(device), element);
             try {
@@ -142,6 +143,14 @@ public class AuthTabCertificateSetupTest {
                 if (System.nanoTime() >= deadline) throw stale;
                 device.waitForIdle();
             }
+        }
+    }
+
+    // Play services can pop an account prompt ("Sign in with ease") over Settings at any moment on a fresh Play image.
+    private static void dismissPlayServicesPrompt(UiDevice device) {
+        for (int i = 0; i < 3 && "com.google.android.gms".equals(device.getCurrentPackageName()); i++) {
+            device.pressBack();
+            device.waitForIdle();
         }
     }
 
