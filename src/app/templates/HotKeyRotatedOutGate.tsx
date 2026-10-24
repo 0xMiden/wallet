@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -57,19 +57,23 @@ const HotKeyRotatedOutSheet: FC<SheetProps> = ({ accountPublicKey, hotPublicKey,
   const confirm = useConfirm();
   const alert = useAlert();
   const [busy, setBusy] = useState(false);
+  // Held from the first tap through the confirm dialog: `busy` alone only flips after it, so a second tap
+  // would open a second dialog and run the action twice.
+  const inFlight = useRef(false);
 
   const onMakeMain = useCallback(async () => {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     hapticLight();
-    const accepted = await confirm({
-      title: t('hotKeyRotatedOutMakeMainTitle'),
-      variant: 'explanation',
-      children: t('hotKeyRotatedOutMakeMainBody'),
-      confirmLabel: t('hotKeyRotatedOutMakeMain')
-    });
-    if (!accepted) return;
-    setBusy(true);
     try {
+      const accepted = await confirm({
+        title: t('hotKeyRotatedOutMakeMainTitle'),
+        variant: 'explanation',
+        children: t('hotKeyRotatedOutMakeMainBody'),
+        confirmLabel: t('hotKeyRotatedOutMakeMain')
+      });
+      if (!accepted) return;
+      setBusy(true);
       await retireRotatedOutHotKey(accountPublicKey, hotPublicKey);
     } catch (e) {
       console.error('[HotKeyRotatedOutGate] could not retire the rotated-out key:', e);
@@ -82,30 +86,34 @@ const HotKeyRotatedOutSheet: FC<SheetProps> = ({ accountPublicKey, hotPublicKey,
             : t('smthWentWrong')
       });
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
-  }, [accountPublicKey, alert, busy, confirm, hotPublicKey, retireRotatedOutHotKey, t]);
+  }, [accountPublicKey, alert, confirm, hotPublicKey, retireRotatedOutHotKey, t]);
 
   // The same exit as the rotation gate's Start over (#1648): nothing of this wallet survives.
   const onRemove = useCallback(async () => {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     hapticLight();
-    const accepted = await confirm({
-      title: t('hotKeyRotationStartOverTitle'),
-      variant: 'explanation',
-      children: t('hotKeyRotationStartOverBody'),
-      confirmLabel: t('hotKeyRotationStartOver'),
-      destructive: true
-    });
-    if (!accepted) return;
     try {
+      const accepted = await confirm({
+        title: t('hotKeyRotationStartOverTitle'),
+        variant: 'explanation',
+        children: t('hotKeyRotationStartOverBody'),
+        confirmLabel: t('hotKeyRotationStartOver'),
+        destructive: true
+      });
+      if (!accepted) return;
       await resetWalletAndReload(async () => {
         await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
       });
     } catch {
       await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
+    } finally {
+      inFlight.current = false;
     }
-  }, [alert, busy, confirm, t]);
+  }, [alert, confirm, t]);
 
   if (!canMakeMain) {
     return (
