@@ -92,10 +92,7 @@ final class BreadPresentationController: NSObject {
     var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility && !moving }
     private var moving: Bool { state.motion != .none }
     private var heading: BreadMorphTarget { state.motion == .collapsing ? .collapsed : .expanded }
-    private var proxyAvailable: Bool {
-        guard state.proxyUsable, state.foreground, let image = proxy.image, let webView else { return false }
-        return abs(image.size.width - webView.bounds.width) < 1 && abs(image.size.height - webView.bounds.height) < 1
-    }
+    private var proxyAvailable: Bool { state.proxyUsable && state.foreground && proxy.image != nil }
 
     func preparePrivacyCover() -> Bool {
         guard owner?.managedClose?.closing != true else { return false }
@@ -345,6 +342,10 @@ final class BreadPresentationController: NSObject {
         if fromRest {
             proxyFade?.stopAnimation(true)
             proxyFade = nil
+            if let image = proxy.image, let webView,
+               abs(image.size.width - webView.bounds.width) >= 1 || abs(image.size.height - webView.bounds.height) >= 1 {
+                dropProxy()
+            }
             cancelReveal()
         } else if !proxyCovering, !proxy.isHidden {
             fadeProxy(to: 0, duration: 0.12)
