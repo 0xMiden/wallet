@@ -23,6 +23,21 @@ import {
 import { USER_ERROR_SURFACES } from './user-visible-error';
 
 describe('source-bound crash diagnostics', () => {
+  it.each(['landed-local', 'landed-external', 'invalid', 'processing', 'not-landed', 'unknown'])(
+    'retains the closed consume verdict %s',
+    consumeVerdict => {
+      const failure = new Error('consume failed');
+      annotateCrash(failure, { consumeVerdict });
+      expect(snapshotCrashDiagnostics(failure)).toEqual({ consumeVerdict });
+    }
+  );
+
+  it('rejects an unlisted consume verdict', () => {
+    const failure = new Error('consume failed');
+    annotateCrash(failure, { consumeVerdict: 'unlisted-consume-verdict' });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({});
+  });
+
   it('retains a coherent storage pair on the exact frozen Error', () => {
     const failure = Object.freeze(new Error('cursor request failed'));
     annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });

@@ -13,6 +13,8 @@ import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { captureCrash } from 'lib/telemetry/crash';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import {
   completeCustomTransaction,
@@ -165,6 +167,8 @@ jest.mock('lib/platform', () => ({
   isMobile: () => false,
   isExtension: () => true
 }));
+
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn() }
@@ -1366,6 +1370,31 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       sdk.getMidenClient = orig;
     };
   };
+
+  it('reports the not-landed verdict after a killed consume without leaking its operation id', async () => {
+    const accountHex = '0x1234567890abcdef1234567890abcdef';
+    const noteHex = '0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+    const amount = '987654321.123456';
+    const operationId = `consume-${accountHex}-${noteHex}-${amount}`;
+    pushConsume('nk-verdict-report');
+    const restore = patchClient('Committed', new OperationAbortedError(operationId, 'deadline'));
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(txStore.find(row => row.id === 'nk-verdict-report')!.status).toBe(ITransactionStatus.Failed);
+      expect(captureCrash).toHaveBeenCalledTimes(1);
+      const report = jest.mocked(captureCrash).mock.calls[0]?.[0];
+      expect(report).toBeInstanceOf(Error);
+      if (!(report instanceof Error)) throw new Error('missing consume failure report');
+      const diagnostics = snapshotCrashDiagnostics(report);
+      for (const privateValue of [operationId, accountHex, noteHex, amount]) {
+        expect(report.message).not.toContain(privateValue);
+        expect(JSON.stringify(diagnostics)).not.toContain(privateValue);
+      }
+      expect(Reflect.get(diagnostics, 'consumeVerdict')).toBe('not-landed');
+    } finally {
+      restore();
+    }
+  });
 
   it('node reports the note LOCAL-consumed (provably mine) → the killed consume ends Completed Received', async () => {
     pushConsume('nk-landed');
