@@ -55,6 +55,28 @@ it('finds the collapse crossing of 0.35', () => {
   );
 });
 
+it('waits for the return onto the target side when a reversal first carries the spring away', () => {
+  // An expand caught at 0.7 falling at the clamped 8/s dips below 0.6 before it turns back up.
+  const seconds = springTimeToReach(springs.morphExpand, 0.7, 1, -8, 0.6);
+  expect(Math.abs((seconds ?? 0) - 0.082)).toBeLessThanOrEqual(0.002);
+  const sample = springProgressAt(springs.morphExpand, seconds ?? 0, 0.7, 1, -8);
+  expect(Math.abs(sample.value - 0.6)).toBeLessThanOrEqual(1e-4);
+  expect(sample.velocity).toBeGreaterThan(0);
+  expect(springTimeToReach(springs.morphExpand, 0.7, 1, -4, 0.6)).toBeNull();
+});
+
+it.each([
+  ['an overshoot threshold', 0, 1, 0, 1.002],
+  ['a launch from rest at the target, upward', 0, 0, 1, 0.01],
+  ['a launch from rest at the target, downward', 0, 0, -1, -0.01]
+] as const)('keeps the first arrival at %s', (_, from, to, velocity, value) => {
+  const seconds = springTimeToReach(springs.morphExpand, from, to, velocity, value);
+  expect(seconds).not.toBeNull();
+  const sample = springProgressAt(springs.morphExpand, seconds ?? 0, from, to, velocity);
+  expect(Math.abs(sample.value - value)).toBeLessThanOrEqual(1e-4);
+  expect(Math.sign(sample.velocity)).toBe(Math.sign(value - from));
+});
+
 it('returns null for a value the spring never reaches', () => {
   expect(springTimeToReach(springs.morphExpand, 0, 1, 0, 1.5)).toBeNull();
 });
