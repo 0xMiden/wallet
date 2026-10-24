@@ -2403,6 +2403,32 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void collapseRetargetDuringTheWaitStillCopiesTheNextFrame() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        RecordingSnapshotter recorder = new RecordingSnapshotter();
+        recorder.back = back;
+        recorder.root = root;
+        ReflectionHelpers.setField(dialog, "snapshotter", recorder);
+        assertTrue(collapse(card(), "first"));
+        assertTrue(collapse(card(), "second"));
+        assertTrue("a retarget in the wait does not copy before the capsule-free frame", recorder.capsule.isEmpty());
+        BreadMorphControllerTest.frame();
+        assertEquals(List.of(View.INVISIBLE), recorder.capsule);
+        assertTrue(driver().running());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void parkDuringTheCollapseWaitCancelsTheCollapse() throws Exception {
+        openMorph(true);
+        reveal();
+        assertTrue(collapse(card(), "queued"));
+        controller.visibility(false, null, nextSequence());
+        assertEquals(List.of("started:collapsed", "cancelled:collapsed"), phases("queued"));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void finishDuringTheCollapseWaitParksAtTheCard() throws Exception {
         openMorph(true);
         reveal();
@@ -2410,7 +2436,7 @@ public class BreadPresentationControllerTest {
         assertTrue(collapse(card, "wait"));
         controller.foreground(false);
         assertEquals("finish during the collapse wait parks at the card", cardScale(card), root.getScaleX(), 1e-4f);
-        assertEquals(1, snapshots.captures.size());
+        assertEquals("no copy of a frame that still shows the capsule", 0, snapshots.captures.size());
     }
 
     @Test @Config(shadows = PaintWebView.class)
