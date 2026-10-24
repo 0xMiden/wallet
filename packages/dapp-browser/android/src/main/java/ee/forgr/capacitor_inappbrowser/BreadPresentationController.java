@@ -534,8 +534,9 @@ final class BreadPresentationController {
 
     private void morphFrame(float p) {
         if (fullscreen()) back.setAlpha(Math.max(0f, Math.min(1f, p)));
-        if (state.motion() == BreadPresentationState.Motion.COLLAPSING && !crossfaded && p <= CROSSFADE_PROGRESS
-            && proxyBitmap != null && state.proxyUsable()) {
+        boolean collapseEnd = state.motion() == BreadPresentationState.Motion.COLLAPSING
+            || (posed && state.motion() == BreadPresentationState.Motion.NONE && p <= CROSSFADE_PROGRESS);
+        if (collapseEnd && !crossfaded && p <= CROSSFADE_PROGRESS && proxyBitmap != null && state.proxyUsable()) {
             crossfaded = true;
             proxy.setVisibility(View.VISIBLE);
             proxy.setAlpha(0f);
@@ -544,6 +545,7 @@ final class BreadPresentationController {
     }
 
     private void morphSettled(float end) {
+        morphFrame(end);
         state.endMotion();
         if (end >= 1) restPose();
         emit("settled", end, false);
@@ -659,6 +661,7 @@ final class BreadPresentationController {
             proxyBitmap = copy;
             proxy.setImageBitmap(copy);
         });
+        if (posed) morphFrame(morph.progress());
     }
 
     void stopMotion() {
