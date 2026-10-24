@@ -22,26 +22,31 @@ function dependencies(): Partial<DeriveDeps> {
       networkId: async () => 0,
       erc20: async () => ({ symbol: 'USDC', decimals: 18 })
     }),
-    fetch: async url => ({
-      ok: true,
-      json: async () => {
-        if (url.includes('/positions?'))
-          return {
-            success: true,
-            data: {
-              items: [
-                {
-                  lender: 'DUMMY_LENDING',
-                  chainId: '11155111',
-                  data: [{ positions: [] }],
-                  lenderInfo: { lenderKey: 'DUMMY_LENDING', name: 'Dummy Lending', logoUri: '' }
-                }
-              ]
+    fetch: async url =>
+      // The testnet host has no /pools route.
+      url.includes('/pools?')
+        ? { ok: false, status: 404, json: async () => null }
+        : {
+            ok: true,
+            json: async () => {
+              if (url.includes('/positions?'))
+                return {
+                  success: true,
+                  data: {
+                    items: [
+                      {
+                        lender: 'DUMMY_LENDING',
+                        chainId: '11155111',
+                        aprData: { apr: 2, depositApr: 2, borrowApr: 0 },
+                        data: [{ positions: [] }],
+                        lenderInfo: { lenderKey: 'DUMMY_LENDING', name: 'Dummy Lending', logoUri: '' }
+                      }
+                    ]
+                  }
+                };
+              return url.endsWith('/healthz') ? { status: 'SERVING' } : { status: 'healthy' };
             }
-          };
-        return url.endsWith('/healthz') ? { status: 'SERVING' } : { status: 'healthy' };
-      }
-    })
+          }
   };
 }
 
@@ -60,6 +65,10 @@ it('reads each bridge from its listed chain and discovers the Earn market from E
       underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
       chainId: 11155111
     }
+  });
+  expect(result.epoch.vaults).toMatchObject({
+    state: 'ok',
+    value: [{ marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' }]
   });
   expect(evm).toHaveBeenCalledWith(11155111);
 });

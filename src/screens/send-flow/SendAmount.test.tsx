@@ -11,6 +11,9 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { SendAmount, SendAmountProps } from './SendAmount';
+jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: () => ({ price: 2, observedAt: Date.now(), change24h: 0, percentageChange24h: 0 })
+}));
 
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
@@ -38,6 +41,7 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 afterEach(() => {
   mockBridgeSnapshot = undefined;
+  mockUseRealAmountInput = false;
 });
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
@@ -79,6 +83,7 @@ jest.mock('components/AmountInput', () => ({
         />
         <button data-testid="clear-amount" onClick={() => props.onValueChange(undefined)} />
         {props.error && <span data-testid="amount-error">{props.error}</span>}
+        {props.secondary}
         {props.helper}
       </div>
     )
@@ -118,6 +123,16 @@ describe('SendAmount', () => {
     const props = renderAmount({ amount: '1.5' });
     fireEvent.click(screen.getByTestId('clear-amount'));
     expect(props.onAmountChange).toHaveBeenCalledWith('');
+  });
+
+  it('keeps a fractional amount editable before a token is selected', () => {
+    mockUseRealAmountInput = true;
+    renderAmount({ token: undefined });
+    const input = screen.getByTestId('send-amount-input');
+
+    fireEvent.change(input, { target: { value: '1.5' } });
+
+    expect(input).toHaveValue('1.5');
   });
 
   it('names the testnet bridge faucet by its label on the token row, keeping its logo', () => {
@@ -173,6 +188,13 @@ describe('SendAmount', () => {
     expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 12.3456');
     fireEvent.click(screen.getByTestId('send-amount-max'));
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
+  });
+
+  it('fills Max below a stored balance that may have been rounded up past 2^52 base units', () => {
+    const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
+
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('10000.2999');
   });
 
   it('keeps Max visible but inert while the caller disables it', () => {
@@ -291,7 +313,8 @@ describe('SendAmount', () => {
       Reflect.deleteProperty(window, 'matchMedia');
     });
 
-    const available = () => screen.getByTestId('send-amount-available').textContent ?? '';
+    const available = () =>
+      screen.getByTestId('send-amount-available').querySelector('.tabular-nums')?.textContent ?? '';
     const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
 
     /** The line right after the change, and every text it shows until the count is done. */

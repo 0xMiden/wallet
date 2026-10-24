@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { buildDefaultOverrideFor } from 'lib/miden-chain/effective-endpoints';
 import { WalletStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
@@ -94,13 +96,13 @@ let activeOverride: unknown = null;
 // The effective network's test-network key; null stands for mainnet.
 let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => {
-  const { MIDEN_NETWORK_NAME } = jest.requireActual('lib/miden-chain/constants');
   return {
     getActiveOverride: () => activeOverride,
     getTestNetworkNameKey: () => mockTestNetworkKey,
     applyEndpointOverride: (o: unknown) => applyEndpointOverride(o),
     clearEndpointOverride: () => clearEndpointOverride(),
-    getEffectiveNetworkName: () => MIDEN_NETWORK_NAME.TESTNET,
+    // Read lazily: the constants module is loaded first now and imports this one, so a factory-time read sees it half built.
+    getEffectiveNetworkName: () => jest.requireActual('lib/miden-chain/constants').MIDEN_NETWORK_NAME.TESTNET,
     buildDefaultOverrideFor: (n: string) => ({
       rpcUrl: `https://rpc.${n}`,
       proverUrl: `https://prover.${n}`,
@@ -312,6 +314,17 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('stores the saved network as the developer choice', async () => {
+    render(<DeveloperSettings />);
+    fireEvent.click(within(screen.getByTestId('dev-endpoint-preset')).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
+    expect(applyEndpointOverride).toHaveBeenCalledWith({
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET),
+      developerChoice: true
+    });
   });
 
   it('has the bridge config follow the new network once the override is applied', async () => {

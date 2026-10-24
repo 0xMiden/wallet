@@ -254,6 +254,34 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
   }
 }
 
+const TRACE_ID_FORMATS: Readonly<Record<string, RegExp>> = {
+  trace_id: /^[0-9a-f]{32}$/,
+  span_id: /^[0-9a-f]{16}$/,
+  parent_span_id: /^[0-9a-f]{16}$/
+};
+
+/**
+ * The trace ids of this client's own scope, which the hex rule would otherwise erase and with them the link to the
+ * run's records. A `trace` context set on a shared scope replaces the SDK's, so only a value equal to the scope's
+ * propagation context counts; a span id the SDK mints per event cannot be told from a foreign one and stays redacted.
+ */
+function sdkTraceIds(event: unknown): Record<string, string> {
+  const trace = isRecord(event) && isRecord(event.contexts) ? event.contexts.trace : undefined;
+  if (!isRecord(trace) || typeof scope?.getPropagationContext !== 'function') return {};
+  const own = scope.getPropagationContext();
+  const expected: Record<string, unknown> = {
+    trace_id: own.traceId,
+    span_id: own.propagationSpanId,
+    parent_span_id: own.parentSpanId
+  };
+  return Object.fromEntries(
+    Object.entries(TRACE_ID_FORMATS).flatMap(([key, format]) => {
+      const value = trace[key];
+      return typeof value === 'string' && format.test(value) && value === expected[key] ? [[key, value]] : [];
+    })
+  );
+}
+
 /**
  * `beforeSend`. Returns `null` to discard the event entirely.
  *
@@ -265,6 +293,7 @@ export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }):
   const original = hint?.originalException;
   const fixedValue = closedReportValue(event, original);
   const fixedMessage = fixedValue?.value;
+  const traceIds = sdkTraceIds(event);
   try {
     // Only the identity-bound fixed exception text is exempt; SDK-added text always uses the full phrase guard.
     if (fixedValue !== undefined) fixedValue.value = REDACTED;
@@ -273,6 +302,8 @@ export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }):
   } finally {
     if (fixedValue !== undefined) fixedValue.value = fixedMessage;
   }
+  if (Object.keys(traceIds).length > 0 && isRecord(event) && isRecord(event.contexts) && isRecord(event.contexts.trace))
+    Object.assign(event.contexts.trace, traceIds);
   const diagnostics = original instanceof Error ? capturedDiagnostics.get(original) : undefined;
   if (diagnostics !== undefined && original instanceof Error && isRecord(event))
     restoreDiagnostics(event, original, diagnostics);

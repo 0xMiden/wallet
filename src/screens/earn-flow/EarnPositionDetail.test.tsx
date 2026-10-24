@@ -226,6 +226,37 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'C', value: 50 }
         ]
       },
+      // A position in one of several Morpho USDC markets on one chain: its vault is its own market's.
+      {
+        id: 'pos-morpho',
+        vaultId: 'morpho-blue-0x3b37-8453-0x8335',
+        owner: '0xowner',
+        marketUid: 'MORPHO_BLUE_0X3B37:8453:0x8335',
+        chainId: '8453',
+        underlyingAddress: '0x8335',
+        withdrawable: '10',
+        decimals: 6,
+        protocol: 'Morpho',
+        marketName: 'Morpho uniBTC-USDC 77',
+        asset: 'USDC',
+        network: 'Base',
+        amount: '$10.00',
+        depositedAmount: '$10.00',
+        rewards: '—',
+        age: '—',
+        activeDuration: '—',
+        apy: '6.10%',
+        dailyAverage: '—',
+        started: '—',
+        yearlyEstimate: '+$0.61 / yr',
+        withdrawTime: '—',
+        route: 'Miden -> Morpho (Base)',
+        stale: false,
+        chartData: [
+          { label: '—', value: 10 },
+          { label: '—', value: 10 }
+        ]
+      },
       // A `depositsUsd` pair for the animated-USD-figure test below: switching `positionId`
       // between them changes the SAME AnimatedNumber's value (no remount), so the count travels.
       {
@@ -425,6 +456,21 @@ describe('EarnPositionDetail', () => {
 
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+  });
+
+  it('names the market of a Morpho position, and deposits more into that same market', () => {
+    const { container } = renderDetail('pos-morpho');
+
+    expect(container.textContent).toContain('earnMarketLabel');
+    expect(container.textContent).toContain('Morpho uniBTC-USDC 77');
+    fireEvent.click(screen.getByRole('button', { name: 'earnDepositMore' }));
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/morpho-blue-0x3b37-8453-0x8335/deposit');
+  });
+
+  it('draws no market row for a position its protocol identifies', () => {
+    const { container } = renderDetail('pos-flat');
+
+    expect(container.textContent).not.toContain('earnMarketLabel');
   });
 
   it('navigates to the deposit and withdraw routes from the action buttons', () => {

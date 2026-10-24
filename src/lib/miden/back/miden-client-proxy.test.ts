@@ -60,7 +60,14 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   };
 });
 
+jest.mock('lib/miden/swap/fee-context', () => {
+  const g = globalThis as any;
+  return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
+});
+
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+
+import { decodeArg } from './offscreen-codec';
 
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
 // forceClose drive the chrome mock, and the criticalOp counters are the genuine
@@ -145,6 +152,12 @@ function resetControl() {
     inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
     inlineSwapTransaction: jest.fn(async () => ({ __inlineSwapResult: true })),
     inlineNewTransaction: jest.fn(async () => ({ __inlineNewResult: true })),
+    readSwapFeeContext: jest.fn(async (scope?: string) => ({
+      scope: scope ?? 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    })),
     // Slice 7a: the flag-off passthrough of the deferred reach-through reads. The
     // raw client (`.client`) exposes getSyncHeight / sync / pswap.lineage; the
     // interface exposes getInputNote / importNoteBytes. The live-record returns are
@@ -2813,7 +2826,14 @@ const sendTx = () => ({
   noteType: 'public',
   amount: 1000n, // a BigInt — proves the DTO ships amount as a string, never JSON.stringify(tx)
   delegateTransaction: false,
-  extraInputs: { recallBlocks: 100 },
+  extraInputs: {
+    recallBlocks: 100,
+    oneClick: {
+      fundingDeadline: '2026-10-22T12:00:00.000Z',
+      request: { deadline: '2026-10-22T12:00:00.000Z' },
+      quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+    }
+  },
   status: 0,
   initiatedAt: 0,
   displayIcon: 'SEND'
@@ -2832,7 +2852,7 @@ const swapTx = () => ({
   displayIcon: 'SWAP'
 });
 
-describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
+describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
   it('flag OFF → sendTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
@@ -2903,7 +2923,14 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: { recallBlocks: 100 }
+      extraInputs: {
+        recallBlocks: 100,
+        oneClick: {
+          fundingDeadline: '2026-10-22T12:00:00.000Z',
+          request: { deadline: '2026-10-22T12:00:00.000Z' },
+          quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+        }
+      }
     });
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -2913,6 +2940,67 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
     expect(result).toEqual({ __txResult: [1, 2, 3] });
     expect(__test.inFlightSize()).toBe(0);
   });
+
+  it.each([
+    ['signed request first', 20, 40],
+    ['provider expiry first', 40, 20]
+  ])(
+    'preserves the %s cutoff through offscreen decoding and SDK consumption',
+    async (_label, requestMinutes, providerMinutes) => {
+      const requestDeadline = new Date(Date.now() + requestMinutes * 60_000).toISOString();
+      const providerDeadline = new Date(Date.now() + providerMinutes * 60_000).toISOString();
+      const fundingDeadline = requestMinutes < providerMinutes ? requestDeadline : providerDeadline;
+      const { midenClientProxy } = await loadProxy(true);
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from([1, 2, 3]).toString('base64'),
+        durationMs: 1
+      }));
+      const tx = {
+        ...sendTx(),
+        delegateTransaction: true,
+        extraInputs: {
+          oneClick: {
+            fundingDeadline,
+            request: { deadline: requestDeadline },
+            quote: { quote: { deadline: providerDeadline } }
+          }
+        }
+      };
+      const dispatched = midenClientProxy.sendTransaction(tx as any, jest.fn());
+      await flush();
+      fireReady();
+      await dispatched;
+
+      const envelope = fakeChrome.runtime.sendMessage.mock.calls[0]?.[0];
+      expect(envelope?.method).toBe('sendTransaction');
+      const decoded = decodeArg(envelope.argsB64[0]) as any;
+      expect(decoded.amount).toBe('1000');
+      expect(decoded.extraInputs.oneClick.fundingDeadline).toBe(fundingDeadline);
+      expect(decoded.extraInputs.oneClick.quote.quote.deadline).toBe(providerDeadline);
+
+      const controlledReceiver = new WebAssembly.RuntimeError('SDK receiver reached after the deadline contract');
+      const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+      const consumer = MidenClientInterface.fromClient(
+        {
+          _withInnerWebClient: jest.fn(async () => {
+            throw controlledReceiver;
+          })
+        } as any,
+        'testnet'
+      );
+      const validDecoded = {
+        ...decoded,
+        extraInputs: {
+          ...decoded.extraInputs,
+          oneClick: { ...decoded.extraInputs.oneClick, request: { deadline: requestDeadline } }
+        }
+      };
+      await expect(consumer.sendTransaction(validDecoded)).rejects.toBe(controlledReceiver);
+      await expect(consumer.sendTransaction(decoded)).rejects.toBe(controlledReceiver);
+    }
+  );
 
   it('flag ON → a null offscreen result throws (a send must always yield a TransactionResult)', async () => {
     const { midenClientProxy } = await loadProxy(true);
@@ -3073,7 +3161,12 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     await midenClientProxy.newTransaction('mtst1qacc', requestBytes, true, signCallback, onStage);
 
     expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(consume, onStage);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage, {
+      scope: 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', requestBytes, true, onStage);
   });
 
@@ -3201,6 +3294,27 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
 });
 
 describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
+  it('resolves the fee context before taking the inline WASM lock', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const fee = { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n };
+    G.__px.readSwapFeeContext.mockResolvedValue(fee);
+    const tx = {
+      ...swapTx(),
+      extraInputs: { ...swapTx().extraInputs, balanceScope: fee.scope }
+    };
+
+    await midenClientProxy.swapTransaction(
+      tx as any,
+      jest.fn(async () => new Uint8Array())
+    );
+
+    expect(G.__px.readSwapFeeContext).toHaveBeenCalledWith(fee.scope);
+    expect(G.__px.readSwapFeeContext.mock.invocationCallOrder[0]).toBeLessThan(
+      G.__px.withWasmClientLock.mock.invocationCallOrder[0]
+    );
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, fee);
+  });
+
   it('flag OFF → swapTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
@@ -3214,7 +3328,12 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     // options: no per-write signer anywhere, the realm's installed one signs (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, {
+      scope: 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -3235,6 +3354,12 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
   it('flag ON → dispatches a whole-op OFFSCREEN_CALL with the swap DTO (both BigInt amounts as strings) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
+    const fee = { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n };
+    G.__px.readSwapFeeContext.mockResolvedValue(fee);
+    const transaction = {
+      ...swapTx(),
+      extraInputs: { ...swapTx().extraInputs, balanceScope: 'testnet|queued-endpoint' }
+    };
     let criticalDuring: boolean | undefined;
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
       criticalDuring = prover.isCriticalOpInFlight();
@@ -3242,7 +3367,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     });
 
     const p = midenClientProxy.swapTransaction(
-      swapTx() as any,
+      transaction as any,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -3262,7 +3387,12 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
       faucetId: 'mtst1qoffered',
       amount: '500',
       delegateTransaction: false,
-      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      },
+      swapFeeContext: { ...fee, baseFee: '7' }
     });
     expect(criticalDuring).toBe(true);
     expect(prover.isCriticalOpInFlight()).toBe(false);
@@ -3688,9 +3818,8 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(env.method).toBe('guardianPipeline');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
     expect(env.deadline_ms).toBe(180_000);
-    // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool),
-    // chainAnchorB64 (s:string|null)].
-    expect(env.argsB64).toHaveLength(4);
+    // DTO: accountId, proof bytes, delegate, compatibility anchor, deadline, required flag.
+    expect(env.argsB64).toHaveLength(6);
     expect(env.argsB64[0]).toBe(`s:${JSON.stringify('mtst1qguardian')}`);
     expect(env.argsB64[2]).toBe('s:false');
     // §4.0: the co-signed request crossed as RAW BYTES, byte-for-byte intact —
@@ -3701,6 +3830,8 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     // maps it to the wire NULL rather than dropping it, so the offscreen
     // dispatch's positional parameters stay aligned.
     expect(env.argsB64[3]).toBe('s:null');
+    expect(env.argsB64[4]).toBe('s:null');
+    expect(env.argsB64[5]).toBe('s:false');
     // criticalOp + sign callback bracketed AROUND the op, cleaned up after.
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -3738,8 +3869,10 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     await p;
 
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
-    expect(env.argsB64).toHaveLength(4);
+    expect(env.argsB64).toHaveLength(6);
     expect(env.argsB64[3]).toBe('s:"BwcH"');
+    expect(env.argsB64[4]).toBe('s:null');
+    expect(env.argsB64[5]).toBe('s:false');
   });
 
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {

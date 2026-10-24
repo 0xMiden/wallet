@@ -3,15 +3,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
+import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
@@ -23,6 +25,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
+import { swapPayEstimate } from './amount-display';
 import { EXPIRY_PRESETS, ExpiryPresetId, presetForSeconds } from './expiry';
 import { SLIPPAGE_PERCENT_BOUNDS, slippageBpsToPercent, slippagePercentToBps } from './slippage';
 
@@ -71,6 +74,18 @@ function expectedOverAsk(quote: SwapQuote, decimals: number): string | undefined
   if (expected === null || !/^\d+$/.test(expected)) return undefined;
   const amount = BigInt(expected);
   return amount > quote.requestedAmount ? formatBigInt(amount, decimals) : undefined;
+}
+
+function fillWarningKey(quote?: SwapQuote): string | undefined {
+  if (!quote || swapEtaBlocksSubmit(quote.eta)) return undefined;
+  switch (quote.eta.fillStatus) {
+    case 'none':
+      return 'swapNoFillWarning';
+    case 'partial':
+      return 'swapPartialFillWarning';
+    case 'full':
+      return undefined;
+  }
 }
 
 /**
@@ -156,7 +171,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   submitting = false
 }) => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const offerLabel = midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol);
   const requestLabel = midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol);
@@ -167,6 +183,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const formatRateValue = rateFormatterFor(rate ?? 0);
   const verdict = quote === undefined ? undefined : swapVerdict(quote.eta);
   const blocksSubmit = quote !== undefined && swapEtaBlocksSubmit(quote.eta);
+  const warningKey = fillWarningKey(quote);
   const expected =
     quote !== undefined && verdict === 'full' ? expectedOverAsk(quote, requestToken.decimals) : undefined;
 
@@ -219,9 +236,17 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
+        subtitle={
+          <TokenUsdValue
+            amount={offerAmount}
+            decimals={offerToken.decimals}
+            faucetId={offerToken.faucetId}
+            symbol={offerToken.symbol}
+          />
+        }
         value={
           <span className="inline-flex items-center gap-1">
-            {`${offerAmount} ${offerLabel}`}
+            {`${requestEdited ? t('swapApproxAmount', { amount: swapPayEstimate(offerAmount) }) : offerAmount} ${offerLabel}`}
             <SwapTokenInfoButton faucetId={offerToken.faucetId} label={offerLabel} />
           </span>
         }
@@ -242,6 +267,14 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             faucetId={requestToken.faucetId}
             fallbackSymbol={requestToken.logoSymbol}
             size="md"
+          />
+        }
+        subtitle={
+          <TokenUsdValue
+            amount={requestAmount}
+            decimals={requestToken.decimals}
+            faucetId={requestToken.faucetId}
+            symbol={requestToken.symbol}
           />
         }
         value={
@@ -267,9 +300,17 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         'data-testid': 'swap-submit'
       }}
       secondary={{ label: t('back'), onPress: onGoBack, disabled: submitting }}
+      beforeActions={
+        warningKey && (
+          <Notice tone="warning" role="status" data-testid="swap-fill-warning">
+            {t(warningKey)}
+          </Notice>
+        )
+      }
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
+      {requestEdited && <p className="mt-5 text-body-sm text-muted">{t('swapReceiveTargetNote')}</p>}
       <DetailCard surface="outline" face="heading" className="mt-8">
         {/* The slippage and fee explain the rate figure, but it is a sentence: as a sub-line it
             wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
@@ -294,6 +335,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             />
           )}
         </DetailRow>
+        {requestEdited && (
+          <DetailRow label={t('swapExactPayAmount')} stacked data-testid="swap-exact-pay-row">
+            <span className="break-all">
+              {offerAmount} {offerLabel}
+            </span>
+          </DetailRow>
+        )}
         {/* The solver's verdict on this exact ask, in the service's own priority order. A blocking
             one (no market, no price, off market) is what the Swap press refuses on; the rest, the
             testnet's usual "no orders yet" included, are advisory. */}
@@ -301,7 +349,18 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           <DetailRow
             label={t('swapFillStatus')}
             sub={
-              expected !== undefined ? t('swapVerdictExpected', { amount: expected, symbol: requestLabel }) : undefined
+              expected !== undefined ? (
+                <>
+                  {t('swapVerdictExpected', { amount: expected, symbol: requestLabel })}
+                  <TokenUsdValue
+                    amount={expected}
+                    decimals={requestToken.decimals}
+                    faucetId={requestToken.faucetId}
+                    symbol={requestToken.symbol}
+                    className="block"
+                  />
+                </>
+              ) : undefined
             }
             className={blocksSubmit ? 'text-negative-ink' : undefined}
             data-testid="swap-verdict-row"
@@ -313,7 +372,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           label={t('swapSlippage')}
           info={
             <InfoHint label={t('moreInfoAbout', { label: t('swapSlippage') })} data-testid="swap-slippage-info">
-              {t(requestEdited ? 'swapSlippageEditedNote' : 'swapSlippageNote')}
+              {t(requestEdited ? 'swapReceiveSlippageNote' : 'swapSlippageNote')}
             </InfoHint>
           }
           stacked
@@ -328,7 +387,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             enterKeyHint="done"
             aria-label={t('swapSlippage')}
             value={slippageDraft}
-            disabled={submitting || requestEdited}
+            disabled={submitting}
             clearable={false}
             onChange={event => onSlippageChange(event.target.value)}
             trailing={<span className="text-body text-muted">{t('percentSign')}</span>}
@@ -343,6 +402,11 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           // of the swap — the two are different costs.
           <DetailRow
             label={t('networkFeeMax')}
+            sub={
+              networkFeeDetails && (
+                <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+              )
+            }
             info={
               <InfoHint label={t('moreInfoAbout', { label: t('networkFeeMax') })} data-testid="swap-network-fee-info">
                 {t('networkFeeEstimateNote')}

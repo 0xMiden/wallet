@@ -22,7 +22,7 @@ function withE2eRpc(chain: Chain): Chain {
   return rpcUrl ? { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [rpcUrl] } } } : chain;
 }
 
-function epochChain(chainId: number = sepolia.id): Chain {
+export function epochChain(chainId: number = sepolia.id): Chain {
   if (chainId === MIDEN_DESTINATION_CHAIN_ID) return { ...sepolia, id: chainId };
   const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === chainId);
   if (!chain) throw walletRaised(new Error('The Epoch EVM chain is not supported'));

@@ -48,6 +48,7 @@ jest.mock('lib/miden/back/actions', () => ({
   revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
   persistNewHotKey: jest.fn().mockResolvedValue(undefined),
   swapHotKey: jest.fn().mockResolvedValue(undefined),
+  importHotKeyPair: jest.fn().mockResolvedValue(undefined),
   setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
   setGuardianOperatorCommitment: jest.fn().mockResolvedValue(undefined),
   setGuardianSyncStatus: jest.fn().mockResolvedValue(undefined),
@@ -540,6 +541,14 @@ describe('DesktopIntercomAdapter', () => {
           newHotPubKey: 'new-pub'
         } as any)
       ).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.ImportHotKeyPairRequest,
+          accountPublicKey: 'acc',
+          keyPairPayload: 'hot:evm'
+        } as any)
+      ).toEqual({ type: WalletMessageType.ImportHotKeyPairResponse });
 
       expect(
         await adapter.request({

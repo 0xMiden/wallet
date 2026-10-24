@@ -14,7 +14,7 @@ import {
   onFirstEndpoint,
   pickWriteEndpoint,
   pinAfterApprove,
-  readXReserveDomainState,
+  readRemoteDomainRegistered,
   sendSigned,
   simulate,
   startingAt,
@@ -236,7 +236,9 @@ export async function submitL2Deposit(
     signer,
     isRemoteDomainRegistered:
       deps.isRemoteDomainRegistered ??
-      (async domain => domain === USDCX_REMOTE_DOMAIN && (await readXReserveDomainState(args.arc)).registered),
+      (async domain =>
+        domain === (l2.source.midenDomain ?? USDCX_REMOTE_DOMAIN) &&
+        readRemoteDomainRegistered(args.arc, l2.source.target.xReserve, domain)),
     readAllowance: spender =>
       chainRead('USDC allowance', endpoints.reads, reads, client =>
         client.readContract({

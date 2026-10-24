@@ -130,24 +130,6 @@ describe('PromptCarousel', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('claims pointer gestures before they reach an outer page carousel', () => {
-    const outerPointerDown = jest.fn();
-    render(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-          <button type="button">Second prompt</button>
-        </PromptCarousel>
-      </div>
-    );
-    const outer = screen.getByTestId('outer-carousel');
-    outer.addEventListener('pointerdown', outerPointerDown);
-
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'First prompt' }));
-
-    expect(outerPointerDown).not.toHaveBeenCalled();
-  });
-
   it('does not make a lone slide a drag surface, and pages once a second slide arrives', () => {
     const { rerender } = render(
       <PromptCarousel>
@@ -169,27 +151,20 @@ describe('PromptCarousel', () => {
     expect(screen.getByTestId('motion-track').parentElement).toHaveClass('touch-pan-y');
   });
 
-  it('wires up the gesture claim when the track mounts after an empty render', () => {
-    const outerPointerDown = jest.fn();
-    const { rerender } = render(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>{false}</PromptCarousel>
-      </div>
-    );
+  it('claims the sideways pan when the track mounts after an empty render', () => {
+    const { rerender } = render(<PromptCarousel>{false}</PromptCarousel>);
     expect(screen.queryByTestId('motion-track')).toBeNull();
 
     rerender(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-          <button type="button">Second prompt</button>
-        </PromptCarousel>
-      </div>
+      <PromptCarousel>
+        <button type="button">First prompt</button>
+        <button type="button">Second prompt</button>
+      </PromptCarousel>
     );
-    screen.getByTestId('outer-carousel').addEventListener('pointerdown', outerPointerDown);
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Second prompt' }));
 
-    expect(outerPointerDown).not.toHaveBeenCalled();
+    // The pager is a native scroller, so `touch-pan-y` here is what keeps the pan for the track.
+    expect(screen.getByTestId('motion-track')).toHaveAttribute('data-drag', 'x');
+    expect(screen.getByTestId('motion-track').parentElement).toHaveClass('touch-pan-y');
   });
 
   it('keeps the selected slide on screen when a sibling before it is removed or added', () => {
@@ -418,35 +393,22 @@ describe('PromptCarousel', () => {
     });
   });
 
-  it('claims pointer gestures only once there is a second slide to page to', () => {
-    const outerPointerDown = jest.fn();
+  it('shows dots only once there is a second slide to page to', () => {
     const { rerender } = render(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-        </PromptCarousel>
-      </div>
+      <PromptCarousel>
+        <button type="button">First prompt</button>
+      </PromptCarousel>
     );
-    const outer = screen.getByTestId('outer-carousel');
-    outer.addEventListener('pointerdown', outerPointerDown);
-    // One slide has nothing to page: no dots, and a swipe on it still reaches the page.
     expect(screen.queryByRole('button', { name: /Show prompt/ })).toBeNull();
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'First prompt' }));
-    expect(outerPointerDown).toHaveBeenCalledTimes(1);
 
     rerender(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-          <button type="button">Second prompt</button>
-        </PromptCarousel>
-      </div>
+      <PromptCarousel>
+        <button type="button">First prompt</button>
+        <button type="button">Second prompt</button>
+      </PromptCarousel>
     );
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Second prompt' }));
-
     expect(screen.getAllByRole('button', { name: /Show prompt/ })).toHaveLength(2);
-    expect(outerPointerDown).toHaveBeenCalledTimes(1);
   });
 
   it.each([

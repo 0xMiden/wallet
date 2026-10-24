@@ -158,15 +158,21 @@ export const SuccessSummaryPill: FC<{
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows.
  *  `surface="outline"` draws it on the page with a hairline edge, set in Nunito (the earn flow's). */
-export const ReceiptRows: FC<{ rows: ReceiptRow[]; surface?: 'fill' | 'outline'; className?: string }> = ({
-  rows,
-  surface = 'fill',
-  className
-}) => {
+export const ReceiptRows: FC<{
+  rows: ReceiptRow[];
+  surface?: 'fill' | 'outline';
+  /** `heading` sets the labels in Nunito semibold, as the review card before it does. */
+  face?: 'sans' | 'heading';
+  className?: string;
+}> = ({ rows, surface = 'fill', face, className }) => {
   if (rows.length === 0) return null;
 
   return (
-    <DetailCard surface={surface} className={classNames('w-full', surface === 'outline' && 'face-heading', className)}>
+    <DetailCard
+      surface={surface}
+      face={face}
+      className={classNames('w-full', surface === 'outline' && 'face-heading', className)}
+    >
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (

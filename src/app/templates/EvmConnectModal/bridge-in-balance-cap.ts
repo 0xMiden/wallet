@@ -1,13 +1,13 @@
-import { useMemo } from 'react';
-
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
+import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
 import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
 import { usdMarketPending } from 'lib/prices/feed';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectBridgeInMaxBalanceUsd } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
@@ -71,18 +71,22 @@ export function bridgeInBalanceCapVerdict({
 export interface DepositTokenPrice {
   priceUsd: number | undefined;
   pending: boolean;
+  /** First millisecond the quote behind `priceUsd` is stale, when it can expire. */
+  expiresAt?: number;
 }
 
 /**
  * Pure: the price the ceiling weighs a deposit of `token` at. USDC and Circle USDC are at par; ETH and an offered
  * ERC-20 (`erc20`, the pick resolved from the offered list) take the feed's quote, an ERC-20's under the price symbol
- * of the faucet that delivers it. A missing quote is pending until the feed rules its market out; an ERC-20 with no
+ * of the faucet that delivers it. A missing or stale quote is pending until the feed supplies a fresh one or rules its
+ * market out; an ERC-20 with no
  * delivery faucet or price symbol, and the nominal $1 a test network gives an unquoted token, leave it unpriced.
  */
 export function depositTokenPrice(
   token: DepositToken,
   erc20: OfferedErc20 | null,
-  tokenPrices: TokenPrices
+  tokenPrices: TokenPrices,
+  now = Date.now()
 ): DepositTokenPrice {
   if (token === 'USDC' || token === 'CIRCLE_USDC') return { priceUsd: 1, pending: false };
   const priceSymbol =
@@ -90,7 +94,10 @@ export function depositTokenPrice(
   if (priceSymbol === undefined) return { priceUsd: undefined, pending: false };
   const quote = quotedPrice(tokenPrices, priceSymbol);
   if (quote === undefined) return { priceUsd: undefined, pending: usdMarketPending(priceSymbol) };
-  return { priceUsd: isNominalQuote(quote) ? undefined : quote.price, pending: false };
+  // An expired quote can sit far below the market; weighing a deposit at it would clear a deposit over the ceiling.
+  if (usdQuoteStatus(quote, now) === 'stale') return { priceUsd: undefined, pending: true };
+  if (isNominalQuote(quote)) return { priceUsd: undefined, pending: false };
+  return { priceUsd: quote.price, pending: false, expiresAt: quoteExpiryMs(quote, now) };
 }
 
 /**
@@ -99,15 +106,32 @@ export function depositTokenPrice(
  * would wave a deposit through against a balance the next quote values; a token whose market the feed has ruled out
  * at both providers has nothing to wait for.
  */
-export function settledHeldUsd(balances: readonly TokenBalanceData[], tokenPrices: TokenPrices): number | null {
-  const pending = balances.some(
-    token =>
-      token.balance > 0 &&
-      hasKnownScale(token.metadata) &&
-      !tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol) &&
-      usdMarketPending(priceSymbolFor(token.tokenId, token.metadata.symbol))
-  );
+export function settledHeldUsd(
+  balances: readonly TokenBalanceData[],
+  tokenPrices: TokenPrices,
+  now = Date.now()
+): number | null {
+  const pending = balances.some(token => {
+    if (!(token.balance > 0) || !hasKnownScale(token.metadata)) return false;
+    const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
+    // A stale quote undervalues the holdings just as a missing one does, so it waits for a fresh read too.
+    if (quote) return usdQuoteStatus(quote, now) === 'stale';
+    return usdMarketPending(priceSymbolFor(token.tokenId, token.metadata.symbol));
+  });
   return pending ? null : valuedBalanceTotal(balances, tokenPrices).totalFiat;
+}
+
+const earliest = (a: number | undefined, b: number | undefined): number | undefined =>
+  a === undefined ? b : b === undefined ? a : Math.min(a, b);
+
+/** First millisecond a quote that values a held token goes stale, if any can. */
+function heldQuoteExpiry(balances: readonly TokenBalanceData[], tokenPrices: TokenPrices): number | undefined {
+  let first: number | undefined;
+  for (const token of balances) {
+    if (!(token.balance > 0) || !hasKnownScale(token.metadata)) continue;
+    first = earliest(first, quoteExpiryMs(tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)));
+  }
+  return first;
 }
 
 export interface UseBridgeInBalanceCapOptions {
@@ -119,6 +143,8 @@ export interface UseBridgeInBalanceCapOptions {
   depositPriceUsd: number | undefined;
   /** True while the feed may still quote a deposit token it has no price for (`usdMarketPending`). */
   depositPricePending: boolean;
+  /** When the deposit token's quote goes stale (`DepositTokenPrice.expiresAt`), so the verdict re-checks on time. */
+  depositQuoteExpiresAt?: number;
 }
 
 /**
@@ -130,17 +156,18 @@ export function useBridgeInBalanceCap({
   accountPublicKey,
   depositAmount,
   depositPriceUsd,
-  depositPricePending
+  depositPricePending,
+  depositQuoteExpiresAt
 }: UseBridgeInBalanceCapOptions): BridgeInBalanceCapVerdict {
   const bridgeConfig = useBridgeConfigSnapshot();
   const capUsd = selectBridgeInMaxBalanceUsd(bridgeConfig);
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balances = [], isLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-
-  return useMemo(() => {
-    if (capUsd === null) return { state: 'none' };
-    const heldUsd = isLoading ? null : settledHeldUsd(balances, tokenPrices);
-    return bridgeInBalanceCapVerdict({ capUsd, heldUsd, depositAmount, depositPriceUsd, depositPricePending });
-  }, [capUsd, balances, isLoading, tokenPrices, depositAmount, depositPriceUsd, depositPricePending]);
+  // Quotes expire with the clock, not with a store write: wake at the first expiry among the quotes the verdict
+  // reads, and read the time on every render so a verdict never outlives the quote behind it.
+  useQuoteClock(earliest(heldQuoteExpiry(balances, tokenPrices), depositQuoteExpiresAt));
+  if (capUsd === null) return { state: 'none' };
+  const heldUsd = isLoading ? null : settledHeldUsd(balances, tokenPrices);
+  return bridgeInBalanceCapVerdict({ capUsd, heldUsd, depositAmount, depositPriceUsd, depositPricePending });
 }

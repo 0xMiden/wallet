@@ -41,6 +41,9 @@ it('does not treat another native asset as Testnet USDCx', () => {
   expect(selectEarnCollateral(TEST_BRIDGE_CONFIG_SNAPSHOT)).toBeNull();
 });
 
-it('keeps the configured collateral off Testnet', () => {
-  expect(selectEarnCollateral({ ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' })).toEqual(TEST_MIDEN_USDC);
+it('spends the native asset off Testnet too, never the configured collateral', () => {
+  const devnet = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+  expect(selectEarnCollateral(devnet)).toEqual({ faucetId: NATIVE, symbol: 'USDCx', decimals: 6 });
+  jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
+  expect(selectEarnCollateral(devnet)).toBeNull();
 });

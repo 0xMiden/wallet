@@ -96,6 +96,11 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));
 
 /**
  * The verbatim `Display` text miden-client produces for

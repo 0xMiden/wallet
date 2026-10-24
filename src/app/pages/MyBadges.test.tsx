@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import MyBadges from './MyBadges';
 
@@ -17,7 +17,10 @@ jest.mock('react-i18next', () => ({
   })
 }));
 let mockEarned: string[] = [];
-jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => mockEarned }));
+jest.mock('lib/badges/useWalletBadges', () => ({
+  useWalletBadges: () => mockEarned,
+  useMarkWalletBadgesViewed: jest.fn()
+}));
 jest.mock('lib/miden/front', () => ({ useNetwork: () => ({ id: mockNetworkId }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => mockBack }));
@@ -64,7 +67,9 @@ it('does not award badges just because the account is on Mainnet', () => {
   render(<MyBadges />);
   expect(screen.queryByText('badgesMainnetNoticeDescription')).not.toBeInTheDocument();
   expect(screen.getAllByText('locked')).toHaveLength(3);
-  expect(screen.getAllByText('badgeVerificationPending')).toHaveLength(3);
+  for (const id of ['first-receive', 'recovery-checked', 'miniapp-explorer']) {
+    expect(within(screen.getByTestId(`badge-card-${id}`)).getByText('badgesStatComingSoon')).toBeInTheDocument();
+  }
 });
 
 it('returns to the profile through the shared back handler', () => {
@@ -93,4 +98,24 @@ it('counts an earned badge in the tiles and the fraction', () => {
   expect(screen.getByTestId('badges-stat-locked')).toHaveTextContent('2badgesStatLocked');
   expect(screen.getByTestId('badges-stat-coming-soon')).toHaveTextContent('3badgesStatComingSoon');
   expect(screen.getByTestId('badges-collection-count')).toHaveTextContent('badgesEarnedFraction(earned=1,total=6)');
+});
+
+it('lists available badges first in the shared product order, independent of earned state', () => {
+  mockEarned = ['first-swap'];
+  render(<MyBadges />);
+  expect(screen.getAllByTestId(/^badge-card-/).map(card => card.getAttribute('data-testid'))).toEqual([
+    'badge-card-first-send',
+    'badge-card-first-deposit',
+    'badge-card-first-swap',
+    'badge-card-first-receive',
+    'badge-card-recovery-checked',
+    'badge-card-miniapp-explorer'
+  ]);
+  for (const id of ['first-receive', 'recovery-checked', 'miniapp-explorer']) {
+    const card = screen.getByTestId(`badge-card-${id}`);
+    expect(within(card).getByText('badgesStatComingSoon')).toBeInTheDocument();
+    expect(within(card).queryByRole('button')).toBeNull();
+    expect(within(card).getByRole('img')).toHaveAttribute('data-earned', 'false');
+  }
+  expect(screen.getByTestId('badges-stat-earned')).toHaveTextContent('1badgesStatEarned');
 });

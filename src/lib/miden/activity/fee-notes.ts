@@ -57,9 +57,17 @@ function hasFeeTag(note: OutputNote): boolean {
   }
 }
 
-/** The bech32 faucet of a note's single fungible asset, or `undefined`. */
+/**
+ * The bech32 faucet of a note's single fungible asset, or `undefined`.
+ *
+ * Also `undefined` for a note that carries an NFT: the fee note holds one fungible asset and nothing else, and being
+ * taken for it removes a note from the approval sheet, which must never happen to a note holding an NFT.
+ */
 function soleFungibleFaucet(note: OutputNote): string | undefined {
   try {
+    if ((note.assets()?.nonFungibleAssets() ?? []).length > 0) {
+      return undefined;
+    }
     const assets = note.assets()?.fungibleAssets() ?? [];
     const first = assets[0];
     if (!first || assets.length !== 1) {

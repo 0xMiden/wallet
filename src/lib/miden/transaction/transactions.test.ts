@@ -1,11 +1,6 @@
+import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
 import { captureCrash } from 'lib/telemetry/crash';
 
-import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
-import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
-import { queueOutgoingTransaction } from '../spending-limits/queue';
-import { SpendingLimitAuthorization } from '../spending-limits/types';
-import { NoteTypeEnum } from '../types';
-// Import after mocks are set up
 import {
   hasQueuedTransactions,
   getTransactionsInProgress,
@@ -44,6 +39,17 @@ import {
   TRANSACTION_FORCE_CANCELLED_ERROR,
   INVALID_NOTE_ERROR
 } from './index';
+import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { queueOutgoingTransaction } from '../spending-limits/queue';
+import { SpendingLimitAuthorization } from '../spending-limits/types';
+import { NoteTypeEnum } from '../types';
+// Import after mocks are set up
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));
 
 jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
@@ -631,8 +637,18 @@ describe('transactions utilities', () => {
         // The spend list is its own argument, never written onto a single-asset row: the policy
         // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
         [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
-        authorization
+        authorization,
+        undefined,
+        expect.any(Function)
       );
+    });
+
+    it('does not queue a swap when the SDK vault fell below its reviewed pay amount', async () => {
+      jest.mocked(assertSwapVaultBalance).mockRejectedValueOnce(new Error('amountMustBeLessThanBalance'));
+      await expect(initiateSwapTransaction('account-a', 'faucet-a', 10n, 'faucet-b', 5n)).rejects.toThrow(
+        'amountMustBeLessThanBalance'
+      );
+      expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
     });
 
     it('routes bridged send through the atomic outgoing queue with its authorization', async () => {
@@ -758,6 +774,39 @@ describe('transactions utilities', () => {
         // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
         [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
+      );
+      const queued = mockQueueOutgoingTransaction.mock.calls.at(-1)?.[0];
+      expect(queued?.extraInputs).not.toHaveProperty('protocol');
+      expect(queued?.extraInputs).not.toHaveProperty('chainId');
+    });
+
+    it('persists the deposit protocol and chain on the queued row', async () => {
+      await initiateEarnDepositTransaction(
+        'account-a',
+        10n,
+        '0xrecipient',
+        'market-a',
+        'faucet-a',
+        { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
+        true,
+        new Uint8Array([1, 2, 3]),
+        undefined,
+        'https://allocator.test',
+        '1delta',
+        8453
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'earn-deposit',
+          extraInputs: expect.objectContaining({
+            protocol: '1delta',
+            chainId: 8453,
+            epochAllocatorUrl: 'https://allocator.test'
+          })
+        }),
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        undefined
       );
     });
 

@@ -38,6 +38,7 @@ import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
+import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
@@ -50,6 +51,11 @@ import {
 import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
+import {
+  assertOneClickDeadline,
+  assertOneClickFundingDeadlineMatches,
+  isOneClickDeadlineError
+} from 'lib/one-click/deadline';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { annotateCrash, type CrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -77,6 +83,7 @@ import {
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
 import {
+  assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   retireWasmClientForCaughtTrap,
   withWasmLockWatchdogPaused,
@@ -84,6 +91,7 @@ import {
   type WasmLockHold
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { toNft, type NftAsset } from './nft-asset';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
 import { readPswapOrderNote } from './pswap-order-note';
@@ -217,6 +225,8 @@ export type InputNoteDetails = {
   noteId: string;
   senderAccountId: string | undefined;
   assets: FungibleAssetDetails[];
+  /** The note's NFTs, read by the dApp consume preview, never sent to a dApp (like `restriction`). */
+  nonFungibleAssets: NftAsset[];
   noteType: NoteType | undefined;
   nullifier: string;
   state: InputNoteState;
@@ -264,6 +274,7 @@ function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
       nullifier,
       state: note.state(),
       assets,
+      nonFungibleAssets: note.details().assets().nonFungibleAssets().map(toNft),
       ...(restriction !== undefined && { restriction })
     }
   ];
@@ -1712,6 +1723,15 @@ export class MidenClientInterface {
 
   async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
+    const oneClick = extraInputs?.oneClick;
+    const fundingDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
+      : undefined;
+    const assertQuotedDeadline = fundingDeadline ? () => assertOneClickDeadline(fundingDeadline) : undefined;
 
     // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
     // producer — send UI, dApp path, epoch bridge — passes an offset). This is
@@ -1746,7 +1766,8 @@ export class MidenClientInterface {
                 reclaimAfter
               ),
             attempt,
-            onStage
+            onStage,
+            assertQuotedDeadline
           );
         }
         // Non-offscreen path (mobile native prover, desktop WASM, delegated
@@ -1786,8 +1807,9 @@ export class MidenClientInterface {
           TransactionRequest.deserialize(requestBytes)
         );
         await onStage?.('proving');
-        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
-        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage);
+        if (attempt.provesInWorker())
+          return await this.submitWorkerProof(executed, attempt, onStage, assertQuotedDeadline);
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage, assertQuotedDeadline);
       },
       dbTransaction.delegateTransaction,
       this.liveness
@@ -1882,8 +1904,13 @@ export class MidenClientInterface {
    * A delegated attempt that fails before `markSubmitting()` falls back to a
    * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(transaction: SwapTransaction, onStage?: LeafStage): Promise<TransactionResult> {
+  async swapTransaction(
+    transaction: SwapTransaction,
+    onStage?: LeafStage,
+    feeContext?: SwapFeeContext
+  ): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
+    const fee = feeContext ?? getSwapFeeContextSync(extraInputs.balanceScope);
 
     const access = this.innerClientAccess();
 
@@ -1899,7 +1926,17 @@ export class MidenClientInterface {
         // spelled out on the send path above: the account a request is EXECUTED
         // against must be the one its asset's vault key came from.
         const canonicalId = walletAccountIdToSdk(accountId).toString();
+        const hold = getCurrentWasmLockHold();
         const creatorAccount = await this.client.accounts.get(canonicalId);
+        if (hold) assertWasmHoldCurrent(hold, 'swap execution: after creator account read');
+        assertSwapAccountBalance(
+          creatorAccount,
+          accountId,
+          faucetId,
+          BigInt(amount),
+          fee,
+          extraInputs.balanceScope ?? fee.scope
+        );
         const reference = await access._withInnerWebClient(async inner =>
           inner.newPswapCreateTransactionRequest(
             walletAccountIdToSdk(accountId),
@@ -2002,7 +2039,8 @@ export class MidenClientInterface {
   private async submitWorkerProof(
     executed: TransactionExecution,
     attempt: ProveAttempt,
-    onStage?: LeafStage
+    onStage?: LeafStage,
+    beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
     // No re-check of the hold between here and `submitProven`: the helper's own
@@ -2016,6 +2054,10 @@ export class MidenClientInterface {
         evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
       });
     }
+    if (beforeSubmit && attempt.evicted()) {
+      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
+    }
+    beforeSubmit?.();
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
     // The node already has the transaction: a failed apply is retried while that is safe, and one
@@ -2040,7 +2082,8 @@ export class MidenClientInterface {
     prover: TransactionProver | undefined,
     attempt: ProveAttempt,
     write: 'send' | 'newTransaction' | 'consume' | 'swap',
-    onStage?: LeafStage
+    onStage?: LeafStage,
+    beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     // An explicit prover on the delegated path, see `remoteProver`: `prove({})` selects the SDK's
     // default-prover fallback, which needs an initialized client and so never dispatched in the
@@ -2078,6 +2121,7 @@ export class MidenClientInterface {
     if (attempt.evicted()) {
       throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned after the ${write} prove`));
     }
+    beforeSubmit?.();
     // Point of no return: a retry past here would build a fresh request (a new note serial; for a
     // swap, a second PSWAP note locking the offered asset twice) and submit a second write.
     attempt.markSubmitting();
@@ -2129,7 +2173,8 @@ export class MidenClientInterface {
   private async proveLocallyViaOffscreen(
     buildExecuteArgs: (wasm: any, inner: WasmWebClient) => Promise<{ accountId: any; request: TransactionRequest }>,
     attempt: ProveAttempt,
-    onStage?: LeafStage
+    onStage?: LeafStage,
+    beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     try {
       recordProveTiming('proveLocallyViaOffscreen entered');
@@ -2178,6 +2223,10 @@ export class MidenClientInterface {
       if (onStage) {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
+      if (beforeSubmit && attempt.evicted()) {
+        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
+      }
+      beforeSubmit?.();
       // Point of no return — see the identical mark on the inline send path.
       attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
@@ -2578,6 +2627,7 @@ export async function proveWithFallback<T>(
     clearConnectivityIssue('prover');
     return result;
   } catch (err) {
+    if (isOneClickDeadlineError(err)) throw markErrorBeforeSubmit(err);
     // A failed crossing write stopped the attempt before its submit, and no prover failed (#1081).
     if (isSubmitCrossingUnrecorded(err)) throw submitReached ? err : markErrorBeforeSubmit(err);
     // `submitReached` / `isApplyAfterSubmitError`: the attempt got far enough that

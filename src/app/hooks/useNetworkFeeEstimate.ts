@@ -22,7 +22,7 @@ import { useWalletStore } from 'lib/store';
  * (receipt.ts, HistoryDetails, TransactionAssetView); rendering a zero or a guessed
  * quantity would be worse than silence.
  */
-export function useNetworkFeeEstimate(): string | undefined {
+export function useNetworkFeeEstimateDetails() {
   const baseFee = useVerificationBaseFee();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
   const nativeFaucetId = useNativeFeeFaucetId();
@@ -38,7 +38,18 @@ export function useNetworkFeeEstimate(): string | undefined {
   // smallest units, so the multiple stays integral and `Math.round` only guards
   // float drift rather than changing the value.
   const bound = BigInt(Math.round(baseFee * FEE_RESERVE_MULTIPLE));
-  return `${formatAmount(bound, feeMetadata.decimals)} ${feeMetadata.symbol}`;
+  return { amount: bound, decimals: feeMetadata.decimals, faucetId: nativeFaucetId, symbol: feeMetadata.symbol };
+}
+
+type NetworkFeeEstimateDetails = ReturnType<typeof useNetworkFeeEstimateDetails>;
+
+/** The text form of `useNetworkFeeEstimateDetails`, so a screen that shows both reads the fee once. */
+export function formatNetworkFeeEstimate(fee: NetworkFeeEstimateDetails): string | undefined {
+  return fee ? `${formatAmount(fee.amount, fee.decimals)} ${fee.symbol}` : undefined;
+}
+
+export function useNetworkFeeEstimate(): string | undefined {
+  return formatNetworkFeeEstimate(useNetworkFeeEstimateDetails());
 }
 
 export default useNetworkFeeEstimate;

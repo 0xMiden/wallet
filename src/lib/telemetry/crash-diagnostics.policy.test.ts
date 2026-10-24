@@ -148,3 +148,18 @@ it("tells a value missing from one field's list, or listed but never sent, from 
     new Set(SHARED_MEMORY_PROBES)
   );
 });
+
+it('states the retention of the diagnostic records once, apart from the 90 days of crash reports', () => {
+  const policy = readFileSync(join(__dirname, '..', '..', '..', 'docs/privacy/index.md'), 'utf8');
+  const section = (heading: string) => {
+    const start = policy.indexOf(`## ${heading}`);
+    return policy.slice(start, policy.indexOf('\n## ', start + 1));
+  };
+  const retention = section('How long we keep data')
+    .split('\n')
+    .filter(line => line.startsWith('- '));
+  const ninetyDays = retention.filter(line => line.includes('90 days') && !line.includes('30 days'));
+  expect(ninetyDays.some(line => /diagnostic records/i.test(line))).toBe(false);
+  expect(retention.filter(line => line.includes('Diagnostic records') && line.includes('30 days'))).toHaveLength(1);
+  expect(section('Who processes this data')).not.toContain('Sentry are configured to delete data after 90 days');
+});

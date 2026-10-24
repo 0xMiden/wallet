@@ -130,6 +130,7 @@ const position: EarnPosition = {
   withdrawable: '42.25',
   decimals: 6,
   protocol: 'Aave',
+  epochProtocol: 'dummy-lending',
   asset: 'USDC',
   network: 'Sepolia',
   amount: '$42.25',
@@ -216,10 +217,10 @@ describe('EarnWithdrawReview', () => {
     expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
     expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
-    // The hero's figure is the quoted payout, carrying the native token as its unit.
+    // The hero's figure is the quoted payout, carrying the native token as its compact unit, as on the deposit review.
     const hero = screen.getByRole('region', { name: 'youReceive' });
     expect(hero).toHaveTextContent('≈ 41.82USDCX');
-    expect(within(hero).getByText('USDCX', { selector: '.text-entry-unit' })).toBeInTheDocument();
+    expect(within(hero).getByText('USDCX', { selector: '.text-title-page' })).toBeInTheDocument();
     expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDCX');
     expect(screen.getByText('earnWithdrawAll')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /details/ }));
@@ -280,6 +281,8 @@ describe('EarnWithdrawReview', () => {
       midenAccountPublicKey: 'miden-account',
       evmAddress: position.owner,
       marketUid: position.marketUid,
+      protocol: 'dummy-lending',
+      chainId: 11155111,
       underlyingAddress: position.underlyingAddress,
       amount: '42.25',
       review: expect.objectContaining({ amount: '42.25', amountAtomic: '42250000', minimumAtomic: '41405000' }),

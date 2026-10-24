@@ -18,7 +18,7 @@ When you contact us, please include your device model, OS version, and app versi
 ## Frequently asked questions
 
 ### I'm locked out or lost my recovery phrase — can you recover my wallet?
-Bread Wallet is a **non-custodial** wallet: your recovery phrase and private keys are generated and stored **only on your device**, and we never have access to them. This means only you can restore your wallet, using your recovery phrase. We cannot reset it or recover funds on your behalf. Please keep your recovery phrase backed up somewhere safe and private.
+Bread Wallet is a **non-custodial** wallet: your recovery phrase and account keys are generated or imported into local storage, and we never have access to them. You can restore supported account state from a password-encrypted Encrypted Wallet File; depending on your accounts, it can include the recovery phrase or imported signing secrets. We cannot reset your credentials or recover funds on your behalf. Please keep your recovery phrase and any wallet files safe and private.
 
 ### How do I unlock the app with Face ID or Touch ID?
 Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely by your device's operating system — the app never receives your face or fingerprint data, only a success/failure result. See our [Privacy Policy](https://0xmiden.github.io/wallet/privacy/) for details.
@@ -27,10 +27,10 @@ Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely 
 First, check your internet connection and reopen the app to let it re-sync. If a transaction stays pending, give the network a few minutes. If the problem persists, email us at [privacy@miden.team](mailto:privacy@miden.team) with your app version and a description, and we'll investigate.
 
 ### Is my wallet data private?
-Yes. Your recovery phrase, private keys, account names, balances, and transaction history are generated and held only on your device. We operate no accounts, analytics, or servers that receive your data. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy/).
+Your recovery phrase and account keys are kept in local storage, and the App does not send them to Miden. Guardian operators receive encrypted account state for the Guardian accounts they protect. If you export an Encrypted Wallet File, it is encrypted with the password you choose and saved where you direct it; it may contain the recovery phrase if stored and signing secrets for eligible imported accounts. Anyone with the file and its password can read its contents. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy/).
 
 ### How do I back up or move my wallet to a new device?
-Keep your recovery phrase safe and import it on the new device: it restores a wallet of Guardian accounts. If the wallet also holds a fully private or imported account, **Settings → Security → Encrypted Wallet File** exports a file that restores those too. Never store your recovery phrase in plain text where others could access it.
+Keep your recovery phrase safe and import it on the new device: it restores a seed-derived Guardian account while your Guardian Operator can return its account state. A current **Encrypted Wallet File** is a password-encrypted snapshot of account state for accounts it can restore. It includes your recovery phrase only if one is stored in the wallet. A wallet with no stored phrase can still save a file for eligible imported accounts if none depends on a phrase-derived key; that file includes the signing secrets needed to restore those accounts. A Guardian account imported from an Everyday Key alone is not included, and a Guardian account's Everyday Key is never in the file. For a seed-derived Guardian account, the file restores its state and phrase without the operator; then replace its Everyday Key with the operator's ACK or use your saved key pair (**Settings → Keys → Reveal Private Key**). The file is a snapshot of the moment you saved it, so save a new one after you send or receive. Anyone with the file and its password can read its contents. Never store your recovery phrase in plain text where others could access it.
 
 ### Can I remove the recovery phrase from this device?
 

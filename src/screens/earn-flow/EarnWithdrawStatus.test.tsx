@@ -262,6 +262,25 @@ describe('EarnWithdrawStatus', () => {
     expect(navigate).toHaveBeenNthCalledWith(3, '/');
   });
 
+  it("names the market's own chain in the route, never a fixed network", () => {
+    mockRowState = {
+      row: makeRow(
+        makeInputs({
+          withdrawIntentNonce: 'owner:1',
+          marketUid: 'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:8453:0xasset'
+        })
+      ),
+      loaded: true
+    };
+    const { unmount } = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('route: Base → Miden');
+    unmount();
+
+    mockRowState = { row: makeRow(makeInputs({ withdrawIntentNonce: 'owner:1' })), loaded: true };
+    render(<EarnWithdrawStatus txId="withdraw-2" />);
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('route: Sepolia → Miden');
+  });
+
   it('keeps a saved but unaccepted withdrawal in processing until acceptance arrives', () => {
     mockRowState = {
       row: makeRow(makeInputs({ submissionState: 'prepared', withdrawIntentNonce: '22' })),

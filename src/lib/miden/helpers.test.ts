@@ -218,6 +218,14 @@ describe('which account can ever consume a note', () => {
     expect(noteConsumeRestriction(makeNote(P2IDE_ROOT, p2ideStorage(0n)))).toEqual(target);
   });
 
+  it('names the target as the one account that can consume a P2ID', () => {
+    const p2id = [0x7c9d1e2f3a4b0000n, 0x00000000feedbeefn, 5n, 6n];
+    expect(noteConsumeRestriction(makeNote(P2ID_ROOT, p2id))).toEqual(target);
+    expect(noteConsumeRestriction(makeNote(P2ID_ROOT, [...p2id, 0n]))).toBeUndefined();
+    // The listing reads only the P2IDE rule.
+    expect(reclaimDisabledP2ideTarget(makeNote(P2ID_ROOT, p2id))).toBeUndefined();
+  });
+
   it('restricts no P2IDE with a reclaim height, no other script and no other storage layout', () => {
     expect(reclaimDisabledP2ideTarget(makeNote(P2IDE_ROOT, p2ideStorage(1200n)))).toBeUndefined();
     expect(reclaimDisabledP2ideTarget(makeNote(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();

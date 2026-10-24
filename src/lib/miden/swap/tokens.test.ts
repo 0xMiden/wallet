@@ -67,7 +67,7 @@ const withPairs = (pairs: NonNullable<NonNullable<BridgeConfigSnapshot['derived'
     version: 3,
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
-    features: { earn: false },
+    features: { earn: false, nearIntents: false },
     swap: { etaUrl: 'https://quotes.example' }
   },
   derived: {
@@ -76,7 +76,7 @@ const withPairs = (pairs: NonNullable<NonNullable<BridgeConfigSnapshot['derived'
     derivedAt: 0,
     chains: {},
     agglayer: { indexer: SKIPPED },
-    epoch: { allocator: SKIPPED, market: SKIPPED, midenUsdcFaucet: SKIPPED },
+    epoch: { allocator: SKIPPED, market: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED },
     swap: { pairs }
   }
 });

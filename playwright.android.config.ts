@@ -10,7 +10,9 @@ export default defineConfig({
   // dApp-browser specs run via playwright.android.dapp.config.ts (no chain
   // dependency, so they get their own faster workflow).
   // The dApp in-app browser journey runs via playwright.android.dapp-e2e.config.ts.
-  testIgnore: ['**/dapp-browser.*.spec.ts', '**/dapp-inapp.*.spec.ts'],
+  // Auth Tab acceptance runs via playwright.android.auth-tab.config.ts; its beforeAll requires
+  // AUTH_TAB_KEY_PATH and AUTH_TAB_CERT_PATH.
+  testIgnore: ['**/dapp-browser.*.spec.ts', '**/dapp-inapp.*.spec.ts', '**/auth-tab.android.spec.ts'],
   // Same 15-min ceiling as iOS — Android emulator on Apple Silicon is
   // comparable to iOS sim for our prove workload.
   timeout: 900_000,

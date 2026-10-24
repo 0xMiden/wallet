@@ -41,10 +41,20 @@ function useAvailabilityInputs(): { snapshot: BridgeConfigSnapshot; overrides: E
 export interface FeatureAvailabilityOptions {
   /**
    * Whether the caller draws the control or notice this availability greys out, and so holds the 60 s fast poll
-   * while it reads unavailable. Defaults to true; a branch that draws neither passes false.
+   * while it reads unavailable. Defaults to true; a branch that draws neither passes false. A function is resolved
+   * against the availability just computed, and the fast poll sees only that boolean.
    */
-  hold?: boolean;
+  hold?: boolean | ((availability: FeatureAvailability) => boolean);
   chainId?: number;
+}
+
+// A function closes over whether the caller draws this reading. Resolved here, the effect keeps a boolean hold:
+// the same cadence, and a hidden entry does not hold just because a function is truthy.
+function resolveHold(
+  hold: boolean | ((availability: FeatureAvailability) => boolean),
+  availability: FeatureAvailability
+): boolean {
+  return typeof hold === 'function' ? hold(availability) : hold;
 }
 
 // A greyed-out control on the page the user is looking at holds the 60 s cadence, whatever greyed it, so it recovers
@@ -62,7 +72,7 @@ export function useFeatureAvailability(
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
   const availability = featureAvailability(feature, snapshot, overrides, chainId);
-  useFastPollWhileUnavailable(availability, hold);
+  useFastPollWhileUnavailable(availability, resolveHold(hold, availability));
   return availability;
 }
 
@@ -85,6 +95,6 @@ export function useAnyFeatureAvailability(
     : (all.find(candidate => candidate.state === 'loading') ??
       all.find(candidate => candidate.state === 'unavailable' && candidate.reason !== 'not-configured') ??
       head);
-  useFastPollWhileUnavailable(availability, hold);
+  useFastPollWhileUnavailable(availability, resolveHold(hold, availability));
   return availability;
 }

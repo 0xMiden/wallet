@@ -26,7 +26,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
-  getEarnMarket: () => ({ marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111' })
+  // The document names one Epoch route, Sepolia; a position on any other chain is off route.
+  getEpochRoutes: () => [{ chainId: 11155111, usdc: '0x1111111111111111111111111111111111111111' }]
 }));
 const token = '0x1111111111111111111111111111111111111111';
 const position = {
@@ -62,7 +63,6 @@ beforeEach(() => {
       }
     ],
     owners: [token],
-    vaults: [],
     totalDepositsUSD: 10,
     errors: []
   });
@@ -132,11 +132,42 @@ it('requires refresh on expiry, a malformed reviewed amount, payout identity or 
   jest.mocked(fetchEarnPositions).mockResolvedValueOnce({
     positions: [],
     owners: [token],
-    vaults: [],
     totalDepositsUSD: 0,
     errors: [{ owner: token, error: 'offline' }]
   });
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+it("reads the fresh position of the quote's owner alone", async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  await assertWithdrawalReviewCurrent(q);
+  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token] });
+});
+it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
+  // A market of another lender than the default market, on the default market's chain.
+  const otherMarket = { ...position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:11155111:${token}` };
+  jest.mocked(fetchEarnPositions).mockResolvedValue({
+    positions: [
+      {
+        ...otherMarket,
+        symbol: 'USDC',
+        lenderKey: `MORPHO_BLUE_${'ab'.repeat(32)}`,
+        lenderName: 'Morpho',
+        chainId: '11155111',
+        deposits: '10',
+        depositsUSD: 10,
+        depositApr: 2,
+        priceUsd: 1
+      }
+    ],
+    owners: [token],
+    totalDepositsUSD: 10,
+    errors: []
+  });
+  const q = await quoteEarnWithdrawal({ ...args, position: otherMarket }, sdk);
+  await expect(assertWithdrawalReviewCurrent(q)).resolves.toBeUndefined();
+
+  const offRoute = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
+  await expect(assertWithdrawalReviewCurrent(offRoute)).rejects.toThrow('earnWithdrawRefresh');
 });
 it('binds the prepared delivery to the reviewed source amount, underlying and minimum', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
@@ -155,10 +186,11 @@ it('binds every allocation: one withdraw leg for the reviewed input and the deli
   const leg = { tokenIn: token, tokenInAmount: q.amountAtomic, minTokenOut: '0' };
   const delivery = { ...leg, minTokenOut: q.minimumAtomic };
   expect(() => assertWithdrawalAllocations(q, [leg, delivery], 1)).not.toThrow();
+  // A withdraw leg that needs no resource lock (mainnet 1delta) has no allocation: the delivery alone is the batch.
+  expect(() => assertWithdrawalAllocations(q, [delivery], 0)).not.toThrow();
   const refused: Array<[Array<typeof leg | undefined>, number]> = [
     [[leg, delivery], 2],
     [[undefined, delivery], 1],
-    [[delivery], 0],
     [[leg, leg, delivery], 2],
     [[{ ...leg, tokenInAmount: '2' }, delivery], 1],
     [[leg, { ...delivery, minTokenOut: '0' }], 1]

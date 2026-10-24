@@ -331,8 +331,30 @@ describe('fetchBalances', () => {
       // MIDEN is not on the price feed: no price, never a $1 guess.
       fiatPrice: 0,
       balance: 0,
+      balanceBaseUnits: '0',
       change24h: 0
     });
+  });
+
+  it('publishes raw base units alongside the display balance', async () => {
+    const faucetId = 'large-balance-faucet';
+    const tokenId = `bech32-${faucetId}`;
+    mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => faucetId, amount: () => ({ toString: () => '12345678901234567890' }) }]
+      })
+    });
+
+    const balances = (await fetchBalances(
+      'large-balance-account',
+      { [tokenId]: { name: 'Large', symbol: 'LARGE', decimals: 0 } },
+      { tokenPrices: {} }
+    ))!;
+    const row = balances.find(balance => balance.tokenId === tokenId)!;
+
+    expect(row).toMatchObject({ balanceBaseUnits: '12345678901234567890' });
+    expect(row.balance).toBe(Number('12345678901234567890'));
   });
 
   it('returns empty list when account not found AND native-asset discovery has not resolved', async () => {
