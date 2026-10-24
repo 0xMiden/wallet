@@ -95,7 +95,8 @@ export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({
         top: targetRect.y,
         width: targetRect.width,
         height: targetRect.height,
-        zIndex: 200,
+        // Over the tray (65), under HOST_MODAL_LAYER (z-80): a confirmation must never hide beneath it.
+        zIndex: 70,
         transformOrigin: '0 0',
         opacity: 0,
         backgroundImage: snapshot ? `url(${snapshot})` : undefined,
