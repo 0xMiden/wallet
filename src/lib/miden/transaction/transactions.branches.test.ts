@@ -753,22 +753,6 @@ describe('getCompletedTransactions', () => {
     ]);
   });
 
-  it('filters account and token before selecting the newest page and ignores its offset', async () => {
-    for (let i = 0; i < 12; i++) {
-      txStore.push({
-        id: `tx-${i}`,
-        status: ITransactionStatus.Completed,
-        accountId: i % 2 === 0 ? 'acc-1' : 'acc-2',
-        faucetId: [0, 4, 8, 10].includes(i) ? 'f1' : 'f2',
-        initiatedAt: i
-      });
-    }
-
-    const newest = await getCompletedTransactions('acc-1', 1, 2, false, 'f1', true);
-
-    expect(newest.map(tx => tx.id)).toEqual(['tx-8', 'tx-10']);
-  });
-
   it('applies offset and limit correctly', async () => {
     for (let i = 0; i < 10; i++) {
       txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
@@ -796,6 +780,17 @@ describe('getCompletedTransactions', () => {
     expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
     expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
   });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects page limit %p before opening history cursors',
+    async limit => {
+      const repo = jest.requireMock<HistoryRepoTestMock>('lib/miden/repo');
+
+      await expect(getCompletedTransactionsPage({ accountId: 'acc-1', limit })).rejects.toThrow(RangeError);
+
+      expect(repo.openTransactionIndexCursor).not.toHaveBeenCalled();
+    }
+  );
 
   it('stops the indexed scan after enough account and token matches', async () => {
     const history = Array.from({ length: 2000 }, (_, index) => {
@@ -1034,7 +1029,7 @@ describe('getCompletedTransactions', () => {
     expect(repo.transactions.filter).not.toHaveBeenCalled();
   });
 
-  it('preserves unlimited equal-time order when paging across status groups', async () => {
+  it('pages equal-time status groups in deterministic id order', async () => {
     txStore.push(
       {
         id: 'z-completed',
@@ -1076,12 +1071,12 @@ describe('getCompletedTransactions', () => {
       });
     }
 
-    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(unlimited.map(tx => tx.id));
-    const newestLimited = await getCompletedTransactions('acc-1', undefined, 1, true, undefined, true);
-    expect(newestLimited.map(tx => tx.id)).toEqual(['b-unconfirmed']);
+    const oldestFirstPageIds = ['a-failed', 'b-unconfirmed', 'z-completed'];
+    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(oldestFirstPageIds);
+    expect(unlimited.map(tx => tx.id)).toEqual(['z-completed', 'a-failed', 'b-unconfirmed']);
   });
 
-  it('pages equal-time fallback and failed rows in unlimited order', async () => {
+  it('pages equal-time fallback and failed rows in deterministic id order', async () => {
     txStore.push(
       {
         id: 'z-done',
@@ -1124,7 +1119,7 @@ describe('getCompletedTransactions', () => {
       fromEnd: true,
       limit: 1
     });
-    expect(newest.transactions.map(tx => tx.id)).toEqual(['m-open']);
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['z-done']);
 
     const newestFirst: ITransaction[] = [...newest.transactions];
     let page = newest;
@@ -1139,7 +1134,57 @@ describe('getCompletedTransactions', () => {
       newestFirst.push(...page.transactions);
     }
 
-    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(unlimited.map(tx => tx.id));
+    const oldestFirstPageIds = ['a-fail', 'b-fall', 'm-open', 'z-done'];
+    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(oldestFirstPageIds);
+    expect(unlimited.map(tx => tx.id)).toEqual(['z-done', 'a-fail', 'b-fall', 'm-open']);
+  });
+
+  it('reads only the requested rows from a large equal-time bucket and resumes by id', async () => {
+    const rows = Array.from({ length: 64 }, (_, index) => ({
+      id: `tie-${String(index).padStart(3, '0')}`,
+      status:
+        index % 3 === 0
+          ? ITransactionStatus.Completed
+          : index % 3 === 1
+            ? ITransactionStatus.Failed
+            : ITransactionStatus.Unconfirmed,
+      accountId: 'acc-1',
+      type: 'send',
+      initiatedAt: 1,
+      completedAt: 50
+    }));
+    txStore.push(...rows);
+
+    const newest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      includeFailed: true,
+      limit: 3,
+      fromEnd: true
+    });
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['tie-063', 'tie-062', 'tie-061']);
+    expect(newest.nextCursor).toEqual({
+      effectiveTimestamp: 50,
+      transactionId: 'tie-061',
+      status: ITransactionStatus.Failed,
+      initiatedAt: 1
+    });
+    expect(newest.hasMore).toBe(true);
+    expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(8);
+
+    const newestFirst = [...newest.transactions];
+    let page = newest;
+    while (page.hasMore && page.nextCursor !== null) {
+      page = await getCompletedTransactionsPage({
+        accountId: 'acc-1',
+        includeFailed: true,
+        limit: 3,
+        cursor: page.nextCursor
+      });
+      newestFirst.push(...page.transactions);
+    }
+
+    expect(newestFirst.map(tx => tx.id)).toEqual(rows.map(tx => tx.id).sort((a, b) => b.localeCompare(a)));
+    expect(new Set(newestFirst.map(tx => tx.id)).size).toBe(rows.length);
   });
 
   it('reads the whole table when history is not bounded', async () => {
@@ -1181,7 +1226,13 @@ describe('getCompletedTransactions', () => {
 
     transactionQueryMetrics.rowsVisited = 0;
     const completedOnly = await getCompletedTransactions('acc-1', undefined, undefined, false, 'f1');
-    expect(completedOnly.every(tx => tx.status === ITransactionStatus.Completed)).toBe(true);
+    expect(completedOnly).toHaveLength(3);
+    expect(completedOnly.map(tx => tx.id)).toEqual(['full-33', 'full-22', 'full-11']);
+    expect(completedOnly.map(tx => tx.status)).toEqual([
+      ITransactionStatus.Completed,
+      ITransactionStatus.Completed,
+      ITransactionStatus.Completed
+    ]);
     expect(transactionQueryMetrics.rowsVisited).toBe(history.length);
   });
 });

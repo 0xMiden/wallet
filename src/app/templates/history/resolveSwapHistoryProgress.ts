@@ -2,7 +2,7 @@ import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import {
-  getSwapSettlementNotesForOrders,
+  readLinkedSwapOrderRows,
   settlementNotesFromLinkedRows,
   type SwapSettlementNotes
 } from 'lib/miden/transaction/get';
@@ -73,7 +73,7 @@ const resolveSwapHistoryProgressForRows = async (
     notes =
       linkedRows !== undefined
         ? settlementNotesFromLinkedRows(orderIds, linkedRows)
-        : await getSwapSettlementNotesForOrders(orderIds);
+        : settlementNotesFromLinkedRows(orderIds, await readLinkedSwapOrderRows(orderIds));
   } catch {
     // A failed read leaves every eligible row without a percentage and does not fail the fetch.
     for (const tx of eligible) progress.set(tx.id, {});

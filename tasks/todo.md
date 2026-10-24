@@ -531,3 +531,29 @@ The service must recognize explicitly enabled valid 1Click-only configurations w
 - [x] Deploy the reviewed service and verify its live revision and backward compatibility, retaining nearIntents false.
 
 Service validation: 145 Node tests passed with zero skips, all five targeted mutations failed at their named assertions, and all 15 required checks passed. PR #1746 merged as 76148bdb5b23cc66913dbe2af386f96eb442a549. Deployment run 39818501102 succeeded, and live health reports ready at that revision. The four configured wallet origins and rejected-origin cases match pre-deployment behavior. The daily query cap remains 10,000, and nearIntents stays false.
+# #1752: retain swap fill progress after cancellation
+
+## Plan
+
+- [x] Claim the PR and merge current `origin/main` at `8a2ab67` into the designated worktree at `cf855a2`.
+- [x] Complete one normal internal review on the merged candidate. Do not use Review Council for this wallet PR.
+- [x] Fix stale failed rows after requeue and invalidate settled-history gap work when its reader is inactive.
+- [x] Bound transaction page limits and timestamp ties, serialize gap traversal, and refresh mutable bridge/Earn status.
+- [x] Replace the P1 source-pattern and vacuous-result tests with behavioral regression tests.
+- [x] Run focused checks through `ci-local`; 238 tests, TypeScript, ESLint, formatting, and `git diff --check` pass.
+- [x] RED: prove an older Unconfirmed history row updates to Failed after the reconciler records a never-committed verdict.
+- [x] GREEN: include Unconfirmed rows in the older loaded activity-status refresh set.
+- [x] Re-run affected tests and static gates, then complete normal internal re-review on the final merged-main head.
+- [ ] Push the reviewed merged-main candidate and monitor exact-head CI.
+- [ ] Confirm all required exact-head checks and the wallet pre-merge CI event gate pass, then squash-merge.
+
+## Internal review
+
+- Fixed P1: refreshed rows replace stale failed rows after requeue.
+- Fixed P1: gap fill and `loadMore` stop after unmount, offscreen transition, or switching away from Settled.
+- Fixed P1 test proof: behavioral regressions replace source-spelling and vacuous-result assertions.
+- Fixed P2 behavior: page bounds, timestamp tie handling, serialized gap traversal, and mutable bridge/Earn status refresh.
+- Simplified unused `fromEnd` and duplicate resolver reads while retaining the getter and shared linked-row behavior.
+- Deferred P2 test-proof gap under the session rule: the mixed-status cursor fixture does not model displaced-row backfill.
+
+# Follow-up to #1790: describe wallet-file contents accurately

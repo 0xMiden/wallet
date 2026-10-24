@@ -17,7 +17,11 @@ import type { ITransaction } from 'lib/miden/db/types';
 // used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
 // call reads (#1250).
 import * as Repo from 'lib/miden/repo';
-import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_NEVER_COMMITTED_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 import type { CompletedHistoryCursor, CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -1656,6 +1660,7 @@ describe('History', () => {
 
   it('loadMore appends de-duplicated older transactions and keeps hasMore true', async () => {
     await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
 
     // Older page: one duplicate of an existing completed key + one new entry.
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
@@ -1707,6 +1712,45 @@ describe('History', () => {
       await mockHistoryViewProps.loadMore(0);
     });
     await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
+  });
+
+  it('shows a requeued transaction as pending after the refreshed settled head becomes empty', async () => {
+    const failed = {
+      id: 'requeued',
+      status: STATUS.Failed,
+      displayMessage: 'Transaction failed',
+      displayIcon: 'FAILED',
+      type: 'send',
+      completedAt: 1000,
+      initiatedAt: 900
+    };
+    const queued = {
+      id: 'requeued',
+      status: STATUS.Queued,
+      displayMessage: 'Sending again',
+      type: 'send',
+      initiatedAt: 1100
+    };
+    let settledRows = [failed];
+    let pendingRows: (typeof queued)[] = [];
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined ? settledRows : []
+    );
+    mockGetUncompletedTransactions.mockImplementation(async () => pendingRows);
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-requeued'));
+
+    settledRows = [];
+    pendingRows = [queued];
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+      mockSwrMutates['latest-pending-transactions']?.();
+    });
+
+    await waitFor(() => expect(entryKeys()).toContain('pending-requeued'));
+    expect(entryKeys()).not.toContain('completed-requeued');
+    expect(entryKeys().filter(key => key?.includes('requeued'))).toEqual(['pending-requeued']);
   });
 
   it('loads older history contiguously after the initial newest page', async () => {
@@ -2086,53 +2130,54 @@ describe('History', () => {
     expect(pending).toHaveLength(2);
   });
 
-  it('keeps an earlier-initiated failed row whose id sorts after the refresh cursor', async () => {
+  it('displaces mixed-status rows from a full equal-time head by page cursor order', async () => {
     const stamp = 50_000;
-    const failed = (id: string, initiatedAt: number) => ({
+    const row = (id: string, status: ITransactionStatus, initiatedAt: number) => ({
       id,
-      status: STATUS.Failed,
+      status,
       displayMessage: id,
-      displayIcon: 'FAILED',
+      displayIcon: status === STATUS.Failed ? 'FAILED' : 'RECEIVE',
       type: 'send',
       completedAt: stamp,
       initiatedAt
     });
-    const earlier = failed('z-earlier', 1);
-    const later = failed('a-later', 5);
-    const cursorFor = (row: ReturnType<typeof failed>): CompletedHistoryCursor => ({
+    const previousHead = Array.from({ length: HISTORY_PAGE_SIZE }, (_, index) =>
+      row(`m-old-${String(index).padStart(2, '0')}`, index === 0 ? STATUS.Failed : STATUS.Completed, index)
+    ).sort((left, right) => right.id.localeCompare(left.id));
+    const refreshedHead = Array.from({ length: HISTORY_PAGE_SIZE }, (_, index) =>
+      row(`z-new-${String(index).padStart(2, '0')}`, STATUS.Completed, HISTORY_PAGE_SIZE + index)
+    ).sort((left, right) => right.id.localeCompare(left.id));
+    const cursorFor = (entry: (typeof previousHead)[number]): CompletedHistoryCursor => ({
       effectiveTimestamp: stamp,
-      transactionId: row.id,
-      status: STATUS.Failed,
-      initiatedAt: row.initiatedAt
+      transactionId: entry.id,
+      status: entry.status,
+      initiatedAt: entry.initiatedAt
     });
     let refreshed = false;
     mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
       if (!request.fromEnd) {
         return { transactions: [], rawCount: 0, hasMore: false, nextCursor: null };
       }
-      if (!refreshed) {
-        return {
-          transactions: [later, earlier],
-          rawCount: 2,
-          hasMore: false,
-          nextCursor: cursorFor(earlier)
-        };
-      }
-      return { transactions: [later], rawCount: 1, hasMore: false, nextCursor: cursorFor(later) };
+      const transactions = refreshed ? refreshedHead : previousHead;
+      return {
+        transactions,
+        rawCount: transactions.length,
+        hasMore: true,
+        nextCursor: cursorFor(transactions[transactions.length - 1]!)
+      };
     });
     mockGetUncompletedTransactions.mockResolvedValue([]);
 
     await renderHistory();
-    await waitFor(() => expect(entryKeys()).toContain('completed-z-earlier'));
+    await waitFor(() => expect(entryKeys()).toContain('completed-m-old-00'));
+
     refreshed = true;
     await act(async () => {
       mockSwrMutates['latest-transactions']?.();
     });
 
-    await waitFor(() => expect(entryKeys()).toContain('completed-a-later'));
-    const loadedIds = entryKeys().map(key => key?.replace(/^completed-/, ''));
-    expect(loadedIds).toContain('z-earlier');
-    expect(loadedIds.filter(id => id === 'a-later' || id === 'z-earlier')).toEqual(['a-later', 'z-earlier']);
+    await waitFor(() => expect(entryKeys()).toContain('completed-z-new-00'));
+    expect(entryKeys()).toContain('completed-m-old-00');
   });
 
   it('orders equal-time failed rows by initiatedAt across head, displaced page, and older rest', async () => {
@@ -2148,7 +2193,7 @@ describe('History', () => {
     });
     const row1 = failed('row-a', 1);
     const row2 = failed('row-z', 2);
-    const row3 = failed('row-m', 3);
+    const row3 = failed('row-zz', 3);
     const cursorFor = (row: ReturnType<typeof failed>): CompletedHistoryCursor => ({
       effectiveTimestamp: stamp,
       transactionId: row.id,
@@ -2177,12 +2222,12 @@ describe('History', () => {
     await act(async () => {
       mockSwrMutates['latest-transactions']?.();
     });
-    await waitFor(() => expect(entryKeys()[0]).toBe('completed-row-m'));
+    await waitFor(() => expect(entryKeys()[0]).toBe('completed-row-zz'));
 
     const equalTimeIds = entryKeys()
       .filter(key => key?.startsWith('completed-row-'))
       .map(key => key?.slice('completed-'.length));
-    expect(equalTimeIds).toEqual(['row-m', 'row-z', 'row-a']);
+    expect(equalTimeIds).toEqual(['row-zz', 'row-z', 'row-a']);
   });
 
   it('advances past a full raw page of linked consumes', async () => {
@@ -2450,6 +2495,191 @@ describe('History', () => {
     });
 
     expect(entryKeys()).not.toContain('completed-FROM-A');
+  });
+
+  it('discards a loadMore page that resolves after settled history stops running', async () => {
+    const head = {
+      id: 'VISIBLE-HEAD',
+      status: STATUS.Completed,
+      displayMessage: 'head',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 2000,
+      initiatedAt: 2000
+    };
+    const older = { ...head, id: 'OFFSCREEN-OLDER', completedAt: 1000, initiatedAt: 1000 };
+    const cursorFor = (row: typeof head): CompletedHistoryCursor => ({
+      effectiveTimestamp: row.completedAt,
+      transactionId: row.id
+    });
+    let releasePage: (page: unknown) => void = () => {};
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        return { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) };
+      }
+      return await new Promise(resolve => {
+        releasePage = resolve;
+      });
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const view = (onScreen: boolean) => (
+      <PageActiveContext.Provider value={onScreen}>
+        <History address="0xme" />
+      </PageActiveContext.Provider>
+    );
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(view(true));
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-VISIBLE-HEAD'));
+
+    let pageDone: Promise<void> = Promise.resolve();
+    await act(async () => {
+      pageDone = mockHistoryViewProps.loadMore(0);
+    });
+    await act(async () => {
+      utils?.rerender(view(false));
+    });
+    await act(async () => {
+      releasePage({ transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) });
+      await pageDone;
+    });
+
+    expect(entryKeys()).toEqual(['completed-VISIBLE-HEAD']);
+  });
+
+  it.each(['offscreen', 'pending', 'unmounted'] as const)(
+    'stops a gap traversal when History is %s',
+    async transition => {
+      const row = (id: string, timestamp: number) => ({
+        id,
+        status: STATUS.Completed,
+        displayMessage: id,
+        displayIcon: 'RECEIVE',
+        type: 'consume',
+        completedAt: timestamp,
+        initiatedAt: timestamp
+      });
+      const anchor = row('GAP-ANCHOR', 1000);
+      const head = row('GAP-HEAD', 3000);
+      const middle = row('GAP-MIDDLE', 2000);
+      const cursorFor = (entry: ReturnType<typeof row>): CompletedHistoryCursor => ({
+        effectiveTimestamp: entry.completedAt,
+        transactionId: entry.id
+      });
+      let refreshed = false;
+      let releaseFirstPage: (page: unknown) => void = () => {};
+      const olderRequests: Array<CompletedHistoryCursor | null | undefined> = [];
+      mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+        if (request.fromEnd) {
+          const transactions = refreshed ? [head] : [anchor];
+          return {
+            transactions,
+            rawCount: transactions.length,
+            hasMore: true,
+            nextCursor: cursorFor(transactions[0]!)
+          };
+        }
+        olderRequests.push(request.cursor);
+        if (olderRequests.length === 1) {
+          return await new Promise(resolve => {
+            releaseFirstPage = resolve;
+          });
+        }
+        return { transactions: [anchor], rawCount: 1, hasMore: false, nextCursor: cursorFor(anchor) };
+      });
+      mockGetUncompletedTransactions.mockResolvedValue([]);
+      const view = (onScreen: boolean, filter: string) => (
+        <PageActiveContext.Provider value={onScreen}>
+          <History address="0xme" filter={filter as any} />
+        </PageActiveContext.Provider>
+      );
+      let utils: ReturnType<typeof render> | undefined;
+      await act(async () => {
+        utils = render(view(true, 'all'));
+      });
+      await waitFor(() => expect(entryKeys()).toContain('completed-GAP-ANCHOR'));
+
+      refreshed = true;
+      await act(async () => mockHistoryViewProps.onRetry());
+      await waitFor(() => expect(olderRequests).toHaveLength(1));
+
+      if (transition === 'unmounted') {
+        await act(async () => utils?.unmount());
+      } else {
+        await act(async () =>
+          utils?.rerender(view(transition === 'offscreen' ? false : true, transition === 'pending' ? 'pending' : 'all'))
+        );
+      }
+      await act(async () => {
+        releaseFirstPage({ transactions: [middle], rawCount: 1, hasMore: true, nextCursor: cursorFor(middle) });
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+
+      expect(olderRequests).toHaveLength(1);
+    }
+  );
+
+  it('finishes the active gap page before starting work from a refreshed cursor', async () => {
+    const row = (id: string, timestamp: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: id,
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: timestamp,
+      initiatedAt: timestamp
+    });
+    const anchor = row('CURSOR-ANCHOR', 1000);
+    const firstHead = row('CURSOR-HEAD-1', 3000);
+    const refreshedHead = row('CURSOR-HEAD-2', 4000);
+    const middle = row('CURSOR-MIDDLE', 2000);
+    const cursorFor = (entry: ReturnType<typeof row>): CompletedHistoryCursor => ({
+      effectiveTimestamp: entry.completedAt,
+      transactionId: entry.id
+    });
+    let latestHead = anchor;
+    let releaseFirstPage: (page: unknown) => void = () => {};
+    const olderRequests: Array<CompletedHistoryCursor | null | undefined> = [];
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        return { transactions: [latestHead], rawCount: 1, hasMore: true, nextCursor: cursorFor(latestHead) };
+      }
+      olderRequests.push(request.cursor);
+      if (olderRequests.length === 1) {
+        return await new Promise(resolve => {
+          releaseFirstPage = resolve;
+        });
+      }
+      return { transactions: [anchor], rawCount: 1, hasMore: false, nextCursor: cursorFor(anchor) };
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await renderHistory();
+      await waitFor(() => expect(entryKeys()).toContain('completed-CURSOR-ANCHOR'));
+
+      latestHead = firstHead;
+      await act(async () => mockSwrMutates['latest-transactions']?.());
+      await waitFor(() => expect(olderRequests).toHaveLength(1));
+      expect(olderRequests).toEqual([cursorFor(firstHead)]);
+
+      latestHead = refreshedHead;
+      await act(async () => mockSwrMutates['latest-transactions']?.());
+      await waitFor(() => expect(entryKeys()).toContain('completed-CURSOR-HEAD-2'));
+      expect(olderRequests).toEqual([cursorFor(firstHead)]);
+
+      await act(async () => {
+        releaseFirstPage({ transactions: [middle], rawCount: 1, hasMore: true, nextCursor: cursorFor(middle) });
+      });
+      await waitFor(() => expect(olderRequests).toHaveLength(2));
+      expect(olderRequests).toEqual([cursorFor(firstHead), cursorFor(refreshedHead)]);
+      expect(entryKeys()).not.toContain('completed-CURSOR-MIDDLE');
+    } finally {
+      await act(async () => {
+        releaseFirstPage({ transactions: [anchor], rawCount: 1, hasMore: false, nextCursor: cursorFor(anchor) });
+      });
+    }
   });
 
   it("never shows the last scope's older pages after a switch, nor merges them into the new scope's", async () => {
@@ -3289,12 +3519,14 @@ const readsRunning = () => mockUseRetryableSWR.mock.calls.slice(-2).map(call => 
 
 it('stops paging and reading settled history under Pending but keeps reading in-flight transactions', async () => {
   const { rerender } = await renderHistory({ filter: 'pending' });
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
   expect(mockHistoryViewProps.hasMore).toBe(false);
   expect(readsRunning()).toEqual([false, true]);
 
   await act(async () => {
     rerender(<History address="0xme" filter="all" />);
   });
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
   expect(mockHistoryViewProps.hasMore).toBe(true);
   expect(readsRunning()).toEqual([true, true]);
 });
@@ -3320,6 +3552,7 @@ it('stops both transaction reads while the page is off screen and reads them whe
   expect(readsRunning()).toEqual([true, true]);
   await waitFor(() => expect(mockGetCompletedTransactions).toHaveBeenCalled());
   expect(mockGetUncompletedTransactions).toHaveBeenCalled();
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
 });
 
 it('refreshes each transaction read whenever it resumes, and only then', async () => {
@@ -3349,12 +3582,14 @@ it('refreshes each transaction read whenever it resumes, and only then', async (
     utils?.rerender(view(true, 'pending'));
   });
   await waitFor(() => expect(fetches()).toEqual([0, 2]));
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
 
   // Leaving Pending starts the settled-history read at once rather than on its next interval.
   await act(async () => {
     utils?.rerender(view(true, 'all'));
   });
   await waitFor(() => expect(fetches()).toEqual([1, 2]));
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
 });
 
 it('keeps showing its rows while its page is off screen', async () => {
@@ -3404,6 +3639,7 @@ it('offers no more pages while its page is off screen', async () => {
   await act(async () => {
     utils?.rerender(view(true));
   });
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
   expect(mockHistoryViewProps.hasMore).toBe(true);
 });
 
@@ -3489,6 +3725,175 @@ describe('History on the real SWR cache', () => {
     </PageActiveContext.Provider>
   );
   const visibleView = () => mockHistoryViewCalls.filter(props => props.fullHistory).at(-1);
+
+  it('refreshes mutable bridge and Earn status on older loaded rows', async () => {
+    await Repo.transactions.clear();
+    const head: ITransaction = {
+      id: 'STATUS-HEAD',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const oldRows = [
+      {
+        id: 'STATUS-BRIDGE-SEND',
+        type: 'bridged-send',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending' }
+      },
+      {
+        id: 'STATUS-BRIDGE-RECEIVE',
+        type: 'bridged-receive',
+        extraInputs: { provider: 'epoch', phase: 'delivering' }
+      },
+      {
+        id: 'STATUS-EARN-DEPOSIT',
+        type: 'earn-deposit',
+        extraInputs: { evmRecipient: '0xrecipient', marketUid: 'market', sourceFaucetId: 'fa1', epochStatus: 'pending' }
+      },
+      {
+        id: 'STATUS-EARN-WITHDRAW',
+        type: 'earn-withdraw',
+        extraInputs: {
+          evmOwner: '0xowner',
+          marketUid: 'market',
+          destinationFaucetId: 'fa1',
+          sourceAmount: '1',
+          sourceSymbol: 'USDC',
+          phase: 'redeeming'
+        }
+      }
+    ].map((row, index) => ({
+      ...row,
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      displayMessage: row.id,
+      displayIcon: 'RECEIVE',
+      initiatedAt: 4000 - index * 100,
+      completedAt: 4000 - index * 100
+    })) as ITransaction[];
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.bulkPut(oldRows);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? {
+            transactions: [head],
+            rawCount: 1,
+            hasMore: true,
+            nextCursor: cursorFor(head)
+          }
+        : {
+            transactions: oldRows,
+            rawCount: oldRows.length,
+            hasMore: false,
+            nextCursor: cursorFor(oldRows[oldRows.length - 1]!)
+          }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor('STATUS-EARN-WITHDRAW')?.earnWithdrawPhase).toBe('redeeming'));
+      expect(entryFor('STATUS-BRIDGE-SEND')?.bridgeClaimStatus).toBe('pending');
+      expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('delivering');
+      expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('pending');
+
+      const refreshedRows = oldRows.map(tx => {
+        const extraInputs = { ...(tx.extraInputs as Record<string, unknown>) };
+        if (tx.id === 'STATUS-BRIDGE-SEND') extraInputs.claimStatus = 'claimed';
+        if (tx.id === 'STATUS-BRIDGE-RECEIVE') extraInputs.phase = 'received';
+        if (tx.id === 'STATUS-EARN-DEPOSIT') extraInputs.epochStatus = 'confirmed';
+        if (tx.id === 'STATUS-EARN-WITHDRAW') extraInputs.phase = 'received';
+        return { ...tx, extraInputs } as ITransaction;
+      });
+      await Repo.transactions.bulkPut(refreshedRows);
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(entryFor('STATUS-BRIDGE-SEND')?.bridgeClaimStatus).toBe('claimed'));
+      expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('received');
+      expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('confirmed');
+      expect(entryFor('STATUS-EARN-WITHDRAW')?.earnWithdrawPhase).toBe('received');
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
+
+  it('refreshes an older Unconfirmed row when reconciliation proves it never committed', async () => {
+    await Repo.transactions.clear();
+    const head: ITransaction = {
+      id: 'UNCONFIRMED-HEAD',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const older: ITransaction = {
+      id: 'OLDER-UNCONFIRMED',
+      accountId: '0xme',
+      status: ITransactionStatus.Unconfirmed,
+      type: 'send',
+      initiatedAt: 4000,
+      completedAt: 4000,
+      displayMessage: 'Not confirmed',
+      displayIcon: 'SEND',
+      submitEvidence: [{ attemptId: 'attempt-1', capturedAt: 4000, source: 'stage' }]
+    };
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.put(older);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) }
+        : { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor(older.id)?.isUnconfirmed).toBe(true));
+      expect(entryFor(older.id)?.status).toBe(ITransactionStatus.Unconfirmed);
+
+      await Repo.transactions.put({
+        ...older,
+        status: ITransactionStatus.Failed,
+        error: TRANSACTION_NEVER_COMMITTED_ERROR,
+        rawError: 'node verdict: never committed',
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        neverCommittedAt: 6000
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(entryFor(older.id)?.status).toBe(ITransactionStatus.Failed));
+      expect(entryFor(older.id)?.message).toBe('Transaction failed');
+      expect(entryFor(older.id)?.transactionIcon).toBe('FAILED');
+      expect(entryFor(older.id)?.isUnconfirmed).toBe(false);
+      expect(entryFor(older.id)?.timestamp).toBe(older.completedAt);
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
 
   it('refreshes older swaps after an equal SWR head and retries a failed row read', async () => {
     await Repo.transactions.clear();

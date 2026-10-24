@@ -31,6 +31,7 @@ import * as Repo from 'lib/miden/repo';
 import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import {
   compareCompletedHistory,
+  comparePageHistory,
   getCompletedTransactionsPage,
   historyCursorOf,
   readLinkedSwapOrderRows,
@@ -238,8 +239,8 @@ const completeHistoryOrder = (
   order?.status !== undefined && order.initiatedAt !== undefined;
 
 const isOlderThanCursor = (entry: IHistoryEntry, cursor: CompletedHistoryCursor): boolean => {
-  if (completeHistoryOrder(entry.historyOrder) && completeHistoryOrder(cursor)) {
-    return compareCompletedHistory(entry.historyOrder, cursor) < 0;
+  if (entry.historyOrder) {
+    return comparePageHistory(entry.historyOrder, cursor) < 0;
   }
   return (
     entry.timestamp < cursor.effectiveTimestamp ||
@@ -274,6 +275,10 @@ const History = memo<HistoryProps>(
     hideLoadingSpinner = false
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
+    const onScreen = usePageActive();
+    const readingCompleted = onScreen && filter !== 'pending';
+    const readingCompletedRef = useRef(readingCompleted);
+    readingCompletedRef.current = readingCompleted;
     const [isLoading, setIsLoading] = useState(false);
     // Rows and their raw continuation cursor share a scope. Reset them during
     // layout so a page from the previous account or token cannot be rendered.
@@ -287,30 +292,37 @@ const History = memo<HistoryProps>(
     // A layout effect invalidates page requests before paint when the account
     // or token changes. The counter rejects an A → B → A round trip too.
     const scopeRef = useRef(0);
-    const swapRefreshGen = useRef(0);
+    const settledWorkGen = useRef(0);
+    const loadedRowsRefreshGen = useRef(0);
     // Set when a refresh does not meet the loaded raw ids. Backfill pages must not replace `boundary`.
     const historyGapRef = useRef<HistoryGap | null>(null);
     const latestPageRef = useRef<{ key: string; page: HistoryEntriesPage } | null>(null);
     const startGapFill = (gap: HistoryGap, cursor: CompletedHistoryCursor) => {
-      if (
-        gap.activeCursors.some(active => sameHistoryCursor(active, cursor)) ||
-        (gap.blockedCursor && sameHistoryCursor(gap.blockedCursor, cursor))
-      ) {
-        return;
-      }
+      if (!readingCompletedRef.current || gap.activeCursors.length > 0) return;
+      if (gap.blockedCursor && sameHistoryCursor(gap.blockedCursor, cursor)) return;
       gap.activeCursors.push(cursor);
       const scope = scopeRef.current;
+      const work = settledWorkGen.current;
       void fillHistoryGap(
         address,
         tokenId,
         cursor,
         gap.boundary,
         safeStateKey,
-        () => historyGapRef.current === gap && scopeRef.current === scope,
+        () =>
+          readingCompletedRef.current &&
+          historyGapRef.current === gap &&
+          scopeRef.current === scope &&
+          settledWorkGen.current === work &&
+          sameHistoryCursor(gap.latestCursor, cursor),
         setScopedRest,
         outcome => {
           gap.activeCursors = gap.activeCursors.filter(active => !sameHistoryCursor(active, cursor));
-          if (historyGapRef.current !== gap || !sameHistoryCursor(gap.latestCursor, cursor)) return;
+          if (historyGapRef.current !== gap) return;
+          if (!sameHistoryCursor(gap.latestCursor, cursor)) {
+            startGapFill(gap, gap.latestCursor);
+            return;
+          }
           if (outcome === 'finished') historyGapRef.current = null;
           if (outcome === 'stalled') gap.blockedCursor = cursor;
         }
@@ -318,16 +330,26 @@ const History = memo<HistoryProps>(
     };
     useLayoutEffect(() => {
       scopeRef.current += 1;
-      swapRefreshGen.current += 1;
+      loadedRowsRefreshGen.current += 1;
       historyGapRef.current = null;
       setIsLoading(false);
     }, [safeStateKey]);
 
-    const onScreen = usePageActive();
+    useLayoutEffect(() => {
+      if (!readingCompleted) {
+        settledWorkGen.current += 1;
+        historyGapRef.current = null;
+        setIsLoading(false);
+      }
+      return () => {
+        settledWorkGen.current += 1;
+        historyGapRef.current = null;
+      };
+    }, [readingCompleted]);
+
     // A retained page off screen is not read, so neither transaction read runs there. The Pending filter shows
     // transfer cards and in-flight transactions only, so the settled-history read (and its paging) stops under it
     // while the in-flight read keeps running.
-    const readingCompleted = onScreen && filter !== 'pending';
     const readingPending = onScreen;
 
     // A read that is not running holds a null key rather than a paused one: another History on the same account
@@ -354,16 +376,40 @@ const History = memo<HistoryProps>(
         // SWR keeps a deeply equal head and still calls this. The layout effect on `latestHistoryPage`
         // is not a refresh: it only initializes the cursor, records the page, and merges the displaced one.
         onSuccess: page => {
-          const generation = ++swapRefreshGen.current;
+          if (!readingCompletedRef.current) return;
+          const generation = ++loadedRowsRefreshGen.current;
           const loaded = scopedRestRef.current.key === safeStateKey ? scopedRestRef.current : NO_SCOPED_ENTRIES;
           const olderSwapIds = loaded.cursorInitialized ? loadedSwapTxIds(loaded.entries) : [];
+          const olderMutableIds = loaded.cursorInitialized ? loadedMutableActivityTxIds(loaded.entries) : [];
           const scope = scopeRef.current;
+          const work = settledWorkGen.current;
           const key = safeStateKey;
           if (olderSwapIds.length > 0) {
             const olderSwapIdSet = new Set(olderSwapIds);
             void readLoadedSwapSettlement(olderSwapIds).then(fresh => {
-              if (fresh === null || generation !== swapRefreshGen.current || scopeRef.current !== scope) return;
+              if (
+                fresh === null ||
+                generation !== loadedRowsRefreshGen.current ||
+                scopeRef.current !== scope ||
+                settledWorkGen.current !== work
+              ) {
+                return;
+              }
               setScopedRest(state => patchLoadedSwapSettlement(state, key, olderSwapIdSet, fresh));
+            });
+          }
+          if (olderMutableIds.length > 0) {
+            const olderMutableIdSet = new Set(olderMutableIds);
+            void readLoadedActivityStatus(olderMutableIds).then(fresh => {
+              if (
+                fresh === null ||
+                generation !== loadedRowsRefreshGen.current ||
+                scopeRef.current !== scope ||
+                settledWorkGen.current !== work
+              ) {
+                return;
+              }
+              setScopedRest(state => patchLoadedActivityStatus(state, key, olderMutableIdSet, fresh));
             });
           }
           if (!loaded.cursorInitialized) return;
@@ -491,13 +537,19 @@ const History = memo<HistoryProps>(
     // hidden notes, so no view and no search shows them. The test reads the row, not its icon, so a
     // failed faucet claim is hidden too.
     const allEntries = useMemo(() => {
+      const pendingTxIds = new Set(pendingTransactions.flatMap(entry => (entry.txId ? [entry.txId] : [])));
       const labelled = pendingTransactions
-        .concat(mergeAndSort(latestHistoryPage?.entries ?? [], restEntries))
+        .concat(
+          mergeAndSort(latestHistoryPage?.entries ?? [], restEntries).filter(
+            entry => !entry.txId || !pendingTxIds.has(entry.txId)
+          )
+        )
         .map(entry => labelHistoryEntry(bridgeConfig, entry));
       return hideFaucet ? labelled.filter(entry => !isFaucetActivityEntry(entry, nativeFaucetId)) : labelled;
     }, [bridgeConfig, latestHistoryPage, restEntries, pendingTransactions, hideFaucet, nativeFaucetId]);
 
     const loadMore = async (_page: number) => {
+      if (!readingCompletedRef.current) return;
       // already loading, don't make duplicate calls
       if (isLoading) {
         return;
@@ -506,13 +558,16 @@ const History = memo<HistoryProps>(
       if (!current.cursorInitialized || !current.hasMore || current.cursor === null) return;
       setIsLoading(true);
       const scope = scopeRef.current;
+      const work = settledWorkGen.current;
       const key = safeStateKey;
       const cursor = current.cursor;
       try {
         const olderPage = await fetchTransactionsAsHistoryEntries(address, cursor, tokenId);
         // Answer for a scope the user has since left: its rows are another
         // account's history.
-        if (scopeRef.current !== scope) return;
+        if (!readingCompletedRef.current || scopeRef.current !== scope || settledWorkGen.current !== work) {
+          return;
+        }
         // Merge against the stored rows, not this render's: a closure from the first render after a switch
         // still holds the old scope's.
         setScopedRest(previous => {
@@ -533,6 +588,9 @@ const History = memo<HistoryProps>(
         // the rest of the session. Leaving `isLoading` set instead would wedge
         // pagination permanently, so neither flag alone is the answer — the list
         // keeps everything already loaded and simply stops extending.
+        if (!readingCompletedRef.current || scopeRef.current !== scope || settledWorkGen.current !== work) {
+          return;
+        }
         console.error(
           `Failed to load history before ${cursor.effectiveTimestamp}/${cursor.transactionId} for ${address}${
             tokenId ? ` token ${tokenId}` : ''
@@ -541,11 +599,11 @@ const History = memo<HistoryProps>(
         );
         // Same reasoning as the success path: do not disable pagination for a
         // scope the user has already moved on to.
-        if (scopeRef.current === scope) {
-          setScopedRest(previous => (previous.key === key ? { ...previous, hasMore: false } : previous));
-        }
+        setScopedRest(previous => (previous.key === key ? { ...previous, hasMore: false } : previous));
       } finally {
-        if (scopeRef.current === scope) setIsLoading(false);
+        if (readingCompletedRef.current && scopeRef.current === scope && settledWorkGen.current === work) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -714,6 +772,89 @@ const loadedSwapTxIds = (entries: readonly IHistoryEntry[]): string[] => {
     ids.push(entry.txId);
   }
   return ids;
+};
+
+const loadedMutableActivityTxIds = (entries: readonly IHistoryEntry[]): string[] => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const mutable =
+      entry.isUnconfirmed ||
+      entry.txType === 'bridged-send' ||
+      entry.txType === 'bridged-receive' ||
+      entry.txType === 'earn-deposit' ||
+      entry.txType === 'earn-withdraw' ||
+      (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
+    if (!mutable || entry.txId === undefined || seen.has(entry.txId)) continue;
+    seen.add(entry.txId);
+    ids.push(entry.txId);
+  }
+  return ids;
+};
+
+async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<string, ITransaction> | null> {
+  if (ids.length === 0) return new Map();
+  try {
+    const rows = await Repo.transactions.bulkGet([...ids]);
+    return new Map(rows.filter((row): row is ITransaction => row !== undefined).map(row => [row.id, row]));
+  } catch {
+    return null;
+  }
+}
+
+const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
+  const isCancelled = isUserCancelledTransaction(tx.error);
+  const submission = submissionFeedback(tx);
+  const isUnconfirmed =
+    submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+  const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+  const bridgedReceive =
+    tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
+  const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+  const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+  const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+  return {
+    status: tx.status,
+    message: isCancelled
+      ? 'Cancelled'
+      : tx.status === ITransactionStatus.Failed
+        ? 'Transaction failed'
+        : tx.displayMessage,
+    transactionIcon:
+      tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
+    errorMessage: tx.error,
+    isCancelled,
+    isUnconfirmed,
+    bridgeClaimStatus: bridge?.claimStatus,
+    bridgeEpochStatus: bridge?.epochStatus,
+    bridgeFillTxHash: bridge?.fillTxHash,
+    bridgeFillChainId: bridge?.fillChainId,
+    bridgeReclaimHeight: bridge?.reclaimHeight,
+    bridgeInPhase: bridgedReceive?.phase,
+    bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+    earnWithdrawPhase: earnWithdraw?.phase,
+    earnDepositStatus: earnDeposit?.epochStatus
+  };
+};
+
+const patchLoadedActivityStatus = (
+  state: ScopedEntries,
+  key: string,
+  ids: ReadonlySet<string>,
+  fresh: ReadonlyMap<string, ITransaction>
+): ScopedEntries => {
+  if (state.key !== key) return state;
+  let changed = false;
+  const entries = state.entries.map(entry => {
+    if (entry.txId === undefined || !ids.has(entry.txId)) return entry;
+    const row = fresh.get(entry.txId);
+    if (row === undefined) return entry;
+    const fields = loadedActivityStatusFields(row);
+    if (Object.entries(fields).every(([field, value]) => entry[field as keyof IHistoryEntry] === value)) return entry;
+    changed = true;
+    return { ...entry, ...fields };
+  });
+  return changed ? { ...state, entries } : state;
 };
 
 const isStoredSwap = (row: ITransaction | undefined): row is ITransaction => row?.type === 'swap';
@@ -958,20 +1099,26 @@ async function fillHistoryGap(
   key: string,
   isCurrent: () => boolean,
   setScopedRest: (update: (state: ScopedEntries) => ScopedEntries) => void,
-  onFinish: (outcome: 'finished' | 'stalled' | 'failed') => void
+  onFinish: (outcome: 'finished' | 'stalled' | 'failed' | 'superseded') => void
 ): Promise<void> {
   let next: CompletedHistoryCursor | null = cursor;
   while (next) {
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      onFinish('superseded');
+      return;
+    }
     const requestCursor = next;
     let page: HistoryEntriesPage;
     try {
       page = await fetchTransactionsAsHistoryEntries(address, requestCursor, tokenId);
     } catch {
-      onFinish('failed');
+      onFinish(isCurrent() ? 'failed' : 'superseded');
       return;
     }
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      onFinish('superseded');
+      return;
+    }
     const reached = sharesRawId(page.rawIds, boundary);
     setScopedRest(state => {
       if (state.key !== key) return state;
@@ -981,7 +1128,10 @@ async function fillHistoryGap(
         rawIds: unionRawIds(state.rawIds, page.rawIds)
       };
     });
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      onFinish('superseded');
+      return;
+    }
     const stalled = page.nextCursor != null && sameHistoryCursor(page.nextCursor, requestCursor);
     if (stalled) {
       onFinish('stalled');
@@ -991,7 +1141,7 @@ async function fillHistoryGap(
       if (!reached && !page.hasMore) {
         setScopedRest(state => (state.key === key ? { ...state, hasMore: false } : state));
       }
-      if (isCurrent()) onFinish('finished');
+      onFinish(isCurrent() ? 'finished' : 'superseded');
       return;
     }
     next = page.nextCursor;
