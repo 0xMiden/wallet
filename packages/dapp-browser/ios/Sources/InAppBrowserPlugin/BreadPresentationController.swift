@@ -187,6 +187,16 @@ final class BreadPresentationController: NSObject {
         if proxyCovering { cancelReveal() }
     }
 
+    func snapshotFromProxy(_ deliver: @escaping (UIImage?) -> Void) -> Bool {
+        if capturing {
+            snapshotWaiters.append(deliver)
+            return true
+        }
+        guard proxyFresh, state.proxyUsable, let image = proxy.image else { return false }
+        deliver(image)
+        return true
+    }
+
     func adoptProxy(_ image: UIImage) {
         proxy.image = image
         state.captureProxy()

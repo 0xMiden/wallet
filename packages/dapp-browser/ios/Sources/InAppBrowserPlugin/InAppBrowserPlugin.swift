@@ -1340,13 +1340,51 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     /// instance's live page. Resolves `{ accepted }`; progress arrives as
     /// `presentationMorph` events carrying the caller's `morphId`.
     @objc func morph(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { call.resolve(["accepted": false]) }
+        // Guards and the morph run in this one main-queue hop, so the frame-rate link starts on arrival.
+        DispatchQueue.main.async { call.resolve(["accepted": self.acceptMorph(call)]) }
+    }
+
+    private func acceptMorph(_ call: CAPPluginCall) -> Bool {
+        guard let id = call.getString("id"), let instance = WebViewRegistry.shared.get(id: id),
+              let presentation = instance.controller.breadPresentation, let window = instance.containerWindow,
+              instance.morphContainer != nil, let target = call.getString("to").flatMap(BreadMorphTarget.init(rawValue:)),
+              let morphId = call.getString("morphId"), !morphId.isEmpty,
+              call.getString("managedHostCloseToken") == instance.managedClose?.token,
+              instance.managedClose?.closing != true,
+              instance.managedClose == nil || call.getInt("visibilitySequence") != nil else { return false }
+        let origin = presentation.slotFrame()?.origin ?? window.frame.origin
+        let card = Self.morphCard(from: call.options["card"]).map {
+            BreadMorphCard(rect: $0.rect.offsetBy(dx: -origin.x, dy: -origin.y), cornerRadius: $0.cornerRadius)
+        }
+        let velocity = call.options["velocity"] as? [String: Any]
+        let accepted = presentation.morph(to: target, card: card,
+            velocity: CGPoint(x: Self.morphNumber(velocity?["x"]) ?? 0, y: Self.morphNumber(velocity?["y"]) ?? 0),
+            morphId: morphId, policyRevision: target == .expanded ? call.getInt("policyRevision") : nil,
+            sequence: call.getInt("visibilitySequence"))
+        instance.isVisible = presentation.state.desiredVisibility
+        return accepted
+    }
+
+    static func morphCard(from value: Any?) -> BreadMorphCard? {
+        guard let values = value as? [String: Any], let x = morphNumber(values["x"]), let y = morphNumber(values["y"]),
+              let width = morphNumber(values["width"]), let height = morphNumber(values["height"]),
+              let radius = morphNumber(values["cornerRadius"]), width > 0, height > 0, radius >= 0 else { return nil }
+        return BreadMorphCard(rect: CGRect(x: x, y: y, width: width, height: height), cornerRadius: CGFloat(radius))
+    }
+
+    private static func morphNumber(_ value: Any?) -> Double? {
+        guard let number = (value as? NSNumber)?.doubleValue, number.isFinite else { return nil }
+        return number
     }
 
     /// Miden plugin method (#1817): publish the landing card, in host viewport
     /// points, that the native Bread button collapses toward. `card: null` clears it.
     @objc func setMorphTarget(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { call.resolve() }
+        let card = Self.morphCard(from: call.options["card"])
+        DispatchQueue.main.async {
+            WebViewRegistry.shared.morphCard = card
+            call.resolve()
+        }
     }
 
     /// Miden plugin method (PR-4 chunk 4): list all currently registered
