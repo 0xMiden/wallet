@@ -164,6 +164,9 @@ public class WebViewDialog extends Dialog {
         else super.hide();
     }
     void applyBrowserDimensions() { applyDimensions(); }
+    BreadSnapshotter snapshotter = BreadSnapshotter.PIXEL_COPY;
+    void morphEvent(BreadMorphEvent event) { }
+    public void takeSnapshotData(float scale, float quality, java.util.function.Consumer<String> done) { done.accept(null); }
 
     @Override public void show() {
         if (permanentlyClosed || managedClosing()) return;

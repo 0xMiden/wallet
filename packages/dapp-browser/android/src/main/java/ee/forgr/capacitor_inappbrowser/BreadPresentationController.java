@@ -54,6 +54,8 @@ final class BreadPresentationController {
     private final TextView error;
     private final Button retry;
     private final ProgressBar spinner;
+    private final ImageView proxy;
+    private final BreadMorphController morph;
     private ScriptHandler script;
     private boolean supported;
     private boolean installed;
@@ -170,6 +172,11 @@ final class BreadPresentationController {
         overlay.addView(back, new FrameLayout.LayoutParams(dp(76), dp(48), Gravity.TOP | Gravity.START));
         ViewGroup root = owner.findViewById(R.id.coordinator_layout);
         root.addView(overlay, new ViewGroup.LayoutParams(-1, -1));
+        proxy = new ImageView(owner.getContext());
+        morph = new BreadMorphController(root, new BreadMorphController.Listener() {
+            @Override public void onFrame(float p) { }
+            @Override public void onSettled(float end) { }
+        });
         webView.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> {
             int width = r - l, height = b - t;
             if (width != layoutWidth || height != layoutHeight) {
@@ -343,6 +350,14 @@ final class BreadPresentationController {
     }
 
     void failed() { state.fail(); cancelPaint(); render(); }
+
+    boolean morph(String to, BreadMorphCard card, float vx, float vy, String id, Integer revision, Integer sequence) {
+        return false;
+    }
+
+    void snapshot(java.util.function.Consumer<Bitmap> done) { done.accept(null); }
+
+    void stopMotion() { }
     boolean fullscreen() { return state.fullscreen(); }
 
     void visibility(boolean visible) { visibility(visible, null, null); }

@@ -20,7 +20,9 @@ import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
+import android.graphics.RectF;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -30,6 +32,7 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginCall;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.After;
@@ -1531,5 +1534,373 @@ public class BreadPresentationControllerTest {
         int status = activity.getResources().getDimensionPixelSize(activity.getResources().getIdentifier("status_bar_height", "dimen", "android"));
         assertEquals((int)(300*density), normal.width); assertEquals((int)(500*density), normal.height);
         assertEquals((int)(12*density), normal.x); assertEquals((int)(80*density)+status, normal.y);
+    }
+
+    static final class FakeSnapshotter implements BreadSnapshotter {
+        final List<android.graphics.Rect> captures = new ArrayList<>();
+        final List<Runnable> encodes = new ArrayList<>();
+        @Override public void capture(Window window, android.graphics.Rect rect, android.graphics.Bitmap into,
+                                      java.util.function.IntConsumer done) {
+            captures.add(new android.graphics.Rect(rect));
+            done.accept(android.view.PixelCopy.SUCCESS);
+        }
+        @Override public void encode(Runnable work) { encodes.add(work); }
+        void runEncodesOffTheMainThread() throws InterruptedException {
+            Thread encoder = new Thread(() -> { while (!encodes.isEmpty()) encodes.remove(0).run(); });
+            encoder.start();
+            encoder.join();
+        }
+    }
+
+    private FakeSnapshotter snapshots;
+    private View root;
+
+    private void openMorph(boolean fullscreen) throws Exception {
+        BreadMorphControllerTest.resetSpringFrames();
+        open(true, true, "default");
+        snapshots = new FakeSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", snapshots);
+        if (fullscreen) fullscreen();
+        else { controller.state.configure("doc", false, true); acknowledgePolicy(); }
+        assertTrue(controller.state.ready());
+        root = dialog.findViewById(R.id.coordinator_layout);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        if (root.getWidth() == 0 || root.getHeight() == 0) {
+            root.measure(View.MeasureSpec.makeMeasureSpec(390, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(650, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, 390, 650);
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        }
+        assertTrue("slot laid out", root.getWidth() > 0 && root.getHeight() > 0);
+        assertTrue("page laid out", webView.getWidth() > 0 && webView.getHeight() > 0);
+    }
+
+    private void paintFence() {
+        controller.render();
+        shadowOf(Looper.getMainLooper()).idle();
+        String script = shadowOf(webView).getLastEvaluatedJavascript();
+        assertTrue("metrics before the fence: " + script, script != null && script.contains("__breadNativeMetrics"));
+        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("true");
+        PaintWebView renderer = Shadow.extract(webView);
+        assertNotNull("visual state fence", renderer.fence);
+        renderer.fence.onComplete(renderer.request);
+    }
+
+    private void reveal() {
+        paintFence();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+    }
+
+    private BreadMorphCard card() {
+        int[] at = new int[2];
+        root.getLocationInWindow(at);
+        float width = root.getWidth(), height = root.getHeight();
+        return new BreadMorphCard(new RectF(at[0] + width * 0.70f, at[1] + height * 0.70f,
+            at[0] + width * 0.95f, at[1] + height * 0.92f), 16);
+    }
+
+    private float cardScale(BreadMorphCard card) { return card.rect.width() / root.getWidth(); }
+    private int nextSequence() { return ++acknowledgementSequence; }
+    private BreadMorphController driver() { return ReflectionHelpers.getField(controller, "morph"); }
+
+    private boolean collapse(BreadMorphCard card, String id) {
+        return controller.morph("collapsed", card, 0, 0, id, null, nextSequence());
+    }
+
+    private boolean expand(BreadMorphCard card, String id) {
+        return controller.morph("expanded", card, 0, 0, id, (int) controller.state.policyRevision(), nextSequence());
+    }
+
+    private void park(BreadMorphCard card) {
+        assertTrue(collapse(card, "park"));
+        BreadMorphControllerTest.settle();
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+    }
+
+    private List<BreadMorphEvent> morphEvents(String id) {
+        List<BreadMorphEvent> events = new ArrayList<>();
+        for (org.mockito.invocation.Invocation invocation : mockingDetails(callbacks).getInvocations()) {
+            if (!"presentationMorph".equals(invocation.getMethod().getName())) continue;
+            BreadMorphEvent event = invocation.getArgument(0);
+            if (id.equals(event.morphId)) events.add(event);
+        }
+        return events;
+    }
+
+    private List<String> phases(String id) {
+        List<String> phases = new ArrayList<>();
+        for (BreadMorphEvent event : morphEvents(id)) phases.add(event.phase + ":" + event.target);
+        return phases;
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void expandShowsProxyAtCardAndFadesItAfterTheVisualStateFence() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        assertEquals(1, snapshots.captures.size());
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        assertTrue(expand(card, "m2"));
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+        assertEquals(1, proxy.getAlpha(), 0);
+        assertEquals(View.GONE, cover.getVisibility());
+        assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
+        BreadMorphControllerTest.settle();
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+        assertEquals(1, proxy.getAlpha(), 0);
+        assertEquals(1, root.getScaleX(), 0);
+        assertEquals(List.of("started:expanded", "settled:expanded"), phases("m2"));
+        paintFence();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(220));
+        assertEquals(View.GONE, proxy.getVisibility());
+        assertEquals(View.GONE, cover.getVisibility());
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void expandAfterNavigationUsesTheThemeCover() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        controller.navigate();
+        controller.state.configure("next", false, true);
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        View spinner = ReflectionHelpers.getField(controller, "spinner");
+        assertTrue(expand(card, "m2"));
+        assertEquals(View.VISIBLE, cover.getVisibility());
+        assertEquals(1, cover.getAlpha(), 0);
+        assertEquals(View.VISIBLE, spinner.getVisibility());
+        assertNotEquals(View.VISIBLE, proxy.getVisibility());
+        BreadMorphControllerTest.settle();
+        assertEquals(View.VISIBLE, cover.getVisibility());
+        assertNotEquals(View.VISIBLE, proxy.getVisibility());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void invalidationDuringExpandRestoresAnOpaqueProxy() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        assertTrue(expand(card, "m2"));
+        for (int i = 0; i < 4; i++) BreadMorphControllerTest.frame();
+        paintFence();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+        assertTrue(proxy.getAlpha() < 1);
+        ReflectionHelpers.callInstanceMethod(controller, "invalidateLayout");
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+        assertEquals(1, proxy.getAlpha(), 0);
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+        assertEquals(1, proxy.getAlpha(), 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void collapseKeepsTheDialogShownUntilTheHiddenAcknowledgement() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        assertTrue(collapse(card, "m1"));
+        BreadMorphControllerTest.settle();
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
+        assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
+        assertEquals(List.of("started:collapsed", "settled:collapsed"), phases("m1"));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500));
+        assertTrue(dialog.isShowing());
+        assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+        assertEquals(1, root.getScaleX(), 0);
+        assertEquals(0, root.getTranslationY(), 0);
+        assertFalse(root.getClipToOutline());
+        assertEquals(List.of("started:collapsed", "settled:collapsed"), phases("m1"));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void collapseCrossfadesToTheProxyBelowThirtyFivePercent() throws Exception {
+        openMorph(false);
+        reveal();
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        assertTrue(collapse(card(), "m1"));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 60 && morph.progress() > 0.5f; i++) BreadMorphControllerTest.frame();
+        assertTrue(morph.progress() <= 0.5f);
+        assertTrue(proxy.getVisibility() != View.VISIBLE || proxy.getAlpha() == 0);
+        for (int i = 0; i < 60 && morph.progress() > 0.35f; i++) BreadMorphControllerTest.frame();
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(150));
+        assertEquals(1, proxy.getAlpha(), 0.001f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void hiddenRequestMidFlightCancelsAndHides() throws Exception {
+        openMorph(false);
+        reveal();
+        assertTrue(collapse(card(), "m1"));
+        for (int i = 0; i < 3; i++) BreadMorphControllerTest.frame();
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+        assertEquals(List.of("started:collapsed", "cancelled:collapsed"), phases("m1"));
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
+        assertFalse(driver().running());
+        assertEquals(1, root.getScaleX(), 0);
+        BreadMorphControllerTest.settle();
+        assertEquals(List.of("started:collapsed", "cancelled:collapsed"), phases("m1"));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void insetChangeDuringMotionDoesNotCancelPaint() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        FrameLayout overlay = ReflectionHelpers.getField(controller, "overlay");
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        assertTrue(collapse(card, "m1"));
+        BreadMorphControllerTest.frame();
+        BreadMorphControllerTest.frame();
+        overlay.dispatchApplyWindowInsets(new WindowInsetsCompat.Builder()
+            .setInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout(),
+                androidx.core.graphics.Insets.of(0, 61, 0, 37))
+            .build().toWindowInsets());
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+        assertNotEquals(View.VISIBLE, cover.getVisibility());
+        assertTrue(expand(card, "m2"));
+        BreadMorphControllerTest.settle();
+        assertEquals(List.of("retargeted:expanded", "settled:expanded"), phases("m2"));
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void foregroundLossMidFlightFinishesAtNearestEnd() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        assertTrue(collapse(card, "m1"));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 60 && morph.progress() >= 0.5f; i++) BreadMorphControllerTest.frame();
+        controller.foreground(false);
+        assertEquals(List.of("started:collapsed", "settled:collapsed"), phases("m1"));
+        assertFalse(morph.running());
+        assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
+        controller.foreground(true);
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+        assertTrue(expand(card, "m2"));
+        for (int i = 0; i < 60 && morph.progress() <= 0.5f; i++) BreadMorphControllerTest.frame();
+        controller.foreground(false);
+        assertEquals(List.of("started:expanded", "settled:expanded"), phases("m2"));
+        assertEquals(1, root.getScaleX(), 0);
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void accessibilityStaysHiddenUntilTheReveal() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        assertTrue(expand(card, "m2"));
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
+        for (int i = 0; i < 6; i++) BreadMorphControllerTest.frame();
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
+        BreadMorphControllerTest.settle();
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
+        paintFence();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(220));
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void snapshotUsesPixelCopyAndEncodesOffTheUiThread() throws Exception {
+        openMorph(false);
+        reveal();
+        List<String> results = new ArrayList<>();
+        dialog.takeSnapshotData(0.5f, 0.7f, results::add);
+        assertEquals(1, snapshots.captures.size());
+        int[] at = new int[2];
+        webView.getLocationInWindow(at);
+        assertEquals(new android.graphics.Rect(at[0], at[1], at[0] + webView.getWidth(), at[1] + webView.getHeight()),
+            snapshots.captures.get(0));
+        assertTrue(results.isEmpty());
+        snapshots.runEncodesOffTheMainThread();
+        assertTrue(results.isEmpty());
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).startsWith("data:image/jpeg;base64,"));
+        assertTrue(collapse(card(), "m1"));
+        assertEquals(2, snapshots.captures.size());
+        BreadMorphControllerTest.frame();
+        BreadMorphControllerTest.frame();
+        dialog.takeSnapshotData(0.5f, 0.7f, results::add);
+        assertEquals("a snapshot during a collapse reuses its start capture", 2, snapshots.captures.size());
+        snapshots.runEncodesOffTheMainThread();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(2, results.size());
+        assertTrue(results.get(1).startsWith("data:image/jpeg;base64,"));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void morphEventsCarryLifetimeSequenceAndMorphId() throws Exception {
+        openMorph(false);
+        reveal();
+        int sequence = nextSequence();
+        assertTrue(controller.morph("collapsed", card(), 0, 0, "m1", null, sequence));
+        BreadMorphControllerTest.settle();
+        List<BreadMorphEvent> events = morphEvents("m1");
+        assertEquals(2, events.size());
+        for (BreadMorphEvent event : events) {
+            assertEquals("collapsed", event.target);
+            assertEquals(sequence, event.sequence);
+            assertFalse(event.tracking);
+        }
+        assertEquals("started", events.get(0).phase);
+        assertEquals(1, events.get(0).progress, 0);
+        assertEquals("settled", events.get(1).phase);
+        assertEquals(0, events.get(1).progress, 0);
+        assertEquals(0, events.get(1).velocity, 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void newMorphMidFlightRetargetsAndSilencesTheOldMorphId() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        assertTrue(collapse(card, "m1"));
+        for (int i = 0; i < 3; i++) BreadMorphControllerTest.frame();
+        assertFalse(controller.morph("expanded", card, 0, 0, "stale", (int) controller.state.policyRevision(), acknowledgementSequence));
+        assertTrue(driver().running());
+        assertTrue(expand(card, "m2"));
+        BreadMorphControllerTest.settle();
+        assertEquals(List.of("started:collapsed"), phases("m1"));
+        assertEquals(List.of(), phases("stale"));
+        assertEquals(List.of("retargeted:expanded", "settled:expanded"), phases("m2"));
+        assertTrue(dialog.isShowing());
+        assertEquals(1, root.getScaleX(), 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void closeMidFlightStopsWithoutEvents() throws Exception {
+        openMorph(false);
+        reveal();
+        assertTrue(collapse(card(), "m1"));
+        BreadMorphControllerTest.frame();
+        dialog.forceClose();
+        BreadMorphControllerTest.settle();
+        assertEquals(List.of("started:collapsed"), phases("m1"));
+        assertFalse(driver().running());
+        assertEquals(1, root.getScaleX(), 0);
     }
 }
