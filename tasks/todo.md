@@ -406,6 +406,26 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 
 Review: focused native review has no actionable source finding. First real OS recording exposed the host in 8 of 529 source frames; retaining covered snapshot ownership removes that exposure in all 425 source frames of the second recording. Coverage remains CI-only with every threshold unchanged at 95%. Final integrated acceptance passes in the production Provider: same-document minimize/restore, shared native/game headers and three real OS resumes without Explore or the white Bread privacy image. Publication belongs to the companion PR.
 
+## Wallet #1586 Android Auth Tab emulator acceptance
+
+- [x] Read the current PR, Auth Tab spec, CI workflow contract, lessons and decision profile; preserve the implemented production behavior.
+- [x] Add a focused, manually dispatched CI acceptance lane using one API 34 Google Play emulator and actual Chrome.
+- [x] Serve the auth dApp and redirect fixture from the local emulator host over HTTPS with a test CA limited to the debug fixture host.
+- [x] Exercise Chrome Auth Tab success and cancellation, then a real unsupported Custom Tabs provider through the existing fallback.
+- [x] Fix workflow-lint findings from the first current-head CI run.
+- [ ] Run the full Auth Tab acceptance inside the bounded Android runner and preserve failure evidence.
+- Mutation predictions for the workflow harness checks: changing the emulator action, Play Store target, boot timeout, job timeout, preparation order, or script path must fail the runner contract test; removing PIN setup or the Playwright invocation from the script, or restoring `adb wait-for-device`, must fail that same test; removing Gradle shutdown or moving Playwright before the Firefox probe must fail the ordering test; adding ADB logcat to post-step evidence, removing its timeout, or removing the script's timed EXIT evidence must fail the evidence-bound test.
+- [x] RED: push regression tests in commit `63a6270`; CI confirms both TLS bypass assertions and the recreated-Activity pending-result assertion fail, with CodeQL flagging disabled certificate validation.
+- [x] Merge the latest `origin/main` after the frozen red run, then update the workflow harness tests for the main-only Guardian push and the Auth Tab dispatch job's 90-minute timeout and Play Store image.
+- [x] GREEN: enforce TLS verification and clear abandoned restored Activity results before a new Auth Tab request can register.
+- [x] Run the two named workflow harness suites through the guarded local route (39 tests) and the TLS fixture suite (4 tests); Android verification remains CI-only.
+- [ ] Record exact CI source SHA, emulator image, browser package versions, queried Auth Tab capability and nonzero executed test count.
+- [ ] Run source review and current-head CI, fix all actionable findings, then update PR #1621 and complete its authorized merge gates.
+
+## Wallet #1586 acceptance plan review
+
+The single-emulator lane avoids the known GMS contention of the existing two-emulator jobs. Chrome proves the result-channel path; Firefox is selected as the default Custom Tabs provider for the unsupported path. Both browsers must be queried on-device and the suite must fail if either browser is missing or reports an unexpected capability. The local fixture uses a synthetic login handle and never logs callback data. The test CA is generated per run, installed only in the disposable emulator, and trusted by the debug wallet only for the fixture host.
+
 ## iOS wallet canvas bottom 2026-10-13
 
 - [x] Prove native viewport reaches the edge and body safe-area padding shortens the canvas.
@@ -511,3 +531,29 @@ The service must recognize explicitly enabled valid 1Click-only configurations w
 - [x] Deploy the reviewed service and verify its live revision and backward compatibility, retaining nearIntents false.
 
 Service validation: 145 Node tests passed with zero skips, all five targeted mutations failed at their named assertions, and all 15 required checks passed. PR #1746 merged as 76148bdb5b23cc66913dbe2af386f96eb442a549. Deployment run 39818501102 succeeded, and live health reports ready at that revision. The four configured wallet origins and rejected-origin cases match pre-deployment behavior. The daily query cap remains 10,000, and nearIntents stays false.
+# #1752: retain swap fill progress after cancellation
+
+## Plan
+
+- [x] Claim the PR and merge current `origin/main` at `8a2ab67` into the designated worktree at `cf855a2`.
+- [x] Complete one normal internal review on the merged candidate. Do not use Review Council for this wallet PR.
+- [x] Fix stale failed rows after requeue and invalidate settled-history gap work when its reader is inactive.
+- [x] Bound transaction page limits and timestamp ties, serialize gap traversal, and refresh mutable bridge/Earn status.
+- [x] Replace the P1 source-pattern and vacuous-result tests with behavioral regression tests.
+- [x] Run focused checks through `ci-local`; 238 tests, TypeScript, ESLint, formatting, and `git diff --check` pass.
+- [x] RED: prove an older Unconfirmed history row updates to Failed after the reconciler records a never-committed verdict.
+- [x] GREEN: include Unconfirmed rows in the older loaded activity-status refresh set.
+- [x] Re-run affected tests and static gates, then complete normal internal re-review on the final merged-main head.
+- [ ] Push the reviewed merged-main candidate and monitor exact-head CI.
+- [ ] Confirm all required exact-head checks and the wallet pre-merge CI event gate pass, then squash-merge.
+
+## Internal review
+
+- Fixed P1: refreshed rows replace stale failed rows after requeue.
+- Fixed P1: gap fill and `loadMore` stop after unmount, offscreen transition, or switching away from Settled.
+- Fixed P1 test proof: behavioral regressions replace source-spelling and vacuous-result assertions.
+- Fixed P2 behavior: page bounds, timestamp tie handling, serialized gap traversal, and mutable bridge/Earn status refresh.
+- Simplified unused `fromEnd` and duplicate resolver reads while retaining the getter and shared linked-row behavior.
+- Deferred P2 test-proof gap under the session rule: the mixed-status cursor fixture does not model displaced-row backfill.
+
+# Follow-up to #1790: describe wallet-file contents accurately

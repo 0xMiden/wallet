@@ -7,6 +7,8 @@ import type { TokenBalanceData } from './balance';
 export interface ValuedBalanceTotal {
   /** The dollar value of every held token that can be priced. */
   totalFiat: number;
+  /** The same holdings at each quote's price 24 hours ago, for the card's change pill. */
+  previousFiat: number;
   /** Whether any counted token has a balance above zero. */
   holdsAnything: boolean;
   /** Whether any counted token with a balance could be priced. */
@@ -27,6 +29,9 @@ export interface ValuedBalanceTotal {
  * and nothing can be valued, which a reader shows as no total rather than a $0.00 that reads as
  * an empty wallet.
  *
+ * A balance or price that is not a finite positive number is left out the same way, so one corrupt
+ * value cannot make the total infinite.
+ *
  * `skip` leaves a token out altogether (the Home card skips hidden tokens, #813).
  */
 export function valuedBalanceTotal(
@@ -35,17 +40,19 @@ export function valuedBalanceTotal(
   skip: (tokenId: string) => boolean = () => false
 ): ValuedBalanceTotal {
   let totalFiat = 0;
+  let previousFiat = 0;
   let holdsAnything = false;
   let valuedAnything = false;
   for (const token of balances) {
-    if (!(token.balance > 0)) continue;
+    if (!Number.isFinite(token.balance) || !(token.balance > 0)) continue;
     if (skip(token.tokenId)) continue;
     holdsAnything = true;
     if (!hasKnownScale(token.metadata)) continue;
     const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
-    if (!quote) continue;
+    if (!quote || !Number.isFinite(quote.price) || quote.price <= 0) continue;
     valuedAnything = true;
     totalFiat += token.balance * quote.price;
+    previousFiat += token.balance * (quote.price - quote.change24h);
   }
-  return { totalFiat, holdsAnything, valuedAnything };
+  return { totalFiat, previousFiat, holdsAnything, valuedAnything };
 }

@@ -1,9 +1,10 @@
+import { BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
 import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
-import { rereadStorageCache } from 'lib/miden/front/storage';
+import { inStorageTurn, rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY, forgetDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -49,30 +50,36 @@ const DEVELOPER_RESET_KEPT_KEYS: readonly string[] = PRESERVED_STORAGE_KEYS.filt
 );
 
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
-// failure can lose it, and a failure rejects the reset rather than being swallowed.
+// failure can lose it, and a failure rejects the reset rather than being swallowed. Badge writers
+// hold this same turn until their seen-key write settles, so the snapshot, the removal of exactly
+// those keys, the cache re-read and, off the extension, this realm's clear announcement stay in one
+// hold: an in-flight seen write is in the snapshot, and a writer queued behind the turn observes
+// the clear before it can write.
 async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
-  try {
-    if (isMobile()) {
-      const { Preferences } = await import('@capacitor/preferences');
-      const { keys } = await Preferences.keys();
-      for (const key of keys) {
-        if (!keep.includes(key)) await Preferences.remove({ key });
+  await inStorageTurn(BADGE_STORAGE_KEY, async () => {
+    try {
+      if (isMobile()) {
+        const { Preferences } = await import('@capacitor/preferences');
+        const { keys } = await Preferences.keys();
+        for (const key of keys) {
+          if (!keep.includes(key)) await Preferences.remove({ key });
+        }
+      } else if (isDesktop()) {
+        removeLocalStorageExcept(keep);
+      } else if (isExtension()) {
+        const browser = await import('webextension-polyfill');
+        const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
+        if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
       }
-    } else if (isDesktop()) {
-      removeLocalStorageExcept(keep);
-    } else if (isExtension()) {
-      const browser = await import('webextension-polyfill');
-      const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
-      if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
+    } finally {
+      // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
+      // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
+      await rereadStorageCache();
+      // No storage event fires in the document that wipes, so off the extension this announces it to every
+      // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
+      if (isMobile() || isDesktop()) storageCleared();
     }
-  } finally {
-    // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
-    // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
-    await rereadStorageCache();
-    // No storage event fires in the document that wipes, so off the extension this announces it to every
-    // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
-    if (isMobile() || isDesktop()) storageCleared();
-  }
+  });
 }
 
 // Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's prefix.
@@ -153,6 +160,9 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
+  // A reset wallet must not stay on the developer's network choice, so the kept override loses it before anything
+  // is wiped: a failure here leaves the wallet as it was, and no later failure can leave the choice behind.
+  if (keepEndpointOverride) await forgetDeveloperNetworkChoice();
   // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
   // key-value clear empties localStorage, and the extension's service worker has none.
   if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
@@ -173,14 +183,17 @@ export async function resetStorageDestructive({
 // what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
 // and mobile those names are not in it, and the re-read finds nothing changed. sessionStorage keeps
 // open-link's and Bread Connect's records, because the platform keeps reporting the launch link for the rest of the
-// app session.
+// app session. The badge storage turn stays held across that localStorage snapshot and removal, the
+// session-storage removal, the cache re-read and the clear announcement.
 export async function clearClientStorage(): Promise<void> {
-  try {
-    removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
-    removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);
-  } finally {
-    await rereadStorageCache();
-    // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
-    storageCleared();
-  }
+  await inStorageTurn(BADGE_STORAGE_KEY, async () => {
+    try {
+      removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
+      removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);
+    } finally {
+      await rereadStorageCache();
+      // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
+      storageCleared();
+    }
+  });
 }

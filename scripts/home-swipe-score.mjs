@@ -198,7 +198,7 @@ function empty(reason) {
 /**
  * @param {object} sample
  * @param {number[]} sample.frames rAF timestamps, page performance.now()
- * @param {(number|null)[]} sample.xs track translateX at each frame
+ * @param {(number|null)[]} sample.xs painted page position at each frame (scroll plus track transform)
  * @param {number[]} [sample.pings] main-thread ping times
  * @param {{t:number,x:number,type?:string}[]} sample.finger finger events on the same clock
  * @param {number[]} [sample.inputDelays] trusted-event input delays, ms

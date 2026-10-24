@@ -35,7 +35,7 @@ type FormData = {
   password: string;
 };
 
-const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
+const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ remove = false, required = false }) => {
   const { t } = useTranslation();
   const { revealMnemonic, removeSeedPhrase } = useMidenContext();
   const secretGeneration = useRef(0);
@@ -136,10 +136,15 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       setStep('confirm');
       return;
     }
-    await completeWalletPrompt(WalletPromptType.VerifySeedPhrase);
-    setMnemonic(null);
-    navigate('/');
-  }, [remove]);
+    try {
+      await completeWalletPrompt(WalletPromptType.VerifySeedPhrase);
+      setMnemonic(null);
+      navigate('/');
+    } catch {
+      setAuthError(t('seedBackupSaveFailed'));
+      setAuthErrorId('seedBackupSaveFailed');
+    }
+  }, [remove, t]);
 
   // Leaving the attempt, by any exit, abandons an in-flight reveal, so its late result
   // cannot move the flow on or leave an error or password behind for the next attempt.
@@ -158,8 +163,12 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     hapticLight();
     setMnemonic(null);
     setCredential(undefined);
+    if (required) {
+      setStep('warning');
+      return;
+    }
     goBack();
-  }, [abandonReveal]);
+  }, [abandonReveal, required]);
 
   // The back action for the screen showing, used by every header and by hardware back (#1042), so
   // the two cannot disagree. It follows the render branches below.
@@ -247,11 +256,14 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('verifySeedPhrase')}
-        onBack={back}
+        onBack={required ? undefined : back}
+        focusTitleOnMount={required}
         data-testid="verify-seed-warning"
         footer={
           <>
-            <Button className={actionButton} variant={ButtonVariant.Secondary} title={t('close')} onClick={onExit} />
+            {!required && (
+              <Button className={actionButton} variant={ButtonVariant.Secondary} title={t('close')} onClick={onExit} />
+            )}
             <Button
               className={actionButton}
               variant={ButtonVariant.Primary}
@@ -264,6 +276,11 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         }
       >
         <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
+          {required && (
+            <Notice role="status" className="mb-3">
+              {t('seedBackupRequiredBody')}
+            </Notice>
+          )}
           <SeedPhrasePlaceholder />
           {probeFailed && <ProtectorProbeErrorNotice className="mt-3" onRetry={retry} retrying={retrying} />}
           {authError && (
@@ -391,6 +408,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
           </>
         }
       />
+      <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
       {isGuardReady && (
         <VerifySeedPhraseScreen
           seedPhrase={words}

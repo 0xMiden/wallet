@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { navigate } from 'lib/woozie';
 
@@ -19,8 +19,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 let mockEarned: string[] = [];
+let mockUnreadBadges = false;
 let mockPublicKey = '0x1234567890123456789012345678901234567890';
-jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => mockEarned }));
+jest.mock('lib/badges/useWalletBadges', () => ({
+  useWalletBadges: () => mockEarned,
+  useHasUnreadBadges: () => mockUnreadBadges
+}));
 jest.mock('./Settings', () => ({
   __esModule: true,
   default: ({ embedded }: { embedded: boolean }) => <div data-testid="original-settings" data-embedded={embedded} />
@@ -42,6 +46,7 @@ jest.mock('lib/woozie', () => ({
 
 afterEach(() => {
   mockEarned = [];
+  mockUnreadBadges = false;
   mockPublicKey = '0x1234567890123456789012345678901234567890';
   jest.clearAllMocks();
 });
@@ -99,4 +104,12 @@ it('shortens a composite account key by its address, not its suffix', () => {
   const chip = screen.getByTestId('profile-address');
   expect(chip).toHaveTextContent('mtst1apl...5qv5');
   expect(chip).not.toHaveTextContent('uyph');
+});
+
+it('directs unread badges to My badges without clearing them on Profile', () => {
+  mockUnreadBadges = true;
+  render(<Me />);
+  const entry = screen.getByTestId('my-badges-preview');
+  expect(within(entry).getByTestId('my-badges-unread')).toHaveTextContent('activityUnread');
+  expect(screen.getByTestId('my-badges-unread')).toHaveClass('bg-notification');
 });

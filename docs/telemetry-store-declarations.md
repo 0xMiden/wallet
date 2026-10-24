@@ -94,6 +94,7 @@ vendor defaulting to longer is worse than making no claim at all.
 
 - [ ] Aptabase project created **in the EU region**, retention set to **90 days**. The region is fixed when the project is created and is encoded in the key — an `A-US-*` key sends to the United States and makes the policy's "European Union (Germany)" row false.
 - [ ] Sentry (EU) project created, retention set to **90 days**
+- [ ] Sentry: Logs, which carry the diagnostic records, kept for **30 days**; read the log retention from the Sentry API, because the policy states that period
 - [ ] Sentry: **IP address storage disabled** (`Settings → Security & Privacy → Prevent Storing of IP Addresses`)
 - [ ] Sentry: data scrubbing left **on**; it is defence in depth behind our own scrubber, not a replacement for it
 - [ ] Both: raw event export **off**, third-party forwarding **off**

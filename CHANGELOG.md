@@ -5,6 +5,29 @@
 ### Changes
 
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
+### Features
+
+- [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
+
+### Fixes
+
+- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
+### Changes
+
+- [CHANGE][ci] Android Auth Tab acceptance runs against a pinned Chromium 158 (SHA-256 checked) as the Auth Tab provider on the Android 36 Play image, refuses a provider older than 137, installs every APK through a retried adb install, runs the instrumentation through am instrument, and has Firefox 158 trust the run's fixture CA and open the wallet callback without a prompt (#1814).
+- [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
+- [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
+### Fixes
+
+- [FIX][all] Encryption-key lookup timeouts before submission no longer show ambiguous submission-unanswered feedback.
+- [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
+- [FIX][all] Crash reports keep the trace id they share with the swap diagnostic records sent before them, so a failure can be read beside those records in Sentry; the privacy policy now states that the records are kept for 30 days (#1660).
+- [FIX][all] The Home panes are a native scroll-snap pager: a swipe on mobile is smooth and always lands on the pane in the direction you swiped, a trackpad swipe pages them in the extension and desktop, and a mouse drag no longer does (#1811).
+- [FIX][all] A network chosen in Developer Settings before setup is kept after the Mainnet launch, so a new install can still create, import or recover a Testnet wallet; a plain install still gets the invite-only Mainnet onboarding, and resetting the wallet returns to it (#1813).
+- [FIX][all] Recognize verified Mainnet badge activity after invitation onboarding: the stored network choice now preserves transaction provenance and permits badge checks while custom developer endpoints remain excluded. Available badges appear first, unavailable badges read Coming soon, and unread dots lead to new awards until My badges is opened. The unread badge key is loaded with the other startup storage keys, so the first tab can show the badge dot with that read already cached. Resetting the wallet includes an in-flight badge seen write in the snapshot it removes. Balance snapshots taken after the endpoint-free Mainnet onboarding choice count as Mainnet for deposit and swap badges.
+- [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+- [FIX][android] Sign-in uses Auth Tab where the browser supports it, returning the callback privately to Bread; other browsers keep the Custom Tab flow and its in-memory-secret requirement (#1586).
+- [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
 
 ## 1.17.6 (2026-10-23)
 
@@ -36,6 +59,7 @@
 - [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
 - [FIX][all] The token page's 24h change pill shows the percentage change, not the dollar change with a percent sign.
 - [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
+
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).

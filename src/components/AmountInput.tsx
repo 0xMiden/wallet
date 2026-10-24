@@ -15,11 +15,13 @@ import { clearFieldValue } from 'lib/ui/clear-field';
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
  * on narrow mobile screens: a short value renders at 4rem and a long one
- * (16 chars max) settles at text-3xl. The only size an amount takes: a fixed
+ * (including a computed token amount with 18 decimals) settles at a smaller size. The only size an amount takes: a fixed
  * size beside it would win, since Tailwind emits an arbitrary size after text-3xl.
  */
 export function amountTextSize(value?: string): string {
   const len = value?.length || 4;
+  if (len >= 25) return 'text-xl';
+  if (len >= 19) return 'text-2xl';
   if (len >= 13) return 'text-3xl';
   if (len >= 10) return 'text-4xl';
   if (len >= 7) return 'text-5xl';
@@ -193,7 +195,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         onChange={event => {
           const normalized = normalizeDecimalInput(event.target.value);
           const pattern = allowNegativeValue ? /^-?\d*(?:\.\d*)?$/ : /^\d*(?:\.\d*)?$/;
-          if (!pattern.test(normalized) || (normalized.split('.')[1]?.length ?? 0) > decimalsLimit) return;
+          const fractionalDigits = normalized.split('.')[1]?.replace(/0+$/, '').length ?? 0;
+          if (!pattern.test(normalized) || fractionalDigits > decimalsLimit) return;
           onValueChange?.(normalized || undefined);
         }}
         onFocus={() => setFocused(true)}

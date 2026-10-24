@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Haz una copia de seguridad de tu frase semilla",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Haz una copia de seguridad ahora",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Tu monedero ha alcanzado los 150 dólares estadounidenses. Debes hacer una copia de seguridad de tu frase semilla antes de poder continuar. Anótala, guárdala en un lugar seguro y completa la verificación para poder utilizar tu monedero.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "No se ha podido guardar la comprobación de la copia de seguridad. Inténtalo de nuevo.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "No se ha podido verificar tu saldo disponible. Inténtalo de nuevo.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Espera a que finalice tu transacción pendiente antes de realizar el intercambio.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Importe exacto del pago",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Pago estimado para tu destino de recepción. Una ejecución completa puede suponer un pago mayor; las ejecuciones parciales pueden dejarte con menos al vencimiento.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "El «slippage» ajusta el importe de pago calculado, mientras que el importe de recepción solicitado permanece fijo.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Rápido · Epoch",
     "englishSource": "Fast · Epoch"
@@ -445,6 +490,18 @@
   "withdraw": {
     "message": "Retirar",
     "englishSource": "Withdraw"
+  },
+  "homeDeposit": {
+    "message": "Depósito",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "En Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Fuera de Miden",
+    "englishSource": "Out of Miden"
   },
   "earnDepositMore": {
     "message": "Ingresar más",
@@ -6139,8 +6196,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Conecta únicamente un monedero de prueba",
-    "englishSource": "Connect a test wallet only"
+    "message": "Utiliza únicamente una cartera de prueba",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Fondos de prueba únicamente",
@@ -7120,24 +7177,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Conecta la cartera que contiene los tokens que deseas transferir a Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "El monedero que contiene los tokens que deseas transferir a Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Conectar monedero",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Cartera externa",
-    "englishSource": "External wallet"
+    "message": "Tu monedero",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Aún no conectado",
-    "englishSource": "Not connected yet"
+    "message": "No conectado",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "Tras conectarse",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow o cualquier monedero de WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Elige tu transferencia",
@@ -7152,12 +7213,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Comprueba la ruta y las comisiones y, a continuación, aprueba la transferencia en tu monedero.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Comprueba la ruta y las comisiones y, a continuación, aprueba la operación en tu monedero.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Utiliza un monedero independiente solo con tokens de prueba. Nunca conectes un monedero que contenga fondos reales.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Nunca conectes un monedero que contenga fondos reales.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Elige una ruta",
@@ -7304,6 +7365,27 @@
   "earnWithdrawStaysInvested": {
     "message": "Stays invested",
     "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "Llega el",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 min",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gas",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Patrocinado",
+    "englishSource": "Sponsored"
   },
   "earnWithdrawAll": {
     "message": "Full balance",
@@ -7788,5 +7870,226 @@
   "amountUsdEstimate": {
     "message": "Estimación en USD",
     "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Vista previa",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Salir",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Datos de muestra solo para vista previa del diseño. No se trata de los fondos de tu monedero ni de clasificaciones reales de jugadores. No se publica nada.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Jugador de ejemplo",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Solo vista previa",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Aplicar actualización de ejemplo",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Tu rango",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Saldo presentado",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "Clasificación de GC",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Instantánea de muestra actualizada localmente. No se ha enviado nada.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Descubre juegos en Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Explora Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Juegos destacados",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Juegos para probar",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Atajos de Arcade",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Clasificaciones",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Monedas del juego",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Mi actividad",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Juego abierto",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Detalles",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "No hay juegos disponibles",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Los juegos aparecerán aquí cuando estén disponibles en esta red.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Al iniciar un juego, tu monedero no se conectará automáticamente. Bread te lo preguntará primero.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "Clasificaciones de GC",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Revisar el saldo de GC",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "Saldo de GC",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "No leído",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Enviar saldo",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Actualizar saldo",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Al enviar una instantánea del saldo, se comparte con la tabla de clasificación el identificador de tu cuenta, el saldo de GC, la red y la hora de la instantánea. No se incluyen los saldos de tus otros activos.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "La lectura del saldo de GC y el envío a la tabla de clasificación aún no están conectados. No se ha leído ni enviado ningún saldo.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Las clasificaciones aparecerán aquí",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Las clasificaciones aún no están activas en esta red.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Tu saldo aparecerá aquí",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Las Game Coins aún no están activas en esta red.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Solo se incluyen los juegos que aparecen en Arcade.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Finanzas",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Otros",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "Monedas",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Actividad",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Explorar juegos",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Tu saldo sigue siendo privado.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Solo se clasifican los saldos que decidas compartir.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Aún no hay actividad en el juego",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Las transacciones que realices en los juegos de Arcade aparecerán aquí.",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1.000 GC por 1 USDCx, más las comisiones de red.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "La compra de GC aún no está disponible en Bread.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Comprar más GC",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Saldo no disponible",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Monedas del juego",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

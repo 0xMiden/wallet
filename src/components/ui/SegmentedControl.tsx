@@ -1,4 +1,4 @@
-import React, { KeyboardEvent, useEffect, useRef } from 'react';
+import React, { KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { cva } from 'class-variance-authority';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -197,6 +197,21 @@ export function SegmentedControl<T extends string>({
   // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
   // moves the page under it instead, sideways.
   const lastSelectedIndex = useRef(selectedIndex);
+  const initialSelectionRevealed = useRef(false);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (initialSelectionRevealed.current || layout !== 'scroll' || !row || row.clientWidth === 0) return;
+    const node = row.children[selectedIndex];
+    if (!(node instanceof HTMLElement)) return;
+    initialSelectionRevealed.current = true;
+    if (row.scrollWidth <= row.clientWidth) return;
+    // A cold deep link can select a chip beyond the viewport. Move only this row,
+    // never scrollIntoView's ancestors (the retained page or horizontal tab pager).
+    const bounds = row.getBoundingClientRect();
+    const item = node.getBoundingClientRect();
+    if (item.right > bounds.right) row.scrollLeft += item.right - bounds.right;
+    else if (item.left < bounds.left) row.scrollLeft -= bounds.left - item.left;
+  }, [layout, selectedIndex, swap]);
   // The item Tab lands on: the selected one, or the first that can be chosen when none is.
   const focusIndex =
     selectedIndex >= 0 && !items[selectedIndex]?.disabled ? selectedIndex : items.findIndex(item => !item.disabled);

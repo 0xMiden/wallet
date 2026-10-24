@@ -8,7 +8,9 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
+import { ArcadeBanner } from 'app/templates/ArcadeBanner';
 import Balance from 'app/templates/Balance';
+import { HomeMoveActions } from 'app/templates/HomeMoveActions';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
@@ -328,7 +330,7 @@ const Explore: FC = () => {
       </div>
 
       <div
-        className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        className="relative flex-1 min-h-0 overflow-y-auto overscroll-y-contain"
         data-testid="explore-scroll-container"
         onTouchStart={isMobileApp ? handleTouchStart : undefined}
         onTouchMove={isMobileApp ? handleTouchMove : undefined}
@@ -423,7 +425,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   return (
     <>
       <Balance>
-        {balance => (
+        {(balance, change) => (
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
@@ -448,10 +450,21 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // card shows its skeleton, not a "0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
+            // The total's 24h move from the same quotes the asset rows show theirs with.
+            delta={
+              change && pricesLoaded(tokenPrices, totalPriceSymbols)
+                ? {
+                    absolute: `${change.absolute < 0 ? '-' : '+'}$${usdTotal(Math.abs(change.absolute))}`,
+                    percentage: `${change.percentage < 0 ? '-' : '+'}${Math.abs(change.percentage).toFixed(2)}%`
+                  }
+                : undefined
+            }
             onMore={() => setAccountsOpen(true)}
           />
         )}
       </Balance>
+
+      <HomeMoveActions />
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 
@@ -463,6 +476,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         fundingNotes={fundingNotes}
         tokenPrices={tokenPrices}
       />
+
+      <ArcadeBanner />
 
       <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">

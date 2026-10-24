@@ -292,6 +292,11 @@ describe('HistoryItem', () => {
     expect(root).not.toHaveClass('border-b-border-card');
   });
 
+  it('localizes a failed summary row whose stored message is the English sentinel', () => {
+    render(<HistoryItem entry={makeEntry({ message: 'Transaction failed' })} />);
+    expect(screen.getByText('t:transactionFailedNotificationTitle')).toBeInTheDocument();
+  });
+
   it('shows the faucet-request title when isFaucetRequest is true', () => {
     mockIsFaucetRequest.mockReturnValue(true);
     const entry = makeEntry({

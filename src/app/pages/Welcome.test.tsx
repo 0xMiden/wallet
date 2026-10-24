@@ -330,9 +330,11 @@ jest.mock('lib/shared/types', () => ({
 
 // The network notice only shows on a test network; null stands for mainnet.
 let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
+let mockDeveloperChoice = false;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => mockTestNetworkKey
+  getTestNetworkNameKey: () => mockTestNetworkKey,
+  hasDeveloperNetworkChoice: () => mockDeveloperChoice
 }));
 
 // The code a switch to mainnet carried to the code step; the code step itself reads it.
@@ -519,6 +521,7 @@ beforeEach(() => {
   mockOnFlowRender.current = null;
   mockBackHandlerRef.current = null;
   mockTestNetworkKey = 'testnet';
+  mockDeveloperChoice = false;
   mockInviteOnly = false;
   mockMainnetCountdown = { enabled: false };
   mockPrepareMainnet.mockReset();
@@ -2142,6 +2145,32 @@ describe('Welcome — confirmation / register', () => {
       } finally {
         mockNavigate.mockReset();
       }
+    });
+
+    it('registers a code-less create after the moment when Developer Settings chose the network', async () => {
+      pastMoment();
+      mockDeveloperChoice = true;
+      await renderWelcome();
+      await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet.mock.calls[0]![5]).toBeUndefined();
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it('registers a seed import after the moment when Developer Settings chose the network', async () => {
+      pastMoment();
+      mockDeveloperChoice = true;
+      await renderWelcome();
+      await stageSeedRecovery({ walletType: WalletType.OnChain });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet.mock.calls[0]![5]).toBeUndefined();
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
     });
 
     it('refuses a code-less side-panel auto-register once the moment has passed, before any launch wake', async () => {
@@ -3948,7 +3977,6 @@ describe('Welcome — registration holds preparation', () => {
       if (pending) await pending;
     });
     await waitFor(() => expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(false));
-    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   }
 
   it('marks a confirmation tap active until registration resolves', async () => {
@@ -3964,6 +3992,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('clears a confirmation tap when registration rejects', async () => {
@@ -3978,6 +4007,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending, new Error('boom'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('marks a side-panel auto-register active until registration resolves', async () => {
@@ -3991,6 +4021,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('clears a side-panel auto-register when registration rejects', async () => {
@@ -4004,6 +4035,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, undefined, new Error('creation failed'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 });
 

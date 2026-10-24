@@ -8,10 +8,13 @@ const mockQuoteSwap = jest.fn();
 
 jest.mock('lib/miden/swap/quote', () => ({
   ...jest.requireActual('lib/miden/swap/quote'),
-  quoteSwap: (...args: unknown[]) => mockQuoteSwap(...args)
+  quoteSwap: (...args: unknown[]) => mockQuoteSwap(...args),
+  quoteSwapForReceive: (...args: unknown[]) => mockQuoteSwap(...args)
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  amountExceedsTokenDecimals: (amount: string, decimals: number) =>
+    (amount.split('.')[1]?.replace(/0+$/, '').length ?? 0) > decimals,
   stringToBigInt: (value: string, decimals: number) => {
     if (value === '' || Number.isNaN(Number(value))) throw new RangeError(value);
     return BigInt(Math.round(Number(value) * 10 ** decimals));
@@ -74,6 +77,28 @@ afterEach(() => {
 });
 
 describe('useSwapQuote', () => {
+  it('quotes an offer with trailing zeroes beyond the token precision', () => {
+    const lowPrecisionUSDC = { ...USDC, decimals: 2 };
+    renderHook(() => useSwapQuote(opts({ offerToken: lowPrecisionUSDC, offerAmount: '1.2300' })));
+
+    pastDebounce();
+
+    expect(lastCall()).toEqual([lowPrecisionUSDC, 123n, ETH, { slippageBps: 20 }]);
+  });
+
+  it('quotes a receive target with trailing zeroes beyond the token precision', () => {
+    const lowPrecisionETH = { ...ETH, decimals: 2 };
+    renderHook(() =>
+      useSwapQuote(
+        opts({ offerAmount: '', requestToken: lowPrecisionETH, requestAmount: '1.2300', requestEdited: true })
+      )
+    );
+
+    pastDebounce();
+
+    expect(lastCall()).toEqual([USDC, 123n, lowPrecisionETH, { slippageBps: 20 }]);
+  });
+
   it('quotes the debounced inputs: a wallet-built ask carries no requested amount, only the slippage', async () => {
     const { result } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), { initialProps: opts() });
     pastDebounce();
@@ -84,10 +109,10 @@ describe('useSwapQuote', () => {
     expect(result.current).toMatchObject({ loading: false, quote });
   });
 
-  it('quotes the user own ask once they edit the receive field', async () => {
+  it('derives the offer from the receive target once they edit the receive field', async () => {
     renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), { initialProps: opts({ requestEdited: true }) });
     pastDebounce();
-    expect(lastCall()).toEqual([USDC, 100000000n, ETH, { slippageBps: 20, requestedAmount: 30000n }]);
+    expect(lastCall()).toEqual([USDC, 30000n, ETH, { slippageBps: 20 }]);
   });
 
   it('does not quote an edited receive field that is empty, since the service refuses a zero ask', () => {
@@ -186,7 +211,7 @@ describe('useSwapQuote', () => {
     expect(result.current).toMatchObject({ loading: false, error: 'not traded', errorCode: 'no_market' });
   });
 
-  it('keeps the previous quote while a same-pair amount change reloads', async () => {
+  it('hides the previous quote while a same-pair amount change reloads', async () => {
     const { result, rerender } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), {
       initialProps: opts()
     });
@@ -194,11 +219,12 @@ describe('useSwapQuote', () => {
     await settle(0, 'resolve', quoteWith('0.0003'));
 
     rerender(opts({ offerAmount: '200' }));
-    expect(result.current.quote).toEqual(quoteWith('0.0003'));
+    expect(result.current.quote).toBeUndefined();
 
     pastDebounce();
     expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
-    expect(result.current).toMatchObject({ loading: true, quote: quoteWith('0.0003') });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.quote).toBeUndefined();
 
     await settle(1, 'resolve', quoteWith('0.00031'));
     expect(result.current).toMatchObject({ loading: false, quote: quoteWith('0.00031') });
@@ -400,5 +426,73 @@ describe('useSwapQuote', () => {
       await act(async () => answerByPair());
       expect(result.current).toMatchObject({ loading: false, quote: quoteWith('USDC->ETH') });
     });
+  });
+});
+
+describe('receive input anchoring', () => {
+  it('quotes receive first with an empty pay field and does not re-quote its derived pay writeback', async () => {
+    const receive = opts({ offerAmount: '', requestAmount: '2', requestEdited: true });
+    const { result, rerender } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), {
+      initialProps: receive
+    });
+    pastDebounce();
+    expect(lastCall()).toEqual([USDC, 2000000n, ETH, { slippageBps: 20 }]);
+    const quote = { ...quoteWith('2'), offeredAmount: 1000000n, requestedAmount: 2000000n };
+    await settle(0, 'resolve', quote);
+    rerender({ ...receive, offerAmount: '1' });
+    pastDebounce();
+    expect(mockQuoteSwap).toHaveBeenCalledTimes(1);
+    expect(result.current.quote).toEqual(quote);
+  });
+
+  it('discards an old receive response as soon as another receive amount is typed, inside the debounce', async () => {
+    const receive = opts({ offerAmount: '', requestAmount: '2', requestEdited: true });
+    const { result, rerender } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), {
+      initialProps: receive
+    });
+    pastDebounce();
+    rerender({ ...receive, requestAmount: '3' });
+    await settle(0, 'resolve', quoteWith('old'));
+    expect(result.current.quote).toBeUndefined();
+    pastDebounce();
+    expect(lastCall()).toEqual([USDC, 3000000n, ETH, { slippageBps: 20 }]);
+    await settle(1, 'resolve', quoteWith('new'));
+    expect(result.current.quote?.price.fillPrice).toBe('new');
+  });
+
+  it.each(['', '0', '.', '0.0000001'])(
+    'does not quote cleared, zero or excessive precision receive input %s',
+    input => {
+      const { result } = renderHook(() =>
+        useSwapQuote(opts({ offerAmount: '', requestAmount: input, requestEdited: true }))
+      );
+      pastDebounce();
+      expect(mockQuoteSwap).not.toHaveBeenCalled();
+      expect(result.current.quote).toBeUndefined();
+    }
+  );
+
+  it('refreshes receive mode without using the derived offer as a new input', async () => {
+    const receive = opts({ offerAmount: '1', requestAmount: '2', requestEdited: true });
+    renderHook(() => useSwapQuote(receive));
+    pastDebounce();
+    await settle(0, 'resolve', quoteWith('first', Date.now()));
+    act(() => jest.advanceTimersByTime(30000));
+    expect(mockQuoteSwap.mock.calls).toEqual([
+      [USDC, 2000000n, ETH, { slippageBps: 20 }],
+      [USDC, 2000000n, ETH, { slippageBps: 20 }]
+    ]);
+  });
+
+  it('checks displayed order terms before signing instead of silently changing pay', async () => {
+    const { result } = renderHook(() =>
+      useSwapQuote(opts({ offerAmount: '1.25', requestAmount: '2', requestEdited: true }))
+    );
+    act(() => {
+      void result.current.quoteNow(2000000n);
+    });
+    expect(lastCall()).toEqual([USDC, 1250000n, ETH, { slippageBps: 20, requestedAmount: 2000000n }]);
+    await settle(1, 'resolve', quoteWith('checked'));
+    expect(result.current.quote?.price.fillPrice).toBe('checked');
   });
 });

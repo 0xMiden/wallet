@@ -132,9 +132,14 @@ export function useMainnetLaunched(): boolean {
 }
 
 /**
- * Invite-only onboarding: mainnet has launched, or the effective network is already mainnet. The Welcome's
- * seven-tap unlock stays local to `OnboardingNetwork` and is combined with this result there.
+ * Invite-only onboarding: mainnet has launched, or the effective network is already mainnet. A network
+ * picked in Developer Settings (`developerChoice`) exempts the launch, never an actual mainnet. The
+ * Welcome's seven-tap unlock stays local to `OnboardingNetwork` and is combined with this result there.
  */
-export function isInviteOnlyRequired(launched: boolean, network: MIDEN_NETWORK_NAME): boolean {
-  return launched || network === MIDEN_NETWORK_NAME.MAINNET;
+export function isInviteOnlyRequired(
+  launched: boolean,
+  network: MIDEN_NETWORK_NAME,
+  developerChoice: boolean
+): boolean {
+  return (launched && !developerChoice) || network === MIDEN_NETWORK_NAME.MAINNET;
 }
