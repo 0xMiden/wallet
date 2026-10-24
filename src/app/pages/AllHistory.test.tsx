@@ -134,6 +134,7 @@ jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
     programId?: string | null;
     search: string;
     filter?: string;
+    onReturnToList: () => void;
     onInitialLoad?: () => void;
   }) => (
     <div
@@ -142,6 +143,7 @@ jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
       data-search-query={props.search}
       data-filter={props.filter ?? ''}
     >
+      <button data-testid="groups-return-to-list" onClick={props.onReturnToList} />
       <button data-testid="grouped-history-loaded" onClick={() => props.onInitialLoad?.()} />
     </div>
   )
@@ -216,6 +218,16 @@ describe('AllHistory', () => {
     expect(screen.queryByTestId('grouped-history')).toBeNull();
     expect(screen.getByRole('radio', { name: 'categoryArcade' })).toHaveAttribute('aria-checked', 'true');
     expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+  });
+  it('persists List after scoped Groups recovery and reopens safely', () => {
+    localStorage.setItem('activity_view_setting', 'groups');
+    const view = render(<AllHistory />);
+    fireEvent.click(screen.getByTestId('groups-return-to-list'));
+    expect(screen.getByTestId('history')).toBeInTheDocument();
+    expect(localStorage.getItem('activity_view_setting')).toBe('list');
+    view.unmount();
+    render(<AllHistory />);
+    expect(screen.getByTestId('history')).toBeInTheDocument();
   });
   beforeEach(() => {
     jest.clearAllMocks();

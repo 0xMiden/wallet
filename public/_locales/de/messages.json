@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Sichern Sie Ihre Seed-Phrase",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Jetzt sichern",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Das Guthaben in Ihrer Wallet hat 150 US-Dollar erreicht. Sie müssen Ihre Seed-Phrase sichern, bevor Sie fortfahren können. Notieren Sie sie, bewahren Sie sie an einem sicheren Ort auf und schließen Sie die Überprüfung ab, um Ihre Wallet nutzen zu können.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Die Sicherungsprüfung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "swapBalanceUnavailable": {
     "message": "Ihr verfügbares Guthaben konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
     "englishSource": "Could not verify your spendable balance. Please try again."
@@ -4953,6 +4969,18 @@
   "faucetRequest": {
     "message": "Faucet Anfrage",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Aktivität",

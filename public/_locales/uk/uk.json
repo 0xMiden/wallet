@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Створіть резервну копію вашої фрази-насіння",
+  "seedBackupRequiredAction": "Створіть резервну копію зараз",
+  "seedBackupRequiredBody": "Сума на вашому гаманці досягла 150 доларів США. Щоб продовжити, вам необхідно створити резервну копію вашої фрази-насіння. Запишіть її, зберігайте в безпечному місці та пройдіть перевірку, щоб користуватися гаманцем.",
+  "seedBackupSaveFailed": "Не вдалося зберегти резервну копію чека. Спробуйте ще раз.",
   "swapBalanceUnavailable": "Не вдалося перевірити ваш доступний баланс. Спробуйте ще раз.",
   "swapPendingSpend": "Дочекайтеся завершення вашої транзакції, що перебуває в стані очікування, перед тим, як здійснювати обмін.",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "Розблокувати гаманець",
   "unlockWalletDescription": "За допомогою фрази відновлення ви завжди зможете відновити свій публічний обліковий запис. Оберіть нижче, як швидко розблокувати свій гаманець.",
   "faucetRequest": "Faucet Запит",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "Діяльність",
   "explore": "Дізнайтеся більше",
   "permissions": "Права доступу",

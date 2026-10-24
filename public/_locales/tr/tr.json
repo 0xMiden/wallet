@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Tohum ifadenizi yedekleyin",
+  "seedBackupRequiredAction": "Şimdi yedekleyin",
+  "seedBackupRequiredBody": "Cüzdanınızın bakiyesi 150 ABD dolarına ulaştı. Devam edebilmeniz için önce tohum ifadenizi yedeklemeniz gerekir. Bunu bir yere yazın, güvenli bir yerde saklayın ve cüzdanınızı kullanabilmek için kontrol işlemini tamamlayın.",
+  "seedBackupSaveFailed": "Yedekleme kontrolü kaydedilemedi. Lütfen tekrar deneyin.",
   "swapBalanceUnavailable": "Harcanabilir bakiyenizi doğrulayamadık. Lütfen tekrar deneyin.",
   "swapPendingSpend": "Takas yapmadan önce bekleyen işleminizin tamamlanmasını bekleyin.",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "Cüzdanın Kilidini Aç",
   "unlockWalletDescription": "Kurtarma ifadesi ile kamuya açık hesabınızı her zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini hızlı bir şekilde nasıl açacağınızı aşağıdan seçin.",
   "faucetRequest": "Faucet Talep",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "Etkinlik",
   "explore": "Keşfet",
   "permissions": "İzinler",

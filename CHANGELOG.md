@@ -2,9 +2,18 @@
 
 ## 1.17.7 (TBD)
 
+### Changes
+
+- [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
+### Features
+
+- [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
+
 ### Fixes
 
 - [FIX][e2e] The hermetic Guardian 1Click fixture seeds the wallet and eligibility service from the same localnet config version, so startup reaches the swap flow.
+- [FIX][all] Activity Groups handles recovered and legacy history without stored messages, shares action titles with List, and offers a scoped retry or Return to List if the group renderer fails.
+
 - [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
 ### Changes
 

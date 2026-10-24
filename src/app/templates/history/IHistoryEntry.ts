@@ -54,7 +54,8 @@ export interface IHistoryEntry {
    * no `initiatedAt`; those keep the timestamp and type comparison.
    */
   historyOrder?: CompletedHistoryCursor;
-  message: string;
+  /** Recovered and legacy transactions may have no stored display message. */
+  message?: string;
   type: HistoryEntryType;
   txType: ITransactionType;
 

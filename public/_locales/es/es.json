@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Haz una copia de seguridad de tu frase semilla",
+  "seedBackupRequiredAction": "Haz una copia de seguridad ahora",
+  "seedBackupRequiredBody": "Tu monedero ha alcanzado los 150 dólares estadounidenses. Debes hacer una copia de seguridad de tu frase semilla antes de poder continuar. Anótala, guárdala en un lugar seguro y completa la verificación para poder utilizar tu monedero.",
+  "seedBackupSaveFailed": "No se ha podido guardar la comprobación de la copia de seguridad. Inténtalo de nuevo.",
   "swapBalanceUnavailable": "No se ha podido verificar tu saldo disponible. Inténtalo de nuevo.",
   "swapPendingSpend": "Espera a que finalice tu transacción pendiente antes de realizar el intercambio.",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "Desbloquear la cartera",
   "unlockWalletDescription": "Con la frase de recuperación, siempre podrás restaurar tu cuenta pública. Elige a continuación cómo desbloquear rápidamente tu monedero.",
   "faucetRequest": "Faucet Solicitud",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "Actividad",
   "explore": "Explora",
   "permissions": "Permisos",

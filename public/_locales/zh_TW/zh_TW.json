@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "備份您的種子短語",
+  "seedBackupRequiredAction": "立即備份",
+  "seedBackupRequiredBody": "您的錢包餘額已達到 150 美元。您必須先備份種子短語，才能繼續操作。請將其寫下、存放在安全的地方，並完成驗證程序以使用您的錢包。",
+  "seedBackupSaveFailed": "無法儲存備份檢查。請重試。",
   "swapBalanceUnavailable": "無法驗證您的可用餘額。請重試。",
   "swapPendingSpend": "請等待您的待處理交易完成後，再進行兌換。",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "解鎖錢包",
   "unlockWalletDescription": "只要擁有恢復短語，您隨時都能還原您的公開帳戶。請在下方選擇如何快速解鎖您的錢包。",
   "faucetRequest": "Faucet 請求",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "活動",
   "explore": "探索",
   "permissions": "權限",

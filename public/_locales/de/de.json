@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Sichern Sie Ihre Seed-Phrase",
+  "seedBackupRequiredAction": "Jetzt sichern",
+  "seedBackupRequiredBody": "Das Guthaben in Ihrer Wallet hat 150 US-Dollar erreicht. Sie müssen Ihre Seed-Phrase sichern, bevor Sie fortfahren können. Notieren Sie sie, bewahren Sie sie an einem sicheren Ort auf und schließen Sie die Überprüfung ab, um Ihre Wallet nutzen zu können.",
+  "seedBackupSaveFailed": "Die Sicherungsprüfung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
   "swapBalanceUnavailable": "Ihr verfügbares Guthaben konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
   "swapPendingSpend": "Warten Sie, bis Ihre ausstehende Transaktion abgeschlossen ist, bevor Sie den Swap durchführen.",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "Wallet entsperren",
   "unlockWalletDescription": "Mit der Wiederherstellungsphrase können Sie Ihr öffentliches Konto jederzeit wiederherstellen. Wählen Sie unten aus, wie Sie Ihre Wallet schnell entsperren möchten.",
   "faucetRequest": "Faucet Anfrage",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "Aktivität",
   "explore": "Entdecken",
   "permissions": "Berechtigungen",

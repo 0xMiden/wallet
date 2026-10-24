@@ -292,7 +292,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('draws an incoming transfer above the groups, with Accept and Decline', async () => {
     mockClaims.items = [claim('note-1', 'pending')];
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     const card = screen.getByTestId('activity-group-claims').querySelector('[data-pending-note-id="note-1"]');
     if (!(card instanceof HTMLElement)) throw new Error('Missing claim card');
@@ -310,7 +310,7 @@ describe('ActivityGroupedHistory', () => {
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
     mockClaims.items = [claim('note-declined', 'pending'), claim('note-open', 'pending')];
     mockHidden.ids = new Set(['note-declined', 'gone']);
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
     const restore = screen.getByRole('button', { name: 'activityRestoreTransfers' });
@@ -326,17 +326,17 @@ describe('ActivityGroupedHistory', () => {
   it('offers no Restore when no declined transfer can still be accepted', () => {
     mockClaims.items = [claim('note-declined', 'claimed')];
     mockHidden.ids = new Set(['note-declined', 'gone']);
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).toBeNull();
   });
 
   it('shows the claims loading while incoming notes are still being read', () => {
-    const { rerender } = render(<ActivityGroupedHistory search="" />);
+    const { rerender } = render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
     expect(screen.queryByRole('progressbar')).toBeNull();
 
     mockClaims.isLoadingNotes = true;
-    rerender(<ActivityGroupedHistory search="" />);
+    rerender(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
@@ -348,7 +348,7 @@ describe('ActivityGroupedHistory', () => {
       entry({ key: 'consume-claiming', txType: 'consume', consumedNoteIds: ['note-claiming'] }),
       entry({ key: 'send-1' })
     );
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(historyProps.pendingItems).toEqual([claiming]);
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
@@ -362,7 +362,7 @@ describe('ActivityGroupedHistory', () => {
       entry({ key: 'consume-claiming', txType: 'consume', consumedNoteIds: ['note-claiming'] }),
       entry({ key: 'send-1' })
     );
-    render(<ActivityGroupedHistory search="zzzz-nothing" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="zzzz-nothing" />);
 
     expect(historyProps.pendingItems).toEqual([claiming]);
     expect(screen.queryByTestId('activity-group-claims')).toBeNull();
@@ -371,7 +371,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('rolls up the loaded entries and searches the groups rather than the entries', () => {
     loaded.push(entry(), entry({ key: 'entry-2' }));
-    render(<ActivityGroupedHistory search="usdc" programId="prog-1" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="usdc" programId="prog-1" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
     expect(historyProps.searchQuery).toBeUndefined();
@@ -382,7 +382,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('forwards History hasMore so a count stays partial while older pages remain', () => {
     mockView.hasMore = true;
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-has-more', 'true');
   });
@@ -439,7 +439,7 @@ describe('ActivityGroupedHistory', () => {
     jest.mocked(supersededFailedConsumeIds).mockResolvedValue(new Set());
     jest.mocked(getUncompletedTransactions).mockResolvedValue([]);
 
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     await waitFor(() => expect(screen.getByText(`${HISTORY_PAGE_SIZE}+`)).toBeTruthy());
     expect(document.querySelector('[data-group-id="mtst1bob"]')).toBeNull();
@@ -461,7 +461,7 @@ describe('ActivityGroupedHistory', () => {
   });
 
   it('narrows by nothing else: grouping the whole history is what this view filters by', () => {
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(historyProps.filter).toBeUndefined();
     expect(historyProps.predicate).toBeUndefined();
@@ -469,13 +469,13 @@ describe('ActivityGroupedHistory', () => {
 
   it('keeps the rows still in flight, so a group can report them', () => {
     loaded.push(entry({ type: HistoryEntryType.PendingTransaction }), entry({ key: 'entry-2' }));
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
   });
 
   it('resolves a counterparty to its contact, whatever the case, and ignores a blank name', () => {
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     const list = screen.getByTestId('group-list');
     expect(list).toHaveAttribute('data-alice', 'Alice');
@@ -486,7 +486,7 @@ describe('ActivityGroupedHistory', () => {
     mockRealHistory = true;
     mockRealGroupList = true;
     mockRead('latest-pending-transactions').isLoading = true;
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.queryByText('noOperationsFound')).toBeNull();
     expect(screen.queryByTestId('history-load-error')).toBeNull();
@@ -497,7 +497,7 @@ describe('ActivityGroupedHistory', () => {
     mockRealHistory = true;
     mockRealGroupList = true;
     mockRead('latest-pending-transactions').error = new Error('boom');
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.queryByText('noOperationsFound')).toBeNull();
     const card = screen.getByTestId('history-load-error');

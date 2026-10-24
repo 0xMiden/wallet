@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Faça backup da sua frase-semente",
+  "seedBackupRequiredAction": "Faça backup agora",
+  "seedBackupRequiredBody": "Sua carteira atingiu US$ 150. Você deve fazer backup da sua frase-semente antes de poder continuar. Anote-a, guarde-a em um local seguro e conclua a verificação para usar sua carteira.",
+  "seedBackupSaveFailed": "Não foi possível salvar a verificação do backup. Tente novamente.",
   "swapBalanceUnavailable": "Não foi possível verificar seu saldo disponível. Tente novamente.",
   "swapPendingSpend": "Aguarde a conclusão da sua transação pendente antes de realizar a troca.",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "Desbloquear a carteira",
   "unlockWalletDescription": "Com a frase de recuperação, você sempre pode restaurar sua conta pública. Escolha abaixo como desbloquear rapidamente sua carteira.",
   "faucetRequest": "Faucet Solicitação",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "Atividade",
   "explore": "Explore",
   "permissions": "Permissões",

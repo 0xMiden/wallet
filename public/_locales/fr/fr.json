@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Sauvegardez votre phrase de récupération",
+  "seedBackupRequiredAction": "Faites une sauvegarde dès maintenant",
+  "seedBackupRequiredBody": "Le solde de votre portefeuille a atteint 150 $ USD. Vous devez sauvegarder votre phrase de récupération avant de pouvoir continuer. Notez-la, conservez-la en lieu sûr, puis effectuez la vérification pour pouvoir utiliser votre portefeuille.",
+  "seedBackupSaveFailed": "Impossible d'enregistrer la vérification de sauvegarde. Veuillez réessayer.",
   "swapBalanceUnavailable": "Impossible de vérifier votre solde disponible. Veuillez réessayer.",
   "swapPendingSpend": "Attendez que votre transaction en attente soit finalisée avant de procéder à l’échange.",
   "swapApproxAmount": "≈ $amount$",
@@ -1116,6 +1120,9 @@
   "unlockWallet": "Déverrouiller le portefeuille",
   "unlockWalletDescription": "Grâce à la phrase de récupération, vous pouvez toujours restaurer votre compte public. Choisissez ci-dessous comment déverrouiller rapidement votre portefeuille.",
   "faucetRequest": "Faucet Demande",
+  "activityGroupsUnavailable": "Groups could not be displayed",
+  "activityGroupsUnavailableDescription": "Try again or return to List to view your activity.",
+  "activityReturnToList": "Return to List",
   "activity": "Activité",
   "explore": "Découvrir",
   "permissions": "Autorisations",
