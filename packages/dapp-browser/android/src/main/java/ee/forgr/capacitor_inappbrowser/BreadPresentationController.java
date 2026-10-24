@@ -1,5 +1,8 @@
 package ee.forgr.capacitor_inappbrowser;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -86,6 +89,7 @@ final class BreadPresentationController {
     private int captureEpoch;
     private Bitmap proxyBitmap;
     private Bitmap capture;
+    private ValueAnimator proxyFade;
     private VelocityTracker tracker;
     private boolean owned;
     private boolean released;
@@ -528,12 +532,9 @@ final class BreadPresentationController {
         if (state.motion() == BreadPresentationState.Motion.COLLAPSING && !crossfaded && p <= CROSSFADE_PROGRESS
             && proxyBitmap != null && state.proxyUsable()) {
             crossfaded = true;
-            proxy.animate().cancel();
             proxy.setVisibility(View.VISIBLE);
-            if (ValueAnimator.areAnimatorsEnabled()) {
-                proxy.setAlpha(0);
-                proxy.animate().alpha(1).setDuration(COLLAPSE_CROSSFADE_MS).setInterpolator(EASE_OUT).start();
-            } else proxy.setAlpha(1);
+            proxy.setAlpha(0);
+            fadeProxy(1, COLLAPSE_CROSSFADE_MS, null);
         }
     }
 
@@ -572,18 +573,44 @@ final class BreadPresentationController {
 
     private void hideProxy() {
         proxyCovering = false;
-        proxy.animate().cancel();
+        cancelProxyFade();
         proxy.setVisibility(View.GONE);
         proxy.setAlpha(0);
     }
 
     private void fadeProxyOut() {
         proxyCovering = false;
-        proxy.animate().cancel();
-        if (!ValueAnimator.areAnimatorsEnabled()) { hideProxy(); return; }
-        proxy.animate().alpha(0).setDuration(EXPAND_CROSSFADE_MS).setInterpolator(EASE_OUT).withEndAction(() -> {
+        fadeProxy(0, EXPAND_CROSSFADE_MS, () -> {
             if (!crossfaded && !proxyCovering) proxy.setVisibility(View.GONE);
-        }).start();
+        });
+    }
+
+    private void fadeProxy(float to, long duration, Runnable done) {
+        cancelProxyFade();
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            proxy.setAlpha(to);
+            if (done != null) done.run();
+            return;
+        }
+        ObjectAnimator fade = ObjectAnimator.ofFloat(proxy, View.ALPHA, proxy.getAlpha(), to);
+        fade.setDuration(duration);
+        fade.setInterpolator(EASE_OUT);
+        fade.addListener(new AnimatorListenerAdapter() {
+            private boolean cancelled;
+            @Override public void onAnimationCancel(Animator animation) { cancelled = true; }
+            @Override public void onAnimationEnd(Animator animation) {
+                if (proxyFade == animation) proxyFade = null;
+                if (!cancelled && done != null) done.run();
+            }
+        });
+        proxyFade = fade;
+        fade.start();
+    }
+
+    private void cancelProxyFade() {
+        ValueAnimator fade = proxyFade;
+        proxyFade = null;
+        if (fade != null) fade.cancel();
     }
 
     void snapshot(Consumer<Bitmap> done) {
@@ -773,7 +800,7 @@ final class BreadPresentationController {
         cover.animate().cancel();
         cover.setAlpha(1);
         if (proxyRoute()) {
-            proxy.animate().cancel();
+            cancelProxyFade();
             proxy.setAlpha(1);
         }
         webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
@@ -1013,10 +1040,8 @@ final class BreadPresentationController {
         pendingPaint = -1;
         back.setVisibility(fullscreen() ? View.VISIBLE : View.GONE);
         if (!ValueAnimator.areAnimatorsEnabled()) finishReveal(generation);
-        else if (proxyRoute()) {
-            proxy.animate().alpha(0).setDuration(EXPAND_CROSSFADE_MS).setInterpolator(EASE_OUT)
-                .withEndAction(() -> finishReveal(generation)).start();
-        } else {
+        else if (proxyRoute()) fadeProxy(0, EXPAND_CROSSFADE_MS, () -> finishReveal(generation));
+        else {
             cover.animate().alpha(0).setDuration(160).withEndAction(() -> {
                 finishReveal(generation);
             }).start();
