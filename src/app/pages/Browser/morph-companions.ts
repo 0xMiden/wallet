@@ -9,7 +9,6 @@
 
 import type { MorphTarget } from '@miden/dapp-browser';
 import { MORPH_TIMING, springTimeToReach, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
-import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 
 export interface CompanionElements {
   capsule: HTMLElement | null;
@@ -51,8 +50,6 @@ export function startMorphCompanions(
   const shown = 1 - Math.min(1, Math.max(0, motion.progress));
   const shownTo = collapsing ? 1 : 0;
   const capsuleTo = collapsing ? { opacity: 0, lift: -MORPH_TIMING.capsuleLiftPx } : { opacity: 1, lift: 0 };
-  let longest = 0;
-
   if (capsule && capsuleFrom) {
     capsule.style.pointerEvents = collapsing ? 'none' : '';
     const delay = collapsing || reduceMotion ? 0 : capsuleFadeInDelay(motion);
@@ -64,7 +61,6 @@ export function startMorphCompanions(
       : [capsuleFrame(capsuleFrom), capsuleFrame(capsuleTo)];
     const snap = !reduceMotion && !supportsLinearEasing();
     play(capsule, keyframes, snap ? { duration: 0 } : { duration, delay, easing: 'ease-out' });
-    longest = Math.max(longest, snap ? 0 : delay + duration);
   }
 
   if (launcher) {
@@ -80,16 +76,10 @@ export function startMorphCompanions(
         duration: MORPH_TIMING.reducedFadeMs,
         easing: 'ease-out'
       });
-      longest = Math.max(longest, MORPH_TIMING.reducedFadeMs);
     } else {
       play(launcher, [launcherFrame(shown), launcherFrame(shownTo)], spring ? spring : { duration: 0 });
-      longest = Math.max(longest, spring?.duration ?? 0);
     }
   }
-
-  // The companions run on the web view's compositor, which only runs above 60 Hz while boosted; they end with the
-  // page's spring, so the boost does too.
-  if (longest > 0) boostRefreshRate(longest);
 
   return () => {
     for (const element of [capsule, launcher]) {
