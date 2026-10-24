@@ -409,6 +409,10 @@ jobs:
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
 
+      # The wallet fails closed on its startup eligibility check; without this fixture onboarding never renders.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build debug APK
         run: |
           yarn test:e2e:android:build

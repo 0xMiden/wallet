@@ -123,6 +123,7 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(authTab).toContain('AUTH_TAB_PROVIDER: org.chromium.chrome');
     expect(authTab).toMatch(/AUTH_TAB_CHROMIUM_SHA256: [0-9a-f]{64}\n/);
     expect(authTab).toContain('sha256sum --check');
+    expect(authTab).toContain('uses: ./.github/actions/start-eligibility-fixture');
     const authTabScript = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
     // Gradle's connected task commits installs without retrying, which the Android 37 image intermittently drops.
     expect(authTabScript).not.toContain('connectedDebugAndroidTest');
