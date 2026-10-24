@@ -16,6 +16,9 @@ jest.mock('app/icons/v2', () => ({
 const mockHapticLight = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: (...args: unknown[]) => mockHapticLight(...args) }));
 
+const mockPrepareMorph = jest.fn();
+jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: () => mockPrepareMorph() }));
+
 jest.mock('lib/dapp-browser', () => ({
   getDappDisplayName: (session: { title?: string; origin: string }) => session.title ?? session.origin,
   getDappHostname: (url: string) => new URL(url).hostname,
@@ -64,6 +67,17 @@ describe('CapsuleBar', () => {
 
     expect(onMinimize).toHaveBeenCalledTimes(1);
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('raises the frame rate when a finger lands on Minimize, before the tap parks', () => {
+    const { onMinimize } = renderBar();
+
+    fireEvent.pointerDown(screen.getByTestId('dapp-capsule-minimize'));
+
+    expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+    expect(onMinimize).not.toHaveBeenCalled();
+    fireEvent.pointerDown(screen.getByLabelText('reload'));
+    expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
   });
 
   it('draws no Minimize button when the caller cannot park', () => {

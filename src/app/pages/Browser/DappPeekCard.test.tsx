@@ -53,6 +53,8 @@ jest.mock('framer-motion', () => {
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: { Close: 'Close' } }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
+const mockPrepareMorph = jest.fn();
+jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: () => mockPrepareMorph() }));
 jest.mock('lib/dapp-browser', () => ({
   getDappDisplayName: (session: { title: string }) => session.title,
   getFallbackColor: () => '#123456',
@@ -109,6 +111,19 @@ it('restores on tap with zero velocity', () => {
   fireEvent.click(screen.getByTestId('dapp-peek-card'));
 
   expect(onCommitRestore).toHaveBeenCalledWith(rect, { x: 0, y: 0 });
+});
+
+it('raises the frame rate when a finger lands on the card and again when it lifts', () => {
+  mockPrepareMorph.mockClear();
+  const { onCommitRestore } = renderCard();
+
+  fireEvent.pointerDown(screen.getByTestId('dapp-peek-card'));
+  expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+  expect(onCommitRestore).not.toHaveBeenCalled();
+  fireEvent.pointerUp(screen.getByTestId('dapp-peek-card'));
+  expect(mockPrepareMorph).toHaveBeenCalledTimes(2);
+  fireEvent.pointerDown(screen.getByTestId('dapp-peek-card-close'));
+  expect(mockPrepareMorph).toHaveBeenCalledTimes(2);
 });
 
 it('restores on swipe up past 60 pt or 450 pt/s with the release velocity', () => {

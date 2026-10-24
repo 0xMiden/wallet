@@ -1,4 +1,5 @@
 import { MORPH_TIMING, springTimeToReach, springToLinearEasing, springs } from 'lib/animation';
+import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 
 import { startMorphCompanions } from './morph-companions';
 
@@ -34,6 +35,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  jest.clearAllMocks();
   played.length = 0;
   mockLinear.value = true;
   capsule = document.body.appendChild(document.createElement('header'));
@@ -130,4 +132,13 @@ it('snaps when linear() is unsupported', () => {
   expect(of(launcher)[0]?.options).toMatchObject({ duration: 0, fill: 'forwards' });
   expect(of(launcher)[0]?.keyframes.at(-1)).toEqual({ opacity: 1, transform: 'scale(1)' });
   expect(of(capsule)[0]?.options).toMatchObject({ duration: 0, fill: 'forwards' });
+});
+
+it('sends nothing over the bridge while the page moves', () => {
+  startMorphCompanions({ capsule, launcher }, { target: 'collapsed', progress: 1, velocity: 0 }, false);
+  startMorphCompanions({ capsule, launcher }, { target: 'expanded', progress: 0.4, velocity: 3 }, false);
+  startMorphCompanions({ capsule, launcher }, { target: 'collapsed', progress: 0.6, velocity: -2 }, true);
+
+  expect(played.length).toBeGreaterThan(0);
+  expect(boostRefreshRate).not.toHaveBeenCalled();
 });

@@ -1993,6 +1993,45 @@ final class BreadMorphAnimatorTests: XCTestCase {
         animator.reset()
         XCTAssertFalse(animator.boosting)
     }
+
+    func testTouchDownBoostHoldsTheFrameRateUntilItLapses() throws {
+        var now: CFTimeInterval = 10
+        let boost = BreadFrameRateBoost(now: { now })
+        defer { boost.release() }
+        XCTAssertFalse(boost.active)
+        boost.hold(for: 0.6)
+        let link = try XCTUnwrap(boost.link)
+        XCTAssertEqual(link.preferredFrameRateRange.minimum, 80)
+        XCTAssertEqual(link.preferredFrameRateRange.maximum, 120)
+        XCTAssertEqual(link.preferredFrameRateRange.preferred, 120)
+        now = 10.3
+        boost.hold(for: 0.6)
+        XCTAssertTrue(boost.link === link)
+        now = 10.85
+        boost.tick()
+        XCTAssertTrue(boost.active)
+        now = 10.9
+        boost.tick()
+        XCTAssertFalse(boost.active)
+        XCTAssertNil(boost.link)
+        boost.hold(for: 0.6)
+        XCTAssertTrue(boost.active)
+        boost.release()
+        XCTAssertFalse(boost.active)
+    }
+
+    func testMorphLinkTakesOverATouchDownBoost() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose(); BreadFrameRateBoost.shared.release() }
+        let animator = BreadMorphAnimator(container: fixture.container, reduceMotion: { false })
+        BreadFrameRateBoost.shared.hold()
+        XCTAssertTrue(BreadFrameRateBoost.shared.active)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        XCTAssertTrue(animator.boosting)
+        XCTAssertFalse(BreadFrameRateBoost.shared.active)
+        animator.reset()
+        XCTAssertFalse(animator.boosting)
+    }
 }
 
 @MainActor
@@ -2638,20 +2677,23 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(live.presentation.state.motion, Motion.none)
     }
 
-    func testBreadButtonTouchDownBoostsTheFrameRate() async throws {
+    func testBreadButtonTouchDownBoostsTheFrameRateUntilTheCollapseTakesItOver() async throws {
         let (live, _) = try await revealedMorph(display: "fullscreen")
-        defer { live.dispose() }
+        let boost = BreadFrameRateBoost.shared
+        defer { live.dispose(); boost.release() }
         let button = try capsule(live)
         button.sendActions(for: .touchDown)
-        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertTrue(boost.active)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
         XCTAssertEqual(live.presentation.state.motion, Motion.none)
         button.sendActions(for: .touchCancel)
-        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        XCTAssertFalse(boost.active)
         button.sendActions(for: .touchDown)
-        let link = try XCTUnwrap(live.presentation.animator?.link)
+        XCTAssertTrue(boost.active)
         button.sendActions(for: .touchUpInside)
-        XCTAssertTrue(live.presentation.animator?.link === link)
         XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertFalse(boost.active)
     }
 }
 
@@ -2691,6 +2733,7 @@ final class BreadMorphPluginTests: XCTestCase {
         switch method {
         case "morph": plugin.morph(call)
         case "setMorphTarget": plugin.setMorphTarget(call)
+        case "prepareMorph": plugin.prepareMorph(call)
         default: plugin.snapshot(call)
         }
         await fulfillment(of: [resolved], timeout: 3)
@@ -2791,6 +2834,45 @@ final class BreadMorphPluginTests: XCTestCase {
         XCTAssertTrue(live.presentation.state.proxyUsable)
         XCTAssertEqual(image.size.width, live.web.bounds.width * 0.5 * proxy.scale, accuracy: 1)
         XCTAssertEqual(threads.all, [false])
+    }
+
+    func testLegacyParkSnapshotLeavesAFullResolutionProxyForTheNextExpand() async throws {
+        let (live, plugin) = try await revealed()
+        defer { live.dispose() }
+        XCTAssertNil(live.presentation.proxy.image)
+        var dataURL: String?
+        try await call("snapshot", ["id": live.instance.id, "scale": 0.5, "quality": 0.7]) { dataURL = $0?["data"] as? String }
+        XCTAssertEqual(dataURL?.hasPrefix("data:image/jpeg;base64,"), true)
+        let image = try XCTUnwrap(live.presentation.proxy.image)
+        XCTAssertEqual(image.size.width, live.web.bounds.width, accuracy: 1)
+        XCTAssertEqual(image.size.height, live.web.bounds.height, accuracy: 1)
+        XCTAssertTrue(live.presentation.state.proxyUsable)
+        XCTAssertTrue(live.presentation.proxy.isHidden)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        let accepted = try await morph(["id": live.instance.id, "to": "expanded", "card": card(in: live), "morphId": "x1",
+                                        "policyRevision": live.presentation.state.policyRevision])
+        XCTAssertTrue(accepted)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertTrue(live.cover.isHidden)
+        let settled = try await eventually { plugin.phases("x1").last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testPrepareMorphHoldsTheFrameRateUntilAMorphTakesItOver() async throws {
+        let (live, _) = try await revealed()
+        let boost = BreadFrameRateBoost.shared
+        defer { live.dispose(); boost.release() }
+        let animator = try XCTUnwrap(live.presentation.animator)
+        try await call("prepareMorph", ["durationMs": 600])
+        XCTAssertTrue(boost.active)
+        XCTAssertFalse(animator.boosting)
+        let accepted = try await morph(["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c1"])
+        XCTAssertTrue(accepted)
+        XCTAssertTrue(animator.boosting)
+        XCTAssertFalse(boost.active)
     }
 
     func testProxyCacheKeepsThreeAndDropsOnMemoryWarning() async throws {

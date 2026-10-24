@@ -160,6 +160,24 @@ final class BreadMorphFrameTarget: NSObject {
     }
 }
 
+final class BreadFrameRateBoost {
+    static let shared = BreadFrameRateBoost()
+    static let duration: CFTimeInterval = 0.6
+    private let now: () -> CFTimeInterval
+    private(set) var link: CADisplayLink?
+    var active: Bool { link != nil }
+
+    init(now: @escaping () -> CFTimeInterval = CACurrentMediaTime) {
+        self.now = now
+    }
+
+    func hold(for duration: CFTimeInterval = BreadFrameRateBoost.duration) {}
+
+    func release() {}
+
+    func tick() {}
+}
+
 final class BreadMorphAnimator {
     static let frameRate = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
     static let fadeDuration: CFTimeInterval = 0.2

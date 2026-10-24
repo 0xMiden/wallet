@@ -2273,6 +2273,68 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void legacyParkSnapshotLeavesTheProxyForTheNextExpand() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        List<String> results = new ArrayList<>();
+        dialog.takeSnapshotData(0.5f, 0.7f, results::add);
+        snapshots.runEncodesOffTheMainThread();
+        BreadMorphControllerTest.advance(32);
+        assertEquals(1, results.size());
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        assertTrue(expand(card, "x1"));
+        assertTrue(dialog.isShowing());
+        assertEquals(motionState(), View.VISIBLE, proxy.getVisibility());
+        assertEquals(1, proxy.getAlpha(), 0);
+        assertEquals(View.GONE, cover.getVisibility());
+        assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
+    }
+
+    @Test @Config(sdk = 35, shadows = PaintWebView.class)
+    public void breadButtonTouchDownBoostsUntilTheCollapseTakesItOver() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        try {
+            capsule.dispatchTouchEvent(android.view.MotionEvent.obtain(0, 0, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0));
+            assertTrue(BreadFrameBoost.active());
+            assertFalse(driver().running());
+            capsule.dispatchTouchEvent(android.view.MotionEvent.obtain(0, 5, android.view.MotionEvent.ACTION_CANCEL, 10, 10, 0));
+            assertFalse(BreadFrameBoost.active());
+            capsule.dispatchTouchEvent(android.view.MotionEvent.obtain(0, 10, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0));
+            assertTrue(BreadFrameBoost.active());
+            capsule.performClick();
+            assertTrue(driver().running());
+            assertFalse(BreadFrameBoost.active());
+        } finally {
+            BreadFrameBoost.release();
+        }
+    }
+
+    @Test @Config(sdk = 35)
+    public void prepareMorphBoostsTheHostWebView() throws Exception {
+        InAppBrowserPlugin plugin = morphPlugin();
+        com.getcapacitor.Bridge bridge = mock(com.getcapacitor.Bridge.class);
+        WebView host = spy(new WebView(org.robolectric.RuntimeEnvironment.getApplication()));
+        when(bridge.getWebView()).thenReturn(host);
+        doReturn(bridge).when(plugin).getBridge();
+        PluginCall call = mock(PluginCall.class);
+        when(call.getInt("durationMs")).thenReturn(600);
+        try {
+            plugin.prepareMorph(call);
+            verify(call).resolve();
+            assertTrue(BreadFrameBoost.active());
+            verify(host).setRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_HIGH);
+        } finally {
+            BreadFrameBoost.release();
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void snapshotResolvesAsynchronously() throws Exception {
         openMorph(false);
         reveal();

@@ -60,6 +60,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "morph", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMorphTarget", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareMorph", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
         // Miden patch: retained native navbar overlay API. A caller can render a
@@ -1385,6 +1386,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             WebViewRegistry.shared.morphCard = card
             call.resolve()
         }
+    }
+
+    /// Miden plugin method (#1817): hold the full frame rate from a touch-down on a
+    /// control that can start a morph, so the display is at speed when it moves.
+    /// A morph that starts takes the request over; without one it lapses after `durationMs`.
+    @objc func prepareMorph(_ call: CAPPluginCall) {
+        call.resolve()
     }
 
     /// Miden plugin method (PR-4 chunk 4): list all currently registered

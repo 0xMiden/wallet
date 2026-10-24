@@ -20,6 +20,8 @@ jest.mock('app/providers/DappBrowserProvider', () => ({
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/dapp-browser/snapshot-store', () => ({ getSnapshot: () => undefined }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
+const mockPrepareMorph = jest.fn();
+jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: () => mockPrepareMorph() }));
 
 // motion.div as a plain div that reports its `layout` mode.
 jest.mock('framer-motion', () => {
@@ -74,6 +76,17 @@ describe('DappSwitcher', () => {
 
     expect(mockRestore).toHaveBeenCalledWith('session-1');
     frame.mockRestore();
+  });
+
+  it('raises the frame rate when a finger lands on a card, before the tap restores it', () => {
+    mockPrepareMorph.mockClear();
+    mockRestore.mockClear();
+    render(<DappSwitcher open onClose={jest.fn()} />);
+
+    fireEvent.pointerDown(screen.getByTestId('dapp-switcher-card'));
+
+    expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+    expect(mockRestore).not.toHaveBeenCalled();
   });
 
   // `black` is ink, white in dark theme, so a control dimmed with it would glow white on the snapshot.

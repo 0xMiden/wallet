@@ -1470,6 +1470,15 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     /**
+     * Miden plugin method (#1817): hold the full frame rate from a touch-down on a control that can
+     * start a morph. A morph that starts takes the request over; without one it lapses after durationMs.
+     */
+    @PluginMethod
+    public void prepareMorph(PluginCall call) {
+        call.resolve();
+    }
+
+    /**
      * Miden plugin method (PR-4 chunk 5): list every currently registered
      * instance id. Used by the wallet's PR-6 cold-bubble restore logic and
      * the LRU eviction in PR-4 §memory-budget.
