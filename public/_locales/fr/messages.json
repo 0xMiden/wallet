@@ -3534,6 +3534,34 @@
     "message": "Cette opération supprime le portefeuille de cet appareil afin que vous puissiez le restaurer ultérieurement, par exemple avec une URL « guardian » différente. Vos fonds restent sur le réseau. Vous aurez besoin de votre phrase de récupération pour restaurer le portefeuille.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Un autre appareil héberge ce compte",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "La clé quotidienne de ce compte a été transférée vers un autre appareil, généralement en y restaurant le portefeuille. Cet appareil ne peut pas utiliser le compte tant que vous ne l’avez pas désigné à nouveau comme appareil principal.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "La clé quotidienne de ce compte a été transférée vers un autre appareil, généralement en y restaurant le portefeuille. Cet appareil ne dispose pas de clé de récupération, il ne peut donc pas récupérer le compte. Restaurez le portefeuille à l’aide de votre phrase de récupération pour pouvoir l’utiliser ici.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Faites de cet appareil l’appareil principal",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Faire de cet appareil l’appareil principal ?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Le portefeuille transfère la clé quotidienne vers cet appareil. L’autre appareil perd l’accès à ce compte et voit s’afficher ce même message. Des frais de réseau minimes sont prélevés sur le compte.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Retirer le portefeuille de cet appareil",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Rotation quotidienne des clés non confirmée",
     "englishSource": "Everyday key rotation not confirmed"

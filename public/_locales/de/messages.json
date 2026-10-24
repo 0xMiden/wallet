@@ -3534,6 +3534,34 @@
     "message": "Dadurch wird die Wallet von diesem Gerät entfernt, sodass Sie sie wiederherstellen können, beispielsweise mit einer anderen „guardian“-URL. Ihr Guthaben verbleibt im Netzwerk. Zur Wiederherstellung der Wallet benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Ein anderes Gerät verwaltet dieses Konto",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Der Alltagsschlüssel dieses Kontos wurde auf ein anderes Gerät übertragen, in der Regel durch die Wiederherstellung der Wallet auf diesem Gerät. Dieses Gerät kann das Konto erst wieder nutzen, wenn Sie es erneut als Hauptgerät festlegen.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Der Alltagsschlüssel dieses Kontos wurde auf ein anderes Gerät übertragen, in der Regel durch die Wiederherstellung der Wallet dort. Dieses Gerät verfügt über keinen Wiederherstellungsschlüssel, sodass das Konto nicht zurückübertragen werden kann. Stellen Sie die Wallet mit Ihrer Wiederherstellungsphrase wieder her, um sie hier nutzen zu können.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Machen Sie dieses Gerät zum Hauptgerät",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Dieses Gerät als Hauptgerät festlegen?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Die Wallet wechselt den täglichen Schlüssel auf dieses Gerät. Das andere Gerät verliert den Zugriff auf dieses Konto und sieht dieselbe Benachrichtigung. Eine geringe Netzwerkgebühr wird vom Konto abgebucht.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Entfernen Sie die Wallet von diesem Gerät",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",
     "englishSource": "Everyday key rotation not confirmed"
