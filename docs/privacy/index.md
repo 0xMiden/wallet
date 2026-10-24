@@ -193,7 +193,7 @@ Crash reports are sent either way; usage data only if the setting is on:
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
-Aptabase and Sentry are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The feature eligibility service runs on Cloudflare and uses MaxMind to check the connection's IP address. The App receives only whether wallet access, Earn and Swap are allowed, plus the network and policy version. The service stores no raw IP address or geographic answer; it stores daily rotating keyed hashes of connection addresses, request counters and feature decisions. Feature decisions expire after five minutes, and expired caller records are removed in batches.
+Aptabase is configured to delete data after 90 days, and Sentry deletes it after the periods under "How long we keep data". Both are configured to store no IP addresses and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The feature eligibility service runs on Cloudflare and uses MaxMind to check the connection's IP address. The App receives only whether wallet access, Earn and Swap are allowed, plus the network and policy version. The service stores no raw IP address or geographic answer; it stores daily rotating keyed hashes of connection addresses, request counters and feature decisions. Feature decisions expire after five minutes, and expired caller records are removed in batches.
 
 ## How the App uses your device
 
@@ -299,7 +299,7 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 
 ## How long we keep data
 
-- Usage data, crash reports and the diagnostic records sent with them: 90 days at most, then deleted automatically (see "Identifiers").
+- Usage data and crash reports: 90 days at most, then deleted automatically (see "Identifiers").
 - Diagnostic records sent with crash reports: 30 days, then deleted automatically by the crash-reporting service; the crash reports themselves are kept for 90 days.
 - Compliance records (block, unblock and legal-process records): at least five years. These are separate from the transient eligibility-service records below.
 - Eligibility-service records: feature decisions expire after five minutes; caller records expire after five minutes without a request and are removed in batches. Caller identifiers are keyed hashes that rotate daily. The App keeps its eligibility decision in memory for at most 60 seconds and writes no geographic answer to device storage.
