@@ -1516,6 +1516,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
       flightRef.current = null;
       setMotion(null);
+      parkOutgoing(flight);
       const { id } = flight.motion;
       const { guard } = flight;
       // The morph spent the visibility sequence the guard was taken at, so it is checked as after a hide.
@@ -1524,7 +1525,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         flight.finish(committed === true);
       });
     },
-    [endFlight, parkLegacy]
+    [endFlight, parkLegacy, parkOutgoing]
   );
 
   // Re-armed by every accepted event, since each one is a new `motion`; a held page or a settled collapse has none.

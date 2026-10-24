@@ -1841,6 +1841,24 @@ describe('native morph adoption', () => {
     expect(control().motion).toBeNull();
   });
 
+  it('parks the replaced foreground too when the watchdog ends a reversed expand', async () => {
+    await openForeground();
+    await act(async () => control().park('origin'));
+    act(() => control().open(session('second')));
+    await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+    mockMorph.mockResolvedValue({ accepted: true });
+    await act(async () => void control().restore('origin', { card: CARD }));
+    jest.useFakeTimers();
+
+    emitMorph('retargeted', 'collapsed');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    jest.useRealTimers();
+
+    await waitFor(() => expect(parked().sort()).toEqual(['origin', 'second']));
+  });
+
   it('does not fire the watchdog while a finger holds the page', async () => {
     await openForeground();
     mockMorph.mockResolvedValue({ accepted: true });
