@@ -2492,6 +2492,16 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertFalse(live.window.isKeyWindow)
     }
 
+    func testRetargetKeepsTheCardItsMotionStartedWith() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        let card = landing(live)
+        XCTAssertTrue(collapse(live, "c1"))
+        let moved = BreadMorphCard(rect: card.rect.offsetBy(dx: -150, dy: -200), cornerRadius: 16)
+        XCTAssertTrue(expand(live, "e1", card: moved))
+        XCTAssertEqual(live.presentation.animator?.card?.rect, card.rect)
+    }
+
     func testCollapseCrossfadesToTheProxyBelowThirtyFivePercent() async throws {
         let (live, _) = try await revealedMorph()
         defer { live.dispose() }
