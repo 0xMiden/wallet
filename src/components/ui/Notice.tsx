@@ -10,10 +10,11 @@ import { cn } from 'lib/ui/util';
  * What the notice says about its content:
  * - `neutral` — a quiet aside, `fill` with a `muted` body.
  * - `warning` — something to act on with care (test funds, a pending state).
+ * - `caution` — a calm heads-up before an action (use a test wallet): the sand `pending-tint`, quieter than `warning`.
  * - `negative` — an error or a destructive consequence.
  * - `positive` — a confirmation.
  */
-export type NoticeTone = 'neutral' | 'warning' | 'negative' | 'positive';
+export type NoticeTone = 'neutral' | 'warning' | 'caution' | 'negative' | 'positive';
 
 /**
  * How much room the notice takes:
@@ -69,6 +70,7 @@ const noticeSurfaceVariants = cva('', {
     tone: {
       neutral: 'bg-fill',
       warning: 'bg-status-pending/10',
+      caution: 'bg-pending-tint',
       negative: 'bg-status-negative/10',
       positive: 'bg-status-positive/10'
     } satisfies Record<NoticeTone, string>
@@ -82,6 +84,7 @@ const noticeInkVariants = cva('', {
     tone: {
       neutral: 'text-ink',
       warning: 'text-pending-ink',
+      caution: 'text-pending-tint-ink',
       negative: 'text-negative-ink',
       positive: 'text-positive-ink'
     } satisfies Record<NoticeTone, string>
@@ -95,6 +98,7 @@ const noticeBodyVariants = cva('text-caption', {
       // `muted` on `fill` is 4.7:1.
       neutral: 'text-muted',
       warning: 'text-ink',
+      caution: 'text-pending-tint-ink',
       negative: 'text-ink',
       positive: 'text-ink'
     } satisfies Record<NoticeTone, string>

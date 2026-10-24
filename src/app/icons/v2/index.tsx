@@ -26,6 +26,8 @@ import { ReactComponent as BadgeRecovery } from './badge-recovery.svg';
 import { ReactComponent as BadgeSend } from './badge-send.svg';
 import { ReactComponent as BadgeSwap } from './badge-swap.svg';
 import { ReactComponent as Bin } from './bin.svg';
+import { ReactComponent as BridgeIn } from './bridge-in.svg';
+import { ReactComponent as BridgeOut } from './bridge-out.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
 import { ReactComponent as CheckboxCircleFill } from './checkbox-circle-fill.svg';
 import { ReactComponent as CheckboxCircle } from './checkbox-circle.svg';
@@ -160,6 +162,8 @@ export enum IconName {
   Convert = 'convert',
   Copy = 'copy',
   CopyNew = 'copy-new',
+  BridgeIn = 'bridge-in',
+  BridgeOut = 'bridge-out',
   CrossChain = 'cross-chain',
   Download = 'download',
   Earn = 'earn',
@@ -322,6 +326,10 @@ const IconSwitch = (props: IconProps) => {
       return <Copy {...props} />;
     case IconName.CopyNew:
       return <CopyNew {...props} />;
+    case IconName.BridgeIn:
+      return <BridgeIn {...props} />;
+    case IconName.BridgeOut:
+      return <BridgeOut {...props} />;
     case IconName.CrossChain:
       return <CrossChain {...props} />;
     case IconName.Download:

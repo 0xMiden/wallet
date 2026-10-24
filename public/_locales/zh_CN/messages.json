@@ -475,6 +475,18 @@
     "message": "提现",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "转入 Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "出自 Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "存入更多",
     "englishSource": "Deposit more"
@@ -6168,8 +6180,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "仅连接测试钱包",
-    "englishSource": "Connect a test wallet only"
+    "message": "仅使用测试钱包",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "仅限测试资金",
@@ -7149,24 +7161,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "连接存放您想要转入 Miden 的代币的钱包。",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "存放您打算带到 Miden 的代币的钱包。",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "连接钱包",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "外部钱包",
-    "englishSource": "External wallet"
+    "message": "您的钱包",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "尚未连接",
-    "englishSource": "Not connected yet"
+    "message": "未连接",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "连接后",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask、Rainbow 或任何 WalletConnect 钱包。",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "选择您的转账方式",
@@ -7181,12 +7197,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "请核对转账路径和手续费，然后在您的钱包中批准转账。",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "请核对转账路径和手续费，然后在您的钱包中确认交易。",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "请使用仅存放测试代币的独立钱包。切勿连接存有真实资金的钱包。",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "切勿连接存有真实资金的钱包。",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "选择路径",
@@ -7333,6 +7349,27 @@
   "earnWithdrawStaysInvested": {
     "message": "Stays invested",
     "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "发布于",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · 约1分钟",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gas",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "赞助内容",
+    "englishSource": "Sponsored"
   },
   "earnWithdrawAll": {
     "message": "Full balance",
@@ -7817,5 +7854,226 @@
   "amountUsdEstimate": {
     "message": "美元估算",
     "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "预览",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "退出",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "示例数据仅用于设计预览。这些并非您的钱包资金或真实玩家排名。任何内容均未发布。",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "示例播放器",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "仅供预览",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "应用示例更新",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "您的等级",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "提交的余额",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC排行榜",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "本地更新了示例快照。未提交任何内容。",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "在 Bread 中探索游戏。",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "探索 Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "精选游戏",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "推荐尝试的游戏",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade 快捷键",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "排名",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "游戏币",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "我的活动",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "打开游戏",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "详情",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "暂无游戏可用",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "当本网络上推出游戏时，它们将在此处显示。",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "打开游戏不会自动连接您的钱包。Bread 会先征得您的同意。",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC 排名",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "查看 GC 余额",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC余额",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "未读",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "提交余额",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "更新余额",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "提交余额快照会向排行榜分享您的账户标识符、GC 余额、网络及快照时间。您的其他资产余额不包含在内。",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC 余额读取与排行榜提交目前尚未关联。尚未读取或提交任何余额。",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "排名将显示在此处",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "该网络目前尚未启用实时排名功能。",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "您的余额将显示在此处",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "游戏币目前尚未在此网络上上线。",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "仅包含“Arcade”中列出的游戏。",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "金融",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "其他",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "代币",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "活动",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "浏览游戏",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "您的余额将保持私密。",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "只有您选择共享的余额才会被纳入排名。",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "目前尚无游戏活动",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "您在 Arcade 游戏中进行的交易会显示在此处。",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1 USDCx 购买 1,000 GC，另加网络手续费。",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Bread 暂不支持购买 GC。",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "购买更多 GC",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "余额不可用",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "游戏币",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

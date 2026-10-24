@@ -10,6 +10,7 @@ import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
 import {
   getActiveOverride,
   getEffectiveNetworkName,
+  hasCustomEndpointOverride,
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope, getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -69,8 +70,8 @@ import { holdsNotes } from './verdict-rules';
 
 export { ClaimFeeRefusedError } from './claim-fee';
 
-// An override's preset name is not evidence of the chain it actually points to.
-const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
+// A network-only onboarding choice uses canonical endpoints; a developer override does not prove a chain.
+const badgeNetwork = () => (hasCustomEndpointOverride(getActiveOverride()) ? undefined : getEffectiveNetworkName());
 
 /** A worker claim refused at a row write because its caller can no longer sign it; the call's rows are rolled back. */
 export class ClaimInsertRefusedError extends Error {

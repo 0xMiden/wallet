@@ -155,6 +155,26 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(missing.sort()).toEqual(staleKeys(locale).sort());
   });
 
+  it.each(RUNTIME_LOCALES)('%s keeps the bridge source hint aligned with the disconnected-wallet label', locale => {
+    const flat = loadFlat(locale);
+    const messages = loadMessages(locale);
+    expect(flat.bridgeConnectSourceHint).toBe(flat.guardianNotConnectedLabel);
+    expect(msg(messages, 'bridgeConnectSourceHint')).toBe(msg(messages, 'guardianNotConnectedLabel'));
+  });
+
+  it.each([
+    ['de', 'Nach Miden'],
+    ['fr', 'Vers Miden'],
+    ['ja', 'ミデンへ'],
+    ['pl', 'Do Miden'],
+    ['pt', 'Para Miden'],
+    ['zh_CN', '转入 Miden'],
+    ['zh_TW', '轉入 Miden']
+  ])('%s translates the home deposit hint', (locale, expected) => {
+    expect(loadFlat(locale).homeDepositHint).toBe(expected);
+    expect(msg(loadMessages(locale), 'homeDepositHint')).toBe(expected);
+  });
+
   it.each(['en', ...DERIVED_LOCALES])('%s uses $-delimited placeholders, never {{…}}', locale => {
     // `src/i18n.ts` configures `interpolation.prefix/suffix = '$'`, so a stale
     // `{{origin}}` renders literally — e.g. the "reset permissions for X?" prompt

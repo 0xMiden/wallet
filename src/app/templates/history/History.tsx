@@ -63,6 +63,8 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** Passed to `HistoryView`: a filter's own empty state. */
+  emptyState?: React.ReactNode;
   /**
    * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
    * coloured weekday, for a list that already sits under its own section heading (Token Detail).
@@ -78,10 +80,13 @@ type HistoryProps = {
   filter?: ActivityFilter;
   /**
    * Fired once the reads the current filter needs have answered (the in-flight read alone under Pending), i.e. when
-   * the list stops being a spinner; never while the page is off screen. The hosting screen reports "the user can see
-   * their activity" from this; the loading state lives here, so nothing above can derive it.
+   * the list stops being a spinner, and the host's extra hold `deferInitialLoad` is clear; never while the page is
+   * off screen. The hosting screen reports "the user can see their activity" from this; the loading state lives
+   * here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
+  /** The host's extra hold on `onInitialLoad`. The report waits while it is set and runs again when it clears. */
+  deferInitialLoad?: boolean;
   onLoadingChange?: (loading: boolean) => void;
   externalLoading?: boolean;
   /** Set by a host that draws its own loading bar over the list, so the list draws no spinner of its own. */
@@ -133,12 +138,13 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
 // The chips above the activity list. `pending` shows the notes that wait for a
 // claim and the wallet's own transactions still in flight, so it removes every
 // settled history row. Each other chip but `all` is an `ActivityCategory`.
-export type ActivityFilter = 'all' | 'pending' | 'transfer' | 'swap' | 'earn' | 'others';
+export type ActivityFilter = 'all' | 'pending' | 'transfer' | 'swap' | 'earn' | 'others' | 'arcade';
 
 /** Whether a row shows under a filter chip. */
 function matchesActivityFilter(filter: ActivityFilter, entry: IHistoryEntry): boolean {
   switch (filter) {
     case 'all':
+    case 'arcade':
       return true;
     // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
     case 'pending':
@@ -165,6 +171,7 @@ const History = memo<HistoryProps>(
     scrollParentRef,
     fullHistory,
     centerEmptyState,
+    emptyState,
     dateStyle,
     tokenId,
     searchQuery,
@@ -177,6 +184,7 @@ const History = memo<HistoryProps>(
     renderPendingItem,
     onLoadingChange,
     externalLoading = false,
+    deferInitialLoad = false,
     hideLoadingSpinner = false
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
@@ -264,7 +272,8 @@ const History = memo<HistoryProps>(
 
     // A read the list needs is loading while it holds no data (live, or kept for this key) and no error: the
     // settled read unless Pending, the in-flight read always. So a page mounted off screen stays loading, and reports
-    // no initial load, until it is on screen and its reads have answered. The spinner and the report read this value.
+    // no initial load, until it is on screen and its reads have answered. The spinner reads `initialLoading`. The
+    // report reads `initialLoading` and the host's extra hold `deferInitialLoad`.
     const transactionsLoading = latestTransactions === undefined && !latestError;
     const pendingLoading = latestPendingTransactions === undefined && !pendingError;
     const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
@@ -277,9 +286,9 @@ const History = memo<HistoryProps>(
     }, [historyLoading, onLoadingChange]);
     useEffect(() => () => onLoadingChange?.(false), [onLoadingChange]);
     useEffect(() => {
-      if (initialLoading) return;
+      if (!onScreen || initialLoading || deferInitialLoad) return;
       onInitialLoad?.();
-    }, [initialLoading, onInitialLoad]);
+    }, [onScreen, initialLoading, deferInitialLoad, onInitialLoad]);
 
     const pendingTransactions = useMemo(
       () =>
@@ -429,7 +438,7 @@ const History = memo<HistoryProps>(
     }
     if (filter && filter !== 'all') {
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
-      entries = entries.filter(e => matchesActivityFilter(filter, e));
+      entries = filter === 'arcade' && !predicate ? [] : entries.filter(e => matchesActivityFilter(filter, e));
     }
     // Last, so a group's page narrows what the search and the filter already left.
     if (predicate) {
@@ -475,6 +484,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        emptyState={emptyState}
         dateStyle={dateStyle}
         pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
@@ -528,6 +538,7 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
+      dappOrigins: tx.dappOrigins,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
@@ -634,6 +645,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
+      dappOrigins: tx.dappOrigins,
       address: address,
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
