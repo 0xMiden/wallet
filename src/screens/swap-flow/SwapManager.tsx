@@ -11,7 +11,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { amountExceedsTokenDecimals, formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -374,12 +374,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   const hasRequestAmount = requestAmountBaseUnits !== undefined && requestAmountBaseUnits > 0n;
   const offerAmountExceedsBalance = useMemo(() => {
     if (offerAmountBaseUnits === undefined) return false;
-    try {
-      return offerAmountBaseUnits > stringToBigInt(String(offerSpendable), offerToken.decimals);
-    } catch {
-      return true;
-    }
-  }, [offerAmountBaseUnits, offerSpendable, offerToken.decimals]);
+    if (!Number.isFinite(offerSpendable)) return true;
+    return typedAmountExceedsBalance(offerAmount, offerSpendable, offerToken.decimals);
+  }, [offerAmount, offerAmountBaseUnits, offerSpendable, offerToken.decimals]);
   // A landed wallet-built ask of zero (a price too small for the receive token's precision) gives
   // the field nothing to show: it reads as unavailable, so the field leaves its skeleton for entry.
   const quoteAskIsZero =
