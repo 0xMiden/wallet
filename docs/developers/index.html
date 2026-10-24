@@ -254,61 +254,104 @@ p { margin: 0 0 1em; }
 .status .dots { display: flex; gap: 4px; }
 .status .dots i { width: 15px; height: 9px; border-radius: 3px; background: rgba(255,255,255,0.9); display: block; }
 .status .dots i:first-child { width: 12px; background: rgba(255,255,255,0.55); }
+/* Hero storyline: one loop of --loop, in percent of it.
+   0-11    Explore in Bread, the dApp's card in its list
+   11-15   tap the card: touch ring, card pressed
+   15-22   the card grows into the fullscreen dApp
+   22-41   the dApp runs fullscreen, the Bread capsule in its corner
+   41-47   it shrinks into the app switcher
+   47-58   switcher; tap the dApp's card at 55.5
+   58-64   it grows back to fullscreen
+   64-74   fullscreen; tap the Bread capsule at 71.5
+   74-82   it shrinks back to its card in Explore
+   82-100  Explore again, then the loop restarts */
+.stage { --loop: 16s; }
+.explore { position: absolute; inset: 0; z-index: 0; background: #15120f; color: #fbf5ef; }
+.ex-title { position: absolute; top: 9.5%; left: 6%; font: 800 20px/1 var(--font-display); letter-spacing: -0.02em; }
+.ex-search { position: absolute; top: 15.5%; left: 5.9%; right: 5.9%; height: 6%; display: flex; align-items: center; padding: 0 12px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #aaa29b; font: 500 11.5px/1 var(--font-body); white-space: nowrap; overflow: hidden; }
+.ex-label { position: absolute; top: 23.4%; left: 6%; color: #aaa29b; font: 700 11.5px/1 var(--font-body); }
+.ex-row { position: absolute; left: 5.9%; right: 5.9%; height: 8%; display: flex; align-items: center; gap: 10px; }
+.ex-row.r1 { top: 57%; }
+.ex-row.r2 { top: 67%; }
+.ex-row i { flex: none; width: 36px; height: 36px; border-radius: 11px; background: rgba(255,255,255,0.12); }
+.ex-row span { flex: 1; display: grid; gap: 6px; }
+.ex-row b { display: block; width: 70%; height: 7px; border-radius: 4px; background: rgba(255,255,255,0.16); }
+.ex-row b + b { width: 45%; opacity: 0.6; }
+.ex-nav { position: absolute; left: 0; right: 0; bottom: 0; height: 9%; display: flex; justify-content: space-around; align-items: center; padding-bottom: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
+.ex-nav i { display: block; width: 18px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.35); }
+.ex-nav i:nth-child(3) { background: var(--accent); }
+.switcher { position: absolute; inset: 0; z-index: 1; display: grid; align-content: start; gap: 12px; padding: 64px 18px 0; background: #1a1714; opacity: 0; animation: hero-switcher var(--loop) infinite; }
+.switcher i { display: block; height: 54px; border-radius: 14px; background: rgba(255,255,255,0.06); }
+.switcher i:first-child { height: 120px; background: linear-gradient(135deg, rgba(231,117,55,0.5), rgba(231,117,55,0.15)); }
 .app {
-  position: absolute; left: 0; right: 0; top: 0; bottom: 96px; overflow: hidden; z-index: 1;
+  position: absolute; z-index: 3; top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; overflow: hidden;
   background: radial-gradient(120% 70% at 50% 110%, #ff7a3d 0%, #c43d6b 32%, #3b1f5e 62%, #120d24 100%);
-  animation: app-frame 12s cubic-bezier(.65,0,.35,1) infinite;
+  animation: hero-frame var(--loop) cubic-bezier(.65,0,.35,1) infinite;
 }
+.app .face { position: absolute; inset: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: end; align-items: center; gap: 2px 10px; padding: 14px; animation: hero-face var(--loop) infinite; }
+.app .face .icon { grid-row: span 2; width: 40px; height: 40px; border-radius: 12px; background: radial-gradient(circle at 50% 75%, #ffd27a, #ff7a3d 42%, #c43d6b 78%); box-shadow: 0 6px 16px -6px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.25); }
+.app .face .name { color: #fff; font: 800 15px/1.1 var(--font-display); white-space: nowrap; }
+.app .face .tag { color: rgba(255,255,255,0.82); font: 500 11px/1.2 var(--font-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app .scene { position: absolute; inset: 0; opacity: 0; animation: hero-scene var(--loop) infinite; }
 .app .stars { position: absolute; inset: 0; background-image: radial-gradient(1.4px 1.4px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 18%, #fff, transparent), radial-gradient(1.2px 1.2px at 40% 60%, #ffe9c7, transparent), radial-gradient(1px 1px at 85% 46%, #fff, transparent), radial-gradient(1.3px 1.3px at 12% 72%, #fff, transparent), radial-gradient(1px 1px at 58% 40%, #fff, transparent); opacity: 0.8; }
 .app .sun { position: absolute; left: 50%; bottom: 22%; width: 150px; height: 150px; margin-left: -75px; border-radius: 50%; background: linear-gradient(#ffd27a, #ff7a3d 60%, #ff4f6d); box-shadow: 0 0 60px 10px rgba(255,140,80,0.45); }
 .app .hills { position: absolute; left: -10%; right: -10%; bottom: -2px; height: 34%; background: radial-gradient(60% 100% at 30% 100%, #2a1240 60%, transparent 61%), radial-gradient(70% 100% at 80% 100%, #1c0d30 60%, transparent 61%); }
-.app .hud { position: absolute; top: 54px; left: 14px; right: 14px; height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; animation: hud 12s cubic-bezier(.65,0,.35,1) infinite; }
+.app .hud { position: absolute; top: 54px; left: 14px; right: 14px; height: 40px; padding-left: 62px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .app .hud .title { font: 800 15px/1 var(--font-display); color: #fff; letter-spacing: -0.01em; white-space: nowrap; }
 .app .hud .score { font: 600 12px/1 var(--font-mono); color: #ffe2c4; background: rgba(0,0,0,0.3); padding: 7px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); white-space: nowrap; }
 .app .play { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%); padding: 11px 26px; border-radius: 999px; background: #fff; color: #2a1240; font: 800 14px/1 var(--font-display); box-shadow: 0 10px 30px -6px rgba(0,0,0,0.5); white-space: nowrap; }
-.toolbar {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 96px; z-index: 5; padding: 12px 14px 0;
-  background: rgba(24, 21, 19, 0.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-top: 1px solid rgba(255,255,255,0.08);
-  animation: toolbar 12s cubic-bezier(.65,0,.35,1) infinite;
-}
-.toolbar .addr { height: 36px; border-radius: 12px; background: rgba(255,255,255,0.09); display: flex; align-items: center; gap: 8px; padding: 0 12px; color: #e9e1d9; font: 500 12.5px/1 var(--font-body); }
-.toolbar .addr svg { width: 12px; height: 12px; opacity: 0.7; flex: none; }
-.toolbar .tools { display: flex; justify-content: space-around; margin-top: 10px; }
-.toolbar .tools i { width: 18px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.35); display: block; }
 .capsule {
   position: absolute; z-index: 7; top: 50px; left: 12px; width: 50px; height: 38px; border-radius: 19px; display: grid; place-items: center;
   background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.3); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  opacity: 0; transform: scale(0.6); animation: capsule 12s cubic-bezier(.65,0,.35,1) infinite;
+  opacity: 0; animation: hero-capsule var(--loop) cubic-bezier(.65,0,.35,1) infinite;
 }
 .capsule svg { width: 22px; height: 22px; }
-.capsule .ripple { position: absolute; inset: -2px; border-radius: inherit; border: 2px solid #fff; opacity: 0; animation: ripple 12s ease-out infinite; }
+.tap { position: absolute; z-index: 10; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; border: 2.5px solid #fff; background: rgba(255,255,255,0.42); box-shadow: 0 0 0 6px rgba(255,255,255,0.18), 0 4px 18px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; }
+.tap.t1 { top: 39.75%; left: 50%; animation: hero-tap1 var(--loop) ease-out infinite; }
+.tap.t2 { top: 84%; left: 50%; animation: hero-tap2 var(--loop) ease-out infinite; }
+.tap.t3 { top: 69px; left: 37px; animation: hero-tap3 var(--loop) ease-out infinite; }
 .home-ind { position: absolute; bottom: 8px; left: 50%; width: 110px; height: 4px; margin-left: -55px; border-radius: 3px; background: rgba(255,255,255,0.75); z-index: 8; }
-.parked { position: absolute; inset: 0; z-index: 0; background: #1a1714; display: grid; align-content: start; padding: 64px 18px 0; gap: 12px; }
-.parked .row { height: 54px; border-radius: 14px; background: rgba(255,255,255,0.06); }
-.parked .row:first-child { height: 120px; background: linear-gradient(135deg, rgba(231,117,55,0.5), rgba(231,117,55,0.15)); }
-@keyframes app-frame {
-  0%, 22% { bottom: 96px; transform: none; border-radius: 0; }
-  30%, 58% { bottom: 0; transform: none; border-radius: 0; }
-  64%, 74% { bottom: 0; transform: translateY(46%) scale(0.5); border-radius: 46px; }
-  82%, 100% { bottom: 0; transform: none; border-radius: 0; }
+@keyframes hero-frame {
+  0%, 11% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: none; }
+  12.5% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: scale(0.95); }
+  14.5% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: none; animation-timing-function: cubic-bezier(.2,.85,.25,1); }
+  22%, 41% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; transform: none; }
+  47%, 54.5% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 46px; transform: translateY(46%) scale(0.5); }
+  55.5% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 46px; transform: translateY(46%) scale(0.47); }
+  57% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 46px; transform: translateY(46%) scale(0.5); animation-timing-function: cubic-bezier(.2,.85,.25,1); }
+  64%, 74% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; transform: none; animation-timing-function: cubic-bezier(.3,0,.2,1); }
+  82%, 100% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: none; }
 }
-@keyframes toolbar { 0%, 20% { transform: none; opacity: 1; } 28%, 100% { transform: translateY(110%); opacity: 0; } }
-@keyframes capsule { 0%, 24% { opacity: 0; transform: scale(0.6); } 32%, 60% { opacity: 1; transform: scale(1); } 62% { transform: scale(0.88); } 64%, 76% { opacity: 0; transform: scale(0.7); } 84%, 100% { opacity: 1; transform: scale(1); } }
-@keyframes ripple { 0%, 56% { opacity: 0; transform: scale(1); } 58% { opacity: 0.9; transform: scale(1); } 64%, 100% { opacity: 0; transform: scale(1.7); } }
-@keyframes hud { 0%, 24% { padding-left: 0; } 32%, 100% { padding-left: 62px; } }
+@keyframes hero-face { 0%, 15% { opacity: 1; } 18%, 77% { opacity: 0; } 81%, 100% { opacity: 1; } }
+@keyframes hero-scene { 0%, 15% { opacity: 0; } 20%, 77% { opacity: 1; } 80%, 100% { opacity: 0; } }
+@keyframes hero-switcher { 0%, 41% { opacity: 0; } 44%, 58% { opacity: 1; } 62%, 100% { opacity: 0; } }
+@keyframes hero-capsule {
+  0%, 21% { opacity: 0; transform: scale(0.6); }
+  25%, 40% { opacity: 1; transform: none; }
+  43%, 61% { opacity: 0; transform: scale(0.6); }
+  65%, 70.5% { opacity: 1; transform: none; }
+  71.5% { opacity: 1; transform: scale(0.84); }
+  73% { opacity: 1; transform: none; }
+  75.5%, 100% { opacity: 0; transform: scale(0.6); }
+}
+@keyframes hero-tap1 { 0%, 10.5% { opacity: 0; transform: scale(0.4); } 11.5% { opacity: 1; transform: scale(0.75); } 12.5% { opacity: 1; transform: scale(0.85); } 16%, 100% { opacity: 0; transform: scale(1.8); } }
+@keyframes hero-tap2 { 0%, 54% { opacity: 0; transform: scale(0.4); } 55% { opacity: 1; transform: scale(0.75); } 56% { opacity: 1; transform: scale(0.85); } 59.5%, 100% { opacity: 0; transform: scale(1.8); } }
+@keyframes hero-tap3 { 0%, 70% { opacity: 0; transform: scale(0.4); } 71% { opacity: 1; transform: scale(0.75); } 72% { opacity: 1; transform: scale(0.85); } 75.5%, 100% { opacity: 0; transform: scale(1.8); } }
 .stage-chips { position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); height: 34px; width: 300px; display: grid; place-items: center; }
 .stage-chips span {
   grid-area: 1 / 1; padding: 7px 14px; border-radius: 999px; background: var(--surface-solid); border: 1px solid var(--hairline-strong); box-shadow: var(--shadow);
   font: 500 12.5px/1 var(--font-mono); color: var(--ink); white-space: nowrap; opacity: 0;
 }
-.stage-chips span:nth-child(1) { animation: chip1 12s infinite; }
-.stage-chips span:nth-child(2) { animation: chip2 12s infinite; }
-.stage-chips span:nth-child(3) { animation: chip3 12s infinite; }
-.stage-chips span:nth-child(4) { animation: chip4 12s infinite; }
-@keyframes chip1 { 0%, 20% { opacity: 1; } 24%, 100% { opacity: 0; } }
-@keyframes chip2 { 0%, 24% { opacity: 0; } 28%, 56% { opacity: 1; } 60%, 100% { opacity: 0; } }
-@keyframes chip3 { 0%, 60% { opacity: 0; } 64%, 76% { opacity: 1; } 80%, 100% { opacity: 0; } }
-@keyframes chip4 { 0%, 80% { opacity: 0; } 84%, 98% { opacity: 1; } 100% { opacity: 0; } }
+.stage-chips span:nth-child(1) { animation: hero-cap1 var(--loop) infinite; }
+.stage-chips span:nth-child(2) { animation: hero-cap2 var(--loop) infinite; }
+.stage-chips span:nth-child(3) { animation: hero-cap3 var(--loop) infinite; }
+.stage-chips span:nth-child(4) { animation: hero-cap4 var(--loop) infinite; }
+.stage-chips span:nth-child(5) { animation: hero-cap5 var(--loop) infinite; }
+@keyframes hero-cap1 { 0%, 9% { opacity: 1; } 10.5%, 84.5% { opacity: 0; } 86%, 100% { opacity: 1; } }
+@keyframes hero-cap2 { 0%, 9.5% { opacity: 0; } 11%, 19.5% { opacity: 1; } 21%, 100% { opacity: 0; } }
+@keyframes hero-cap3 { 0%, 20% { opacity: 0; } 21.5%, 40% { opacity: 1; } 41.5%, 100% { opacity: 0; } }
+@keyframes hero-cap4 { 0%, 40.5% { opacity: 0; } 42%, 62% { opacity: 1; } 63.5%, 100% { opacity: 0; } }
+@keyframes hero-cap5 { 0%, 62.5% { opacity: 0; } 64%, 84% { opacity: 1; } 85.5%, 100% { opacity: 0; } }
 .float-card {
   position: absolute; z-index: 3; padding: 14px 16px; border-radius: 16px; max-width: 250px;
   background: color-mix(in srgb, var(--code-bg) 88%, transparent); border: 1px solid rgba(255,255,255,0.1); color: var(--code-ink);
@@ -316,7 +359,7 @@ p { margin: 0 0 1em; }
   font: 500 12px/1.6 var(--font-mono);
 }
 .rig { position: relative; }
-.float-card.meta { top: 128px; left: -158px; animation: bob 7s ease-in-out infinite; }
+.float-card.meta { top: 330px; left: -170px; animation: bob 7s ease-in-out infinite; }
 .float-card.vars { white-space: nowrap; max-width: none; bottom: 64px; right: -190px; animation: bob 8s ease-in-out -3s infinite; }
 .float-card .k { color: #ff9a62; } .float-card .s { color: #f3d58a; } .float-card .a { color: #e8b4ff; } .float-card .v { color: #ffb38a; } .float-card .c { color: #8a817a; }
 @keyframes bob { 50% { transform: translateY(-10px); } }
@@ -577,8 +620,7 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
   .brand .sub { display: none; }
   .stage { min-height: 520px; }
   .phone { --w: 252px; }
-  .float-card.meta { left: -44px; top: 150px; max-width: 200px; font-size: 11px; padding: 10px 12px; }
-  .float-card.vars { white-space: normal; right: -36px; bottom: 56px; max-width: 180px; font-size: 11px; padding: 10px 12px; }
+  .float-card { display: none; }
   .device { --dw: 230px; --dh: 480px; }
   .device.landscape { --dw: 100%; --dh: 170px; --sa-left: 30px; --sa-right: 30px; }
   .device-wrap { width: 100%; }
@@ -598,13 +640,13 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   .sky .blob { animation: none; }
-  .app { bottom: 0 !important; animation: none !important; }
-  .toolbar { animation: none !important; transform: translateY(110%); opacity: 0; }
-  .capsule { animation: none !important; opacity: 1; transform: none; }
-  .capsule .ripple { display: none; }
-  .app .hud { animation: none !important; padding-left: 62px; }
+  .app { animation: none !important; top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; }
+  .app .face { animation: none !important; opacity: 0; }
+  .app .scene { animation: none !important; opacity: 1; }
+  .capsule { animation: none !important; opacity: 1; }
+  .switcher, .tap { animation: none !important; opacity: 0; }
   .stage-chips span { animation: none !important; }
-  .stage-chips span:nth-child(2) { opacity: 1; }
+  .stage-chips span:nth-child(3) { opacity: 1; }
   .float-card { animation: none !important; }
   .stage-ctrl { display: none; }
   .js .reveal { opacity: 1; transform: none; }
@@ -674,11 +716,11 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       </div>
     </div>
 
-    <div class="stage" role="img" aria-label="Animation: a game opens in Bread's mobile browser with the toolbar at the bottom, switches to fullscreen with the Bread capsule in the top corner, minimizes into Bread when the capsule is tapped, and restores.">
+    <div class="stage">
       <button class="icon-btn stage-ctrl" type="button" aria-label="Pause animation" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true" class="pz"><path d="M8 5v14M16 5v14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
       </button>
-      <div class="rig">
+      <div class="rig" role="img" aria-label="Illustrative animation: in Bread's Explore screen a tap on a game's card opens it fullscreen with a smooth morph and the Bread capsule in its corner. The app switcher shows it as a card, a tap brings it back, and a tap on the Bread capsule minimizes it to its card in Explore.">
       <div class="float-card meta" aria-hidden="true">
         <span class="c">&lt;!-- in your &lt;head&gt; --&gt;</span><br>
         <span class="k">&lt;meta</span> <span class="a">name</span>=<span class="s">"bread-display"</span><br>
@@ -691,17 +733,25 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       </div>
       <div class="phone" aria-hidden="true">
         <div class="screen">
-          <div class="parked"><div class="row"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+          <div class="explore">
+            <div class="ex-title">Explore</div>
+            <div class="ex-search">Search or type a URL</div>
+            <div class="ex-label">Games</div>
+            <div class="ex-row r1"><i></i><span><b></b><b></b></span></div>
+            <div class="ex-row r2"><i></i><span><b></b><b></b></span></div>
+            <div class="ex-nav"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="switcher"><i></i><i></i><i></i><i></i></div>
           <div class="app">
-            <div class="stars"></div><div class="sun"></div><div class="hills"></div>
-            <div class="hud"><span class="title">Skyline Run</span><span class="score">1,280</span></div>
-            <div class="play">Play</div>
+            <div class="face"><span class="icon"></span><span class="name">Skyline Run</span><span class="tag">Race the sunset</span></div>
+            <div class="scene">
+              <div class="stars"></div><div class="sun"></div><div class="hills"></div>
+              <div class="hud"><span class="title">Skyline Run</span><span class="score">1,280</span></div>
+              <div class="play">Play</div>
+            </div>
           </div>
-          <div class="toolbar">
-            <div class="addr"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>skyline-run.example</div>
-            <div class="tools"><i></i><i></i><i></i><i></i></div>
-          </div>
-          <div class="capsule"><svg><use href="#bread"/></svg><span class="ripple"></span></div>
+          <div class="capsule"><svg><use href="#bread"/></svg></div>
+          <span class="tap t1"></span><span class="tap t2"></span><span class="tap t3"></span>
           <div class="status"><span>9:41</span><span class="dots"><i></i><i></i></span></div>
           <div class="island"></div>
           <div class="home-ind"></div>
@@ -709,10 +759,11 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
       </div>
       </div>
       <div class="stage-chips" aria-hidden="true">
-        <span>browser mode</span>
-        <span>bread-display: fullscreen</span>
-        <span>tap capsule: minimized</span>
-        <span>restored, same session</span>
+        <span>Explore in Bread</span>
+        <span>Tap the dApp</span>
+        <span>Opens fullscreen</span>
+        <span>Switch apps</span>
+        <span>Tap Bread to minimize</span>
       </div>
     </div>
   </section>
