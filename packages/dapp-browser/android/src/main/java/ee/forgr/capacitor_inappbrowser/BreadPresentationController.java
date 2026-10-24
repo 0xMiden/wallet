@@ -358,6 +358,8 @@ final class BreadPresentationController {
     void snapshot(java.util.function.Consumer<Bitmap> done) { done.accept(null); }
 
     void stopMotion() { }
+
+    android.graphics.RectF morphPageRect() { return new android.graphics.RectF(); }
     boolean fullscreen() { return state.fullscreen(); }
 
     void visibility(boolean visible) { visibility(visible, null, null); }

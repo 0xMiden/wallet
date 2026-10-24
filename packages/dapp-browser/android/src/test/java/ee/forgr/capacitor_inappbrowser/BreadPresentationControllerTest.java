@@ -1554,6 +1554,8 @@ public class BreadPresentationControllerTest {
 
     private FakeSnapshotter snapshots;
     private View root;
+    private final int[] rootOrigin = new int[2];
+    private int gestures;
 
     private void openMorph(boolean fullscreen) throws Exception {
         BreadMorphControllerTest.resetSpringFrames();
@@ -1573,6 +1575,7 @@ public class BreadPresentationControllerTest {
         }
         assertTrue("slot laid out", root.getWidth() > 0 && root.getHeight() > 0);
         assertTrue("page laid out", webView.getWidth() > 0 && webView.getHeight() > 0);
+        root.getLocationInWindow(rootOrigin);
     }
 
     private void paintFence() {
@@ -1902,5 +1905,156 @@ public class BreadPresentationControllerTest {
         assertEquals(List.of("started:collapsed"), phases("m1"));
         assertFalse(driver().running());
         assertEquals(1, root.getScaleX(), 0);
+    }
+
+    private android.view.MotionEvent touch(int action, float x, float y, long time) {
+        return android.view.MotionEvent.obtain(0, time, action, x, y, 0);
+    }
+
+    private float[] path(BreadMorphCard card) {
+        return new float[] {root.getWidth() / 2f - (card.rect.centerX() - rootOrigin[0]),
+            root.getHeight() / 2f - (card.rect.centerY() - rootOrigin[1])};
+    }
+
+    private float grabAndRelease(BreadMorphCard card, float travel, boolean fast) {
+        String id = "grab" + (++gestures);
+        assertTrue(collapse(card, id));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 60 && morph.progress() > 0.5f; i++) BreadMorphControllerTest.frame();
+        RectF page = controller.morphPageRect();
+        float[] d = path(card);
+        float length = (float) Math.hypot(d[0], d[1]);
+        float slop = 2 * android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        float x = page.centerX(), y = page.centerY();
+        float sx = x + d[0] / length * slop, sy = y + d[1] / length * slop;
+        float ex = sx + d[0] * travel, ey = sy + d[1] * travel;
+        long t = android.os.SystemClock.uptimeMillis();
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, x, y, t)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, sx, sy, t + 8)));
+        if (fast) {
+            assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, ex, ey, t + 24)));
+            assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, ex, ey, t + 28)));
+        } else {
+            assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, ex, ey, t + 40)));
+            assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, ex, ey, t + 400)));
+            assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, ex, ey, t + 410)));
+        }
+        List<BreadMorphEvent> events = morphEvents(id);
+        BreadMorphEvent release = events.get(events.size() - 1);
+        assertEquals("retargeted", release.phase);
+        assertFalse(release.tracking);
+        float end = morph.target();
+        assertEquals(end >= 0.5f ? "expanded" : "collapsed", release.target);
+        BreadMorphControllerTest.settle();
+        if (end < 0.5f) controller.visibility(false, null, nextSequence());
+        return end;
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void tapOnTheMovingPageRetargets() throws Exception {
+        openMorph(false);
+        reveal();
+        assertTrue(collapse(card(), "m1"));
+        for (int i = 0; i < 4; i++) BreadMorphControllerTest.frame();
+        BreadMorphController morph = driver();
+        float before = morph.progress();
+        RectF page = controller.morphPageRect();
+        assertTrue(page.width() > 0 && page.height() > 0);
+        long t = android.os.SystemClock.uptimeMillis();
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, page.centerX(), page.centerY(), t)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, page.centerX(), page.centerY(), t + 60)));
+        List<BreadMorphEvent> events = morphEvents("m1");
+        BreadMorphEvent tap = events.get(events.size() - 1);
+        assertEquals("retargeted", tap.phase);
+        assertEquals("expanded", tap.target);
+        assertFalse(tap.tracking);
+        assertEquals(before, tap.progress, 1e-6f);
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+        BreadMorphControllerTest.settle();
+        assertEquals(List.of("started:collapsed", "retargeted:expanded", "settled:expanded"), phases("m1"));
+        assertTrue(dialog.isShowing());
+        assertEquals(1, root.getScaleX(), 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void grabTracksThenReleasesWithTheReleaseSpring() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        assertTrue(collapse(card, "m1"));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 60 && morph.progress() > 0.5f; i++) BreadMorphControllerTest.frame();
+        RectF page = controller.morphPageRect();
+        float[] d = path(card);
+        float length = (float) Math.hypot(d[0], d[1]);
+        float slop = 2 * android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+        float x = page.centerX(), y = page.centerY();
+        float sx = x + d[0] / length * slop, sy = y + d[1] / length * slop;
+        long t = android.os.SystemClock.uptimeMillis();
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, x, y, t)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, sx, sy, t + 8)));
+        assertFalse(morph.running());
+        float grabbed = morph.progress();
+        List<BreadMorphEvent> events = morphEvents("m1");
+        BreadMorphEvent grab = events.get(events.size() - 1);
+        assertEquals("retargeted", grab.phase);
+        assertTrue(grab.tracking);
+        assertEquals("collapsed", grab.target);
+        BreadMorphControllerTest.frame();
+        assertEquals(grabbed, morph.progress(), 0);
+        float ex = sx + d[0] / 4, ey = sy + d[1] / 4;
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, ex, ey, t + 40)));
+        assertEquals(grabbed + 0.25f, morph.progress(), 1e-3f);
+        assertEquals(BreadMorphGeometry.pose(morph.progress(), morph.card(), root.getWidth(), root.getHeight()).scale,
+            root.getScaleX(), 1e-5f);
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_MOVE, ex, ey, t + 400)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, ex, ey, t + 410)));
+        assertTrue(morph.running());
+        androidx.dynamicanimation.animation.SpringAnimation spring = ReflectionHelpers.getField(morph, "spring");
+        assertEquals(BreadMorphPhysics.RELEASE.stiffness, spring.getSpring().getStiffness(), 0.01f);
+        events = morphEvents("m1");
+        BreadMorphEvent release = events.get(events.size() - 1);
+        assertEquals("retargeted", release.phase);
+        assertFalse(release.tracking);
+        assertEquals("collapsed", release.target);
+        BreadMorphControllerTest.settle();
+        assertEquals("settled:collapsed", phases("m1").get(phases("m1").size() - 1));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void releaseCommitsPastThirtyPercentOrFourHundredFiftyDpPerSecond() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        assertEquals("a slow drag past 30 percent commits to the dragged end", 1, grabAndRelease(card, 0.31f, false), 0);
+        assertEquals("a fast flick commits to the flicked end", 1, grabAndRelease(card, 0.1f, true), 0);
+        assertEquals("a short slow drag springs back", 0, grabAndRelease(card, 0.1f, false), 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void touchesOutsideThePageAreConsumedDuringFlight() throws Exception {
+        openMorph(false);
+        reveal();
+        List<Integer> received = new ArrayList<>();
+        webView.setOnTouchListener((view, event) -> { received.add(event.getActionMasked()); return true; });
+        long t = android.os.SystemClock.uptimeMillis();
+        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, 5, 5, t));
+        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, 5, 5, t + 20));
+        assertEquals(2, received.size());
+        received.clear();
+        assertTrue(collapse(card(), "m1"));
+        for (int i = 0; i < 4; i++) BreadMorphControllerTest.frame();
+        RectF page = controller.morphPageRect();
+        float x = page.left / 2, y = page.top / 2;
+        assertFalse(page.contains(x, y));
+        assertTrue(x > 0 && y > 0);
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, x, y, t + 100)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, x, y, t + 140)));
+        assertTrue(received.isEmpty());
+        assertEquals(List.of("started:collapsed"), phases("m1"));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, page.centerX(), page.centerY(), t + 200)));
+        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, page.centerX(), page.centerY(), t + 240)));
+        assertTrue(received.isEmpty());
+        assertEquals(List.of("started:collapsed", "retargeted:expanded"), phases("m1"));
     }
 }
