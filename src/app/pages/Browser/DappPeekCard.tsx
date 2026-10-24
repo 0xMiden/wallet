@@ -141,7 +141,13 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
     pointerEvents: chromeVisible ? undefined : 'none'
   };
   // Hidden controls also leave the focus order and the accessibility tree; React 18 drops a boolean `inert`.
-  const hiddenChromeControl = chromeVisible ? {} : { 'aria-hidden': true, inert: '' };
+  const inertWhen = (hidden: boolean) => (hidden ? { 'aria-hidden': true, inert: '' } : {});
+  const hiddenChromeControl = inertWhen(!chromeVisible);
+  // Once its page has taken its place the card takes no input until it unmounts. Under a collapse it stays live:
+  // a restore then reverses the collapse.
+  const prepareRestore = () => {
+    if (!exitInstantly) void prepareMorph(session.id);
+  };
 
   const displayName = getDappDisplayName(session);
   const fallbackColor = getFallbackColor(session.origin);
@@ -159,6 +165,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
 
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (exitInstantly) return;
     hapticLight();
     setExitMode('close');
     // Defer the parent state mutation so React has a chance to flush
@@ -169,6 +176,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
 
   const handleShowAll = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (exitInstantly) return;
     hapticLight();
     onShowAll();
   };
@@ -181,6 +189,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       wasDraggedRef.current = false;
       return;
     }
+    if (exitInstantly) return;
     // The restore's morph command goes to native first; the haptic does not have to precede it.
     commitRestore({ x: 0, y: 0 });
     hapticLight();
@@ -203,6 +212,12 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   };
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
+    if (exitInstantly) {
+      setTimeout(() => {
+        wasDraggedRef.current = false;
+      }, 100);
+      return;
+    }
     const dx = info.offset.x;
     const dy = info.offset.y;
     const vx = info.velocity.x;
@@ -291,7 +306,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       // of motion so diagonal drags don't fire both handlers. Zero-
       // sized constraints + elastic pull mean the card springs back
       // to origin on release-below-threshold in either axis.
-      drag={isFront && !isShrinking}
+      drag={isFront && !isShrinking && !exitInstantly}
       dragDirectionLock
       dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
       dragElastic={0.5}
@@ -308,6 +323,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         // Back cards render below front cards so the front overlaps.
         zIndex: 100 - stackIndex
       }}
+      {...inertWhen(exitInstantly)}
     >
       {/* Layered shadow: tight contact + wide soft halo with a subtle brand-color tint picked from the dApp's
           fallback color, a faint aura that hints at identity. The middle layer is the button's own: it is the
@@ -320,8 +336,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       <button
         type="button"
         // A tap or a swipe up can restore, so the frame rate rises with the finger, and again on a slow drag's release.
-        onPointerDown={() => void prepareMorph(session.id)}
-        onPointerUp={() => void prepareMorph(session.id)}
+        onPointerDown={prepareRestore}
+        onPointerUp={prepareRestore}
         onClick={handleTap}
         aria-label={t('restoreDappCard', { name: displayName })}
         data-testid="dapp-peek-card"
