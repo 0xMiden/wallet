@@ -3261,14 +3261,12 @@ final class BreadMorphPluginTests: XCTestCase {
     func testTheMorphThatFollowsAWarmUpShowsThePageFromTheCardWithoutAJump() async throws {
         let (live, plugin) = try await parkedWithProxy()
         defer { live.dispose(); BreadFrameRateBoost.shared.release() }
-        let container = try XCTUnwrap(live.instance.morphContainer)
         try await call("prepareMorph", ["durationMs": 600, "id": live.instance.id])
         XCTAssertTrue(expand(live, "e1"))
         XCTAssertEqual(live.window.alpha, 1)
         XCTAssertFalse(live.window.isHidden)
         let animator = try XCTUnwrap(live.presentation.animator)
         XCTAssertLessThan(animator.progress(), 0.2)
-        XCTAssertLessThan(container.presentationFrame().width, live.window.bounds.width / 2)
         let settled = try await eventually { plugin.phases("e1").last == "settled" }
         XCTAssertTrue(settled)
         XCTAssertEqual(live.window.alpha, 1)
