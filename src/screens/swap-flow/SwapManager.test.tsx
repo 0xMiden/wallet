@@ -875,7 +875,7 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
   });
 
-  it('disables the CTA when the displayed balance rounds above the exact vault balance', () => {
+  it('blocks a full displayed balance when its base units exceed exact double precision', () => {
     const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
     mockStringToBigInt.mockImplementation(stringToBigInt);
     mockFormatBigInt.mockImplementation(formatBigInt);
@@ -883,13 +883,16 @@ describe('SwapFlow / SwapManager', () => {
       { ...mockTokenA, decimals: 18 },
       { ...mockTokenB, decimals: 6 }
     ]);
-    const roundedBalance = Number('0.999999999999999999');
-    expect(roundedBalance).toBe(1);
-    mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: roundedBalance }] };
+    mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: 1 }] };
+    mockSwapQuoteResult = {
+      loading: false,
+      quote: quoteAt('2', 2000000n, {}, { offeredAmount: 1000000000000000000n })
+    };
 
     renderFlow();
     setOffer('1');
 
+    expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('2');
     expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
   });
 
