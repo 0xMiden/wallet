@@ -13,6 +13,7 @@
 
 ### Fixes
 
+- [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
 - [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
 
 - [FIX][all] Activity shows every accepted transfer on mainnet. A mainnet-only rule hid a consume of the native asset sent by its faucet as a faucet drip, but on mainnet that faucet is the USDCx minter, so every bridged-in claim and its pending card vanished from the feed, the filters and the search. Such a row, card, badge and receipt now read as an ordinary receive on mainnet, grouped under the sender, and as a faucet claim on every other network.

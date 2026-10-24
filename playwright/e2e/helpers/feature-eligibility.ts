@@ -20,11 +20,10 @@ export async function setEligibilityFixtureState(state: EligibilityFixtureState)
 }
 
 /** All wallet realms and the decision endpoint must accept the same synthetic policy. */
-export async function setEligibilityFixtureConfig(document: {
+export async function setEligibilityFixtureConfig<T extends {
   network: string;
   version: number;
-  [key: string]: unknown;
-}): Promise<void> {
+}>(document: T): Promise<void> {
   const response = await fetch(`${eligibilityFixtureUrl()}/_fixture/config`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
