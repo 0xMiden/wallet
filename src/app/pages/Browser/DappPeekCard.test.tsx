@@ -11,11 +11,13 @@ import { DappPeekCard } from './DappPeekCard';
 
 type DragEnd = (event: unknown, info: PanInfo) => void;
 const mockMotion: { onDrag?: DragEnd; onDragEnd?: DragEnd; exit?: unknown } = {};
+let mockReducedMotion: boolean | null = false;
 
 jest.mock('framer-motion', () => {
   const ReactActual = jest.requireActual<typeof React>('react');
   return {
     ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => mockReducedMotion,
     motion: {
       div: ReactActual.forwardRef(
         (
@@ -92,7 +94,10 @@ function release(offset: { x: number; y: number }, velocity: { x: number; y: num
   });
 }
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  mockReducedMotion = false;
+});
 
 const chrome = () => Array.from(document.querySelectorAll<HTMLElement>('[data-peek-chrome]'));
 
@@ -271,6 +276,39 @@ it('takes the covered card out of the accessibility tree and ignores input until
   expect(mockPrepareMorph).toHaveBeenCalledWith(SESSION.id);
   fireEvent.click(card);
   expect(onCommitRestore).toHaveBeenCalledTimes(1);
+});
+
+it('snaps the chrome fade in under reduced motion', () => {
+  mockReducedMotion = true;
+  const { rerender, onCommitRestore, onClose, onShowAll } = renderCard({ chromeVisible: false });
+  const show = () =>
+    rerender(
+      <DappPeekCard
+        session={SESSION}
+        stackIndex={0}
+        overflowCount={2}
+        chromeVisible
+        onCommitRestore={onCommitRestore}
+        onClose={onClose}
+        onShowAll={onShowAll}
+      />
+    );
+  expect(chrome()).toHaveLength(5);
+  for (const element of chrome()) expect(element.style.transition).toBe('none');
+
+  show();
+  for (const element of chrome()) {
+    expect(element.style.opacity).toBe('1');
+    expect(element.style.transition).toBe('none');
+  }
+
+  for (const preference of [false, null]) {
+    mockReducedMotion = preference;
+    show();
+    for (const element of chrome()) {
+      expect(element.style.transition).toBe(`opacity ${MORPH_TIMING.chromeFadeMs}ms ease-out`);
+    }
+  }
 });
 
 it('leaves instantly when exitInstantly is set', () => {
