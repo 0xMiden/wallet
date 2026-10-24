@@ -1737,8 +1737,8 @@ final class BreadMorphContainerTests: XCTestCase {
             XCTAssertTrue(morphKeys(layer).isEmpty)
         }
         assertModelAtRest(container)
-        XCTAssertNotNil(container.shadowView.layer.contents)
-        XCTAssertEqual(container.shadowView.layer.shadowOpacity, 0)
+        XCTAssertNil(container.shadowView.layer.shadowPath)
+        XCTAssertEqual(container.shadowView.layer.opacity, 0)
         XCTAssertFalse(container.morphing)
         XCTAssertEqual(container.clipView.layer.cornerCurve, .circular)
         XCTAssertTrue(container.clipView.clipsToBounds)
@@ -2806,20 +2806,22 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertFalse(live.owner.prefersStatusBarHidden)
         let before = container.statusBarUpdates
         XCTAssertTrue(expand(live, "e1"))
+        let unhidden = container.statusBarUpdates
+        XCTAssertLessThanOrEqual(unhidden - before, 1, "only UIKit's own note of the window unhide")
         for _ in 0..<8 {
             try await Task.sleep(nanoseconds: 40_000_000)
             guard plugin.phases("e1").last != "settled" else { break }
             XCTAssertFalse(live.owner.prefersStatusBarHidden)
             XCTAssertFalse(live.owner.prefersHomeIndicatorAutoHidden)
             XCTAssertFalse(live.window.isKeyWindow)
-            XCTAssertEqual(container.statusBarUpdates, before)
+            XCTAssertEqual(container.statusBarUpdates, unhidden)
         }
         let settled = try await eventually { plugin.phases("e1").last == "settled" }
         XCTAssertTrue(settled)
         XCTAssertTrue(live.owner.prefersStatusBarHidden)
         XCTAssertTrue(live.owner.prefersHomeIndicatorAutoHidden)
         XCTAssertTrue(live.window.isKeyWindow)
-        XCTAssertGreaterThan(container.statusBarUpdates, before)
+        XCTAssertGreaterThan(container.statusBarUpdates, unhidden)
     }
 
     func testACollapseReversedMidFlightEndsWithTheSystemUIHidden() async throws {

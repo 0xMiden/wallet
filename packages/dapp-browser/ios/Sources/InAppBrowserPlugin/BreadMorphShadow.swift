@@ -47,7 +47,7 @@ enum BreadMorphShadow {
         let padPx = Int((pad * rs).rounded())
         let offsetPx = Int((offset * rs).rounded())
         let radiusPx = Int((radius * rs).rounded())
-        let halfPx = radiusPx + offsetPx
+        let halfPx = max(radiusPx + offsetPx, Int((3 * sigma * rs).rounded(.up)))
         let side = 2 * padPx + 2 * halfPx + 1
         var mask = [UInt8](repeating: 0, count: side * side)
         let drawn = mask.withUnsafeMutableBytes { raw -> Bool in
