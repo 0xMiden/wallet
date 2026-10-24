@@ -2304,13 +2304,15 @@ final class BreadMorphPresentationTests: XCTestCase {
         let insets = [navigation.view.safeAreaInsets, live.owner.view.safeAreaInsets, live.web.safeAreaInsets]
         let bounds = [navigation.view.bounds, live.owner.view.bounds, live.web.bounds]
         XCTAssertTrue(collapse(live, "c1"))
-        while plugin.phases("c1").last != "settled" {
+        let deadline = CACurrentMediaTime() + 3
+        while plugin.phases("c1").last != "settled", CACurrentMediaTime() < deadline {
             XCTAssertEqual([navigation.view.safeAreaInsets, live.owner.view.safeAreaInsets, live.web.safeAreaInsets], insets)
             XCTAssertEqual([navigation.view.bounds, live.owner.view.bounds, live.web.bounds], bounds)
             XCTAssertEqual(live.presentation.state.phase, .visible)
             XCTAssertTrue(live.cover.isHidden)
             try await Task.sleep(nanoseconds: 20_000_000)
         }
+        XCTAssertEqual(plugin.phases("c1").last, "settled")
         XCTAssertTrue(live.presentation.state.proxyUsable)
         XCTAssertTrue(expand(live, "e1"))
         navigation.additionalSafeAreaInsets = UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
