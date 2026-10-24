@@ -15,6 +15,8 @@ const execFileAsync = promisify(execFile);
 const ADB_TIMEOUT_MS = 30_000;
 const ADB_INSTALL_TIMEOUT_MS = 180_000;
 const ADB_LAUNCH_TIMEOUT_MS = 90_000;
+const INSTALL_ATTEMPTS = 3;
+const INSTALL_RETRY_DELAY_MS = 10_000;
 // The task leaves the hierarchy about 2 s after a force-stop on a CI emulator, 3 s with animations slowed tenfold.
 const TASK_REMOVAL_TIMEOUT_MS = 15_000;
 const TASK_REMOVAL_POLL_MS = 250;
@@ -248,8 +250,17 @@ export class EmulatorControl {
     if (!fs.existsSync(apkPath)) {
       throw new Error(`APK not found at ${apkPath}`);
     }
-    // `install -r -t` allows replacing + accepting test packages.
-    await adb(['-s', serial, 'install', '-r', '-t', apkPath], ADB_INSTALL_TIMEOUT_MS);
+    // `install -r -t` allows replacing + accepting test packages. The Android 37 Play image intermittently drops
+    // a large install's commit ("Broken pipe" from the package service); the same install then succeeds.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await adb(['-s', serial, 'install', '-r', '-t', apkPath], ADB_INSTALL_TIMEOUT_MS);
+        break;
+      } catch (err) {
+        if (attempt >= INSTALL_ATTEMPTS || !/Broken pipe/.test(describeAdbError(err))) throw err;
+        await new Promise(r => setTimeout(r, INSTALL_RETRY_DELAY_MS));
+      }
+    }
 
     // Pre-grant the runtime permissions whose system dialogs would otherwise
     // appear over the app on first launch (Android 13+ gates POST_NOTIFICATIONS

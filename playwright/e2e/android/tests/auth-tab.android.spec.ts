@@ -13,9 +13,10 @@ const execFileAsync = promisify(execFile);
 const PACKAGE_NAME = 'com.miden.wallet';
 const SERIAL = process.env.ANDROID_SERIAL ?? 'emulator-5554';
 const HOST_PORT = 9230;
-const APK_PATH = 'android/app/build/outputs/apk/debug/app-debug.apk';
+// The CI lane installs a pinned Chromium as the Auth Tab provider (see e2e-dapp-browser.yml).
+const AUTH_TAB_PROVIDER = process.env.AUTH_TAB_PROVIDER ?? 'com.android.chrome';
 const PROVIDERS = {
-  chrome: { packageName: 'com.android.chrome', label: 'chrome' },
+  authTab: { packageName: AUTH_TAB_PROVIDER, label: 'auth-tab' },
   firefox: { packageName: 'org.mozilla.firefox', label: 'firefox' }
 } as const;
 
@@ -114,9 +115,9 @@ test.describe('Android Auth Tab acceptance', () => {
       cert: readFileSync(certPath)
     });
     const emulator = new EmulatorControl();
-    await emulator.ensureBooted(SERIAL);
+    // run-auth-tab-acceptance.sh has already installed every APK and run the instrumentation on this device, so
+    // the cold-boot readiness wait (which also waits for Play services' persistent process) adds nothing here.
     await emulator.terminate(SERIAL, PACKAGE_NAME);
-    await emulator.install(SERIAL, APK_PATH, PACKAGE_NAME);
     await emulator.wipeAppState(SERIAL, PACKAGE_NAME);
     await emulator.grantNotifications(SERIAL, PACKAGE_NAME);
     await emulator.launch(SERIAL, PACKAGE_NAME);
@@ -143,6 +144,26 @@ test.describe('Android Auth Tab acceptance', () => {
     await waitForDappSession(wallet, new URL(fixture.dappUrl()).origin);
   });
 
+  // The failing screen is usually another app's (a browser prompt, a wallet approval), so capture the device itself.
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) return;
+    const capture = async (name: string, ...args: string[]): Promise<void> => {
+      try {
+        const { stdout } = await execFileAsync('adb', ['-s', SERIAL, ...args], {
+          timeout: 30_000,
+          maxBuffer: 32 * 1024 * 1024,
+          encoding: 'buffer'
+        });
+        await testInfo.attach(name, { body: stdout });
+      } catch (error) {
+        await testInfo.attach(name, { body: String(error) });
+      }
+    };
+    await capture('device-screen.png', 'exec-out', 'screencap', '-p');
+    await capture('device-focus.txt', 'shell', 'dumpsys', 'window', 'displays');
+    await capture('device-logcat.txt', 'logcat', '-d', '-t', '1500');
+  });
+
   test.afterAll(async () => {
     await cdp?.close();
     await fixture?.stop();
@@ -150,9 +171,9 @@ test.describe('Android Auth Tab acceptance', () => {
 
   test('Chrome Auth Tab and Firefox Custom Tab resolve and cancel while retaining the dApp session', async ({}, testInfo) => {
     if (!fixture || !wallet) throw new Error('Auth Tab acceptance setup did not complete');
-    await setDefaultBrowser(PROVIDERS.chrome.packageName);
-    await runAttempt(wallet, fixture, PROVIDERS.chrome, 'success', testInfo);
-    await runAttempt(wallet, fixture, PROVIDERS.chrome, 'hold', testInfo);
+    await setDefaultBrowser(PROVIDERS.authTab.packageName);
+    await runAttempt(wallet, fixture, PROVIDERS.authTab, 'success', testInfo);
+    await runAttempt(wallet, fixture, PROVIDERS.authTab, 'hold', testInfo);
 
     await setDefaultBrowser(PROVIDERS.firefox.packageName);
     await runAttempt(wallet, fixture, PROVIDERS.firefox, 'success', testInfo);
