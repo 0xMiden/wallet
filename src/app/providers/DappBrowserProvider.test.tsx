@@ -504,6 +504,82 @@ describe('park / restore lifecycle', () => {
   });
 });
 
+describe('bridge traffic', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const LANDSCAPE = { x: 0, y: 0, width: 667, height: 375 };
+  const flush = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  const hides = (id: string) =>
+    mockSetVisible.mock.calls.filter(([callId, visible]) => callId === id && !visible).length;
+  const injections = (id: string) =>
+    mockExecuteScript.mock.calls.filter(([callId, code]) => callId === id && code === 'INJECTED;').length;
+
+  async function openTwo() {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    act(() => hook.result.current.open(makeSession('dapp-b')));
+    await flush();
+    return hook;
+  }
+
+  it('keeps the same slotRect object for an equal rect', () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    const first = hook.result.current.slotRect;
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    expect(hook.result.current.slotRect).toBe(first);
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    expect(hook.result.current.slotRect).toEqual(LANDSCAPE);
+  });
+
+  it('does not re-send hides to other instances when the slot rect value repeats', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('does not re-send hides to other instances when the slot rect changes', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('injects the bridge once per foreground change, not per rect change', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+    await act(async () => loaded?.({ id: 'dapp-a' }));
+    mockExecuteScript.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    expect(injections('dapp-a')).toBe(0);
+
+    await act(async () => hook.result.current.park('dapp-a'));
+    await act(async () => hook.result.current.restore('dapp-a'));
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+    expect(injections('dapp-a')).toBe(1);
+  });
+});
+
 // ── SEC-03: the security principal must follow the page actually loaded ──
 
 describe('session origin is derived from the URL being loaded, not a carried-over value', () => {
@@ -1211,8 +1287,22 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.setSlotRect(LANDSCAPE));
       await settle();
 
-      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 1]);
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 0]);
       expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+    });
+
+    it('on the bridge injection of a warm restore', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+      await act(async () => loaded?.({ id: 'dapp-a' }));
+      await act(async () => hook.result.current.park('dapp-a'));
+      failNative();
+
+      await act(async () => hook.result.current.restore('dapp-a'));
+      await settle();
+
+      expect(warned('executeScript')).toBe(1);
     });
 
     it('when the switcher opens', async () => {

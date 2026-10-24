@@ -89,7 +89,7 @@ import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
 import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
 import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
-import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
+import { type WebViewRect, rectsEqual } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
 import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
@@ -326,7 +326,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // ref mirror for stable closure access inside plugin listeners.
   const [sessionStates, setSessionStates] = useState<DappSessionState[]>([]);
   const [foregroundId, setForegroundId] = useState<string | null>(null);
-  const [slotRect, setSlotRect] = useState<WebViewRect | null>(null);
+  const [slotRect, setSlotRectState] = useState<WebViewRect | null>(null);
+  // An equal rect keeps the previous object, so every effect keyed on it stays quiet.
+  const setSlotRect = useCallback((rect: WebViewRect | null) => {
+    setSlotRectState(previous => (rectsEqual(previous ?? undefined, rect ?? undefined) ? previous : rect));
+  }, []);
   // PR-5: card switcher visibility lives in the provider so it survives
   // tab navigation alongside the bubble host.
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -1263,28 +1267,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
-  // Opening needs a reported slot; warm foreground changes refresh the injection without reloading.
+  // Opening needs a reported slot.
   useEffect(() => {
     if (!foregroundId || !slotRect) return;
     const state = getSessionStateById(foregroundId);
-    if (!state) return;
-
-    if (state.status === 'loading' && !state.instance) {
-      void openInternal(state.session, slotRect);
-      return;
-    }
-    if (state.instance) {
-      // Re-run the injection script on restore so any CSS the wallet
-      // wants to layer onto the dApp (currently the navbar bottom
-      // padding) reaches sessions that were parked before the most
-      // recent app update. browserPageLoaded only fires on actual
-      // page loads, not when setVisible(true) un-parks an instance,
-      // so without this the CSS would never refresh on a hot-restored
-      // session.
-      void state.instance
-        .executeScript(INJECTION_SCRIPT)
-        .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
-    }
+    if (state?.status === 'loading' && !state.instance) void openInternal(state.session, slotRect);
     // openInternal is stable-ish; intentionally not in deps to avoid
     // re-running on every state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1454,6 +1441,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       switcherOpen,
       openSwitcher,
       closeSwitcher,
+      setSlotRect,
       slotRect,
       holdHostOverlay,
       reportLauncherCommit,
@@ -1499,6 +1487,17 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundPolicyResolved = foregroundVisibilityTarget?.policyResolved;
   const foregroundPolicyLifetime = foregroundVisibilityTarget?.policyLifetime;
   const foregroundOwnership = foregroundOwnershipRevision.current;
+  const hasSlot = slotRect !== null;
+
+  // Re-run the injection script once per warm foreground change, so wallet CSS (the navbar bottom padding) reaches
+  // a session parked before the latest app update: setVisible(true) fires no browserPageLoaded. A loading page is
+  // injected by browserPageLoaded itself.
+  useEffect(() => {
+    if (!foregroundId || !foregroundInstance || getSessionStateById(foregroundId)?.isLoading !== false) return;
+    void foregroundInstance
+      .executeScript(INJECTION_SCRIPT)
+      .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
+  }, [foregroundId, foregroundInstance, getSessionStateById]);
 
   // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   useEffect(() => {
@@ -1511,7 +1510,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
       }
     }
-  }, [foregroundId, foregroundBlocked, foregroundActive, stableVisibilityTargets, slotRect]);
+  }, [foregroundId, foregroundBlocked, foregroundActive, stableVisibilityTargets, hasSlot]);
 
   // Only foreground identity, eligibility or geometry can restart positioning and the native paint fence.
   useEffect(() => {
