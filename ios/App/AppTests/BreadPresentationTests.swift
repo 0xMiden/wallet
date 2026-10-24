@@ -82,17 +82,25 @@ fileprivate extension XCTestCase {
         }
         instance.containerWindow = window
         WebViewRegistry.shared.register(instance)
-        let web = try XCTUnwrap(owner.capableWebView)
-        let presentation = try XCTUnwrap(owner.breadPresentation)
-        instance.installContainerWindow(window, hostWindow: host)
-        web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
-        let loaded = try await eventually {
-            guard !web.isLoading else { return false }
-            return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
+        do {
+            let web = try XCTUnwrap(owner.capableWebView)
+            let presentation = try XCTUnwrap(owner.breadPresentation)
+            instance.installContainerWindow(window, hostWindow: host)
+            web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
+            let loaded = try await eventually {
+                guard !web.isLoading else { return false }
+                return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
+            }
+            XCTAssertTrue(loaded)
+            try probe?(instance, window)
+            return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
+        } catch {
+            owner.cleanupWebView()
+            InAppBrowserPlugin.releaseContainerWindow(window)
+            WebViewRegistry.shared.remove(id: instance.id)
+            host?.makeKey()
+            throw error
         }
-        XCTAssertTrue(loaded)
-        try probe?(instance, window)
-        return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
     }
 
     func eventually(_ condition: () async throws -> Bool) async throws -> Bool {
@@ -134,6 +142,8 @@ fileprivate extension XCTestCase {
     func revealedMorph(display: String = "browser", counting: Bool = false,
                        probe: FixtureProbe? = nil) async throws -> (LivePresentation, PolicyRecordingPlugin) {
         let live = try await livePresentation(morph: true, container: counting ? { CountingMorphContainer(child: $0) } : nil)
+        var handed = false
+        defer { if !handed { live.dispose() } }
         let plugin = PolicyRecordingPlugin()
         live.owner.capBrowserPlugin = plugin
         try await configure(live, theme: nil, display: display)
@@ -141,12 +151,15 @@ fileprivate extension XCTestCase {
         let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
         XCTAssertTrue(revealed)
         try probe?(live.instance, live.window)
+        handed = true
         return (live, plugin)
     }
 
     func parkedWithProxy(display: String = "browser", counting: Bool = false,
                          probe: FixtureProbe? = nil) async throws -> (LivePresentation, PolicyRecordingPlugin) {
         let (live, plugin) = try await revealedMorph(display: display, counting: counting)
+        var handed = false
+        defer { if !handed { live.dispose() } }
         XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
                                               policyRevision: nil, sequence: nil))
         let parked = try await eventually { plugin.phases("park").contains("settled") && live.presentation.state.proxyUsable }
@@ -154,6 +167,7 @@ fileprivate extension XCTestCase {
         live.presentation.setVisible(false)
         XCTAssertTrue(live.window.isHidden)
         try probe?(live.instance, live.window)
+        handed = true
         return (live, plugin)
     }
 
