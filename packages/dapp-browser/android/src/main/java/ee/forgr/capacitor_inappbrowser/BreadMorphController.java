@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.graphics.Color;
 import android.graphics.Outline;
 import android.os.Build;
+import android.os.Trace;
 import android.view.View;
 import android.view.ViewOutlineProvider;
 import androidx.dynamicanimation.animation.FloatValueHolder;
@@ -41,6 +42,7 @@ final class BreadMorphController {
     private float progress = 1;
     private float velocity;
     private boolean boosted;
+    private int section;
 
     BreadMorphController(View container, Listener listener) {
         this.container = container;
@@ -178,6 +180,7 @@ final class BreadMorphController {
         }
         container.setClipToOutline(true);
         container.invalidateOutline();
+        if (Build.VERSION.SDK_INT >= 29) Trace.setCounter("bread_morph_p", Math.round(p * RANGE));
         // Frame-rate votes are cast while views draw, and a property-only change draws nothing.
         if (Build.VERSION.SDK_INT >= 35 && boosted) container.invalidate();
     }
@@ -185,12 +188,14 @@ final class BreadMorphController {
     private void boost() {
         if (boosted) return;
         boosted = true;
+        if (Build.VERSION.SDK_INT >= 29) Trace.beginAsyncSection("bread_morph", ++section);
         if (Build.VERSION.SDK_INT >= 35) container.setRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_HIGH);
     }
 
     private void idle() {
         if (!boosted) return;
         boosted = false;
+        if (Build.VERSION.SDK_INT >= 29) Trace.endAsyncSection("bread_morph", section);
         if (Build.VERSION.SDK_INT >= 35) container.setRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_DEFAULT);
     }
 }
