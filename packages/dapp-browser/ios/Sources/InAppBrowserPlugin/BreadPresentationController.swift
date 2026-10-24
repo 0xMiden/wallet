@@ -806,6 +806,8 @@ final class BreadPresentationController: NSObject {
         }
         button.imageEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         button.addTarget(self, action: #selector(minimizeTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(capsuleTouchDown), for: .touchDown)
+        button.addTarget(self, action: #selector(capsuleTouchEnded), for: [.touchCancel, .touchUpOutside])
         view.addSubview(button)
         render()
     }
@@ -826,11 +828,25 @@ final class BreadPresentationController: NSObject {
         owner?.reload()
     }
 
+    @objc private func capsuleTouchDown() { animator?.boost() }
+
+    @objc private func capsuleTouchEnded() { if !moving { animator?.reset() } }
+
     @objc private func minimizeTapped() {
-        guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else { return }
+        guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else {
+            capsuleTouchEnded()
+            return
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         var data: [String: Any] = ["id": owner.instanceId ?? "", "policyRevision": state.policyRevision,
             "visibilitySequence": state.acknowledgedVisibilitySequence]
+        if !moving, let window = instance?.containerWindow {
+            let id = "native-" + UUID().uuidString
+            let card = WebViewRegistry.shared.morphCard.map {
+                BreadMorphCard(rect: $0.rect.offsetBy(dx: -window.frame.minX, dy: -window.frame.minY), cornerRadius: $0.cornerRadius)
+            }
+            if morph(to: .collapsed, card: card, velocity: .zero, morphId: id, policyRevision: nil, sequence: nil) { data["morphId"] = id }
+        }
         if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
         owner.capBrowserPlugin?.notifyListeners("presentationMinimizeRequested", data: data)
     }
