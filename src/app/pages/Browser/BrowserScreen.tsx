@@ -81,7 +81,7 @@ const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
   const stopCompanions = useRef<(() => void) | null>(null);
   // Every started or retargeted event restarts the capsule and launcher from where they are, before the frame paints;
   // the motion's end (or a settled collapse) returns them to their own styles. A held page moves with the finger, so
-  // they wait for its release.
+  // they freeze where they are until its release restarts them; a cancel would snap them back to their own styles.
   const companionKey =
     launcherBehind && motion.started && !motion.acknowledging ? `${motion.morphId}:${motion.eventSeq}` : null;
   useLayoutEffect(() => {
@@ -91,7 +91,10 @@ const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
       stopCompanions.current = null;
       return;
     }
-    if (current.tracking) return;
+    if (current.tracking) {
+      for (const element of [capsule.current, launcher.current]) element?.getAnimations().forEach(held => held.pause());
+      return;
+    }
     stopCompanions.current = startMorphCompanions(
       { capsule: capsule.current, launcher: launcher.current },
       current,
