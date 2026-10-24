@@ -1,4 +1,11 @@
+---
+title: Sign-in sheet for dApps in Bread
+permalink: /developers/sign-in-sheet/
+---
+
 # Sign-in sheet for dApps in Bread
+
+Part of the [Bread developer guide](../). This page is the detailed reference, including the native integration.
 
 Google and Apple sign-in refuse to run inside embedded web views, so a dApp in the native Bread mobile browser can't run them in its own page. `window.bread.auth.open(url)` runs the flow in a secure sign-in sheet instead: the system's sign-in sheet on iOS, and an Auth Tab on Android when the selected browser supports it, otherwise a Custom Tab. The flow starts at a URL on the page's own origin and ends at Bread's callback address with that origin in its query, and the page stays loaded throughout.
 

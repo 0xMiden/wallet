@@ -1,4 +1,11 @@
+---
+title: Fullscreen dApps in Bread
+permalink: /developers/fullscreen/
+---
+
 # Fullscreen dApps in Bread
+
+Part of the [Bread developer guide](../). This page is the detailed reference, including the native integration.
 
 A dApp opened inside the native Bread mobile browser can request fullscreen presentation in its initial HTML head:
 
