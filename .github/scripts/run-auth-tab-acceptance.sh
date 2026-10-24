@@ -42,6 +42,15 @@ wait_for_stable_system() {
     pid=$(timeout 10s adb shell pidof system_server 2>/dev/null | tr -d '\r')
     starts=$(timeout 10s adb shell getprop sys.system_server.start_count 2>/dev/null | tr -d '\r')
     if [[ -n "$pid" && "$pid" == "$last" ]]; then same=$((same + 1)); else same=0; fi
+    if [[ -n "$last" && "$pid" != "$last" && ! -f "$results_dir/restart-reason.txt" ]]; then
+      {
+        echo '--- crash buffer ---'
+        timeout 15s adb logcat -d -b crash | tail -120
+        echo '--- system_server deaths ---'
+        timeout 15s adb logcat -d -b system,main,events | grep -iE 'FATAL EXCEPTION IN SYSTEM PROCESS|Watchdog|\*\*\* FATAL|system_server.*(died|crash)|am_crash|sysui_|Zygote.*died|AndroidRuntime' | tail -80
+      } > "$results_dir/restart-reason.txt" 2>&1 || true
+      cat "$results_dir/restart-reason.txt"
+    fi
     echo "$(date +%T) system_server=${pid:-none} start_count=${starts:-none}" | tee -a "$results_dir/system-server-pids.txt"
     last=$pid
     [[ $same -ge 6 ]] && return 0
