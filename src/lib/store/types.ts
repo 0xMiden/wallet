@@ -222,6 +222,17 @@ export interface WalletActions {
   ) => Promise<'reverted' | 'superseded' | 'stale'>;
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
+  /**
+   * Persist the verdict that another device rotated the account's hot key away
+   * from `hotPublicKey`; the backend writes it only while that is still the
+   * stored key. See `HotKeyRotatedOutVerdict`.
+   */
+  markHotKeyRotatedOut: (accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) => Promise<void>;
+  /**
+   * Make this device the account's main one: drop the rotated-out hot key and
+   * flag the account for the rotation `HotKeyRotationGate` runs.
+   */
+  retireRotatedOutHotKey: (accountPublicKey: string, expectedHotPubKey: string) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
   applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;

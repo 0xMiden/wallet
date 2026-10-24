@@ -25,6 +25,7 @@ import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   GuardianWriteDiscardedError,
+  isHotKeyRotatedOutError,
   isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
   isGuardianUnreachableError,
@@ -2880,11 +2881,28 @@ const generateDirectSwitchGuardianTransaction = async (
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const tr = await createDirectSwitchGuardianRequest(
-    walletAccount,
-    transaction.extraInputs.newGuardianEndpoint,
-    guardianProvider.signWord
-  );
+  let tr: TransactionRequest;
+  try {
+    tr = await createDirectSwitchGuardianRequest(
+      walletAccount,
+      transaction.extraInputs.newGuardianEndpoint,
+      guardianProvider.signWord
+    );
+  } catch (error) {
+    // The build compared this device's hot key with the chain's signer slot 0 and
+    // found another device's key there. That is a finding about the ACCOUNT, not
+    // about this switch, and the row's failure is the only place it would otherwise
+    // surface; persist it so the wallet can say that another device holds the
+    // account (`isHotKeyRotatedOut`). Best-effort, then the row fails as before.
+    if (isHotKeyRotatedOutError(error)) {
+      await guardianProvider
+        .markHotKeyRotatedOut?.(walletAccount.publicKey, error.hotPublicKey, error.onChainHotCommitment)
+        .catch(markError => {
+          console.warn(`[Guardian] could not record that ${walletAccount.publicKey} was rotated out:`, markError);
+        });
+    }
+    throw error;
+  }
 
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);

@@ -1493,6 +1493,116 @@ describe('Vault.withAccountFileKeyReader', () => {
   });
 });
 
+describe('Vault rotated-out hot key', () => {
+  const seedRotatedOutAccount = async (overrides: Partial<WalletAccount> = {}) => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      authScheme: 'ecdsa',
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex',
+      ...overrides
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT']
+      ],
+      vaultKey
+    );
+    return vault;
+  };
+
+  it('markHotKeyRotatedOut records the verdict against the stored key, once', async () => {
+    const vault = await seedRotatedOutAccount();
+
+    const first = await vault.markHotKeyRotatedOut('guardian-acc-1', 'hot-pub-hex', '0xchain');
+    expect(first.written).toBe(true);
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotKeyRotatedOut).toMatchObject({ hotPublicKey: 'hot-pub-hex', onChainHotCommitment: '0xchain' });
+    expect(typeof account?.hotKeyRotatedOut?.detectedAt).toBe('number');
+
+    // The sync tick reaches this once per cooldown; the second write is a no-op.
+    const second = await vault.markHotKeyRotatedOut('guardian-acc-1', 'hot-pub-hex', '0xchain');
+    expect(second.written).toBe(false);
+  });
+
+  // The detector read the account in another realm: a rotation back that landed in between moved the
+  // pointer, and a verdict written then would accuse the live key.
+  it('markHotKeyRotatedOut refuses a verdict about a key the record no longer uses', async () => {
+    const vault = await seedRotatedOutAccount();
+
+    const result = await vault.markHotKeyRotatedOut('guardian-acc-1', 'older-pub', '0xchain');
+
+    expect(result.written).toBe(false);
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotKeyRotatedOut).toBeUndefined();
+  });
+
+  it('swapHotKey clears the verdict with the key it was about', async () => {
+    const vault = await seedRotatedOutAccount({
+      hotKeyRotatedOut: { hotPublicKey: 'hot-pub-hex', onChainHotCommitment: '0xchain', detectedAt: 1 }
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']], vaultKey);
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub', 'hot-pub-hex');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(account?.hotKeyRotatedOut).toBeUndefined();
+  });
+
+  it('retireRotatedOutHotKey drops the key, flags the rotation and releases the blobs', async () => {
+    const vault = await seedRotatedOutAccount({
+      hotKeyRotatedOut: { hotPublicKey: 'hot-pub-hex', onChainHotCommitment: '0xchain', detectedAt: 1 }
+    });
+
+    await vault.retireRotatedOutHotKey('guardian-acc-1', 'hot-pub-hex');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBeUndefined();
+    expect(account?.requiresHotKeyRotation).toBe(true);
+    expect(account?.hotKeyRotatedOut).toBeUndefined();
+    expect(account?.coldPublicKey).toBe('cold-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
+    expect(mockDeleteHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+  });
+
+  it('retireRotatedOutHotKey refuses a stale expectation and changes nothing', async () => {
+    const vault = await seedRotatedOutAccount();
+
+    const caught = await vault.retireRotatedOutHotKey('guardian-acc-1', 'stale-pub').then(
+      () => undefined,
+      (e: unknown) => e
+    );
+
+    expect(caught).toBeInstanceOf(PublicError);
+    expect(caught).toMatchObject({ code: HOT_KEY_CHANGED });
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(account?.requiresHotKeyRotation).toBeUndefined();
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+  });
+
+  // A hot-key-only import has nothing to sign the rotation with.
+  it('retireRotatedOutHotKey refuses an account without a cold key', async () => {
+    const vault = await seedRotatedOutAccount({ coldPublicKey: undefined });
+
+    await expect(vault.retireRotatedOutHotKey('guardian-acc-1', 'hot-pub-hex')).rejects.toBeInstanceOf(PublicError);
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+  });
+});
+
 describe('Vault.swapHotKey', () => {
   const seedGuardianAccount = async (extraKeys: [string, string][] = []) => {
     const vault = await seedVault('pw');

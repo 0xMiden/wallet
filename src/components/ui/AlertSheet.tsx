@@ -22,8 +22,16 @@ export interface AlertSheetProps {
   /** Present for a confirmation: a secondary Cancel under the action. Absent for an alert. */
   onCancel?: () => void;
   cancelLabel?: ReactNode;
+  /**
+   * A second way forward under the action, for a sheet that offers two answers and no
+   * dismissal. Unlike Cancel it is a choice, not a dismissal, so it shows even when
+   * `dismissible` is false and is not what Escape or mobile back resolve to.
+   */
+  onSecondary?: () => void;
+  secondaryLabel?: ReactNode;
   actionTestId?: string;
   cancelTestId?: string;
+  secondaryTestId?: string;
   /** Names the sheet's overlay screen-key segment (`drawer:<screenKey>`). E2E-only. */
   screenKey?: string;
 }
@@ -58,8 +66,11 @@ export function AlertSheet({
   onAction,
   onCancel,
   cancelLabel,
+  onSecondary,
+  secondaryLabel,
   actionTestId,
   cancelTestId,
+  secondaryTestId,
   screenKey
 }: AlertSheetProps) {
   const descriptionId = useId();
@@ -115,6 +126,11 @@ export function AlertSheet({
             <Button ref={actionRef} variant={actionVariant} onClick={onAction} data-testid={actionTestId}>
               {actionLabel}
             </Button>
+            {onSecondary && (
+              <Button variant={ButtonVariant.Secondary} onClick={onSecondary} data-testid={secondaryTestId}>
+                {secondaryLabel}
+              </Button>
+            )}
             {onCancel && dismissible && (
               <Button ref={cancelRef} variant={ButtonVariant.Secondary} onClick={onCancel} data-testid={cancelTestId}>
                 {cancelLabel}
