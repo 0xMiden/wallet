@@ -1418,10 +1418,10 @@ if (window.bread?.auth) {
         <h3>Open your build</h3>
         <ul class="list">
           <li><b>Extension:</b> the provider is injected on <code>http://localhost</code> and <code>http://127.0.0.1</code>, so a local dev server works as is.</li>
-          <li><b>Phones:</b> type your address into Explore's search box. Input without a scheme gets <code>https://</code> prepended, so write <code>http://</code> yourself for a plain-http server.</li>
+          <li><b>Phones:</b> type your address into Explore's search box. An address typed without a scheme gets <code>https://</code>, so write <code>http://</code> yourself for a plain-http server.</li>
           <li><b>iOS</b> loads plain-http pages. <b>Android</b> store builds allow no cleartext to your server, so expose your dev server over https, for example through a tunnel.</li>
           <li><b>Desktop:</b> Explore accepts http and https addresses and opens them in Bread's dApp window, which the next address reuses.</li>
-          <li><code>window.bread.auth</code> and the login key need https pages on phones.</li>
+          <li><code>window.bread.auth</code> needs an https page; the login key needs https or a loopback host such as <code>localhost</code>.</li>
         </ul>
         <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">A complete reference dApp</strong><p>The wallet's own end-to-end suite drives every request through a small test dApp, including the login key check. Read it in <a href="https://github.com/0xMiden/wallet/tree/main/playwright/e2e/test-dapp">playwright/e2e/test-dapp</a>.</p></div></div>
       </section>
