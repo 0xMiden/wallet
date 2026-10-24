@@ -119,6 +119,7 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(images(browserAndroid)).toEqual(['system-images;android-34;default;x86_64']);
     expect(images(authTab)).toEqual(['system-images;android-37.0;google_apis_playstore;x86_64']);
     expect(authTab).toContain("system-image-api-level: '37.0'");
+    expect(authTab).toContain("cmdline-tools-version: '15859902'");
     const authTabScript = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
     // Gradle's connected task commits installs without retrying, which the Android 37 image intermittently drops.
     expect(authTabScript).not.toContain('connectedDebugAndroidTest');

@@ -369,12 +369,16 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         with:
+          # Older SDK tools write a dotted API level's AVD wrongly; on the Android 37 image such an AVD aborts
+          # surfaceflinger on colour buffer reads (hasReadColorBufferDma) and restarts system_server every ~20 s.
+          cmdline-tools-version: '15859902'
           packages: platform-tools
 
       - name: Install SDK packages
         run: |
           sdkmanager --install "platform-tools" "emulator" \
             "platforms;android-36" "system-images;android-37.0;google_apis_playstore;x86_64"
+          echo "sdkmanager $(sdkmanager --version) avdmanager $(command -v avdmanager)"
 
       - name: Download pinned Firefox provider
         run: |
