@@ -50,6 +50,7 @@ function makeInstance(id: string) {
     setVisible: (...args: unknown[]) => mockSetVisible(id, ...args),
     setRect: (...args: unknown[]) => mockSetRect(id, ...args),
     executeScript: (...args: unknown[]) => mockExecuteScript(id, ...args),
+    morph: async () => ({ accepted: false }),
     close: () => mockInstanceClose(id)
   };
 }
@@ -477,7 +478,8 @@ describe('park / restore lifecycle', () => {
     );
 
     let parking: Promise<void> = Promise.resolve();
-    act(() => {
+    // Async: the park asks native for the morph first, and starts the snapshot once that is refused.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
     // DappActive re-measures the slot on timers after it mounts, so a minimize right after opening can land one
@@ -1535,9 +1537,11 @@ describe('native presentation lifecycle', () => {
     });
     await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
     let parking: Promise<void> | undefined;
-    act(() => {
+    // Async, so the refused morph hands over to the legacy park and its snapshot starts before the close.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
+    expect(finishSnapshot).toBeDefined();
     await act(async () => {
       await listenerFor('closeEvent')({
         id: 'dapp-a',

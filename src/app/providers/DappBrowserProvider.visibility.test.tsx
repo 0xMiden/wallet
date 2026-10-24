@@ -31,10 +31,19 @@ const mockRemoveSession = jest.fn(async () => {});
 const mockRemoveSnapshot = jest.fn(async () => {});
 const mockResetViewport = jest.fn(async () => {});
 const mockClose = jest.fn(async (_id: string) => {});
+const mockMorph = jest.fn(async (_id: string, _request: unknown) => ({ accepted: false }));
+const mockSetMorphTarget = jest.fn(async (_card: unknown) => {});
+const mockUpsertSession = jest.fn(async (_session: unknown) => {});
 const nativeListeners = new Map<
   string,
   (event: {
     id: string;
+    morphId?: string;
+    phase?: string;
+    target?: string;
+    progress?: number;
+    velocity?: number;
+    tracking?: boolean;
     display?: 'fullscreen' | 'browser';
     policyResolved?: boolean;
     policyRevision?: number;
@@ -68,6 +77,7 @@ jest.mock('@miden/dapp-browser', () => ({
   dappWebViewManager: {
     reserveClose: jest.fn(),
     forget: jest.fn(),
+    setMorphTarget: (card: unknown) => mockSetMorphTarget(card),
     open: async (options: { id: string; initiallyVisible?: boolean }) => {
       await mockOpen(options);
       let visibilitySequence = 0;
@@ -82,6 +92,10 @@ jest.mock('@miden/dapp-browser', () => ({
           return revision === undefined
             ? mockSetVisible(options.id, visible)
             : mockSetVisible(options.id, visible, revision);
+        },
+        morph: (request: unknown) => {
+          visibilitySequence++;
+          return mockMorph(options.id, request);
         },
         executeScript: async () => {},
         close: () => mockClose(options.id)
@@ -154,7 +168,7 @@ jest.mock('lib/dapp-browser', () => ({
   readSnapshotFromDisk: async () => null,
   removePersistedSession: () => mockRemoveSession(),
   removeSnapshotFromDisk: () => mockRemoveSnapshot(),
-  upsertPersistedSession: async () => {},
+  upsertPersistedSession: (session: unknown) => mockUpsertSession(session),
   writeSnapshotToDisk: async () => {},
   toPersisted: (session: unknown) => session,
   fromPersisted: (session: unknown) => session,
@@ -339,6 +353,9 @@ beforeEach(async () => {
   mockOpen.mockClear();
   mockCaptureSnapshot.mockReset().mockResolvedValue(null);
   mockClose.mockClear();
+  mockMorph.mockReset().mockResolvedValue({ accepted: false });
+  mockSetMorphTarget.mockClear();
+  mockUpsertSession.mockClear();
   mockCompleteClose.mockClear();
   mockRemoveSession.mockReset().mockResolvedValue(undefined);
   mockRemoveSnapshot.mockReset().mockResolvedValue(undefined);
@@ -1427,5 +1444,177 @@ describe('public approval reopening through real AnimatePresence', () => {
     await closeAlert();
     await waitFor(() => expect(lastVisibility()).toBe(true));
     expect(mockOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+const CARD = { x: 282, y: 650, width: 104, height: 132, cornerRadius: 16 };
+const UUID = /^[0-9a-f-]{36}$/;
+const lifetime = () => mockOpen.mock.calls[0]![0].managedHostClose!.token;
+const morphRequests = () => mockMorph.mock.calls.map(([, request]) => request);
+function lastMorphId() {
+  const request = mockMorph.mock.calls.at(-1)?.[1];
+  if (!request || typeof request !== 'object' || !('morphId' in request) || typeof request.morphId !== 'string')
+    throw new Error('No morph was sent');
+  return request.morphId;
+}
+function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra: { tracking?: boolean } = {}) {
+  act(() =>
+    nativeListeners.get('presentationMorph')?.({
+      id: 'origin',
+      morphId,
+      phase,
+      target,
+      progress: target === 'collapsed' ? 0 : 1,
+      velocity: 0,
+      tracking: extra.tracking ?? false,
+      visibilitySequence: 0,
+      managedHostCloseToken: lifetime()
+    })
+  );
+}
+const parked = () => control().parkedSessions.map(state => state.session.id);
+
+describe('native morph collapse', () => {
+  afterEach(() => jest.useRealTimers());
+
+  async function startCollapse() {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => control().reportLandingCard(CARD));
+    let parking: Promise<void> = Promise.resolve();
+    act(() => {
+      parking = control().park('origin');
+    });
+    await settle();
+    // Wrapped: an async function returning the pending park would wait for it.
+    return { parking };
+  }
+
+  it('collapses through morph and commits the park only on settled', async () => {
+    const { parking } = await startCollapse();
+
+    expect(mockSetMorphTarget).toHaveBeenCalledWith(CARD);
+    expect(morphRequests()).toEqual([{ to: 'collapsed', card: CARD, morphId: expect.stringMatching(UUID) }]);
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'collapsed', morphId: lastMorphId() });
+    emitMorph('started', 'collapsed');
+    await settle();
+    expect(control().mode).toBe('active');
+    expect(lastVisibility()).toBeUndefined();
+
+    emitMorph('settled', 'collapsed');
+    await act(async () => parking);
+    expect(parked()).toEqual(['origin']);
+    expect(control().mode).toBe('launcher');
+    expect(mockUpsertSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('acknowledges with a hide after two frames', async () => {
+    const frames: FrameRequestCallback[] = [];
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => frames.push(callback));
+    await startCollapse();
+
+    emitMorph('settled', 'collapsed');
+    await settle();
+    expect(lastVisibility()).toBeUndefined();
+    act(() => frames.splice(0).forEach(frame => frame(0)));
+    expect(lastVisibility()).toBeUndefined();
+    act(() => frames.splice(0).forEach(frame => frame(0)));
+    await settle();
+
+    expect(lastVisibility()).toBe(false);
+    expect(control().motion).toBeNull();
+  });
+
+  it('acknowledges within 300 ms when frames stall', async () => {
+    await startCollapse();
+    jest.useFakeTimers();
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+
+    emitMorph('settled', 'collapsed');
+    await settle();
+    act(() => jest.advanceTimersByTime(299));
+    expect(lastVisibility()).toBeUndefined();
+    act(() => jest.advanceTimersByTime(1));
+
+    expect(lastVisibility()).toBe(false);
+  });
+
+  it('keeps the session foreground when the collapse is reversed', async () => {
+    const { parking } = await startCollapse();
+
+    emitMorph('retargeted', 'expanded');
+    emitMorph('settled', 'expanded');
+    await act(async () => parking);
+
+    expect(control().mode).toBe('active');
+    expect(parked()).toEqual([]);
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+    expect(control().motion).toBeNull();
+    expect(mockSetVisible).not.toHaveBeenCalledWith('origin', false);
+  });
+
+  it('leaves the session active when the collapse is cancelled', async () => {
+    const { parking } = await startCollapse();
+
+    emitMorph('cancelled', 'collapsed');
+    await act(async () => parking);
+
+    expect(control().mode).toBe('active');
+    expect(control().session?.id).toBe('origin');
+    expect(parked()).toEqual([]);
+    expect(control().motion).toBeNull();
+  });
+
+  it('a confirmation arriving mid-collapse cancels the collapse and keeps the dApp foreground', async () => {
+    mockRealApproval = true;
+    const { parking } = await startCollapse();
+    let answer: Promise<unknown> | undefined;
+
+    act(() => {
+      answer = dappConfirmationStore.requestConfirmation({ ...approval(), type: 'sign', transactionMessages: ['Mid'] });
+    });
+    expect(lastVisibility()).toBe(false);
+    emitMorph('cancelled', 'collapsed');
+    await act(async () => parking);
+
+    expect(control().mode).toBe('active');
+    expect(parked()).toEqual([]);
+    await waitFor(() => expect(screen.getByText('Mid').closest('[role="dialog"]')).toBeVisible());
+    act(() => dappConfirmationStore.resolveConfirmation('origin', { confirmed: false }));
+    await answer;
+  });
+
+  it('a settled event at the nearest end after backgrounding commits that end', async () => {
+    const { parking } = await startCollapse();
+
+    emitMorph('settled', 'collapsed');
+    await act(async () => parking);
+
+    expect(parked()).toEqual(['origin']);
+  });
+
+  it('falls back to the legacy park when native does not accept the morph', async () => {
+    await openForeground();
+    await act(async () => control().park('origin'));
+
+    expect(morphRequests()).toHaveLength(1);
+    expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7);
+    expect(mockCaptureSnapshot.mock.invocationCallOrder[0]).toBeLessThan(mockSetVisible.mock.invocationCallOrder[0]!);
+    expect(lastVisibility()).toBe(false);
+    expect(parked()).toEqual(['origin']);
+    expect(control().mode).toBe('launcher');
+    expect(control().motion).toBeNull();
+  });
+
+  it('requests the snapshot after the morph is accepted without awaiting it', async () => {
+    mockCaptureSnapshot.mockImplementation(() => new Promise(() => {}));
+    const { parking } = await startCollapse();
+
+    expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7);
+    expect(mockMorph.mock.invocationCallOrder[0]).toBeLessThan(mockCaptureSnapshot.mock.invocationCallOrder[0]!);
+    emitMorph('settled', 'collapsed');
+    await act(async () => parking);
+
+    expect(parked()).toEqual(['origin']);
   });
 });
