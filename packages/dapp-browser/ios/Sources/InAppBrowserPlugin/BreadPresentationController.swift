@@ -189,9 +189,19 @@ final class BreadPresentationController: NSObject {
             snapshotWaiters.append(deliver)
             return true
         }
+        // A shown page is captured whole, so the park this snapshot precedes leaves a proxy for the next expand.
+        if !moving, showsLivePage {
+            snapshotWaiters.append(deliver)
+            captureProxy()
+            return true
+        }
         guard proxyFresh, state.proxyUsable, let image = proxy.image else { return false }
         deliver(image)
         return true
+    }
+
+    private var showsLivePage: Bool {
+        state.phase == .visible && (cover.isHidden || revealAnimator != nil) && instance?.containerWindow?.isHidden == false
     }
 
     func adoptProxy(_ image: UIImage) {
@@ -265,7 +275,7 @@ final class BreadPresentationController: NSObject {
         guard !proxyCovering else { return }
         proxy.alpha = 0
         proxy.isHidden = false
-        if state.phase == .visible, cover.isHidden || revealAnimator != nil { captureProxy() }
+        if showsLivePage { captureProxy() }
     }
 
     private func captureProxy() {
