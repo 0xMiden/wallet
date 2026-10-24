@@ -69,6 +69,8 @@ it('ignores a malformed event from the bridge', () => {
     morphEvent({ phase: JSON.parse('"paused"') }),
     morphEvent({ phase: 'retargeted', target: JSON.parse('null') }),
     morphEvent({ phase: 'settled', target: JSON.parse('"sideways"') }),
+    morphEvent({ phase: 'started', target: JSON.parse('"sideways"') }),
+    morphEvent({ phase: 'cancelled', target: JSON.parse('null') }),
     morphEvent({ progress: Number.NaN }),
     morphEvent({ velocity: Number.POSITIVE_INFINITY }),
     morphEvent({ tracking: JSON.parse('"yes"') })
