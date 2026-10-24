@@ -315,7 +315,7 @@ final class BreadMorphAnimator {
         cancelSettle()
         beginSignpost()
         self.target = target
-        container.setShadowScale(pose(0).scale)
+        container.setShadow(for: pose(0))
         container.morphing = true
         var settling = Self.fadeDuration
         CATransaction.begin()
@@ -370,7 +370,7 @@ final class BreadMorphAnimator {
 
     func hold(_ p: Double, card: BreadMorphCard?) {
         self.card = card
-        container?.setShadowScale(pose(0).scale)
+        container?.setShadow(for: pose(0))
         track(p)
     }
 

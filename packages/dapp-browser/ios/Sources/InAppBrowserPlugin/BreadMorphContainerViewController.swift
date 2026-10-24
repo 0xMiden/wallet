@@ -58,8 +58,7 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
         super.viewDidLoad()
         shadowView.isUserInteractionEnabled = false
         shadowView.layer.anchorPoint = .zero
-        shadowView.layer.shadowColor = UIColor(red: 15 / 255, green: 23 / 255, blue: 42 / 255, alpha: 1).cgColor
-        shadowView.layer.shadowOpacity = 0
+        shadowView.layer.contentsGravity = .resize
         clipView.layer.anchorPoint = .zero
         clipView.clipsToBounds = true
         clipView.layer.cornerCurve = .circular
@@ -83,10 +82,6 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
     override var childForScreenEdgesDeferringSystemGestures: UIViewController? { child }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { child.supportedInterfaceOrientations }
 
-    static func shadowPath(width: CGFloat, height: CGFloat, radius: CGFloat) -> CGPath {
-        UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: width, height: max(0, height)), cornerRadius: max(radius, 0.01)).cgPath
-    }
-
     func layoutAtRest() {
         morphing = false
         let size = view.bounds.size
@@ -96,15 +91,16 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
             for key in layer.animationKeys() ?? [] where key.hasPrefix(Self.keyPrefix) { layer.removeAnimation(forKey: key) }
         }
         // The only model write of geometry: it runs at rest, never while a pose is shown.
+        let pad = BreadMorphShadow.pad(forWidth: size.width)
         for layer in [clipView.layer, shadowView.layer] {
             layer.transform = CATransform3DIdentity
             layer.position = .zero
-            layer.bounds = CGRect(origin: .zero, size: size)
         }
+        clipView.layer.bounds = CGRect(origin: .zero, size: size)
+        shadowView.layer.bounds = CGRect(x: 0, y: 0, width: size.width + 2 * pad, height: size.height + 2 * pad)
         clipView.layer.cornerRadius = 0
         clipView.layer.opacity = 1
-        shadowView.layer.shadowOpacity = 0
-        shadowView.layer.shadowPath = Self.shadowPath(width: size.width, height: size.height, radius: 0)
+        shadowView.layer.opacity = 0
         CATransaction.commit()
         let frame = CGRect(origin: .zero, size: size)
         if child.view.frame != frame { child.view.frame = frame }
@@ -116,7 +112,8 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
         let scale = NSNumber(value: Double(pose.scale))
         let origin = NSValue(cgPoint: pose.origin)
         let height = NSNumber(value: Double(pose.cropHeight))
-        let path = Self.shadowPath(width: view.bounds.width, height: pose.cropHeight, radius: pose.cornerRadius)
+        let pad = BreadMorphShadow.pad(forWidth: view.bounds.width)
+        let shadowOrigin = NSValue(cgPoint: CGPoint(x: pose.origin.x - pose.scale * pad, y: pose.origin.y - pose.scale * pad))
         return [
             BreadMorphValue(layer: clip, keyPath: "transform.scale", value: scale),
             BreadMorphValue(layer: clip, keyPath: "position", value: origin),
@@ -124,10 +121,9 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
             BreadMorphValue(layer: clip, keyPath: "cornerRadius", value: NSNumber(value: Double(pose.cornerRadius))),
             BreadMorphValue(layer: clip, keyPath: "opacity", value: NSNumber(value: Float(pose.alpha))),
             BreadMorphValue(layer: shadow, keyPath: "transform.scale", value: scale),
-            BreadMorphValue(layer: shadow, keyPath: "position", value: origin),
-            BreadMorphValue(layer: shadow, keyPath: "bounds.size.height", value: height),
-            BreadMorphValue(layer: shadow, keyPath: "shadowPath", value: path),
-            BreadMorphValue(layer: shadow, keyPath: "shadowOpacity", value: NSNumber(value: pose.shadowOpacity))
+            BreadMorphValue(layer: shadow, keyPath: "position", value: shadowOrigin),
+            BreadMorphValue(layer: shadow, keyPath: "bounds.size.height", value: NSNumber(value: Double(pose.cropHeight + 2 * pad))),
+            BreadMorphValue(layer: shadow, keyPath: "opacity", value: NSNumber(value: pose.shadowOpacity))
         ]
     }
 
@@ -147,12 +143,16 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
         CATransaction.commit()
     }
 
-    func setShadowScale(_ scale: CGFloat) {
-        let onScreen = max(scale, 0.01)
+    // The shadow is the card's own look, so it follows the card end of the motion (pose at p = 0).
+    func setShadow(for card: BreadMorphPose) {
+        guard card.shadowOpacity > 0 else { return }
+        let screenScale = max(view.window?.screen.scale ?? view.traitCollection.displayScale, 2)
+        guard let made = BreadMorphShadow.render(start: card.scale, cornerRadius: card.cornerRadius, width: view.bounds.width, screenScale: screenScale) else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        shadowView.layer.shadowRadius = 14 / onScreen
-        shadowView.layer.shadowOffset = CGSize(width: 0, height: 10 / onScreen)
+        shadowView.layer.contents = made.image
+        shadowView.layer.contentsScale = made.contentsScale
+        shadowView.layer.contentsCenter = made.contentsCenter
         CATransaction.commit()
     }
 
