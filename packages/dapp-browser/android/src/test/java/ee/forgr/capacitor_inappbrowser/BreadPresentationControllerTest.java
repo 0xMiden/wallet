@@ -1576,15 +1576,19 @@ public class BreadPresentationControllerTest {
         snapshots = new FakeSnapshotter();
         ReflectionHelpers.setField(dialog, "snapshotter", snapshots);
         root = dialog.findViewById(R.id.coordinator_layout);
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        BreadMorphControllerTest.advance(50);
         if (root.getWidth() == 0 || root.getHeight() == 0) {
             root.measure(View.MeasureSpec.makeMeasureSpec(390, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(650, View.MeasureSpec.EXACTLY));
             root.layout(0, 0, 390, 650);
-            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+            BreadMorphControllerTest.advance(50);
         }
         assertTrue("slot laid out", root.getWidth() > 0 && root.getHeight() > 0);
-        assertTrue("page laid out", webView.getWidth() > 0 && webView.getHeight() > 0);
+        webView = spy(webView);
+        doReturn(root.getWidth()).when(webView).getWidth();
+        doReturn(root.getHeight()).when(webView).getHeight();
+        ReflectionHelpers.setField(controller, "webView", webView);
+        ReflectionHelpers.setField(dialog, "_webView", webView);
         root.getLocationInWindow(rootOrigin);
     }
 
@@ -1601,7 +1605,7 @@ public class BreadPresentationControllerTest {
 
     private void reveal() {
         paintFence();
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+        BreadMorphControllerTest.advance(300);
         assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
     }
 
@@ -1670,7 +1674,7 @@ public class BreadPresentationControllerTest {
         assertEquals(1, root.getScaleX(), 0);
         assertEquals(List.of("started:expanded", "settled:expanded"), phases("m2"));
         paintFence();
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(220));
+        BreadMorphControllerTest.advance(220);
         assertEquals(View.GONE, proxy.getVisibility());
         assertEquals(View.GONE, cover.getVisibility());
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
@@ -1708,14 +1712,14 @@ public class BreadPresentationControllerTest {
         assertTrue(expand(card, "m2"));
         for (int i = 0; i < 4; i++) BreadMorphControllerTest.frame();
         paintFence();
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
+        BreadMorphControllerTest.advance(50);
         assertEquals(View.VISIBLE, proxy.getVisibility());
         assertTrue(proxy.getAlpha() < 1);
         ReflectionHelpers.callInstanceMethod(controller, "invalidateLayout");
         assertEquals(View.VISIBLE, proxy.getVisibility());
         assertEquals(1, proxy.getAlpha(), 0);
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
+        BreadMorphControllerTest.advance(300);
         assertEquals(View.VISIBLE, proxy.getVisibility());
         assertEquals(1, proxy.getAlpha(), 0);
     }
@@ -1731,7 +1735,7 @@ public class BreadPresentationControllerTest {
         assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
         assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
         assertEquals(List.of("started:collapsed", "settled:collapsed"), phases("m1"));
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500));
+        BreadMorphControllerTest.advance(500);
         assertTrue(dialog.isShowing());
         assertEquals(cardScale(card), root.getScaleX(), 1e-4f);
         controller.visibility(false, null, nextSequence());
@@ -1754,7 +1758,7 @@ public class BreadPresentationControllerTest {
         assertTrue(proxy.getVisibility() != View.VISIBLE || proxy.getAlpha() == 0);
         for (int i = 0; i < 60 && morph.progress() > 0.35f; i++) BreadMorphControllerTest.frame();
         assertEquals(View.VISIBLE, proxy.getVisibility());
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(150));
+        BreadMorphControllerTest.advance(150);
         assertEquals(1, proxy.getAlpha(), 0.001f);
     }
 
@@ -1832,7 +1836,7 @@ public class BreadPresentationControllerTest {
         BreadMorphControllerTest.settle();
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
         paintFence();
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(220));
+        BreadMorphControllerTest.advance(220);
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
     }
 
@@ -2045,30 +2049,28 @@ public class BreadPresentationControllerTest {
     public void touchesOutsideThePageAreConsumedDuringFlight() throws Exception {
         openMorph(false);
         reveal();
-        List<Integer> received = new ArrayList<>();
-        webView.setOnTouchListener((view, event) -> { received.add(event.getActionMasked()); return true; });
+        int pass = BreadPresentationController.TOUCH_PASS, consume = BreadPresentationController.TOUCH_CONSUME;
         long t = android.os.SystemClock.uptimeMillis();
-        int[] at = new int[2];
-        webView.getLocationInWindow(at);
-        float cx = at[0] + webView.getWidth() / 2f, cy = at[1] + webView.getHeight() / 2f;
-        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, cx, cy, t));
-        dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, cx, cy, t + 20));
-        assertEquals(2, received.size());
-        received.clear();
+        float cx = root.getWidth() / 2f, cy = root.getHeight() / 2f;
+        assertEquals(pass, controller.routeTouch(touch(android.view.MotionEvent.ACTION_DOWN, cx, cy, t)));
         assertTrue(collapse(card(), "m1"));
+        assertEquals("a gesture the page had is cancelled for it", BreadPresentationController.TOUCH_CANCEL,
+            controller.routeTouch(touch(android.view.MotionEvent.ACTION_MOVE, cx, cy + 4, t + 16)));
+        assertEquals(consume, controller.routeTouch(touch(android.view.MotionEvent.ACTION_MOVE, cx, cy + 8, t + 32)));
+        assertEquals(consume, controller.routeTouch(touch(android.view.MotionEvent.ACTION_UP, cx, cy + 8, t + 48)));
         for (int i = 0; i < 4; i++) BreadMorphControllerTest.frame();
         RectF page = controller.morphPageRect();
         float x = page.left / 2, y = page.top / 2;
         assertFalse(page.contains(x, y));
         assertTrue(x > 0 && y > 0);
-        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, x, y, t + 100)));
-        assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, x, y, t + 140)));
-        assertTrue(received.isEmpty());
+        assertEquals(consume, controller.routeTouch(touch(android.view.MotionEvent.ACTION_DOWN, x, y, t + 100)));
+        assertEquals(consume, controller.routeTouch(touch(android.view.MotionEvent.ACTION_UP, x, y, t + 140)));
         assertEquals(List.of("started:collapsed"), phases("m1"));
         assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_DOWN, page.centerX(), page.centerY(), t + 200)));
         assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, page.centerX(), page.centerY(), t + 240)));
-        assertTrue(received.isEmpty());
         assertEquals(List.of("started:collapsed", "retargeted:expanded"), phases("m1"));
+        BreadMorphControllerTest.settle();
+        assertEquals(pass, controller.routeTouch(touch(android.view.MotionEvent.ACTION_DOWN, cx, cy, t + 4000)));
     }
 
     private BreadMorphCard hostCardInside(float left, float top, float right, float bottom) {

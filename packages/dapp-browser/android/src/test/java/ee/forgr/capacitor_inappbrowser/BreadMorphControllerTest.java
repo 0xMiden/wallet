@@ -42,7 +42,10 @@ public class BreadMorphControllerTest {
     }
 
     static void frame() { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16)); }
-    static void settle() { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2)); }
+    static void settle() { advance(3000); }
+
+    // A paused Choreographer delivers one vsync per clock step, so time moves a frame at a time.
+    static void advance(long millis) { for (long t = 0; t < millis; t += 16) frame(); }
 
     @Before public void setUp() throws Exception {
         resetSpringFrames();
