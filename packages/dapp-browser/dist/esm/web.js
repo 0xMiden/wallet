@@ -56,5 +56,13 @@ export class InAppBrowserWeb extends WebPlugin {
         // Web platform doesn't support dimension control
         return;
     }
+    async morph(options) {
+        console.log('morph', options);
+        return { accepted: false };
+    }
+    async setMorphTarget(options) {
+        console.log('setMorphTarget', options);
+        return;
+    }
 }
 //# sourceMappingURL=web.js.map

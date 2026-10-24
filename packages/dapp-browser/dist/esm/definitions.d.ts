@@ -610,6 +610,58 @@ export interface DimensionOptions {
      */
     y?: number;
 }
+/** Miden patch (#1817): which end of the native morph a motion runs toward. */
+export type MorphTarget = 'collapsed' | 'expanded';
+export type MorphPhase = 'started' | 'retargeted' | 'settled' | 'cancelled';
+/**
+ * A landing card in host-viewport CSS px: iOS points from the screen top-left; Android dp from the host
+ * viewport origin, offset by the plugin exactly as it offsets the slot (WebViewDialog.java:3204-3237).
+ */
+export interface MorphCard {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    cornerRadius: number;
+}
+/** Release velocity in host-viewport CSS px per second. */
+export interface MorphVelocity {
+    x: number;
+    y: number;
+}
+export interface MorphOptions {
+    id: string;
+    /** Minted by the caller (crypto.randomUUID()), echoed in every event of this motion. */
+    morphId: string;
+    managedHostCloseToken?: string;
+    visibilitySequence?: number;
+    /** Only with to: 'expanded'; same semantics as setVisible(true, policyRevision). */
+    policyRevision?: number;
+    to: MorphTarget;
+    /** null: no visible landing card, so the motion is a 0.9 scale plus fade. */
+    card: MorphCard | null;
+    velocity?: MorphVelocity;
+}
+export interface MorphResult {
+    accepted: boolean;
+}
+export interface MorphTargetOptions {
+    card: MorphCard | null;
+}
+export interface PresentationMorphEvent {
+    id: string;
+    morphId: string;
+    phase: MorphPhase;
+    target: MorphTarget;
+    /** p when the event was emitted: 0 card, 1 slot. */
+    progress: number;
+    /** dp/dt in progress units per second when the event was emitted. */
+    velocity: number;
+    /** true on a retargeted event emitted when a finger grabs the moving page; false on its release. */
+    tracking: boolean;
+    visibilitySequence: number;
+    managedHostCloseToken?: string;
+}
 export interface InAppBrowserPlugin {
     addListener(eventName: 'permissionDeniedToast', listenerFunc: () => void): Promise<PluginListenerHandle>;
     addListener(eventName: 'presentationMinimizeRequested', listenerFunc: (event: {
@@ -617,7 +669,15 @@ export interface InAppBrowserPlugin {
         policyRevision: number;
         visibilitySequence: number;
         managedHostCloseToken?: string;
+        /** Miden patch (#1817): present when native has already started the collapse. */
+        morphId?: string;
     }) => void): Promise<PluginListenerHandle>;
+    /**
+     * Miden patch (#1817): the progress of a native morph. Every accepted morphId ends in exactly one of
+     * settled, cancelled, or supersession by a later accepted morphId (announced by a retargeted event
+     * carrying the new id); nothing is emitted for a superseded id afterwards.
+     */
+    addListener(eventName: 'presentationMorph', listenerFunc: (event: PresentationMorphEvent) => void): Promise<PluginListenerHandle>;
     addListener(eventName: 'hostCloseRequested', listenerFunc: (event: HostCloseRequest) => void): Promise<PluginListenerHandle>;
     completeManagedClose(options: HostCloseRequest & { hostCommitGeneration: number }): Promise<void>;
     addListener(eventName: 'presentationChanged', listenerFunc: (event: {
@@ -824,6 +884,18 @@ export interface InAppBrowserPlugin {
         visibilitySequence?: number;
         policyRevision?: number;
     }): Promise<void>;
+    /**
+     * Miden patch (#1817): run the native expand or collapse of a positioned instance as one spring on
+     * the live page. The guards are setVisible's; an expand has setVisible(true, policyRevision)'s
+     * visibility and policy semantics. Resolves accepted: false, emitting nothing, when a guard fails,
+     * the presentation is closing or closed, or an expand leaves the surface hidden.
+     */
+    morph(options: MorphOptions): Promise<MorphResult>;
+    /**
+     * Miden patch (#1817): publish the landing card a native-initiated collapse (the Bread button) lands
+     * on; null when no card is visible.
+     */
+    setMorphTarget(options: MorphTargetOptions): Promise<void>;
     /**
      * Miden patch (PR-4 chunk 4): list every currently registered instance
      * id. Used by the wallet's PR-6 cold-bubble restore logic and the LRU
