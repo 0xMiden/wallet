@@ -237,7 +237,7 @@ final class BreadPresentationController: NSObject {
         morphId = id
         run(to: target, card: landing, velocity: progressVelocity, physics: target == .expanded ? .expand : .collapse)
         if previous != nil {
-            emit(.retargeted, id: id, target: target, progress: animator.progress(), velocity: animator.velocity())
+            emitRetarget(id, target: target)
         } else {
             emitStarted(id)
         }
@@ -453,7 +453,14 @@ final class BreadPresentationController: NSObject {
             if target == .expanded { beginExpandVisuals(fromRest: false) } else { beginCollapseVisuals() }
         }
         run(to: target, card: animator.card, velocity: velocity, physics: physics)
-        emit(.retargeted, id: id, target: target, progress: animator.progress(), velocity: animator.velocity())
+        emitRetarget(id, target: target)
+    }
+
+    private func emitRetarget(_ id: String, target: BreadMorphTarget) {
+        guard let animator else { return }
+        let start = animator.spring.map { (progress: $0.from, velocity: $0.velocity) }
+        emit(.retargeted, id: id, target: target, progress: start?.progress ?? animator.progress(),
+             velocity: start?.velocity ?? animator.velocity())
     }
 
     private func morphPath() -> CGPoint {
