@@ -2259,6 +2259,7 @@ public class BreadPresentationControllerTest {
         assertNotNull(WebViewRegistry.getShared().morphCard());
         ImageButton capsule = ReflectionHelpers.getField(controller, "back");
         capsule.performClick();
+        BreadMorphControllerTest.frame();
         BreadMorphCard landing = driver().card();
         assertNotNull(landing);
         assertEquals(root.getWidth() * 0.6f, landing.rect.left, 0.5f);
@@ -2337,6 +2338,7 @@ public class BreadPresentationControllerTest {
             ReflectionHelpers.ClassParameter.from(float.class, 0f));
         try {
             assertTrue(collapse(card(), "still"));
+            BreadMorphControllerTest.frame();
             assertFalse(driver().running());
             assertEquals("reduced-motion collapse leaves the parked end pose", 0f, back.getAlpha(), 0f);
             assertEquals(1, held.pending.size());
@@ -2363,6 +2365,126 @@ public class BreadPresentationControllerTest {
         assertFalse(morph.running());
         assertEquals("finishAtNearestEnd leaves the collapsed end pose", 0f, back.getAlpha(), 0f);
         assertEquals(View.VISIBLE, proxy.getVisibility());
+    }
+
+    static final class RecordingSnapshotter implements BreadSnapshotter {
+        final List<Integer> capsule = new ArrayList<>();
+        final List<Float> scale = new ArrayList<>();
+        View back;
+        View root;
+        @Override public void capture(Window window, android.graphics.Rect rect, android.graphics.Bitmap into,
+                                      java.util.function.IntConsumer done) {
+            capsule.add(back.getVisibility());
+            scale.add(root.getScaleX());
+            done.accept(android.view.PixelCopy.SUCCESS);
+        }
+        @Override public void encode(Runnable work) {}
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void fullscreenCollapseCopiesACapsuleFreeFrameBeforeTheSpring() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        RecordingSnapshotter recorder = new RecordingSnapshotter();
+        recorder.back = back;
+        recorder.root = root;
+        ReflectionHelpers.setField(dialog, "snapshotter", recorder);
+        assertTrue(collapse(card(), "capsule"));
+        assertEquals("capture shows the capsule", View.INVISIBLE, back.getVisibility());
+        assertFalse("the spring waits for the copy", driver().running());
+        assertTrue(recorder.capsule.isEmpty());
+        controller.render();
+        assertEquals("a render during the wait keeps the capsule hidden", View.INVISIBLE, back.getVisibility());
+        BreadMorphControllerTest.frame();
+        assertEquals(List.of(View.INVISIBLE), recorder.capsule);
+        assertEquals(1, recorder.scale.get(0), 0f);
+        assertTrue(driver().running());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void finishDuringTheCollapseWaitParksAtTheCard() throws Exception {
+        openMorph(true);
+        reveal();
+        BreadMorphCard card = card();
+        assertTrue(collapse(card, "wait"));
+        controller.foreground(false);
+        assertEquals("finish during the collapse wait parks at the card", cardScale(card), root.getScaleX(), 1e-4f);
+        assertEquals(1, snapshots.captures.size());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void fullscreenSnapshotHidesTheCapsuleForOneFrame() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        HeldSnapshotter held = new HeldSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", held);
+        dialog.takeSnapshotData(0.5f, 0.7f, ignored -> {});
+        assertEquals(View.INVISIBLE, back.getVisibility());
+        assertTrue(held.pending.isEmpty());
+        BreadMorphControllerTest.frame();
+        assertEquals(1, held.pending.size());
+        assertEquals(View.INVISIBLE, back.getVisibility());
+        held.release();
+        assertEquals("snapshot restore shows the capsule", View.VISIBLE, back.getVisibility());
+        dialog.takeSnapshotData(0.5f, 0.7f, ignored -> {});
+        BreadMorphControllerTest.frame();
+        int epoch = ReflectionHelpers.<Integer>getField(controller, "captureEpoch");
+        ReflectionHelpers.setField(controller, "captureEpoch", epoch + 1);
+        held.release();
+        assertEquals("a stale capture restores the snapshot capsule", View.VISIBLE, back.getVisibility());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void closeRestoresTheCapsuleAndCancelsTheQueuedCopy() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        HeldSnapshotter held = new HeldSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", held);
+        List<android.graphics.Bitmap> delivered = new ArrayList<>();
+        controller.snapshot(delivered::add);
+        assertEquals(View.INVISIBLE, back.getVisibility());
+        controller.close();
+        assertEquals("close restores the capsule", View.VISIBLE, back.getVisibility());
+        BreadMorphControllerTest.frame();
+        assertTrue("close restores the capsule", held.pending.isEmpty());
+        assertEquals(1, delivered.size());
+        assertNull(delivered.get(0));
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void restPoseShowsTheCapsuleAgain() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        assertTrue(collapse(card(), "rest"));
+        BreadMorphControllerTest.frame();
+        BreadMorphControllerTest.settle();
+        assertEquals(View.INVISIBLE, back.getVisibility());
+        controller.visibility(false, null, nextSequence());
+        assertEquals("rest pose shows the capsule", View.VISIBLE, back.getVisibility());
+        assertEquals(1, back.getAlpha(), 0f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void captureSpanningAResizeAndBackIsNotTheProxy() throws Exception {
+        open(true, true, "default");
+        controller.state.configure("doc", false, true);
+        acknowledgePolicy();
+        WebView page = webView;
+        morphFixture();
+        page.layout(0, 0, root.getWidth(), root.getHeight());
+        reveal();
+        HeldSnapshotter held = new HeldSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", held);
+        dialog.takeSnapshotData(0.5f, 0.7f, ignored -> {});
+        assertEquals(1, held.pending.size());
+        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
+        page.layout(0, 0, root.getWidth(), root.getHeight());
+        held.release();
+        assertFalse("a capture from before a resize is not the proxy", controller.state.proxyUsable());
     }
 
     @Test @Config(shadows = PaintWebView.class)
@@ -2423,6 +2545,7 @@ public class BreadPresentationControllerTest {
             capsule.dispatchTouchEvent(android.view.MotionEvent.obtain(0, 10, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0));
             assertTrue(BreadFrameBoost.active());
             capsule.performClick();
+            BreadMorphControllerTest.frame();
             assertTrue(driver().running());
             assertFalse(BreadFrameBoost.active());
         } finally {
