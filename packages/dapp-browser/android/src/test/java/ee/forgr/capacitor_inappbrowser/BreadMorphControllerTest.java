@@ -180,6 +180,28 @@ public class BreadMorphControllerTest {
         assertEquals(List.of(1f, 0f), settled);
     }
 
+    @Test public void cancelledRetargetDoesNotSteerTheNextFlight() {
+        controller.place(card(), 0);
+        controller.animateTo(1, card(), 0, BreadMorphPhysics.EXPAND);
+        frame();
+        assertTrue(controller.running());
+        // A retarget and a cancel in one frame, as reverse() then close() can produce.
+        controller.animateTo(0, card(), 0, BreadMorphPhysics.COLLAPSE);
+        controller.reset();
+        assertFalse(controller.running());
+        assertEquals(1, controller.target(), 0);
+        controller.place(card(), 0);
+        controller.animateTo(1, card(), 0, BreadMorphPhysics.EXPAND);
+        assertEquals(1, controller.target(), 0);
+        for (int i = 0; i < 3; i++) frame();
+        assertTrue(controller.running());
+        assertTrue(settled.isEmpty());
+        assertTrue(controller.progress() > 0);
+        assertTrue(controller.progress() < 1);
+        settle();
+        assertEquals(List.of(1f), settled);
+    }
+
     @Test public void freezeTrackAndReleaseHoldThePoseThenSpring() {
         controller.animateTo(0, card(), 0, BreadMorphPhysics.COLLAPSE);
         for (int i = 0; i < 6; i++) frame();
