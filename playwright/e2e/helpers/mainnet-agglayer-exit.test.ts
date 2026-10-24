@@ -16,6 +16,7 @@ import {
   type IndexerResponse
 } from './mainnet-agglayer-exit';
 import {
+  AgglayerClaimNotSentError,
   AgglayerClaimPendingError,
   claimAgglayerOnEthereum,
   SELF_CLAIM_ATTEMPTS,
@@ -437,5 +438,11 @@ describe('a broadcast claim whose receipt wait rejects', () => {
     expect(error.hash).toBe(broadcast);
     expect(error.message).toBe(waited.message);
     expect(mockWaitForReceipt).toHaveBeenCalledWith({ hash: broadcast });
+  });
+
+  it('a proof the indexer refuses is not sent and spends no write', async () => {
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('busy', { status: 503 }));
+    await expect(claim()).rejects.toBeInstanceOf(AgglayerClaimNotSentError);
+    expect(mockWriteContract).not.toHaveBeenCalled();
   });
 });

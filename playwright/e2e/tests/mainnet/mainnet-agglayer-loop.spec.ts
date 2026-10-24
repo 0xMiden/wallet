@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { isHex, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import type { AgglayerDeposit } from '../../../../src/lib/agglayer/status';
+import { isAgglayerDepositClaimed, type AgglayerDeposit } from '../../../../src/lib/agglayer/status';
 import { expect, test } from '../../fixtures/two-wallets';
 import { vaultBalance } from '../../helpers/balance-truth';
 import { bridgeOutSlow, readBridgedSendRows } from '../../helpers/bridge';
@@ -19,6 +19,7 @@ import {
   type AgglayerNight
 } from '../../helpers/mainnet-agglayer-exit';
 import {
+  AgglayerClaimNotSentError,
   AgglayerClaimPendingError,
   bridgeEthToMiden,
   claimAgglayerOnEthereum,
@@ -186,6 +187,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   let readySince: number | undefined;
   let attempts = 0;
   let pendingClaim: Hex | undefined;
+  let claimedUnhashed = false;
   let lastError = '';
   while (Date.now() < deadline) {
     let exit: AgglayerDeposit | undefined;
@@ -203,6 +205,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
       record({ exitDepositCnt: exit.deposit_cnt, exitMidenBlock: exit.block_num, exitSeenAt: iso() });
     }
     const step = exitStep(exit, readySince, Date.now());
+    claimedUnhashed = exit !== undefined && isAgglayerDepositClaimed(exit) && step.kind === 'wait';
     if (step.kind !== 'settled' && step.readySince !== undefined && readySince === undefined) {
       record({ readyAt: iso(step.readySince) });
     }
@@ -248,7 +251,11 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
             deposit: exit
           });
         } catch (error) {
-          if (error instanceof AgglayerClaimPendingError) {
+          if (error instanceof AgglayerClaimNotSentError) {
+            // Nothing was built or sent, so a proof outage does not spend one of the attempts.
+            attempts -= 1;
+            lastError = error.message;
+          } else if (error instanceof AgglayerClaimPendingError) {
             pendingClaim = error.hash;
             record({ claimTx: error.hash });
             lastError = error.message;
@@ -270,7 +277,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   const where =
     night.exitDepositCnt === undefined
       ? `no exit above ${cursor} carrying ${AGGLAYER_LOOP_WEI} wei was indexed`
-      : `exit ${night.exitDepositCnt} was ${readySince === undefined ? 'never ready to claim' : 'never claimed'}`;
+      : `exit ${night.exitDepositCnt} ${claimedUnhashed ? 'was claimed but the indexer never gave the claim hash' : readySince === undefined ? 'was never ready to claim' : 'was never claimed'}`;
   record({ outcome: `timed out: ${where}` });
   throw new Error(
     `AggLayer exit to ${evm.address} not settled within ${Math.round((Date.now() - waitStarted) / 60_000)} minutes: ${where}` +

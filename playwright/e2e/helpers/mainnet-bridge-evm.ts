@@ -157,6 +157,14 @@ export class AgglayerClaimPendingError extends Error {
   }
 }
 
+/** The claim failed before any transaction was built, so it spent nothing and costs no attempt. */
+export class AgglayerClaimNotSentError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'AgglayerClaimNotSentError';
+  }
+}
+
 /** How many `claimAsset` broadcasts one night may send. */
 export const SELF_CLAIM_ATTEMPTS = 2;
 
@@ -187,16 +195,17 @@ export async function claimAgglayerOnEthereum(args: {
     { signal: AbortSignal.timeout(15_000) }
   )
     .then(async response => {
-      if (!response.ok) throw new Error(`AggLayer merkle proof answered ${response.status}`);
+      if (!response.ok) throw new AgglayerClaimNotSentError(`AggLayer merkle proof answered ${response.status}`);
       const body = (await response.json()) as { proof: AgglayerMerkleProof };
       return body.proof;
     })
     .catch((error: unknown) => {
-      if (!isFetchTimeout(error)) throw error;
-      throw new Error('the AggLayer merkle proof was not read within 15s', { cause: error });
+      if (error instanceof AgglayerClaimNotSentError) throw error;
+      const reason = isFetchTimeout(error) ? 'was not read within 15s' : 'could not be read';
+      throw new AgglayerClaimNotSentError(`the AggLayer merkle proof ${reason}`, { cause: error });
     });
   if (args.deposit.global_index === undefined) {
-    throw new Error('AggLayer deposit has no global index, so the claim was not sent');
+    throw new AgglayerClaimNotSentError('AggLayer deposit has no global index, so the claim was not sent');
   }
   const metadata =
     args.deposit.metadata && args.deposit.metadata !== '0x' ? hexValue(args.deposit.metadata, 'metadata') : '0x';
