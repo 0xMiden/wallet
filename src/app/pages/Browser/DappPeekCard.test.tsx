@@ -190,6 +190,33 @@ it('fades the chrome in only when chromeVisible turns true', () => {
   }
 });
 
+it('takes the hidden close and show-all buttons out of the tab order and the accessibility tree', () => {
+  const { rerender, onCommitRestore, onClose, onShowAll } = renderCard({ chromeVisible: false });
+  const controls = () => [screen.getByTestId('dapp-peek-card-close'), screen.getByTestId('dapp-peek-show-all')];
+  for (const control of controls()) {
+    expect(control).toHaveAttribute('inert');
+    expect(control).toHaveAttribute('aria-hidden', 'true');
+  }
+  expect(screen.getByTestId('dapp-peek-card')).not.toHaveAttribute('inert');
+
+  rerender(
+    <DappPeekCard
+      session={SESSION}
+      stackIndex={0}
+      overflowCount={2}
+      chromeVisible
+      onCommitRestore={onCommitRestore}
+      onClose={onClose}
+      onShowAll={onShowAll}
+    />
+  );
+
+  for (const control of controls()) {
+    expect(control).not.toHaveAttribute('inert');
+    expect(control).not.toHaveAttribute('aria-hidden');
+  }
+});
+
 it('leaves instantly when exitInstantly is set', () => {
   renderCard();
   expect(mockMotion.exit).toEqual(expect.objectContaining({ y: 40 }));
