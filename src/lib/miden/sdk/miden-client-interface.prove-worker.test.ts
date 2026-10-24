@@ -1082,3 +1082,9 @@ describe('local-prove window markers without a transport', () => {
     expect(trail.filter(line => line.includes('local-prove-window'))).toEqual([]);
   });
 });
+
+// Vault arithmetic has its own SDK-read regressions; these fixtures isolate staged proof routing.
+jest.mock('lib/miden/swap/balance', () => ({
+  getSwapFeeContextSync: jest.fn(() => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

@@ -1103,12 +1103,12 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('gives a tappable row pressed feedback and leaves a plain row without it', () => {
     renderFull();
     expect(rowByTitle('Received')).toHaveClass('active:bg-fill-pressed');
-    expect(rowByTitle('')).not.toHaveClass('active:bg-fill-pressed');
+    expect(rowByTitle('sent')).not.toHaveClass('active:bg-fill-pressed');
   });
 
-  it('renders the default row (unknown icon, empty title, no amount, not clickable)', () => {
+  it('renders the default row (unknown icon, action fallback, no amount, not clickable)', () => {
     renderFull();
-    const row = rowByTitle('');
+    const row = rowByTitle('sent');
     expect(iconNameIn(row)).toBe('More');
     // On `page` with an `ink` glyph, so the circle stays visible on the card's `fill`.
     expect(row).toHaveAttribute('data-iconbg', 'bg-page');

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, within } from '@testing-library/react';
 
+import { recoveredHistoryRecord } from 'lib/miden/guardian/history';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
@@ -529,5 +530,52 @@ describe('ActivityGroupList', () => {
       expect(screen.queryByTestId('activity-group-row')).toBeNull();
       expect(screen.getByText('noOperationsFound')).toBeTruthy();
     });
+  });
+});
+
+describe('recovered and legacy message-less rows', () => {
+  it.each([
+    ['p2id', 'sent'],
+    ['consume_notes', 'received'],
+    ['swap', 'guardianHistorySwap'],
+    ['bridged_send', 'guardianHistoryBridgeOut'],
+    ['earn_deposit', 'guardianHistoryEarnDeposit'],
+    ['switch_guardian', 'guardianHistoryGuardianChanged'],
+    ['update_procedure_threshold', 'guardianHistoryAccountSecured'],
+    ['custom_transaction', 'guardianHistoryExecuted']
+  ])('renders a real recovered %s record without a display message', (proposalType, title) => {
+    const timestamp = '2026-08-01T00:00:00Z';
+    const row = recoveredHistoryRecord(
+      'me',
+      '0x123',
+      'testnet',
+      'https://guardian.example',
+      {
+        nonce: 12,
+        status: 'canonical',
+        timestamp,
+        newCommitment: 'final',
+        inputNotes: [],
+        outputNotes: [],
+        decodeWarnings: []
+      },
+      {
+        accountId: '0x123',
+        nonce: 12,
+        prevCommitment: 'previous',
+        newCommitment: 'final',
+        status: { status: 'canonical', timestamp },
+        deltaPayload: { txSummary: { data: '' }, signatures: [] },
+        metadata: { proposal: { proposalType } }
+      }
+    );
+    expect(row.displayMessage).toBeUndefined();
+    renderList([entry({ message: row.displayMessage, guardianRecovered: row.recovered, txType: row.type })]);
+    expect(rows()[0]).toHaveTextContent(title);
+  });
+
+  it.each([undefined, '', '   '])('uses a known action for a legacy row with message %s', message => {
+    renderList([entry({ message, txType: 'send', amount: '1', token: 'MIDEN' })]);
+    expect(rows()[0]).toHaveTextContent('sent 1 MIDEN');
   });
 });

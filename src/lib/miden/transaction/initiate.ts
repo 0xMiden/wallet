@@ -5,13 +5,15 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
+import { assertSwapQueueAvailable } from 'lib/miden/swap/admission';
+import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
 import {
   getActiveOverride,
   getEffectiveNetworkName,
   hasCustomEndpointOverride,
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { cacheScope, getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { assertOneClickQuoteBinding } from 'lib/one-click/client';
 import { assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
@@ -799,6 +801,8 @@ export const initiateSwapTransaction = async (
   slippageBps?: number,
   spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
+  const scope = cacheScope();
+  await assertSwapVaultBalance(accountId, offeredFaucetId, offeredAmount, scope);
   const dbTransaction = new SwapTransaction(
     accountId,
     offeredFaucetId,
@@ -810,10 +814,13 @@ export const initiateSwapTransaction = async (
     autoConsume,
     slippageBps
   );
+  dbTransaction.extraInputs.balanceScope = scope;
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),
-    spendingLimitAuthorization
+    spendingLimitAuthorization,
+    undefined,
+    () => assertSwapQueueAvailable(accountId, scope)
   );
 
   return dbTransaction.id;

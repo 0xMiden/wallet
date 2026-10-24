@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Tohum ifadenizi yedekleyin",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Şimdi yedekleyin",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Cüzdanınızın bakiyesi 150 ABD dolarına ulaştı. Devam edebilmeniz için önce tohum ifadenizi yedeklemeniz gerekir. Bunu bir yere yazın, güvenli bir yerde saklayın ve cüzdanınızı kullanabilmek için kontrol işlemini tamamlayın.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Yedekleme kontrolü kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Harcanabilir bakiyenizi doğrulayamadık. Lütfen tekrar deneyin.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Takas yapmadan önce bekleyen işleminizin tamamlanmasını bekleyin.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Kesin ödeme tutarı",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Alım hedefiniz için tahmini ödeme tutarı. Tam doldurma daha fazla ödeme sağlayabilir; kısmi doldurmalar ise vade sonunda elinizde daha az tutar bırakabilir.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Kayma, talep ettiğiniz alım tutarı sabit kalırken hesaplanan ödeme tutarını ayarlar.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Hızlı · Epoch",
     "englishSource": "Fast · Epoch"
@@ -4924,6 +4969,18 @@
   "faucetRequest": {
     "message": "Faucet Talep",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Etkinlik",

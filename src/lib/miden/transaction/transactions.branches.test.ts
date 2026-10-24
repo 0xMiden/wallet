@@ -211,6 +211,23 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
+jest.mock('lib/miden/swap/fee-context', () => ({
+  readSwapFeeContext: jest.fn(async () => ({
+    scope: 'testnet|rpc',
+    nativeAssetId: 'native',
+    feeFaucetId: null,
+    baseFee: 0n
+  })),
+  assertSwapFeeContextMatches: jest.fn((_queued: unknown, current: unknown) => current),
+  getSwapFeeContextSync: jest.fn(() => ({
+    scope: 'testnet|rpc',
+    nativeAssetId: 'native',
+    feeFaucetId: null,
+    baseFee: 0n
+  })),
+  assertSwapFeeContextCurrent: jest.fn()
+}));
+
 // Default to non-Guardian so generateTransaction takes the standard
 // signCallback dispatch path. generateTransaction now guards on
 // isGuardianAccount(accountId, guardianProvider); these branch tests drive

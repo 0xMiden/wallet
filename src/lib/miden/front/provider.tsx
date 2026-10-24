@@ -49,7 +49,11 @@ const preloadedStorageKeys = () => [
   MidenSharedStorageKey.LastShownChangelogVersion,
   NETWORK_STORAGE_ID,
   BADGE_STORAGE_KEY,
-  BADGE_SEEN_STORAGE_KEY
+  BADGE_SEEN_STORAGE_KEY,
+  // SeedBackupGate's SEED_BACKUP_REQUIRED_KEY and WALLET_PROMPTS_STORAGE_KEY, read above every local Suspense
+  // boundary. Spelled out: the gate's module imports this one through the front barrel.
+  'seed_backup_required_v1',
+  'wallet_prompts_v1'
 ];
 
 /**

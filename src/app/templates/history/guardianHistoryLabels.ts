@@ -1,4 +1,7 @@
 import type { ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
+import { rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+
+import type { IHistoryEntry } from './IHistoryEntry';
 
 export function guardianHistoryIcon(type: ITransactionType): ITransactionIcon {
   switch (type) {
@@ -35,4 +38,17 @@ export function guardianHistoryActionKey(type: ITransactionType, reclaimed = fal
     default:
       return 'guardianHistoryExecuted';
   }
+}
+
+/** Render-time labels: recovery stores evidence, not a fabricated transaction narrative. */
+export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) => string): string {
+  if (entry.message === 'Transaction failed') {
+    return t('transactionFailedNotificationTitle');
+  }
+  if (entry.guardianRecovered) return t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed));
+  if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
+    const key = rotationRowTitleKey(entry.guardianSwitchVerdict);
+    if (key) return t(key);
+  }
+  return entry.message?.trim() || t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed));
 }

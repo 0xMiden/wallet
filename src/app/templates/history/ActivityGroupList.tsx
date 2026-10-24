@@ -22,6 +22,7 @@ import {
   groupActivityEntries
 } from './activityGroups';
 import { isActivityGroupUnread } from './activityUnread';
+import { historyEntryActionTitle } from './guardianHistoryLabels';
 import { historyEntryMatchesSearch } from './History';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice, shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -60,9 +61,7 @@ function latestEvent(group: ActivityGroup, t: Translate): string {
     return pair;
   }
   const amount = amountLabel(entry);
-  const message = entry.message.trim();
-  if (!message) return amount ?? t('activity');
-  const label = message === 'Transaction failed' ? t('transactionFailedNotificationTitle') : message;
+  const label = historyEntryActionTitle(entry, t);
   return amount ? `${label} ${amount}` : label;
 }
 

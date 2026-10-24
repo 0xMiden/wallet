@@ -26,6 +26,14 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
+const mockBackHandlers = new Set<() => boolean | void>();
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void) => {
+    mockBackHandlers.add(handler);
+    return () => mockBackHandlers.delete(handler);
+  }
+}));
+
 const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
 
 function renderConfirm(overrides: Partial<React.ComponentProps<typeof AlertSheet>> = {}) {
@@ -385,4 +393,39 @@ describe('AlertSheet', () => {
       expect(getCurrentScreen().key).toBe('/contacts > drawer:confirm');
     });
   });
+});
+
+it('requires the action when dismissal is disabled', async () => {
+  const { onAction, onCancel } = renderConfirm({ dismissible: false });
+  const sheet = screen.getByRole('alertdialog');
+  expect(screen.queryByTestId('confirmation-modal-cancel')).not.toBeInTheDocument();
+  expect(screen.getByTestId('confirmation-modal-confirm')).toHaveFocus();
+  fireEvent.keyDown(sheet, { key: 'Escape' });
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+  const overlay = document.querySelector('[data-vaul-overlay]');
+  if (!overlay) throw new Error('Missing drawer overlay');
+  fireEvent.pointerDown(overlay);
+  fireEvent.pointerDown(sheet, { clientY: 100, pointerId: 1 });
+  fireEvent.pointerMove(sheet, { clientY: 500, pointerId: 1 });
+  fireEvent.pointerUp(sheet, { clientY: 500, pointerId: 1 });
+  expect(onAction).not.toHaveBeenCalled();
+  expect(onCancel).not.toHaveBeenCalled();
+  expect(sheet).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId('confirmation-modal-confirm'));
+  expect(onAction).toHaveBeenCalledTimes(1);
+});
+
+it('consumes mobile back while dismissal is disabled', () => {
+  jest.mocked(isMobile).mockReturnValue(true);
+  try {
+    const { unmount, onAction, onCancel } = renderConfirm({ dismissible: false });
+    expect(mockBackHandlers.size).toBe(1);
+    for (const handler of mockBackHandlers) expect(handler()).toBe(true);
+    expect(onAction).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    unmount();
+    expect(mockBackHandlers.size).toBe(0);
+  } finally {
+    jest.mocked(isMobile).mockReturnValue(false);
+  }
 });

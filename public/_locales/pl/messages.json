@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Utwórz kopię zapasową frazy seed",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Utwórz kopię zapasową teraz",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Saldo Twojego portfela osiągnęło 150 USD. Przed kontynuowaniem musisz wykonać kopię zapasową frazy nasiennej. Zapisz ją, przechowuj w bezpiecznym miejscu i zakończ weryfikację, aby móc korzystać z portfela.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Nie udało się zapisać kopii zapasowej. Spróbuj ponownie.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Nie udało się zweryfikować salda dostępnego do wydania. Spróbuj ponownie.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Przed dokonaniem wymiany poczekaj, aż zakończy się Twoja oczekująca transakcja.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Dokładna kwota wypłaty",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Szacowana wypłata dla Twojego odbiorcy. Pełne zrealizowanie zlecenia może zapewnić wyższą wypłatę; częściowe zrealizowanie może skutkować mniejszą kwotą w momencie wygaśnięcia.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Poślizg koryguje obliczoną kwotę wypłaty, podczas gdy żądana kwota odbioru pozostaje stała.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -4925,6 +4970,18 @@
   "faucetRequest": {
     "message": "Faucet Prośba",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Działalność",

@@ -29,6 +29,9 @@ export interface ValuedBalanceTotal {
  * and nothing can be valued, which a reader shows as no total rather than a $0.00 that reads as
  * an empty wallet.
  *
+ * A balance or price that is not a finite positive number is left out the same way, so one corrupt
+ * value cannot make the total infinite.
+ *
  * `skip` leaves a token out altogether (the Home card skips hidden tokens, #813).
  */
 export function valuedBalanceTotal(
@@ -41,12 +44,12 @@ export function valuedBalanceTotal(
   let holdsAnything = false;
   let valuedAnything = false;
   for (const token of balances) {
-    if (!(token.balance > 0)) continue;
+    if (!Number.isFinite(token.balance) || !(token.balance > 0)) continue;
     if (skip(token.tokenId)) continue;
     holdsAnything = true;
     if (!hasKnownScale(token.metadata)) continue;
     const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
-    if (!quote) continue;
+    if (!quote || !Number.isFinite(quote.price) || quote.price <= 0) continue;
     valuedAnything = true;
     totalFiat += token.balance * quote.price;
     previousFiat += token.balance * (quote.price - quote.change24h);
