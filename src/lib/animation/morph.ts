@@ -10,6 +10,8 @@
 
 import type { Transition } from 'framer-motion';
 
+import { solveSpring } from './spring-easing';
+
 /** Design timings of the morph (research section 3). Durations in ms, progress values in p units. */
 export interface MorphTiming {
   /** Expand: the snapshot proxy fades into the live page once the paint fence passes. */
@@ -116,45 +118,4 @@ export function springTimeToReach(
 function springPhysics({ stiffness, damping, mass }: Transition): SpringPhysics | null {
   if (typeof stiffness !== 'number' || typeof damping !== 'number') return null;
   return { stiffness, damping, mass: mass ?? 1 };
-}
-
-// The damped oscillator of `spring-easing.ts`, with its derivative: displacement from the target and
-// its rate after `t` seconds, from an initial displacement and rate.
-function solveSpring(
-  { stiffness, damping, mass }: SpringPhysics,
-  from: number,
-  velocity: number,
-  t: number
-): { displacement: number; rate: number } {
-  const omega = Math.sqrt(stiffness / mass);
-  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
-
-  // Every morph spring is underdamped (damping ratio 0.82 to 0.90); the other branches keep the port whole.
-  if (zeta < 1) {
-    const omegaDamped = omega * Math.sqrt(1 - zeta * zeta);
-    const c = (velocity + zeta * omega * from) / omegaDamped;
-    const decay = Math.exp(-zeta * omega * t);
-    const cos = Math.cos(omegaDamped * t);
-    const sin = Math.sin(omegaDamped * t);
-    return {
-      displacement: decay * (from * cos + c * sin),
-      rate: decay * ((c * omegaDamped - zeta * omega * from) * cos - (from * omegaDamped + zeta * omega * c) * sin)
-    };
-  }
-
-  if (zeta === 1) {
-    const decay = Math.exp(-omega * t);
-    const slope = velocity + omega * from;
-    return { displacement: decay * (from + slope * t), rate: decay * (velocity - omega * slope * t) };
-  }
-
-  const spread = omega * Math.sqrt(zeta * zeta - 1);
-  const fast = -zeta * omega + spread;
-  const slow = -zeta * omega - spread;
-  const fastPart = (velocity - slow * from) / (fast - slow);
-  const slowPart = from - fastPart;
-  return {
-    displacement: fastPart * Math.exp(fast * t) + slowPart * Math.exp(slow * t),
-    rate: fastPart * fast * Math.exp(fast * t) + slowPart * slow * Math.exp(slow * t)
-  };
 }
