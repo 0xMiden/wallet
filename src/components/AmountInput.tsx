@@ -195,7 +195,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         onChange={event => {
           const normalized = normalizeDecimalInput(event.target.value);
           const pattern = allowNegativeValue ? /^-?\d*(?:\.\d*)?$/ : /^\d*(?:\.\d*)?$/;
-          if (!pattern.test(normalized) || (normalized.split('.')[1]?.length ?? 0) > decimalsLimit) return;
+          const fractionalDigits = normalized.split('.')[1]?.replace(/0+$/, '').length ?? 0;
+          if (!pattern.test(normalized) || fractionalDigits > decimalsLimit) return;
           onValueChange?.(normalized || undefined);
         }}
         onFocus={() => setFocused(true)}
