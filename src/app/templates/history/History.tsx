@@ -1,6 +1,7 @@
 import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
@@ -521,6 +522,9 @@ const History = memo<HistoryProps>(
 
     // Labelled here, over the paged rows too, so every row and the search below follow a config publish.
     const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+    // Only the re-render matters: the rows read the id during render (`isFaucetRequest`) and are false
+    // while it is unknown, so one that mounted before the id was discovered is relabelled by this.
+    useNativeFeeFaucetId();
     // Don't sort the pending transactions, earliest should come first as they are processed first.
     // No network hides a row here: a Mainnet consume of the native asset sent by its faucet is a
     // bridge-in, since the USDCx faucet mints every bridged-in note, not a faucet drip.

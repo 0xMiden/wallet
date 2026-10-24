@@ -179,12 +179,19 @@ jest.mock('./transactionUtils', () => ({
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 
-// The chain's native asset, which the Groups view reads to recognise a faucet claim.
+// The chain's native asset, which the Groups view reads to recognise a faucet claim. A case can
+// start with it unknown and resolve its lookup later.
+let mockNativeAssetId: string | null = 'NATIVE';
+let mockNativeAssetLookup: Promise<string> | undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
-  getNativeAssetIdSync: () => 'NATIVE',
-  getNativeAssetId: () => Promise.resolve('NATIVE')
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetId: () => mockNativeAssetLookup ?? Promise.resolve('NATIVE')
 }));
+afterEach(() => {
+  mockNativeAssetId = 'NATIVE';
+  mockNativeAssetLookup = undefined;
+});
 
 // The effective network: Testnet unless a case puts the wallet on another.
 let mockWalletNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
@@ -1578,6 +1585,36 @@ describe('History', () => {
       });
       await waitFor(() => expect(seen?.initialLoading).toBe(false));
       expect(groupActivityEntries(seen.entries).map(group => group.kind)).toContain('faucet');
+      utils.unmount();
+    });
+
+    // The rows read the id during render (`isFaucetRequest`), so only a re-render of History relabels
+    // rows that mounted while it was unknown.
+    it('renders again once the native faucet id resolves', async () => {
+      mockNativeAssetId = null;
+      let resolveLookup!: (id: string) => void;
+      mockNativeAssetLookup = new Promise(resolve => {
+        resolveLookup = resolve;
+      });
+      let renders = 0;
+      const utils = await renderHistory({
+        renderEntries: () => {
+          renders += 1;
+          return <div data-testid="history-view" />;
+        }
+      });
+      // Let the load settle, so only the id can cause the next render.
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+      const before = renders;
+
+      mockNativeAssetId = 'NATIVE';
+      await act(async () => {
+        resolveLookup('NATIVE');
+      });
+
+      await waitFor(() => expect(renders).toBeGreaterThan(before));
       utils.unmount();
     });
   });
