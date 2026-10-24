@@ -323,8 +323,8 @@ describe('SwapDetail progress', () => {
     // funds arrived. A floor keeps the two from contradicting each other.
     renderDetail({ requestedAmount: 10_000_000n, filledAmount: 1n });
 
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.1');
-    expect(screen.getByText('swapProgressPercent_0.1')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getByText('swapProgressPercent_<0.1')).toBeInTheDocument();
   });
 });
 
