@@ -3086,6 +3086,14 @@ final class BreadMorphPluginTests: XCTestCase {
         return try XCTUnwrap(accepted)
     }
 
+    func testMorphCardBoundsCornerRadiusByTheCard() throws {
+        let geometry: [String: Any] = ["x": NSNumber(value: 0), "y": NSNumber(value: 0), "width": NSNumber(value: 104), "height": NSNumber(value: 132)]
+        let huge = InAppBrowserPlugin.morphCard(from: geometry.merging(["cornerRadius": NSNumber(value: Double(Int.max) * 2)]) { $1 })
+        XCTAssertEqual(try XCTUnwrap(huge).cornerRadius, 52)
+        let fitting = InAppBrowserPlugin.morphCard(from: geometry.merging(["cornerRadius": NSNumber(value: 16)]) { $1 })
+        XCTAssertEqual(try XCTUnwrap(fitting).cornerRadius, 16)
+    }
+
     func testMorphMethodAppliesTheLifetimeAndSequenceGuards() async throws {
         let (live, plugin) = try await revealed()
         defer { live.dispose() }
