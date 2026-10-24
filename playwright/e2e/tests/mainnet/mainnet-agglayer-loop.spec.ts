@@ -7,7 +7,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { AgglayerDeposit } from '../../../../src/lib/agglayer/status';
 import { expect, test } from '../../fixtures/two-wallets';
 import { vaultBalance } from '../../helpers/balance-truth';
-import { bridgeOutSlow } from '../../helpers/bridge';
+import { bridgeOutSlow, readBridgedSendRows } from '../../helpers/bridge';
 import {
   agglayerNightMarkdown,
   claimPaysExit,
@@ -74,6 +74,17 @@ type ClaimRead = Awaited<ReturnType<typeof readEthereumClaim>>;
 
 const iso = (ms: number = Date.now()): string => new Date(ms).toISOString();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+/** Three tries, ten seconds apart; the last failure is thrown. */
+async function retried<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await sleep(10_000);
+    }
+  }
+}
 
 test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA }) => {
   const started = Date.now();
@@ -99,7 +110,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
 
   // An indexer that cannot be read now could not settle tonight's exit either, so nothing is sent.
   const target = { rollupId: CEDAR_ROLLUP_ID, address: evm.address };
-  const firstCursor = exitCursor(await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address), target);
+  await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address);
   const ethBefore = await vaultBalance(walletA.page, 'ETH');
   const depositTx = await bridgeEthToMiden({
     key: signer,
@@ -125,9 +136,9 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   record({ landedAt: iso() });
 
   // Read again just before the bridge-out, so an exit filed during the landing is not mistaken for tonight's.
-  const cursor = await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address).then(
-    deposits => exitCursor(deposits, target),
-    () => firstCursor
+  // Three failed reads throw and skip the bridge-out, so a cursor from before the deposit is never reused.
+  const cursor = await retried(async () =>
+    exitCursor(await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address), target)
   );
   record({ bridgedText: BRIDGE_OUT_ETH, bridgedWei: AGGLAYER_LOOP_WEI.toString(), exitCursor: cursor });
   await bridgeOutSlow(walletA, {
@@ -137,17 +148,17 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
     network: { id: 'ethereum', name: chain.name }
   });
   record({ bridgeOutAt: iso() });
+  // One read of the row this bridge-out wrote. The hash only narrows: a throw, or a row with none, leaves it unset.
+  let exitTxHash: string | undefined;
+  try {
+    const rows = await readBridgedSendRows(walletA.page);
+    const agglayer = rows.filter(row => row.extraInputs?.provider === 'agglayer');
+    exitTxHash = agglayer[agglayer.length - 1]?.extraInputs?.agglayerExitTxHash;
+  } catch {
+    exitTxHash = undefined;
+  }
 
-  const readClaim = async (hash: Hex) => {
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        return await readEthereumClaim({ chain, rpcUrl: mainnetRpc(1), hash });
-      } catch (error) {
-        if (attempt === 3) throw error;
-        await sleep(10_000);
-      }
-    }
-  };
+  const readClaim = (hash: Hex) => retried(() => readEthereumClaim({ chain, rpcUrl: mainnetRpc(1), hash }));
 
   const settle = async (claimTxHash: string, exit: AgglayerDeposit, read?: ClaimRead): Promise<void> => {
     if (!isHex(claimTxHash)) throw new Error(`exit ${exit.deposit_cnt} has a claim hash that is not hex`);
@@ -179,12 +190,13 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
       exit = tonightsExit(await fetchIndexedDeposits(AGGLAYER_INDEXER, evm.address), {
         ...target,
         afterDepositCnt: cursor,
-        wei: AGGLAYER_LOOP_WEI
+        wei: AGGLAYER_LOOP_WEI,
+        exitTxHash
       });
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
-    if (exit && night.exitDepositCnt === undefined) {
+    if (exit && night.exitDepositCnt !== exit.deposit_cnt) {
       record({ exitDepositCnt: exit.deposit_cnt, exitMidenBlock: exit.block_num, exitSeenAt: iso() });
     }
     const step = exitStep(exit, readySince, Date.now());

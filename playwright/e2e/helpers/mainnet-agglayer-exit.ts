@@ -5,6 +5,7 @@ import {
   agglayerClaimedFields,
   isAgglayerDepositClaimed,
   isAgglayerDepositReady,
+  sameTxHash,
   type AgglayerDeposit
 } from '../../../src/lib/agglayer/status';
 
@@ -33,14 +34,23 @@ export function exitCursor(deposits: readonly AgglayerDeposit[], target: ExitTar
 }
 
 /**
- * Tonight's exit: the lowest-numbered exit to `target` above the cursor read before the bridge-out that carries
- * exactly the wei bridged. The counter is the rollup's, so a number above the cursor was filed after that read; the
- * amount keeps an earlier night's exit that the indexer filed late from passing for tonight's.
+ * Tonight's exit. When `exitTxHash` is given and a listed exit to `target` has that `tx_hash` (`sameTxHash`), that
+ * exit is returned. Otherwise the lowest-numbered exit to `target` above the cursor read before the bridge-out that
+ * carries exactly the wei bridged. The counter is the rollup's, so a number above the cursor was filed after that
+ * read; the amount keeps an earlier night's exit that the indexer filed late from passing for tonight's. The hash
+ * only narrows: it is never required, and a hash no listed exit carries leaves this rule unchanged.
  */
 export function tonightsExit(
   deposits: readonly AgglayerDeposit[],
-  args: ExitTarget & { afterDepositCnt: number; wei: bigint }
+  args: ExitTarget & { afterDepositCnt: number; wei: bigint; exitTxHash?: string }
 ): AgglayerDeposit | undefined {
+  const { exitTxHash } = args;
+  if (exitTxHash !== undefined) {
+    const named = deposits.find(
+      d => isExitTo(d, args) && typeof d.tx_hash === 'string' && sameTxHash(d.tx_hash, exitTxHash)
+    );
+    if (named) return named;
+  }
   return deposits
     .filter(d => isExitTo(d, args) && d.deposit_cnt > args.afterDepositCnt && BigInt(d.amount) === args.wei)
     .sort((left, right) => left.deposit_cnt - right.deposit_cnt)[0];

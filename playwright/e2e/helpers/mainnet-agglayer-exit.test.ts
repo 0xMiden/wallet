@@ -63,6 +63,24 @@ describe('which AggLayer exit is tonight', () => {
     expect(tonightsExit(listed, { ...target, afterDepositCnt: 6, wei: 2_000_000_000_000n })).toBe(tonight);
   });
 
+  it("prefers the exit whose tx hash is the row's", () => {
+    const lower = exit({
+      deposit_cnt: 7,
+      amount: '2000000000000',
+      tx_hash: '0x1111111111111111111111111111111111111111111111111111111111111111'
+    });
+    const higher = exit({
+      deposit_cnt: 8,
+      amount: '2000000000000',
+      tx_hash: '0x2222222222222222222222222222222222222222222222222222222222222222'
+    });
+    const listed = [lower, higher];
+    const args = { ...target, afterDepositCnt: 6, wei: 2_000_000_000_000n };
+    expect(tonightsExit(listed, { ...args, exitTxHash: higher.tx_hash })).toBe(higher);
+    expect(tonightsExit(listed, { ...args, exitTxHash: '0xnot-listed' })).toBe(lower);
+    expect(tonightsExit(listed, { ...args, exitTxHash: higher.tx_hash.slice(2).toUpperCase() })).toBe(higher);
+  });
+
   it('never takes an older exit, even one with the same amount', () => {
     const listed = [exit({ deposit_cnt: 6 }), exit({ deposit_cnt: 5 })];
     expect(tonightsExit(listed, { ...target, afterDepositCnt: 6, wei: 1_000_000_000_000n })).toBeUndefined();
