@@ -1746,6 +1746,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Stored before either body, including when this session is already foreground, so a legacy park of it that is
       // still awaiting its snapshot cannot mark it parked once this restore has begun.
       restoreGeneration.current.set(sessionId, (restoreGeneration.current.get(sessionId) ?? 0) + 1);
+      // The outgoing page of an expand in flight is being brought back, so that expand's end must not park it.
+      const flight = flightRef.current;
+      if (flight?.motion.outgoingId === sessionId) updateFlight(flight, { ...flight.motion, outgoingId: null });
       // A warm page expands natively; every other restore takes the path below.
       if (state.instance && canExpandByMorph(sessionId, state))
         return restoreByMorph(sessionId, state.instance, gesture);
@@ -1805,7 +1808,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
       return false;
     },
-    [canExpandByMorph, getSessionStateById, parkLegacy, restoreByMorph, setActiveDappSession, updateSession]
+    [
+      canExpandByMorph,
+      getSessionStateById,
+      parkLegacy,
+      restoreByMorph,
+      setActiveDappSession,
+      updateFlight,
+      updateSession
+    ]
   );
 
   // Populate the forward ref so earlier-declared callbacks (`open`, the
