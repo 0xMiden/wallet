@@ -13,9 +13,9 @@ Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for t
 
 The App is published by Miden Technologies (US) Corp., a Delaware corporation (file number 10598340), 850 New Burton Road, Suite 201, Dover, Delaware 19904-5786, United States ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team or call +1 707 813 2275.
 
-Parts of the Miden network and its services are operated by our affiliate Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615). Where this policy describes the network, the USDCx contract, a validator or the Miden swap solver, "Miden" includes that affiliate.
+The Miden network itself is operated by the Miden Foundation, a foundation organised under the laws of the Republic of Panama (registration number 25068980), Via Ricardo J. Alfaro, Edificio PH The Century Tower, Oficina 317, Suite 742, Corregimiento Betania, Distrito Panamá, Provincia Panamá, Republic of Panama (the "Foundation"). The Foundation is a separate party from us: it operates the network's sequencer, one of its validators and the USDCx contract, itself or through its contractor Gateway.fm (GATEWAY.FM AS). The Miden swap solver is operated by 0D Labs Limited, a Seychelles company (LEI 254900SN1Y7P2AYYLK22), also a separate party from us. Where this policy describes what the network, a validator or the solver does with your data, it describes those parties' processing for transparency; we do not control it.
 
-<!-- TODO: decide whether Whiteharbor is a joint controller or a processor for network-side data; the sentence above treats it as part of "Miden" without deciding. -->
+<!-- TODO: confirm with the Foundation whether it publishes its own privacy notice for network-side data, and link it here once it does. -->
 
 <!-- TODO before publication: confirm whether an EU or UK representative under GDPR Article 27 is required. If one is appointed, add their name and address here. -->
 
@@ -223,7 +223,7 @@ Everything in this section is data the App must send for a feature to work. None
 
 ### The Miden network and its operator
 
-To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. During the network's current operating period, however, the transaction data you submit, including data associated with private accounts and private notes, is stored by the network's validators in encrypted form, and any two validators acting together can decrypt it. There are three validators, operated by Miden, Gateway.fm and LambdaClass. Miden cannot decrypt your data on its own; decryption requires two validators to cooperate, so at least one party independent of Miden must agree, and it takes place only for network-integrity, compliance and legal purposes, including in response to a lawful request. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
+To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. During the network's current operating period, however, the transaction data you submit, including data associated with private accounts and private notes, is stored by the network's validators in encrypted form, and any two validators acting together can decrypt it. There are three validators, operated by the Foundation, Gateway.fm and LambdaClass. We operate no validator and cannot decrypt your data. The Foundation cannot decrypt it on its own either: decryption requires two validators to cooperate, so at least one party independent of the Foundation must agree, and it takes place only for network-integrity, compliance and legal purposes, including in response to a lawful request. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
 
 <!-- TODO: state when this phase is expected to end, and link the validators' decryption policy once one is published. -->
 
@@ -243,9 +243,9 @@ Buying crypto with fiat and selling crypto for fiat in the App is provided by Tr
 
 ### Swaps and bridges
 
-A swap is filled by a third-party solver, and a bridge transfer is processed by a third-party bridge operator and the other network. Each of them sees the transaction it processes: the assets, the amounts and the addresses involved. Before that, the App requests quotes: a swap quote sends the two tokens and their amounts to the swap-quote service, never your address, and tracking a bridge transfer sends its destination address to the bridge's status service (both named under "Network traffic").
+A Miden swap is filled by the solver operated by 0D Labs Limited, a cross-chain swap by a third-party solver, and a bridge transfer is processed by a third-party bridge operator and the other network. Each of them sees the transaction it processes: the assets, the amounts and the addresses involved. Before that, the App requests quotes: a swap quote sends the two tokens and their amounts to the swap-quote service, which for a Miden swap is run by 0D Labs Limited, never your address, and tracking a bridge transfer sends its destination address to the bridge's status service (both named under "Network traffic").
 
-<!-- TODO: name the operators of the swap-quote service, the bridge status service and the solver network, and note whether any of them is Miden. -->
+<!-- TODO: name the operators of the bridge status service and the cross-chain solver network, and note whether any of them is Miden. -->
 
 ### Earn
 
