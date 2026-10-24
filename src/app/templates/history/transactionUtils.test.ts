@@ -13,6 +13,7 @@ import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
@@ -34,6 +35,7 @@ import {
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  networkHasFaucetClaims,
   isReceiveEntry,
   labelHistoryEntry,
   MoneyKind,
@@ -70,6 +72,15 @@ jest.mock('lib/miden/swap/tokens', () => ({
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
 // sync accessor with a steerable jest.fn.
+// The effective network: Testnet unless a case puts the wallet on Mainnet, which has no faucet.
+let mockWalletNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = 'testnet';
+});
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn()
 }));
@@ -350,6 +361,24 @@ describe('isFaucetRequest', () => {
     };
     expect(isFaucetRequest(entry)).toBe(true);
   });
+
+  // On Mainnet the native faucet is the USDCx minter, so a note it sent is a bridge-in: an
+  // ordinary receive, never a faucet claim.
+  it('is never a faucet claim on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'native-id' };
+    expect(isFaucetRequest(entry)).toBe(false);
+  });
+});
+
+describe('networkHasFaucetClaims', () => {
+  it('is false on Mainnet only', () => {
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.MAINNET)).toBe(false);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.TESTNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.DEVNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.LOCALNET)).toBe(true);
+  });
 });
 
 describe('isReceiveEntry', () => {
@@ -380,6 +409,13 @@ describe('isFaucetMintTransaction', () => {
   it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
     const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
     expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+
+  it('is a faucet mint off Mainnet and an ordinary claim on Mainnet', () => {
+    const transaction: any = { type: 'consume', faucetId: 'native', secondaryAccountId: 'native' };
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(true);
+    mockWalletNetwork = 'mainnet';
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(false);
   });
 });
 

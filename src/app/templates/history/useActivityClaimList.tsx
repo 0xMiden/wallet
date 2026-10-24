@@ -4,15 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
-import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
 
-import { hidesFaucetActivity, isFaucetClaimNote } from './activityGroups';
 import { pendingNoteUnreadKey } from './activityUnread';
 import type { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
@@ -59,16 +56,9 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     account,
     isLoadingNotes
   } = useActivityClaims();
-  // Read on each render: a Developer Settings save can change the network without a reload.
-  const hideFaucet = hidesFaucetActivity(getEffectiveNetworkName());
-  // Re-renders once the id hydrates or is discovered, so cards filtered while it was unknown are filtered again.
-  const nativeFaucetId = useNativeFeeFaucetId();
-  // On Mainnet a faucet claim is not a card, not a decline that Restore counts, and not a note
-  // that Accept All takes, as `History` shows no faucet row there.
-  const items = useMemo(
-    () => (hideFaucet ? claimItems.filter(item => !isFaucetClaimNote(item.note, nativeFaucetId)) : claimItems),
-    [claimItems, hideFaucet, nativeFaucetId]
-  );
+  // Every claim is a card on every network: on Mainnet a note of the native asset sent by its
+  // faucet is a bridge-in, which the USDCx faucet mints, so no network filters the faucet claims.
+  const items = claimItems;
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });

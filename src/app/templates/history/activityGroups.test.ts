@@ -1,16 +1,14 @@
 import { ICON_BY_TYPE, ITransactionType } from 'lib/miden/db/types';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import {
   ActivityCategory,
   activityCategoryOf,
+  activityClaimGroupKeyOf,
   activityGroupKeyOf,
   activityGroupMatcher,
   activityGroupPath,
   groupActivityEntries,
-  hidesFaucetActivity,
   isActivityGroupKind,
-  isFaucetActivityEntry,
   isFaucetClaimNote,
   isPendingActivityEntry
 } from './activityGroups';
@@ -23,6 +21,15 @@ const FAUCET = 'miden-native-faucet';
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => FAUCET
 }));
+// The effective network: Testnet unless a case puts the wallet on Mainnet, which has no faucet.
+let mockWalletNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = 'testnet';
+});
 
 let nextKey = 0;
 const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
@@ -324,15 +331,6 @@ describe('activityCategoryOf', () => {
   });
 });
 
-describe('hidesFaucetActivity', () => {
-  it('hides the faucet activity on Mainnet only', () => {
-    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.MAINNET)).toBe(true);
-    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.TESTNET)).toBe(false);
-    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.DEVNET)).toBe(false);
-    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.LOCALNET)).toBe(false);
-  });
-});
-
 describe('isFaucetClaimNote', () => {
   it('is a note of the native asset that the native faucet sent', () => {
     expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET })).toBe(true);
@@ -344,21 +342,19 @@ describe('isFaucetClaimNote', () => {
     expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' }, 'other-faucet')).toBe(true);
     expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET }, null)).toBe(false);
   });
-});
 
-describe('isFaucetActivityEntry', () => {
-  it('is a consume of the native asset that the native faucet sent, whatever its icon', () => {
-    const faucetClaim: Partial<IHistoryEntry> = { txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET };
-    expect(isFaucetActivityEntry(entry(faucetClaim), FAUCET)).toBe(true);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, transactionIcon: 'FAILED' }), FAUCET)).toBe(true);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, secondaryAddress: 'mtst1alice' }), FAUCET)).toBe(false);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, faucetId: 'other-faucet' }), FAUCET)).toBe(false);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, txType: 'send' }), FAUCET)).toBe(false);
-  });
-
-  it('recognises nothing while the native faucet id is unknown', () => {
-    const faucetClaim: Partial<IHistoryEntry> = { txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET };
-    expect(isFaucetActivityEntry(entry(faucetClaim), null)).toBe(false);
+  // On Mainnet the native faucet is the USDCx minter, so its note is a bridge-in, grouped by sender.
+  it('is never a faucet claim on Mainnet, where the group is the faucet address', () => {
+    mockWalletNetwork = 'mainnet';
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET })).toBe(false);
+    expect(activityClaimGroupKeyOf({ faucetId: FAUCET, senderAddress: FAUCET })).toEqual({
+      kind: 'address',
+      id: FAUCET
+    });
+    expect(activityGroupKeyOf(entry({ txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET }))).toEqual({
+      kind: 'address',
+      id: FAUCET
+    });
   });
 });
 
