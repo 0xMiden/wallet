@@ -10,6 +10,7 @@
 
 - [FIX][all] Recognize verified Mainnet badge activity after invitation onboarding: the stored network choice now preserves transaction provenance and permits badge checks while custom developer endpoints remain excluded. Available badges appear first, unavailable badges read Coming soon, and unread dots lead to new awards until My badges is opened. The unread badge key is loaded with the other startup storage keys, so the first tab can show the badge dot with that read already cached. Resetting the wallet includes an in-flight badge seen write in the snapshot it removes. Balance snapshots taken after the endpoint-free Mainnet onboarding choice count as Mainnet for deposit and swap badges.
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+- [FIX][android] Sign-in uses Auth Tab where the browser supports it, returning the callback privately to Bread; other browsers keep the Custom Tab flow and its in-memory-secret requirement (#1586).
 - [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
 
 ## 1.17.6 (2026-10-23)

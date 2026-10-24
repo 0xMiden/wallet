@@ -12,11 +12,11 @@ const partFiles = (part: string): string[] =>
   workflow.match(new RegExp(`^\\s+${part}\\) files="([a-z -]+)" ;;$`, 'm'))?.[1]?.split(' ') ?? [];
 
 /** One job's block, from its id line to the next job's. */
-const jobBlock = (id: string): string => {
-  const start = workflow.indexOf(`\n  ${id}:\n`);
-  if (start === -1) throw new Error(`e2e-dapp.yml has no job ${id}`);
-  const next = workflow.slice(start + 1).search(/\n {2}[a-z][\w-]*:\n/);
-  return next === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + next);
+const jobBlock = (id: string, source = workflow, file = 'e2e-dapp.yml'): string => {
+  const start = source.indexOf(`\n  ${id}:\n`);
+  if (start === -1) throw new Error(`${file} has no job ${id}`);
+  const next = source.slice(start + 1).search(/\n {2}[a-z][\w-]*:\n/);
+  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
 };
 
 describe('dApp E2E workflow', () => {
@@ -110,11 +110,16 @@ describe('the mobile legs of the dApp E2E workflow', () => {
 
   it('pins PL1 to a gated-presentation image while the dApp browser suite stays on Android 34 (C-P32)', () => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const browserAndroid = jobBlock('android-dapp-browser', browser, 'e2e-dapp-browser.yml');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
     const images = (text: string): string[] => [
       ...new Set(text.match(/system-images;android-\d+(?:\.\d+)?;[a-z_]+;x86_64/g) ?? [])
     ];
     expect(images(android)).toEqual(['system-images;android-37.0;google_apis;x86_64']);
-    expect(images(browser)).toEqual(['system-images;android-34;default;x86_64']);
+    expect(images(browserAndroid)).toEqual(['system-images;android-34;default;x86_64']);
+    expect(images(authTab)).toEqual(['system-images;android-36;google_apis_playstore;x86_64']);
+    expect(authTab).toContain("if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'");
+    expect(authTab).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 90 \|\| 60 \}\}/);
     expect(android).toContain('E2E_ANDROID_BASE_AVD: Pixel_API_37');
     expect(android).toContain('--name "$E2E_ANDROID_BASE_AVD"');
     expect(android).toContain('grep -qx "$E2E_ANDROID_BASE_AVD"');
@@ -132,6 +137,71 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     }
     const emulator = readFileSync(resolve(__dirname, '../android/helpers/emulator-control.ts'), 'utf8');
     expect(emulator).toContain("const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';");
+  });
+
+  it('stops the Auth Tab Gradle daemon after the Firefox probe and before Playwright', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
+    const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    const firefox = acceptance.indexOf('expectedProvider=org.mozilla.firefox');
+    const stop = acceptance.indexOf('./gradlew --stop');
+    const playwright = acceptance.indexOf('yarn playwright test --config playwright.android.auth-tab.config.ts');
+
+    expect(authTab).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
+    expect(firefox).toBeGreaterThan(-1);
+    expect(stop).toBeGreaterThan(firefox);
+    expect(stop).toBeLessThan(playwright);
+  });
+
+  it('runs the full Auth Tab acceptance inside the bounded shared Google Play emulator runner', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
+    const runner = authTab
+      .split('- name: Run Auth Tab acceptance on Google Play emulator')[1]
+      ?.split('\n      - name:')[0] ?? '';
+    const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    const prepare = [
+      authTab.indexOf('name: Download pinned Firefox provider'),
+      authTab.indexOf('name: Build debug APK'),
+      authTab.indexOf('name: Generate run-scoped fixture CA and TLS certificate')
+    ];
+    const runnerPosition = authTab.indexOf('name: Run Auth Tab acceptance on Google Play emulator');
+
+    expect(prepare.every(position => position >= 0 && position < runnerPosition)).toBe(true);
+    expect(runner).toContain('timeout-minutes: 80');
+    expect(runner).toContain('uses: reactivecircus/android-emulator-runner@v2');
+    expect(runner).toContain('target: google_apis_playstore');
+    expect(runner).toContain('emulator-boot-timeout: 600');
+    expect(runner).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
+    const pinBinding = acceptance.indexOf('device_pin=1234');
+    const pinSet = acceptance.indexOf('adb shell locksettings set-pin "$device_pin"');
+    const certificateSetup = acceptance.indexOf('AuthTabCertificateSetupTest');
+    const pinArgument = acceptance.indexOf('-Pandroid.testInstrumentationRunnerArguments.devicePin=$device_pin');
+    expect(pinBinding).toBeGreaterThan(-1);
+    expect(pinSet).toBeGreaterThan(pinBinding);
+    expect(acceptance.split('devicePin=$device_pin')).toHaveLength(2);
+    expect(pinArgument).toBeGreaterThan(certificateSetup);
+    expect(pinArgument).toBeLessThan(acceptance.indexOf('expectedProvider=com.android.chrome'));
+    const certificateTest = readFileSync(
+      resolve(__dirname, '../../../android/app/src/androidTest/java/com/miden/wallet/AuthTabCertificateSetupTest.java'),
+      'utf8'
+    );
+    expect(certificateTest).toContain('By.res("com.android.settings", "password_entry")');
+    expect(certificateTest).toContain('setText(devicePin)');
+    expect(certificateTest).toContain('By.res("com.android.settings", "next_button")');
+    expect(acceptance).toContain('yarn playwright test --config playwright.android.auth-tab.config.ts');
+    expect(authTab).not.toContain('adb wait-for-device');
+  });
+
+  it('keeps Auth Tab evidence collection bounded when emulator boot or acceptance fails', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
+    const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    const evidence = authTab.match(/- name: Write acceptance evidence\n(?:(?!      - name: ).*\n)*/)?.[0];
+    expect(evidence).toMatch(/if: always\(\)\n\s+timeout-minutes: 2/);
+    expect(evidence).not.toContain('adb logcat');
+    expect(acceptance).toContain('trap write_acceptance_evidence EXIT');
+    expect(acceptance).toContain('timeout 15s adb logcat');
   });
 
   it('assigns every in-app browser spec to the mobile leg of its platform', () => {
