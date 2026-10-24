@@ -1391,13 +1391,15 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Miden plugin method (#1817): hold the full frame rate from a touch-down on a
     /// control that can start a morph, so the display is at speed when it moves.
     /// A morph that starts takes the request over; without one it lapses after `durationMs`.
-    /// A shown page also takes its collapse proxy here, off the collapse's frames.
+    /// A shown page also takes its collapse proxy here, off the collapse's frames; the parked page named by `id`
+    /// shows its window unseen, so its expand's first frame is not the unhide.
     @objc func prepareMorph(_ call: CAPPluginCall) {
         let duration = min(2, max(0, Double(call.getInt("durationMs") ?? 600) / 1000))
+        let named = call.getString("id")
         DispatchQueue.main.async {
             BreadFrameRateBoost.shared.hold(for: duration)
             for id in WebViewRegistry.shared.allIds() {
-                WebViewRegistry.shared.get(id: id)?.controller.breadPresentation?.prepareMorph()
+                WebViewRegistry.shared.get(id: id)?.controller.breadPresentation?.prepareMorph(warm: id == named)
             }
             call.resolve()
         }

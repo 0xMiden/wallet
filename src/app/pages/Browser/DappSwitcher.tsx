@@ -199,7 +199,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       <button
         type="button"
         className="absolute inset-0 cursor-pointer"
-        onPointerDown={() => void prepareMorph()}
+        onPointerDown={() => void prepareMorph(session.id)}
         onClick={() => onTap(session)}
         aria-label={t('dappSwitcherCardActivate', { name: displayName })}
         data-testid="dapp-switcher-card"

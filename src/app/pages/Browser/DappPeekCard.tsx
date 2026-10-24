@@ -318,8 +318,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       <button
         type="button"
         // A tap or a swipe up can restore, so the frame rate rises with the finger, and again on a slow drag's release.
-        onPointerDown={() => void prepareMorph()}
-        onPointerUp={() => void prepareMorph()}
+        onPointerDown={() => void prepareMorph(session.id)}
+        onPointerUp={() => void prepareMorph(session.id)}
         onClick={handleTap}
         aria-label={t('restoreDappCard', { name: displayName })}
         data-testid="dapp-peek-card"

@@ -182,7 +182,37 @@ final class BreadPresentationController: NSObject {
 
     func slotFrame() -> CGRect? { instance?.containerWindow.flatMap { slotFrame(for: $0) } }
 
-    func prepareMorph() {
+    /// An expand's first frame would carry the whole unhide, the render server building the window's layer tree
+    /// under the morph. A touch-down on the page's card shows the window at zero alpha instead, so that work
+    /// lands before the morph starts; the morph then only starts moving it. It lapses with the frame-rate request.
+    private(set) var warmed = false
+
+    private func warmWindow() {
+        guard !warmed, !moving, state.phase == .visible, !state.surfaceVisibility, owner?.managedClose?.closing != true,
+              let window = instance?.containerWindow, window.isHidden else { return }
+        if applySlotFrame(window) { window.layoutIfNeeded() }
+        warmed = true
+        applyWarmth(to: window)
+        DispatchQueue.main.asyncAfter(deadline: .now() + BreadFrameRateBoost.duration + 0.15) { [weak self] in self?.coolWindow() }
+    }
+
+    private func coolWindow() {
+        guard warmed, !moving, !state.surfaceVisibility, let window = instance?.containerWindow else { return }
+        warmed = false
+        applyWarmth(to: window)
+    }
+
+    /// Hidden, warm (shown, unseen and untouchable) or shown, from `warmed` and the surface visibility.
+    private func applyWarmth(to window: UIWindow) {
+        let unseen = warmed && !state.surfaceVisibility
+        window.isHidden = !state.surfaceVisibility && !warmed
+        window.alpha = unseen ? 0 : 1
+        window.isUserInteractionEnabled = !unseen
+        window.accessibilityElementsHidden = unseen
+    }
+
+    func prepareMorph(warm: Bool = false) {
+        if warm { warmWindow() }
         guard !moving, !capturing, !proxyPrepared, showsLivePage else { return }
         captureProxy(prepared: true)
     }
@@ -217,7 +247,7 @@ final class BreadPresentationController: NSObject {
     }
 
     private var showsLivePage: Bool {
-        state.phase == .visible && (cover.isHidden || revealAnimator != nil) && instance?.containerWindow?.isHidden == false
+        state.phase == .visible && (cover.isHidden || revealAnimator != nil) && instance?.containerWindow?.isHidden == false && !warmed
     }
 
     func adoptProxy(_ image: UIImage) {
@@ -246,7 +276,7 @@ final class BreadPresentationController: NSObject {
                   state.requestVisibility(true, sequence: sequence) else { return false }
         }
         let previous = morphId
-        let fromRest = target == .expanded && !wasMoving && window.isHidden
+        let fromRest = target == .expanded && !wasMoving && (window.isHidden || warmed)
         if !wasMoving, applySlotFrame(window) { window.layoutIfNeeded() }
         let landing = card.flatMap { fits($0, in: window.bounds.size) ? $0 : nil }
         let progressVelocity = previous != nil ? animator.velocity()
@@ -677,7 +707,8 @@ final class BreadPresentationController: NSObject {
             window.backgroundColor = moving ? .clear : cover.backgroundColor
             instance?.morphContainer?.clipView.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
-            window.isHidden = !state.surfaceVisibility
+            if state.surfaceVisibility { warmed = false }
+            applyWarmth(to: window)
             if systemUIHeld == nil {
                 if immersive { window.makeKey() }
                 else if window.isKeyWindow { hostWindow?.makeKey() }
