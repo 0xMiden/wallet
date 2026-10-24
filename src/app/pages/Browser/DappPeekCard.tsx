@@ -35,8 +35,9 @@ import React, { type FC, useRef, useState } from 'react';
 import { type PanInfo, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import type { MorphVelocity } from '@miden/dapp-browser';
 import { Icon, IconName } from 'app/icons/v2';
-import { springs } from 'lib/animation';
+import { MORPH_TIMING, springs } from 'lib/animation';
 import { type DappSession, getDappDisplayName, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
@@ -75,13 +76,14 @@ interface DappPeekCardProps {
    */
   isShrinking?: boolean;
   /**
-   * Called when a restore gesture commits (tap or swipe up). The callback
-   * receives the card's current DOM rect so the tray can render an
-   * `ExpanderOverlay` that flies from exactly the card's position to
-   * fullscreen. Also called for back-card taps (where `sourceRect` is
-   * still meaningful since the tap originates from their visible slice).
+   * Called when a restore gesture commits (tap or swipe up) with the card's current DOM rect, where the native morph
+   * starts, and the release velocity in CSS px per second (zero for a tap).
    */
-  onCommitRestore: (sourceRect: DOMRect) => void;
+  onCommitRestore: (sourceRect: DOMRect, velocity: MorphVelocity) => void;
+  /** False while the native page covers this card; its chrome fades in when this turns true. */
+  chromeVisible?: boolean;
+  /** Leave without the exit animation: the native page has already taken the card's place. */
+  exitInstantly?: boolean;
   onClose: () => void;
   onShowAll: () => void;
   /**
@@ -101,6 +103,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   overflowCount = 0,
   isExpanding = false,
   isShrinking = false,
+  chromeVisible = true,
+  exitInstantly = false,
   onCommitRestore,
   onClose,
   onShowAll,
@@ -131,11 +135,17 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   // between where the user was touching and where the expand begins.
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const commitRestore = () => {
+  const commitRestore = (velocity: MorphVelocity) => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
-      onCommitRestore(rect);
+      onCommitRestore(rect, velocity);
     }
+  };
+  // The card's gradient, label, buttons and outer shadow layers; the contact shadow the native morph lands with stays.
+  const chromeStyle: React.CSSProperties = {
+    opacity: chromeVisible ? 1 : 0,
+    transition: chromeVisible ? `opacity ${MORPH_TIMING.chromeFadeMs}ms ease-out` : 'none',
+    pointerEvents: chromeVisible ? undefined : 'none'
   };
 
   const displayName = getDappDisplayName(session);
@@ -177,7 +187,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       return;
     }
     hapticLight();
-    commitRestore();
+    commitRestore({ x: 0, y: 0 });
   };
 
   // Only the front card is draggable. Back cards are partially hidden
@@ -207,10 +217,10 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
     // values in case the lock never triggered (extremely short drag).
     const isVerticalDrag = Math.abs(dy) >= Math.abs(dx);
     if (isVerticalDrag) {
-      // Up: restore via the ExpanderOverlay fly-out.
+      // Up: restore, handing the release velocity to the native morph.
       if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
         hapticMedium();
-        commitRestore();
+        commitRestore({ x: vx, y: vy });
         return;
       }
       // Down: close with a continuation-of-drag fade.
@@ -253,8 +263,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   // the card down a bit and fades — used when the parked-sessions
   // array shrinks from somewhere other than this card's own gesture.
   // For a swipe-down close, the card continues its downward motion.
-  const exitVariant =
-    exitMode === 'close'
+  const exitVariant = exitInstantly
+    ? { opacity: 0, transition: { duration: 0 } }
+    : exitMode === 'close'
       ? {
           opacity: 0,
           y: 180,
@@ -315,6 +326,14 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         zIndex: 100 - stackIndex
       }}
     >
+      {/* Layered shadow: tight contact + wide soft halo with a subtle brand-color tint picked from the dApp's
+          fallback color, a faint aura that hints at identity. The middle layer is the button's own: it is the
+          shadow the native morph draws, so only these two fade in after the handoff. */}
+      <div
+        data-peek-chrome=""
+        className="pointer-events-none absolute inset-0 rounded-2xl"
+        style={{ ...chromeStyle, boxShadow: `0 1px 2px rgba(15,23,42,0.18), 0 14px 36px ${fallbackColor}40` }}
+      />
       <button
         type="button"
         onClick={handleTap}
@@ -323,13 +342,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         data-dapp-id={session.id}
         data-dapp-url={session.url}
         className="group relative block h-full w-full overflow-hidden rounded-2xl bg-white"
-        style={{
-          // Layered shadow: tight contact + wide soft halo with a subtle
-          // brand-color tint picked from the dApp's fallback color. Gives
-          // each card a faint aura that hints at identity even before
-          // the user reads the label.
-          boxShadow: `0 1px 2px rgba(15,23,42,0.18), 0 10px 28px rgba(15,23,42,0.2), 0 14px 36px ${fallbackColor}40`
-        }}
+        style={{ boxShadow: '0 10px 28px rgba(15,23,42,0.2)' }}
       >
         {/* Snapshot layer — top-anchored so the frozen preview shows
             the viewport the user was last looking at. Falls back to a
@@ -352,10 +365,18 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         {/* Subtle top highlight + bottom gradient for contrast. The
             bottom gradient is tall enough (40% of card height) to
             guarantee legible white text on any page color. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-pure-black/85 via-pure-black/40 to-transparent" />
+        <div
+          data-peek-chrome=""
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-pure-black/85 via-pure-black/40 to-transparent"
+          style={chromeStyle}
+        />
 
         {/* Label row — favicon + display name docked at the bottom-left. */}
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 px-2 pb-2">
+        <div
+          data-peek-chrome=""
+          className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 px-2 pb-2"
+          style={chromeStyle}
+        >
           <div className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-pure-white/95">
             {showFavicon ? (
               <img
@@ -384,6 +405,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleClose}
           aria-label={t('closeDappCard', { name: displayName })}
           data-testid="dapp-peek-card-close"
+          data-peek-chrome=""
+          style={chromeStyle}
           className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-pure-black/55 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
@@ -398,6 +421,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleShowAll}
           aria-label={t('showAllDapps', { count: overflowCount })}
           data-testid="dapp-peek-show-all"
+          data-peek-chrome=""
+          style={chromeStyle}
           className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-pure-black/60 px-2 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-95"
         >
           <span className="text-[10px] font-bold text-pure-white">
