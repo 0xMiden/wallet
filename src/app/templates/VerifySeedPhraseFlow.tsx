@@ -276,7 +276,11 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         }
       >
         <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
-          {required && <Notice role="status">{t('seedBackupRequiredBody')}</Notice>}
+          {required && (
+            <Notice role="status" className="mb-3">
+              {t('seedBackupRequiredBody')}
+            </Notice>
+          )}
           <SeedPhrasePlaceholder />
           {probeFailed && <ProtectorProbeErrorNotice className="mt-3" onRetry={retry} retrying={retrying} />}
           {authError && (

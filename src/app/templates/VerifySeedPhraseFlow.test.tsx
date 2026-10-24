@@ -232,6 +232,7 @@ describe('VerifySeedPhraseFlow', () => {
     mockIsMobile = true;
     render(<VerifySeedPhraseFlow required />);
     await flush();
+    expect(within(screen.getByTestId('verify-seed-warning')).getByRole('status')).toHaveClass('mb-3');
     expect(screen.getByText('seedBackupRequiredBody')).toBeInTheDocument();
     expect(screen.queryByText('close')).not.toBeInTheDocument();
     hardwareBack();
