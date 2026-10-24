@@ -9,10 +9,13 @@
 ### Features
 
 - [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
+- [FEATURE][all] A device whose everyday key another device rotated out (a seed recovery elsewhere) now persists that verdict, refuses writes through the Guardian sync guard, and shows a sheet that cannot be dismissed with Make this device the main one, which rotates the key back here through the rotation gate, and Remove wallet from this device.
 
 ### Fixes
 
 - [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
+- [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
+
 - [FIX][all] Activity shows every accepted transfer on mainnet. A mainnet-only rule hid a consume of the native asset sent by its faucet as a faucet drip, but on mainnet that faucet is the USDCx minter, so every bridged-in claim and its pending card vanished from the feed, the filters and the search. Such a row, card, badge and receipt now read as an ordinary receive on mainnet, grouped under the sender, and as a faucet claim on every other network.
 - [FIX][all] Activity Groups handles recovered and legacy history without stored messages, shares action titles with List, and offers a scoped retry or Return to List if the group renderer fails.
 - [FIX][mobile] A failed native bridge session precheck names the failed condition and what the add-and-switch attempt did, in fixed values only, so a report that previously named only the session step can be told apart (Sentry BREAD-WALLET-1X, #1636). These values are part of the report title, so these failures start new crash-report issues; the privacy policy lists every value.
@@ -29,6 +32,7 @@
 - [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
 - [FIX][all] Crash reports keep the trace id they share with the swap diagnostic records sent before them, so a failure can be read beside those records in Sentry; the privacy policy now states that the records are kept for 30 days (#1660).
 - [FIX][all] The Home panes are a native scroll-snap pager: a swipe on mobile is smooth and always lands on the pane in the direction you swiped, a trackpad swipe pages them in the extension and desktop, and a mouse drag no longer does (#1811).
+- [FIX][mobile] Tapping a text field in an Explore dApp keeps its keyboard: the wallet no longer pads its own layout for a keyboard the dApp raised, and the dApp window keeps key status while a field in it is focused, so the dApp no longer blanks to its loading cover and loses focus on every tap.
 - [FIX][all] A network chosen in Developer Settings before setup is kept after the Mainnet launch, so a new install can still create, import or recover a Testnet wallet; a plain install still gets the invite-only Mainnet onboarding, and resetting the wallet returns to it (#1813).
 - [FIX][all] Recognize verified Mainnet badge activity after invitation onboarding: the stored network choice now preserves transaction provenance and permits badge checks while custom developer endpoints remain excluded. Available badges appear first, unavailable badges read Coming soon, and unread dots lead to new awards until My badges is opened. The unread badge key is loaded with the other startup storage keys, so the first tab can show the badge dot with that read already cached. Resetting the wallet includes an in-flight badge seen write in the snapshot it removes. Balance snapshots taken after the endpoint-free Mainnet onboarding choice count as Mainnet for deposit and swap badges.
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).

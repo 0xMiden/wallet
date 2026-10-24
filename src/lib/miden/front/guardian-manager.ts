@@ -85,6 +85,17 @@ export interface GuardianAccountProvider {
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.
   setGuardianEndpoint?: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Persist the verdict that another device rotated the account's hot key away
+   * from `hotPublicKey` (`HotKeyRotatedOutVerdict`). Both realms implement it:
+   * the guardian sync's self-heal detects it in the app realm, the direct
+   * guardian switch in whichever realm runs the pipeline.
+   */
+  markHotKeyRotatedOut?: (
+    accountPublicKey: string,
+    hotPublicKey: string,
+    onChainHotCommitment: string
+  ) => Promise<void>;
 }
 
 function refusedAtSelection(error: Error, proposalGuard: ProposalGuard): Error {

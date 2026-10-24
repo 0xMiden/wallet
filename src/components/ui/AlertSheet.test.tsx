@@ -415,6 +415,25 @@ it('requires the action when dismissal is disabled', async () => {
   expect(onAction).toHaveBeenCalledTimes(1);
 });
 
+it('offers a second way forward on a sheet that cannot be dismissed, which Escape never resolves to', async () => {
+  const onSecondary = jest.fn();
+  const { onAction, onCancel } = renderConfirm({
+    dismissible: false,
+    onSecondary,
+    secondaryLabel: 'Remove',
+    secondaryTestId: 'confirmation-modal-secondary'
+  });
+  const sheet = screen.getByRole('alertdialog');
+  expect(screen.queryByTestId('confirmation-modal-cancel')).not.toBeInTheDocument();
+  fireEvent.keyDown(sheet, { key: 'Escape' });
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+  expect(onSecondary).not.toHaveBeenCalled();
+  expect(onCancel).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByTestId('confirmation-modal-secondary'));
+  expect(onSecondary).toHaveBeenCalledTimes(1);
+  expect(onAction).not.toHaveBeenCalled();
+});
+
 it('consumes mobile back while dismissal is disabled', () => {
   jest.mocked(isMobile).mockReturnValue(true);
   try {

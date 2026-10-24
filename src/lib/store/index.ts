@@ -711,6 +711,25 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
     },
 
+    markHotKeyRotatedOut: async (accountPublicKey, hotPublicKey, onChainHotCommitment) => {
+      const res = await request({
+        type: WalletMessageType.MarkHotKeyRotatedOutRequest,
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      });
+      assertResponse(res.type === WalletMessageType.MarkHotKeyRotatedOutResponse);
+    },
+
+    retireRotatedOutHotKey: async (accountPublicKey, expectedHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.RetireRotatedOutHotKeyRequest,
+        accountPublicKey,
+        expectedHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
+    },
+
     checkGuardianDrift: async accountPublicKey => {
       const res = await request({
         type: WalletMessageType.CheckGuardianDriftRequest,

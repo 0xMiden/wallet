@@ -3534,6 +3534,34 @@
     "message": "Bu işlem, cüzdanı bu cihazdan kaldırır; böylece örneğin farklı bir guardian URL'si kullanarak cüzdanı yeniden geri yükleyebilirsiniz. Paranız ağda kalır. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacaktır.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Bu hesap başka bir cihazda tutulmaktadır",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Bu hesabın günlük anahtarı, genellikle cüzdanın o cihaza geri yüklenmesi yoluyla başka bir cihaza taşınmıştır. Bu cihaz, siz onu tekrar ana cihaz olarak belirleyene kadar hesabı kullanamaz.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Bu hesabın günlük anahtarı, genellikle cüzdanı o cihaza geri yükleyerek başka bir cihaza taşınmıştır. Bu cihazda kurtarma anahtarı bulunmadığından, hesabı geri alamaz. Burada kullanmak için cüzdanı kurtarma ifadesinizle geri yükleyin.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Bu cihazı ana cihaz olarak ayarlayın",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Bu cihazı ana cihaz olarak ayarlamak ister misiniz?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Cüzdan, bu cihaza ait günlük anahtarı değiştirir. Diğer cihaz bu hesaba erişimini kaybeder ve aynı bildirimi görür. Hesaptan küçük bir ağ ücreti ödenir.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Cüzdanı bu cihazdan kaldırın",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Günlük anahtar rotasyonu doğrulanmadı",
     "englishSource": "Everyday key rotation not confirmed"
