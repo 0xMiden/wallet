@@ -3765,7 +3765,8 @@ const generateGuardianTransaction = async (
                 swapTx.accountId,
                 swapTx.faucetId,
                 swapTx.amount,
-                swapFeeContext
+                swapFeeContext,
+                swapTx.extraInputs.balanceScope ?? swapFeeContext.scope
               );
               // The realm's reader client (see `getRealmReaderClient`), not a per-call
               // client: 0.16 can release neither, so a client per swap build leaked.

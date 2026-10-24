@@ -60,6 +60,11 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   };
 });
 
+jest.mock('lib/miden/swap/balance', () => {
+  const g = globalThis as any;
+  return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
+});
+
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
 import { decodeArg } from './offscreen-codec';
@@ -147,6 +152,12 @@ function resetControl() {
     inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
     inlineSwapTransaction: jest.fn(async () => ({ __inlineSwapResult: true })),
     inlineNewTransaction: jest.fn(async () => ({ __inlineNewResult: true })),
+    readSwapFeeContext: jest.fn(async (scope?: string) => ({
+      scope: scope ?? 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    })),
     // Slice 7a: the flag-off passthrough of the deferred reach-through reads. The
     // raw client (`.client`) exposes getSyncHeight / sync / pswap.lineage; the
     // interface exposes getInputNote / importNoteBytes. The live-record returns are
@@ -3150,7 +3161,12 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     await midenClientProxy.newTransaction('mtst1qacc', requestBytes, true, signCallback, onStage);
 
     expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(consume, onStage);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage, {
+      scope: 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', requestBytes, true, onStage);
   });
 
@@ -3278,6 +3294,27 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
 });
 
 describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
+  it('resolves the fee context before taking the inline WASM lock', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const fee = { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n };
+    G.__px.readSwapFeeContext.mockResolvedValue(fee);
+    const tx = {
+      ...swapTx(),
+      extraInputs: { ...swapTx().extraInputs, balanceScope: fee.scope }
+    };
+
+    await midenClientProxy.swapTransaction(
+      tx as any,
+      jest.fn(async () => new Uint8Array())
+    );
+
+    expect(G.__px.readSwapFeeContext).toHaveBeenCalledWith(fee.scope);
+    expect(G.__px.readSwapFeeContext.mock.invocationCallOrder[0]).toBeLessThan(
+      G.__px.withWasmClientLock.mock.invocationCallOrder[0]
+    );
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, fee);
+  });
+
   it('flag OFF → swapTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
@@ -3291,7 +3328,12 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     // options: no per-write signer anywhere, the realm's installed one signs (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, {
+      scope: 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -3312,6 +3354,8 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
   it('flag ON → dispatches a whole-op OFFSCREEN_CALL with the swap DTO (both BigInt amounts as strings) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
+    const fee = { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n };
+    G.__px.readSwapFeeContext.mockResolvedValue(fee);
     const transaction = {
       ...swapTx(),
       extraInputs: { ...swapTx().extraInputs, balanceScope: 'testnet|queued-endpoint' }
@@ -3347,7 +3391,8 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
         requestedFaucetId: 'mtst1qrequested',
         requestedAmount: '250',
         balanceScope: 'testnet|queued-endpoint'
-      }
+      },
+      swapFeeContext: { ...fee, baseFee: '7' }
     });
     expect(criticalDuring).toBe(true);
     expect(prover.isCriticalOpInFlight()).toBe(false);

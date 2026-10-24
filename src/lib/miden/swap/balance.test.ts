@@ -1,4 +1,9 @@
-import { assertSwapVaultBalance } from './balance';
+import {
+  assertSwapAccountBalance,
+  assertSwapFeeContextMatches,
+  assertSwapVaultBalance,
+  readSwapFeeContext
+} from './balance';
 
 let mockHeld = 0n;
 let mockFeeHeld = 100n;
@@ -6,16 +11,19 @@ let mockFee: number | null = 1;
 let mockScope = 'testnet|rpc';
 let mockMissing = false;
 let mockAccountId = 'account';
+let mockFeeFaucetId: string | undefined;
+let mockVaultAssets: Array<{ faucetId: () => string; amount: () => bigint }> | null = null;
 const mockGetAccount = jest.fn(async (_accountId: string) =>
   mockMissing
     ? undefined
     : {
         id: () => mockAccountId,
         vault: () => ({
-          fungibleAssets: () => [
-            { faucetId: () => 'pay', amount: () => mockHeld },
-            { faucetId: () => 'native', amount: () => mockFeeHeld }
-          ]
+          fungibleAssets: () =>
+            mockVaultAssets ?? [
+              { faucetId: () => 'pay', amount: () => mockHeld },
+              { faucetId: () => 'native', amount: () => mockFeeHeld }
+            ]
         })
       }
 );
@@ -34,9 +42,15 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   cacheScope: () => mockScope,
-  getNativeAssetId: async () => 'native',
-  getVerificationBaseFee: async () => mockFee
+  getNativeAssetId: async () => mockFeeFaucetId ?? 'native',
+  getNativeAssetIdSync: () => mockFeeFaucetId ?? 'native',
+  getVerificationBaseFee: async () => mockFee,
+  getVerificationBaseFeeSync: () => mockFee
 }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveFeeFaucetId: () => mockFeeFaucetId
+}));
+
 beforeEach(() => {
   mockAccountId = 'account';
   mockHeld = 100n;
@@ -44,6 +58,8 @@ beforeEach(() => {
   mockFee = 1;
   mockScope = 'testnet|rpc';
   mockMissing = false;
+  mockFeeFaucetId = undefined;
+  mockVaultAssets = null;
   mockGetAccount.mockClear();
 });
 it('rejects a payment against zero actual vault even when the display cache says two tokens', async () => {
@@ -69,6 +85,23 @@ it('requires a fee asset for non-native offers', async () => {
 it('reserves thirty base fees when offering the native asset', async () => {
   mockFeeHeld = 100n;
   await expect(assertSwapVaultBalance('account', 'native', 70n)).resolves.toBeUndefined();
+  await expect(assertSwapVaultBalance('account', 'native', 71n)).rejects.toThrow('amountMustBeLessThanBalance');
+});
+it('rejects an offer whose balance is split across separate vault slots', async () => {
+  mockVaultAssets = [
+    { faucetId: () => 'pay', amount: () => 60n },
+    { faucetId: () => 'pay', amount: () => 40n },
+    { faucetId: () => 'native', amount: () => 100n }
+  ];
+
+  await expect(assertSwapVaultBalance('account', 'pay', 100n)).rejects.toThrow('amountMustBeLessThanBalance');
+});
+it('applies the native reserve to the slot selected for the offered amount', async () => {
+  mockVaultAssets = [
+    { faucetId: () => 'native', amount: () => 100n },
+    { faucetId: () => 'native', amount: () => 200n }
+  ];
+
   await expect(assertSwapVaultBalance('account', 'native', 71n)).rejects.toThrow('amountMustBeLessThanBalance');
 });
 it('allows a known zero-fee network', async () => {
@@ -97,4 +130,70 @@ it('refuses a network switch while the SDK read is in flight', async () => {
     return undefined;
   });
   await expect(assertSwapVaultBalance('account', 'pay', 1n)).rejects.toThrow('swapBalanceUnavailable');
+});
+
+it('rejects a fee context when the active fee faucet changes before swap execution', async () => {
+  mockFeeFaucetId = 'fee-a';
+  const fee = await readSwapFeeContext();
+  mockFeeFaucetId = 'fee-b';
+  const account = {
+    id: () => 'account',
+    vault: () => ({
+      fungibleAssets: () => [
+        { faucetId: () => 'fee-a', amount: () => 100n },
+        { faucetId: () => 'pay', amount: () => 100n }
+      ]
+    })
+  };
+
+  expect(() => assertSwapAccountBalance(account as any, 'account', 'pay', 1n, fee)).toThrow('swapBalanceUnavailable');
+});
+
+it('rejects a fee context from a different queued balance scope', async () => {
+  const fee = await readSwapFeeContext();
+  const account = {
+    id: () => 'account',
+    vault: () => ({ fungibleAssets: () => [{ faucetId: () => 'native', amount: () => 100n }] })
+  };
+
+  expect(() => assertSwapAccountBalance(account as any, 'account', 'pay', 1n, fee, 'other|rpc')).toThrow(
+    'swapBalanceUnavailable'
+  );
+});
+
+it('rejects a base fee that changes after balance context discovery', async () => {
+  const fee = await readSwapFeeContext();
+  mockFee = 2;
+  const account = {
+    id: () => 'account',
+    vault: () => ({ fungibleAssets: () => [{ faucetId: () => 'native', amount: () => 100n }] })
+  };
+
+  expect(() => assertSwapAccountBalance(account as any, 'account', 'pay', 1n, fee)).toThrow('swapBalanceUnavailable');
+});
+
+it('requires the queued fee asset identity to match the fresh offscreen context', () => {
+  const queued = {
+    scope: 'testnet|rpc',
+    nativeAssetId: 'native-a',
+    feeFaucetId: null,
+    baseFee: 1n
+  };
+  const changedNativeAsset = { ...queued, nativeAssetId: 'native-b' };
+  const changedOverride = { ...queued, feeFaucetId: 'override-b' };
+
+  expect(() => assertSwapFeeContextMatches(queued, changedNativeAsset)).toThrow('swapBalanceUnavailable');
+  expect(() => assertSwapFeeContextMatches(queued, changedOverride)).toThrow('swapBalanceUnavailable');
+});
+
+it('rejects a changed base fee when the queued fee asset identity still matches', () => {
+  const queued = {
+    scope: 'testnet|rpc',
+    nativeAssetId: 'native',
+    feeFaucetId: null,
+    baseFee: 1n
+  };
+  const current = { ...queued, baseFee: 9n };
+
+  expect(() => assertSwapFeeContextMatches(queued, current)).toThrow('swapBalanceUnavailable');
 });

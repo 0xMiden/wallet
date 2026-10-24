@@ -2101,13 +2101,27 @@ describe('MidenClientInterface', () => {
       amount: BigInt(1),
       extraInputs: {}
     } as any);
-    await client.swapTransaction({
-      accountId: 'acc-id',
-      faucetId: 'offered-faucet',
-      amount: BigInt(10),
-      type: 'swap',
-      extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
-    } as any);
+    const feeContext = {
+      scope: 'testnet|current-endpoint',
+      nativeAssetId: 'native-faucet',
+      feeFaucetId: null,
+      baseFee: 7n
+    };
+    await client.swapTransaction(
+      {
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: BigInt(10),
+        type: 'swap',
+        extraInputs: {
+          requestedFaucetId: 'wanted-faucet',
+          requestedAmount: BigInt(20),
+          balanceScope: 'testnet|current-endpoint'
+        }
+      } as any,
+      undefined,
+      feeContext
+    );
 
     const { buildConsumeTransactionRequest, buildSendTransactionRequest, buildPswapCreateRequest } =
       jest.requireMock('./helpers');
@@ -2128,6 +2142,14 @@ describe('MidenClientInterface', () => {
       'offered-faucet',
       BigInt(10),
       EXPIRATION_DELTA_BLOCKS
+    );
+    expect(jest.requireMock('lib/miden/swap/balance').assertSwapAccountBalance).toHaveBeenCalledWith(
+      expect.anything(),
+      'acc-id',
+      'offered-faucet',
+      10n,
+      feeContext,
+      'testnet|current-endpoint'
     );
   });
 
