@@ -78,10 +78,12 @@ import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
 
 import {
+  beginAttemptInThisRealm,
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  endAttemptInThisRealm,
   markStartedInThisRealm,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
@@ -1366,7 +1368,8 @@ export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  releaseRealmAttempt: boolean = true
 ) => {
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
@@ -1404,6 +1407,7 @@ export const generateTransaction = async (
     await guardianProvider
       .releaseRecoveryAuthorization?.(transaction.id)
       .catch(e => console.warn('[generateTransaction] recovery authorization release failed:', e));
+    if (releaseRealmAttempt) endAttemptInThisRealm(transaction.id);
   }
 };
 
@@ -1425,6 +1429,7 @@ const generateTransactionWithProvider = async (
   transaction.attemptId = uuid();
   delete (transaction as ITransaction).failureDiagnostics;
   markStartedInThisRealm(transaction.id);
+  beginAttemptInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
@@ -4564,7 +4569,7 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
+    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider, false);
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -4755,6 +4760,8 @@ export const generateTransactionsLoop = async (
       await markTransactionUnconfirmed(tx, e);
     }
     return false;
+  } finally {
+    endAttemptInThisRealm(nextTransaction.id);
   }
 
   // Every requeue arm leaves its row Queued with a cooldown of at least 15 s, while a row parked for its recovery seed

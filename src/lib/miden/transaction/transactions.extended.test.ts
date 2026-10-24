@@ -17,7 +17,7 @@ import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
-import { markStartedInThisRealm } from './cancel';
+import { markStartedInThisRealm, withAttemptInThisRealm } from './cancel';
 import {
   cancelTransaction,
   claimBridgeSubmit,
@@ -396,12 +396,65 @@ describe('verifyStuckTransactionsFromNode', () => {
     const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Committed }]);
 
-    const resolved = await verifyStuckTransactionsFromNode();
+    const resolved = await withAttemptInThisRealm(id, () => verifyStuckTransactionsFromNode());
 
     expect(resolved).toBe(0);
     expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
     expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
   });
+
+  it('leaves a same-realm consume inside the note grace window when its attempt is not on the stack', async () => {
+    const id = 'tx-fresh-same-realm-consume';
+    txStore.push({
+      id,
+      type: 'consume',
+      noteId: 'note-fresh-same-realm',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'sending',
+      attemptId: 'attempt-fresh-same-realm',
+      initiatedAt: 100,
+      processingStartedAt: Math.floor(Date.now() / 1000)
+    });
+    markStartedInThisRealm(id);
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Committed }]);
+
+    const resolved = await verifyStuckTransactionsFromNode();
+
+    expect(resolved).toBe(0);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+  });
+
+  it.each([
+    ['still claimable', 'Committed'],
+    ['consumed externally', 'ConsumedExternal']
+  ])(
+    'fails a same-realm consume after its attempt has ended once the note grace window passes (%s)',
+    async (_label, state) => {
+      const { TRANSACTION_INTERRUPTED_ERROR } = require('./constants');
+      const id = `tx-ended-${state}`;
+      txStore.push({
+        id,
+        type: 'consume',
+        noteId: `note-ended-${state}`,
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        attemptId: `attempt-ended-${state}`,
+        initiatedAt: 100,
+        processingStartedAt: Math.floor(Date.now() / 1000) - 120
+      });
+      markStartedInThisRealm(id);
+      const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+      mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState[state] }]);
+
+      const resolved = await verifyStuckTransactionsFromNode();
+
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.error).toBe(TRANSACTION_INTERRUPTED_ERROR);
+      expect(resolved).toBe(1);
+      expect(txStore[0]!.displayMessage).not.toBe('Received');
+    }
+  );
 
   it('completes a live same-realm consume when the node confirms local consumption', async () => {
     const id = 'tx-live-local-consume';

@@ -775,6 +775,48 @@ export const markStartedInThisRealm = (id: string): void => {
   startedInThisRealm.add(id);
 };
 
+// Per-id depth of attempts this realm still has on the stack. The consume spare reads it.
+// `startedInThisRealm` stays add-only for the realm's life and is not this map.
+const attemptDepthInThisRealm = new Map<string, number>();
+
+/**
+ * Records one in-flight attempt this realm is driving for `id`. A second overlapping call increments,
+ * so one end cannot drop the other call's spare.
+ */
+export const beginAttemptInThisRealm = (id: string): void => {
+  attemptDepthInThisRealm.set(id, (attemptDepthInThisRealm.get(id) ?? 0) + 1);
+};
+
+/**
+ * Drops one in-flight attempt for `id`. An id that was never begun stays absent. Depth 1 deletes the
+ * entry; a greater depth decrements.
+ */
+export const endAttemptInThisRealm = (id: string): void => {
+  const depth = attemptDepthInThisRealm.get(id);
+  if (depth === undefined) return;
+  if (depth > 1) {
+    attemptDepthInThisRealm.set(id, depth - 1);
+    return;
+  }
+  attemptDepthInThisRealm.delete(id);
+};
+
+/** Begins an attempt for `id`, runs `run`, and ends that attempt when `run` settles. */
+export const withAttemptInThisRealm = async <T>(id: string, run: () => Promise<T>): Promise<T> => {
+  beginAttemptInThisRealm(id);
+  try {
+    return await run();
+  } finally {
+    endAttemptInThisRealm(id);
+  }
+};
+
+/** True while this realm still has an attempt for `id` on the stack. */
+const attemptOpenInThisRealm = (id: string): boolean => {
+  const depth = attemptDepthInThisRealm.get(id);
+  return depth !== undefined && depth > 0;
+};
+
 /**
  * True for a row this realm did not start whose `processingStartedAt` lies more than
  * `MAX_WAIT_BEFORE_CANCEL` past `nowSeconds`, a clock the caller read after its table read. Used by
@@ -1168,8 +1210,8 @@ const verifyStuckTransactions = async (): Promise<number> => {
     // sync: false — this reaper rides AutoSync; syncing per stuck consume would be
     // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
     const verdict = await verifyConsumeLanded(tx, false);
-    // Do not cancel a local live attempt from a negative note read; keep landed and invalid verdicts authoritative.
-    if (startedInThisRealm.has(tx.id) && (verdict === 'not-landed' || verdict === 'landed-external')) {
+    // Do not cancel a local live attempt from a negative note read; the spare lasts while that attempt is on the stack.
+    if (attemptOpenInThisRealm(tx.id) && (verdict === 'not-landed' || verdict === 'landed-external')) {
       continue;
     }
 
