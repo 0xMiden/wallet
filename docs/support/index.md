@@ -1,27 +1,27 @@
 ---
-title: Support — Bread Wallet by Miden
+title: Support - Bread Wallet by Miden
 permalink: /support/
 ---
 
-# Bread Wallet by Miden — Support
+# Bread Wallet by Miden - Support
 
 Need help with Bread Wallet? We're here to help. Below are the ways to reach us and answers to common questions.
 
 ## Contact us
 
-- **Email:** [privacy@miden.team](mailto:privacy@miden.team) — for any question, problem, or help request. We aim to respond within a few business days.
+- **Email:** [privacy@miden.team](mailto:privacy@miden.team) - for any question, problem, or help request. We aim to respond within a few business days.
 - **Report a bug or request a feature:** open an issue at [github.com/0xMiden/wallet/issues](https://github.com/0xMiden/wallet/issues).
 - **Send feedback:** use our [feedback form](https://cmuv78o9w003x5ebpyha3cf6p.zapier.app/page).
 
-When you contact us, please include your device model, OS version, and app version (Settings → About), plus a description of the problem — it helps us help you faster. Never share your recovery phrase or private keys with anyone, including us.
+When you contact us, please include your device model, OS version, and app version (Settings → About), plus a description of the problem - it helps us help you faster. Never share your recovery phrase or private keys with anyone, including us.
 
 ## Frequently asked questions
 
-### I'm locked out or lost my recovery phrase — can you recover my wallet?
+### I'm locked out or lost my recovery phrase - can you recover my wallet?
 Bread Wallet is a **non-custodial** wallet: your recovery phrase and account keys are generated or imported into local storage, and we never have access to them. You can restore supported account state from a password-encrypted Encrypted Wallet File; depending on your accounts, it can include the recovery phrase or imported signing secrets. We cannot reset your credentials or recover funds on your behalf. Please keep your recovery phrase and any wallet files safe and private.
 
 ### How do I unlock the app with Face ID or Touch ID?
-Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely by your device's operating system — the app never receives your face or fingerprint data, only a success/failure result. See our [Privacy Policy](https://0xmiden.github.io/wallet/privacy/) for details.
+Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely by your device's operating system - the app never receives your face or fingerprint data, only a success/failure result. See our [Privacy Policy](https://0xmiden.github.io/wallet/privacy/) for details.
 
 ### The app isn't syncing, or a transaction seems stuck.
 First, check your internet connection and reopen the app to let it re-sync. If a transaction stays pending, give the network a few minutes. If the problem persists, email us at [privacy@miden.team](mailto:privacy@miden.team) with your app version and a description, and we'll investigate.
