@@ -328,6 +328,26 @@ describe('DappPeekTray cold restore overlay', () => {
     expect(mockBrowser.restore).toHaveBeenCalledWith('s1', expect.objectContaining({ velocity: { x: 0, y: 0 } }));
     expect(screen.getByTestId('expander-overlay')).toBeInTheDocument();
   });
+
+  it.each([
+    ['cold', { session: S1, instance: null, isCold: true }, true],
+    ['refused warm', warm(S1), false]
+  ])('uses the last measured slot when the live slot is gone (%s)', async (_, state, resolved) => {
+    const measured = { x: 0, y: 160, width: 390, height: 600 };
+    mockBrowser.restore.mockResolvedValue(resolved);
+    mockBrowser.parkedSessions = [{ session: S1 }];
+    mockBrowser.sessionStates = [state];
+    mockBrowser.slotRect = measured;
+    const { rerender } = render(<DappPeekTray />);
+    mockBrowser.slotRect = { x: 0, y: 0, width: 0, height: 0 };
+    rerender(<DappPeekTray />);
+    mockBrowser.slotRect = null;
+    rerender(<DappPeekTray />);
+
+    await act(async () => fireEvent.click(screen.getByTestId('dapp-peek-card')));
+
+    expect(mockOverlayProps.at(-1)?.targetRect).toEqual(measured);
+  });
 });
 
 describe('DappPeekTray card overlays', () => {
