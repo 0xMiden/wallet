@@ -87,6 +87,14 @@ final class BreadPresentationController {
     private boolean insetsDeferred;
     private boolean capturing;
     private int captureEpoch;
+    private int resizeEpoch;
+    private int snapshotHoldEpoch = -1;
+    private int savedBackVisibility = View.VISIBLE;
+    private boolean capsuleHeld;
+    private Runnable collapseFlight;
+    private Runnable snapshotFlight;
+    private BreadMorphCard collapseLanding;
+    private float collapseVelocity;
     private Bitmap proxyBitmap;
     private Bitmap capture;
     private ValueAnimator proxyFade;
@@ -246,6 +254,7 @@ final class BreadPresentationController {
                 finishMotion();
                 if (resized) {
                     // The proxy is a frame of the old size; the next expand must not show it.
+                    resizeEpoch++;
                     proxyBitmap = null;
                     state.dropProxy();
                     hideProxy();
@@ -435,18 +444,30 @@ final class BreadPresentationController {
         if (!state.requestVisibility(true, null, sequence, SystemClock.uptimeMillis())) return false;
         if (!flying) container.getLocationInWindow(origin);
         BreadMorphCard landing = landing(card);
+        float speed = velocity(landing, vx, vy);
         endTracking();
+        boolean waiting = collapseFlight != null;
+        cancelSnapshotFlight();
         beginFlight(BreadPresentationState.Motion.COLLAPSING, id, sequence);
         headTo(0);
-        if (flying) emit("retargeted", 0, false);
-        else {
+        if (flying) {
+            if (waiting) cancelCollapseFlight();
+            emit("retargeted", 0, false);
+            // The queued copy has not happened yet, so a collapse retarget takes it before it moves.
+            if (waiting) captureProxy();
+        } else {
             posed = true;
             webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            if (fullscreen()) {
+                applyWindow();
+                emit("started", 0, false);
+                postCollapse(landing, speed);
+                return true;
+            }
             captureProxy();
-            if (fullscreen()) applyWindow();
             emit("started", 0, false);
         }
-        morph.animateTo(0, landing, velocity(landing, vx, vy), BreadMorphPhysics.COLLAPSE);
+        morph.animateTo(0, landing, speed, BreadMorphPhysics.COLLAPSE);
         return true;
     }
 
@@ -464,6 +485,7 @@ final class BreadPresentationController {
         if (!resumed) container.getLocationInWindow(origin);
         BreadMorphCard landing = landing(card);
         endTracking();
+        cancelCollapseFlight();
         beginFlight(BreadPresentationState.Motion.EXPANDING, id, sequence);
         if (resumed) {
             headTo(1);
@@ -484,10 +506,13 @@ final class BreadPresentationController {
         return true;
     }
 
-    private boolean flying() { return morph.running() || tracking; }
+    private boolean flying() { return morph.running() || tracking || collapseFlight != null; }
 
     private void headTo(float end) {
         state.beginMotion(end >= 0.5f ? BreadPresentationState.Motion.EXPANDING : BreadPresentationState.Motion.COLLAPSING);
+        if (end < 0.5f) {
+            if (fullscreen()) holdBack(true);
+        } else releaseBack();
         if (end < 0.5f && proxyCovering) {
             proxyCovering = false;
             crossfaded = true;
@@ -497,6 +522,57 @@ final class BreadPresentationController {
             if (state.phase() == BreadPresentationState.Phase.VISIBLE) fadeProxyOut();
             else proxyCovering = true;
         }
+    }
+
+    private void holdBack(boolean collapse) {
+        if (!capsuleHeld) savedBackVisibility = back.getVisibility();
+        capsuleHeld = true;
+        if (collapse) snapshotHoldEpoch = -1;
+        back.setVisibility(View.INVISIBLE);
+    }
+
+    private void releaseBack() {
+        if (!capsuleHeld) return;
+        capsuleHeld = false;
+        snapshotHoldEpoch = -1;
+        back.setVisibility(savedBackVisibility);
+    }
+
+    private void showBack(int visibility) {
+        back.setVisibility(capsuleHeld ? View.INVISIBLE : visibility);
+    }
+
+    private void postCollapse(BreadMorphCard landing, float velocity) {
+        collapseLanding = landing;
+        collapseVelocity = velocity;
+        collapseFlight = () -> {
+            if (collapseFlight == null) return;
+            collapseFlight = null;
+            captureProxy();
+            morph.animateTo(0, collapseLanding, collapseVelocity, BreadMorphPhysics.COLLAPSE);
+        };
+        container.post(collapseFlight);
+    }
+
+    private void cancelCollapseFlight() {
+        if (collapseFlight == null) return;
+        container.removeCallbacks(collapseFlight);
+        collapseFlight = null;
+    }
+
+    private void cancelSnapshotFlight() {
+        if (snapshotFlight == null) return;
+        container.removeCallbacks(snapshotFlight);
+        snapshotFlight = null;
+        if (capturing || captureWaiters.isEmpty()) return;
+        List<Consumer<Bitmap>> waiters = new ArrayList<>(captureWaiters);
+        captureWaiters.clear();
+        for (Consumer<Bitmap> waiter : waiters) waiter.accept(null);
+    }
+
+    private void cancelPostedCaptures() {
+        cancelCollapseFlight();
+        cancelSnapshotFlight();
     }
 
     private void beginFlight(BreadPresentationState.Motion motion, String id, Integer sequence) {
@@ -562,12 +638,25 @@ final class BreadPresentationController {
     private void finishMotion() {
         if (!flying()) return;
         endTracking();
+        if (collapseFlight != null && !morph.running()) {
+            BreadMorphCard landing = collapseLanding;
+            cancelCollapseFlight();
+            captureProxy();
+            morph.place(landing, 0);
+            morph.finishAtNearestEnd();
+            return;
+        }
         morph.finishAtNearestEnd();
     }
 
     private void restPose() {
-        if (!posed) return;
+        cancelPostedCaptures();
+        if (!posed) {
+            releaseBack();
+            return;
+        }
         endTracking();
+        releaseBack();
         posed = false;
         crossfaded = false;
         capture = null;
@@ -632,11 +721,26 @@ final class BreadPresentationController {
         // In flight the window shows a scaled page, so only the capture the motion took at its start is the page.
         if (posed) { done.accept(capture); return; }
         captureWaiters.add(done);
+        if (snapshotFlight != null) return;
+        if (fullscreen() && back.getVisibility() == View.VISIBLE) {
+            holdBack(false);
+            snapshotFlight = () -> {
+                if (snapshotFlight == null) return;
+                snapshotFlight = null;
+                captureProxy(true);
+            };
+            container.post(snapshotFlight);
+            return;
+        }
         captureProxy();
     }
 
-    private void captureProxy() {
+    private void captureProxy() { captureProxy(false); }
+
+    private void captureProxy(boolean snapshotOwner) {
         int epoch = ++captureEpoch;
+        int sizeEpoch = resizeEpoch;
+        if (snapshotOwner) snapshotHoldEpoch = epoch;
         long navigation = state.navigationGeneration();
         Rect page = new Rect(0, 0, webView.getWidth(), webView.getHeight());
         container.offsetDescendantRectToMyCoords(webView, page);
@@ -644,13 +748,14 @@ final class BreadPresentationController {
         boolean painted = state.phase() == BreadPresentationState.Phase.VISIBLE;
         capturing = true;
         owner.captureWebView(bitmap -> {
+            if (epoch == snapshotHoldEpoch) releaseBack();
             if (epoch != captureEpoch) return;
             capturing = false;
             boolean current = bitmap != null && navigation == state.navigationGeneration()
                 && state.phase() != BreadPresentationState.Phase.CLOSED;
-            // A covered page or a resized WebView would make the proxy show a frame that is not the page.
+            // A covered page, a resized WebView, or a size that changed and changed back is not the page.
             boolean sameSize = bitmap != null && bitmap.getWidth() == webView.getWidth() && bitmap.getHeight() == webView.getHeight();
-            if (current && painted && sameSize) adopt(bitmap, dx, dy);
+            if (current && painted && sameSize && sizeEpoch == resizeEpoch) adopt(bitmap, dx, dy);
             List<Consumer<Bitmap>> waiters = new ArrayList<>(captureWaiters);
             captureWaiters.clear();
             for (Consumer<Bitmap> waiter : waiters) waiter.accept(current ? bitmap : null);
@@ -829,6 +934,8 @@ final class BreadPresentationController {
     void close() {
         morphId = null;
         endTracking();
+        cancelPostedCaptures();
+        releaseBack();
         if (tracker != null) {
             tracker.recycle();
             tracker = null;
@@ -958,7 +1065,7 @@ final class BreadPresentationController {
         retry.setVisibility(failed ? View.VISIBLE : View.GONE);
         retry.setEnabled(supported);
         spinner.setVisibility(failed ? View.GONE : View.VISIBLE);
-        back.setVisibility(View.VISIBLE);
+        showBack(View.VISIBLE);
     }
 
     void render() {
@@ -985,7 +1092,7 @@ final class BreadPresentationController {
         if (state.phase() == BreadPresentationState.Phase.VISIBLE) {
             cover.setVisibility(View.GONE);
             webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
-            back.setVisibility(fullscreen() ? View.VISIBLE : View.GONE);
+            showBack(fullscreen() ? View.VISIBLE : View.GONE);
             return;
         }
         long generation = state.generation();
@@ -1058,7 +1165,7 @@ final class BreadPresentationController {
         if (!state.canReveal(generation)) return;
         state.painted(generation);
         pendingPaint = -1;
-        back.setVisibility(fullscreen() ? View.VISIBLE : View.GONE);
+        showBack(fullscreen() ? View.VISIBLE : View.GONE);
         if (!ValueAnimator.areAnimatorsEnabled()) finishReveal(generation);
         else if (proxyRoute()) fadeProxy(0, EXPAND_CROSSFADE_MS, () -> finishReveal(generation));
         else {
