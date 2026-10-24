@@ -50,8 +50,12 @@ const MIDEN_TXS = 2n;
 const SELF_CLAIM_ATTEMPTS = 2;
 /** AGGLAYER_LOOP_WEI as the Send flow takes it: the same amount goes out as came in. */
 const BRIDGE_OUT_ETH = '0.000001';
-/** The job allows 150 minutes; setup takes about 10 of them on ubuntu-latest. */
-const TEST_MS = 130 * 60_000;
+/**
+ * Funding checks and note claims (12), the landing (25), the bridge-out (3), the full exit wait (120) and the claim
+ * checks (5).
+ * The job allows 185 minutes, which leaves 20 for setup on ubuntu-latest, a cold CLI build included.
+ */
+const TEST_MS = 165 * 60_000;
 /** Time kept after the exit wait to verify a claim and write the summary before the test is cut off. */
 const VERIFY_MS = 5 * 60_000;
 const OUTPUT_DIR = process.env.E2E_PLAYWRIGHT_OUTPUT_DIR ?? 'test-results';

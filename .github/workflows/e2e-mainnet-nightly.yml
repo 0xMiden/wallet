@@ -283,9 +283,9 @@ jobs:
     # After the main job, failed or not: the two share the plain account and the Ethereum key, so they never overlap.
     # !cancelled() rather than always(), so cancelling the run does not start a funded loop.
     if: ${{ !cancelled() && needs.mainnet-nightly.outputs.started == 'true' }}
-    # It mostly waits on the exit: up to 120 minutes for its claim, inside a 130-minute test.
+    # It mostly waits on the exit: up to 120 minutes for its claim after the bridge-out, inside a 165-minute test.
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 195 || 150 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}
     env:
       E2E_NETWORK: mainnet
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
