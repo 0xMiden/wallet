@@ -9,11 +9,11 @@
  */
 
 import type { ITransactionType } from 'lib/miden/db/types';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest } from './transactionUtils';
+import { isFaucetRequest, networkHasFaucetClaims } from './transactionUtils';
 
 /**
  * The category chips of the Activity feed (Transfer, Swap, Earn, Others). Each transaction type
@@ -49,41 +49,17 @@ export function activityCategoryOf(entry: { txType: ITransactionType }): Activit
 }
 
 /**
- * Whether Activity hides the faucet claims on this network. Mainnet has no faucet to request
- * funds from, so a faucet row there is noise. This changes only what Activity shows: the stored
- * rows and the balances stay the same. The caller gives the network of each render, because a
- * Developer Settings save can change it without a reload.
- */
-export function hidesFaucetActivity(network: MIDEN_NETWORK_NAME): boolean {
-  return network === MIDEN_NETWORK_NAME.MAINNET;
-}
-
-/**
  * Whether a claimable note is a faucet claim. Its consume row copies the note's faucet and sender
  * (`ConsumeTransaction`), so this is `isFaucetRequest` on those two values: a note of the native
- * asset sent by the native faucet. A caller that renders passes the id it re-renders on
- * (`useNativeFeeFaucetId`); the default reads the cache.
+ * asset sent by the native faucet, on a network that has a faucet (`networkHasFaucetClaims`); on
+ * Mainnet that faucet is the USDCx minter, so the note is an ordinary receive there.
  */
 export function isFaucetClaimNote(
   note: { faucetId: string; senderAddress: string },
   nativeFaucetId: string | null = getNativeAssetIdSync()
 ): boolean {
+  if (!networkHasFaucetClaims(getEffectiveNetworkName())) return false;
   return !!nativeFaucetId && note.faucetId === nativeFaucetId && note.senderAddress === nativeFaucetId;
-}
-
-/**
- * Whether a history entry is a faucet claim, whatever its state. `isFaucetRequest` reads the
- * RECEIVE icon, which a failed claim loses, so the Mainnet guard tests the row itself: a claim of
- * the native asset whose sender is the native faucet. A failed or pending faucet claim is hidden too.
- * The caller passes the native faucet id it re-renders on, so a filter run while the id was unknown
- * runs again once it is known.
- */
-export function isFaucetActivityEntry(
-  entry: Pick<IHistoryEntry, 'txType' | 'faucetId' | 'secondaryAddress'>,
-  nativeFaucetId: string | null
-): boolean {
-  if (!nativeFaucetId) return false;
-  return entry.txType === 'consume' && entry.faucetId === nativeFaucetId && entry.secondaryAddress === nativeFaucetId;
 }
 
 /**

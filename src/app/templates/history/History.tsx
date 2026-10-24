@@ -38,19 +38,13 @@ import {
   type CompletedHistoryCursor
 } from 'lib/miden/transaction/get';
 import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
-import {
-  activityCategoryOf,
-  hidesFaucetActivity,
-  isFaucetActivityEntry,
-  isPendingActivityEntry
-} from './activityGroups';
+import { activityCategoryOf, isPendingActivityEntry } from './activityGroups';
 import { guardianHistoryIcon } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -528,25 +522,24 @@ const History = memo<HistoryProps>(
 
     // Labelled here, over the paged rows too, so every row and the search below follow a config publish.
     const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-    // Read on each render: a Developer Settings save can change the network without a reload.
-    const hideFaucet = hidesFaucetActivity(getEffectiveNetworkName());
-    // Re-renders once the id hydrates or is discovered, so rows filtered while it was unknown are filtered again.
+    // The rows read the id during render (`isFaucetRequest`), which is false while it is unknown, and
+    // they are memoized on the entry object, so discovery must recompute `allEntries` to relabel them.
     const nativeFaucetId = useNativeFeeFaucetId();
     // Don't sort the pending transactions, earliest should come first as they are processed first.
-    // On Mainnet the faucet rows go here, before the search, the filter, the group predicate and the
-    // hidden notes, so no view and no search shows them. The test reads the row, not its icon, so a
-    // failed faucet claim is hidden too.
+    // No network hides a row here: a Mainnet consume of the native asset sent by its faucet is a
+    // bridge-in, since the USDCx faucet mints every bridged-in note, not a faucet drip.
     const allEntries = useMemo(() => {
       const pendingTxIds = new Set(pendingTransactions.flatMap(entry => (entry.txId ? [entry.txId] : [])));
-      const labelled = pendingTransactions
+      return pendingTransactions
         .concat(
           mergeAndSort(latestHistoryPage?.entries ?? [], restEntries).filter(
             entry => !entry.txId || !pendingTxIds.has(entry.txId)
           )
         )
         .map(entry => labelHistoryEntry(bridgeConfig, entry));
-      return hideFaucet ? labelled.filter(entry => !isFaucetActivityEntry(entry, nativeFaucetId)) : labelled;
-    }, [bridgeConfig, latestHistoryPage, restEntries, pendingTransactions, hideFaucet, nativeFaucetId]);
+      // `nativeFaucetId` is a trigger only: the labelled entries are new objects once it changes.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [bridgeConfig, latestHistoryPage, restEntries, pendingTransactions, nativeFaucetId]);
 
     const loadMore = async (_page: number) => {
       if (!readingCompletedRef.current) return;

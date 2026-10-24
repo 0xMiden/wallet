@@ -17,7 +17,9 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
@@ -162,11 +164,21 @@ export const isReceiveEntry = (
 ): boolean =>
   entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
 
+/**
+ * Whether a note of the native asset that the native faucet sent is a faucet claim on this
+ * network. Mainnet has no faucet to request funds from: its native faucet is the USDCx minter, so
+ * such a note there is a bridge-in, shown as an ordinary receive. Every other network has a faucet
+ * drip to show. The caller gives the network of each call, because a Developer Settings save can
+ * change it without a reload.
+ */
+export const networkHasFaucetClaims = (network: MIDEN_NETWORK_NAME): boolean => network !== MIDEN_NETWORK_NAME.MAINNET;
+
 export const isFaucetRequest = (
   entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'> & {
     txType?: IHistoryEntry['txType'];
   }
 ): boolean => {
+  if (!networkHasFaucetClaims(getEffectiveNetworkName())) return false;
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
   return isReceiveEntry(entry) && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
@@ -533,12 +545,13 @@ export const TRANSACTION_COLORS = {
  * `nativeFaucetId` is a parameter rather than `getNativeAssetIdSync()` because those screens
  * take it from `useMidenFaucetId()`, which re-renders once discovery lands; `null` means "not
  * known yet", so the claim reads as an ordinary one until it is — the same contract the badge's
- * asset labels already follow.
+ * asset labels already follow. On Mainnet it is never a faucet mint (`networkHasFaucetClaims`).
  */
 export const isFaucetMintTransaction = (
   transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
   nativeFaucetId: string | null
 ): boolean =>
+  networkHasFaucetClaims(getEffectiveNetworkName()) &&
   transaction?.type === 'consume' &&
   nativeFaucetId !== null &&
   transaction.faucetId === nativeFaucetId &&
