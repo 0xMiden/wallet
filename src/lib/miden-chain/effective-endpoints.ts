@@ -31,6 +31,8 @@ export interface EndpointOverride {
   // without naming the chain's fee faucet. Optional so a stored 1.16 override still
   // loads; production and E2E must fill it.
   feeFaucetId?: string;
+  // Set only by the Developer Settings save; the Mainnet launch leaves such a choice alone.
+  developerChoice?: boolean;
 }
 
 // Build-time NTL env override (mirrors the precedence in constants.getNoteTransportUrl).
@@ -41,6 +43,10 @@ let overrideCache: EndpointOverride | null = null;
 
 export function getActiveOverride(): EndpointOverride | null {
   return overrideCache;
+}
+
+export function hasDeveloperNetworkChoice(): boolean {
+  return overrideCache?.developerChoice === true;
 }
 
 export function getEffectiveNetworkName(): MIDEN_NETWORK_NAME {
@@ -319,6 +325,19 @@ export async function loadEndpointOverrides(): Promise<void> {
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
   overrideCache = override;
+}
+
+/**
+ * Keep the stored override but drop its developer-choice marker, so the next onboarding follows the launch
+ * again. Reads storage, not the cache: a realm that never loaded it must still strip it.
+ */
+export async function forgetDeveloperNetworkChoice(): Promise<void> {
+  const storage = getStorageProvider();
+  const raw = (await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]))[ENDPOINT_OVERRIDE_STORAGE_KEY];
+  if (!isEndpointOverride(raw) || !raw.developerChoice) return;
+  const { developerChoice: _marker, ...rest } = raw;
+  await storage.set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: rest });
+  overrideCache = rest;
 }
 
 /**

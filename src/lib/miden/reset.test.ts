@@ -33,8 +33,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));
 
+const mockForgetDeveloperNetworkChoice = jest.fn<Promise<void>, []>(async () => {});
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
+  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides',
+  forgetDeveloperNetworkChoice: () => mockForgetDeveloperNetworkChoice()
 }));
 
 const mockBrowserStorageGet = jest.fn();
@@ -121,6 +123,7 @@ beforeEach(() => {
     mockTransactionsClear,
     mockSpendingLimitsClear,
     mockBrowserStorageRemove,
+    mockForgetDeveloperNetworkChoice,
     _g.__resetTest.prefStub.remove
   ]) {
     step.mockReset().mockResolvedValue(undefined);
@@ -367,6 +370,41 @@ describe('resetStorageDestructive', () => {
     expect(mockBrowserStorageSet).not.toHaveBeenCalled();
   });
 
+  it('strips the developer marker before the key-value clear and the database delete', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+
+    await resetStorageDestructive();
+
+    expect(mockForgetDeveloperNetworkChoice).toHaveBeenCalledTimes(1);
+    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockBrowserStorageRemove.mock.invocationCallOrder[0]!
+    );
+    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('does not wipe when stripping the developer marker rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    const stripError = new Error('marker write failed');
+    mockForgetDeveloperNetworkChoice.mockRejectedValueOnce(stripError);
+    jest.mocked(resetNativeAssetCache).mockClear();
+
+    await expect(resetStorageDestructive()).rejects.toBe(stripError);
+
+    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
+    expect(jest.mocked(resetNativeAssetCache)).not.toHaveBeenCalled();
+  });
+
+  it('leaves the developer network choice alone when the override goes with the wipe', async () => {
+    await resetStorageDestructive({ keepEndpointOverride: false });
+
+    expect(mockForgetDeveloperNetworkChoice).not.toHaveBeenCalled();
+  });
+
   // The key-value store holds the vault, so clearing it first leaves no wallet to unlock after a
   // later step rejects.
   it('clears the key-value store before it deletes the database', async () => {
@@ -399,6 +437,17 @@ describe('resetStorageDestructive', () => {
 
     expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+    jest.mocked(resetNativeAssetCache).mockClear();
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockForgetDeveloperNetworkChoice).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(resetNativeAssetCache)).not.toHaveBeenCalled();
   });
 
   it('still clears the spending limits and rethrows the delete error when the cleanup steps reject', async () => {

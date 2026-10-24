@@ -14,6 +14,7 @@ let mockRequired = true;
 let mockStatus = WalletStatus.Idle;
 let mockExtension = true;
 let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+let mockDeveloperChoice = false;
 const mockApply = jest.fn<Promise<void>, [EndpointOverride]>(async () => {});
 const mockRequest = jest.fn(async () => {});
 const mockResetClient = jest.fn(async () => {});
@@ -35,6 +36,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({ resetMidenClient: () => mockRes
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: () => mockNetwork,
+  hasDeveloperNetworkChoice: () => mockDeveloperChoice,
   applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
 }));
 
@@ -77,6 +79,7 @@ beforeEach(() => {
   mockStatus = WalletStatus.Idle;
   mockExtension = true;
   mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockDeveloperChoice = false;
   mockApply.mockReset().mockResolvedValue(undefined);
   mockRequest.mockReset().mockResolvedValue(undefined);
 });
@@ -318,4 +321,48 @@ it('keeps a stored custom mainnet override through a Welcome mount', async () =>
   await screen.findByTestId('flow');
   expect(mockApply).not.toHaveBeenCalled();
   expect(mockRequest).not.toHaveBeenCalled();
+});
+
+it('keeps general Testnet onboarding after launch when Developer Settings chose the network', async () => {
+  mockDeveloperChoice = true;
+  render(page());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.getByTestId('flow')).toHaveTextContent('false');
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(mockRequest).not.toHaveBeenCalled();
+});
+
+it('still prepares mainnet on the seven-tap unlock under a Developer Settings choice', async () => {
+  mockDeveloperChoice = true;
+  const onSubmit = jest.fn();
+  render(
+    <OnboardingNetwork>
+      {(inviteOnly, onUnlockInviteOnly) => (
+        <WelcomeScreen inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} onSubmit={onSubmit} />
+      )}
+    </OnboardingNetwork>
+  );
+  const logo = screen.getByTestId('onboarding-bread-logo');
+  for (let tap = 0; tap < 7; tap++) fireEvent.click(logo);
+  fireEvent.click(await screen.findByRole('button', { name: 'iHaveACode' }));
+  expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE);
+  expect(onSubmit).toHaveBeenCalledWith('mainnet-access');
+});
+
+// Welcome mounts afresh after a Developer Settings save, which is what makes this choice reach the page.
+it('leaves a fresh page on the saved network after an unmarked page prepared mainnet', async () => {
+  const first = render(page());
+  await waitFor(() => expect(screen.getByTestId('flow')).toHaveTextContent('true'));
+  expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE);
+  first.unmount();
+
+  mockDeveloperChoice = true;
+  mockApply.mockClear();
+  render(page());
+  await act(async () => {});
+
+  expect(screen.getByTestId('flow')).toHaveTextContent('false');
+  expect(mockApply).not.toHaveBeenCalled();
 });
