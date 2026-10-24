@@ -346,6 +346,13 @@ jobs:
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
       AUTH_TAB_FIREFOX_URL: https://ftp.mozilla.org/pub/fenix/releases/158.0.2/android/fenix-158.0.2-android-x86_64/fenix-158.0.2.multi.android-x86_64.apk
       AUTH_TAB_FIREFOX_SHA256: 75273e0088f22d3cde1a298f694e91d5ddb096b040487569f534636dcc3ac2b3
+      # No emulator image ships an Auth Tab Chrome that runs here: Android 36 bundles Chrome 133, and every Android 37
+      # image aborts surfaceflinger in a loop on GitHub's runners (hasReadColorBufferDma). Chromium from a pinned
+      # x86_64 snapshot is the Auth Tab provider instead; its APK is signed with Chromium's public debug key, so the
+      # SHA-256 pin is the only trust anchor.
+      AUTH_TAB_CHROMIUM_URL: https://storage.googleapis.com/chromium-browser-snapshots/AndroidDesktop_x64/1726326/chrome-android-desktop.zip
+      AUTH_TAB_CHROMIUM_SHA256: c3abec16d5daaabe4583d5792f000043694595f31d30c1efad39e348b5f98a08
+      AUTH_TAB_PROVIDER: org.chromium.chrome
       ANDROID_SERIAL: emulator-5554
     steps:
       - uses: actions/checkout@v4
@@ -369,21 +376,24 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         with:
-          # Older SDK tools write a dotted API level's AVD wrongly; on the Android 37 image such an AVD aborts
-          # surfaceflinger on colour buffer reads (hasReadColorBufferDma) and restarts system_server every ~20 s.
-          cmdline-tools-version: '15859902'
           packages: platform-tools
 
       - name: Install SDK packages
         run: |
           sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-36" "system-images;android-37.0;google_apis_playstore;x86_64"
-          echo "sdkmanager $(sdkmanager --version) avdmanager $(command -v avdmanager)"
+            "platforms;android-36" "system-images;android-36;google_apis_playstore;x86_64"
 
       - name: Download pinned Firefox provider
         run: |
           curl --fail --location --retry 3 "$AUTH_TAB_FIREFOX_URL" --output "$RUNNER_TEMP/firefox.apk"
           echo "$AUTH_TAB_FIREFOX_SHA256  $RUNNER_TEMP/firefox.apk" | sha256sum --check
+
+      - name: Download pinned Chromium provider
+        run: |
+          curl --fail --location --retry 3 "$AUTH_TAB_CHROMIUM_URL" --output "$RUNNER_TEMP/chromium.zip"
+          unzip -q -j "$RUNNER_TEMP/chromium.zip" 'chrome-android-desktop/apks/ChromePublic.apk' -d "$RUNNER_TEMP"
+          rm "$RUNNER_TEMP/chromium.zip"
+          echo "$AUTH_TAB_CHROMIUM_SHA256  $RUNNER_TEMP/ChromePublic.apk" | sha256sum --check
 
       - name: Inject linked web-sdk PR
         id: inject-web-sdk
@@ -446,13 +456,11 @@ jobs:
         timeout-minutes: 80
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          # Android 37.0 is the first Play image whose Chrome (145) supports Auth Tab.
           api-level: 36
-          system-image-api-level: '37.0'
           target: google_apis_playstore
           arch: x86_64
           profile: pixel_6
-          avd-name: Pixel_API_37_AuthTab
+          avd-name: Pixel_API_36_AuthTab
           force-avd-creation: true
           emulator-boot-timeout: 600
           cores: 4
@@ -472,9 +480,10 @@ jobs:
           {
             echo "source_sha=$GITHUB_SHA"
             echo "emulator_step_outcome=${{ steps.auth-tab-emulator.outcome }}"
-            echo 'emulator_image=android-37.0;google_apis_playstore;x86_64'
-            echo 'emulator_avd=Pixel_API_37_AuthTab'
-            sdkmanager --list_installed 2>/dev/null | grep -F 'system-images;android-37.0;google_apis_playstore;x86_64' || echo 'emulator_image_revision=unread'
+            echo 'emulator_image=android-36;google_apis_playstore;x86_64'
+            echo 'emulator_avd=Pixel_API_36_AuthTab'
+            sdkmanager --list_installed 2>/dev/null | grep -F 'system-images;android-36;google_apis_playstore;x86_64' || echo 'emulator_image_revision=unread'
+            echo "auth_tab_provider=$AUTH_TAB_PROVIDER chromium_sha256=$AUTH_TAB_CHROMIUM_SHA256"
             echo 'firefox_package=org.mozilla.firefox version=158.0.2 authTabSupported=false'
             if [[ -f test-results-auth-tab/results.json ]]; then
               if ! node <<'NODE'

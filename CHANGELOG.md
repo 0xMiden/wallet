@@ -4,7 +4,7 @@
 
 ### Changes
 
-- [CHANGE][ci] Android Auth Tab acceptance runs on the Android 37.0 Play image, whose Chrome 145 supports Auth Tab, and refuses a Chrome older than 137; APKs install through a retried adb install and the instrumentation runs through am instrument (#1814).
+- [CHANGE][ci] Android Auth Tab acceptance runs against a pinned Chromium 158 (SHA-256 checked) as the Auth Tab provider on the Android 36 Play image, refuses a provider older than 137, installs every APK through a retried adb install and runs the instrumentation through am instrument (#1814).
 - [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
 - [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
 ### Fixes

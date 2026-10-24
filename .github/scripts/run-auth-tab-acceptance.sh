@@ -11,7 +11,7 @@ write_acceptance_evidence() {
     echo "source_sha=${GITHUB_SHA:-local}"
     echo "ca_subject=${AUTH_TAB_CA_SUBJECT:-missing}"
     echo "acceptance_exit_code=$acceptance_status"
-    cat "$results_dir/chrome-version.txt" 2>/dev/null || echo 'chrome_version=unread'
+    cat "$results_dir/provider-version.txt" 2>/dev/null || echo 'provider_version=unread'
     echo "emulator_fingerprint=$(cat "$results_dir/emulator-fingerprint.txt" 2>/dev/null || echo unread)"
     if [[ -f "$results_dir/results.json" ]]; then
       node -e "const r=require('./$results_dir/results.json'); \
@@ -103,15 +103,18 @@ adb shell locksettings set-pin "$device_pin" >/dev/null
 adb shell settings put global verifier_verify_adb_installs 0
 adb shell settings put global package_verifier_enable 0
 adb shell getprop ro.build.fingerprint > "$results_dir/emulator-fingerprint.txt"
-# Auth Tab needs Chrome 137 or later; an older preinstalled Chrome would only exercise the Custom Tab fallback.
-adb shell dumpsys package com.android.chrome > "$results_dir/chrome-package.txt"
-chrome_version=$(grep -m1 -o 'versionName=[0-9.]*' "$results_dir/chrome-package.txt" | cut -d= -f2)
-echo "chrome_version=${chrome_version:-missing}" > "$results_dir/chrome-version.txt"
-if [[ -z "$chrome_version" || "${chrome_version%%.*}" -lt 137 ]]; then
-  echo "Chrome ${chrome_version:-missing} on this image predates Auth Tab (137)" >&2
+install_apk "$RUNNER_TEMP/firefox.apk"
+install_apk "$RUNNER_TEMP/ChromePublic.apk"
+# Chromium reads this file on its debug-signed builds; without it the first-run screens cover the Auth Tab.
+adb shell "echo '_ --disable-fre --no-default-browser-check --no-first-run' > /data/local/tmp/chrome-command-line"
+# Auth Tab needs Chromium 137 or later; an older provider would only exercise the Custom Tab fallback.
+adb shell dumpsys package "$AUTH_TAB_PROVIDER" > "$results_dir/provider-package.txt"
+provider_version=$(grep -m1 -o 'versionName=[0-9.]*' "$results_dir/provider-package.txt" | cut -d= -f2)
+echo "provider_version=$AUTH_TAB_PROVIDER ${provider_version:-missing}" > "$results_dir/provider-version.txt"
+if [[ -z "$provider_version" || "${provider_version%%.*}" -lt 137 ]]; then
+  echo "$AUTH_TAB_PROVIDER ${provider_version:-missing} predates Auth Tab (137)" >&2
   exit 1
 fi
-install_apk "$RUNNER_TEMP/firefox.apk"
 install_apk android/app/build/outputs/apk/debug/app-debug.apk
 install_apk android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell dumpsys package org.mozilla.firefox > "$results_dir/firefox-package.txt"
@@ -126,17 +129,17 @@ run_instrumentation_test com.miden.wallet.AuthTabCertificateSetupTest certificat
 grep -F "fixtureCaInstalled=true subject=$AUTH_TAB_CA_SUBJECT" "$results_dir/certificate-setup.log"
 
 adb shell cmd role clear-role-holders --user 0 android.app.role.BROWSER
-adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER com.android.chrome
-run_instrumentation_test com.miden.wallet.AuthTabProviderAcceptanceTest chrome-capability.log \
-  expectedProvider com.android.chrome
-grep -F 'selectedProvider=com.android.chrome' "$results_dir/chrome-capability.log"
-grep -F 'provider=com.android.chrome ' "$results_dir/chrome-capability.log" | grep -F 'authTabSupported=true'
-grep -F 'provider=org.mozilla.firefox ' "$results_dir/chrome-capability.log" | grep -F 'authTabSupported=false'
+adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "$AUTH_TAB_PROVIDER"
+run_instrumentation_test com.miden.wallet.AuthTabProviderAcceptanceTest chromium-capability.log \
+  expectedProvider "$AUTH_TAB_PROVIDER" authTabProvider "$AUTH_TAB_PROVIDER"
+grep -F "selectedProvider=$AUTH_TAB_PROVIDER" "$results_dir/chromium-capability.log"
+grep -F "provider=$AUTH_TAB_PROVIDER " "$results_dir/chromium-capability.log" | grep -F 'authTabSupported=true'
+grep -F 'provider=org.mozilla.firefox ' "$results_dir/chromium-capability.log" | grep -F 'authTabSupported=false'
 
 adb shell cmd role clear-role-holders --user 0 android.app.role.BROWSER
 adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER org.mozilla.firefox
 run_instrumentation_test com.miden.wallet.AuthTabProviderAcceptanceTest firefox-capability.log \
-  expectedProvider org.mozilla.firefox
+  expectedProvider org.mozilla.firefox authTabProvider "$AUTH_TAB_PROVIDER"
 grep -F 'selectedProvider=org.mozilla.firefox' "$results_dir/firefox-capability.log"
 grep -F 'provider=org.mozilla.firefox ' "$results_dir/firefox-capability.log" | grep -F 'authTabSupported=false'
 

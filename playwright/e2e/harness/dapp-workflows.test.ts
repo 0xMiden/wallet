@@ -117,14 +117,17 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     ];
     expect(images(android)).toEqual(['system-images;android-37.0;google_apis;x86_64']);
     expect(images(browserAndroid)).toEqual(['system-images;android-34;default;x86_64']);
-    expect(images(authTab)).toEqual(['system-images;android-37.0;google_apis_playstore;x86_64']);
-    expect(authTab).toContain("system-image-api-level: '37.0'");
-    expect(authTab).toContain("cmdline-tools-version: '15859902'");
+    expect(images(authTab)).toEqual(['system-images;android-36;google_apis_playstore;x86_64']);
+    // Every Android 37 image aborts surfaceflinger in a loop on these runners, so a pinned Chromium is the provider.
+    expect(authTab).not.toContain('system-image-api-level');
+    expect(authTab).toContain('AUTH_TAB_PROVIDER: org.chromium.chrome');
+    expect(authTab).toMatch(/AUTH_TAB_CHROMIUM_SHA256: [0-9a-f]{64}\n/);
+    expect(authTab).toContain('sha256sum --check');
     const authTabScript = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
     // Gradle's connected task commits installs without retrying, which the Android 37 image intermittently drops.
     expect(authTabScript).not.toContain('connectedDebugAndroidTest');
     expect(authTabScript).toContain("grep -qxF 'OK (1 test)'");
-    expect(authTabScript).toContain('"${chrome_version%%.*}" -lt 137');
+    expect(authTabScript).toContain('"${provider_version%%.*}" -lt 137');
     expect(authTab).toContain("if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'");
     expect(authTab).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 90 \|\| 60 \}\}/);
     expect(android).toContain('E2E_ANDROID_BASE_AVD: Pixel_API_37');
