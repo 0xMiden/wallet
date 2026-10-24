@@ -82,7 +82,7 @@ public class AuthTabCertificateSetupTest {
 
     // A user-CA install on a PIN-locked device asks for the screen lock before it continues.
     // The runner sets the device PIN just before this test, so the screen can already be on the PIN keyguard.
-    private static void unlockWithPin(UiDevice device, String devicePin) throws Exception {
+    static void unlockWithPin(UiDevice device, String devicePin) throws Exception {
         device.wakeUp();
         KeyguardManager keyguard = (KeyguardManager) InstrumentationRegistry.getInstrumentation()
             .getTargetContext().getSystemService(Context.KEYGUARD_SERVICE);
@@ -129,7 +129,7 @@ public class AuthTabCertificateSetupTest {
     }
 
     // Settings redraws its lists after navigating, so a found row can go stale before the click lands.
-    private static void clickText(UiDevice device, String text) {
+    static void clickText(UiDevice device, String text) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (true) {
             dismissPlayServicesPrompt(device);
@@ -176,11 +176,11 @@ public class AuthTabCertificateSetupTest {
     }
 
     // Settings renders some buttons in capitals ("INSTALL ANYWAY"), so labels match without case.
-    private static BySelector label(String text) {
+    static BySelector label(String text) {
         return By.text(Pattern.compile("(?i)" + Pattern.quote(text)));
     }
 
-    private static String visibleLabels(UiDevice device) {
+    static String visibleLabels(UiDevice device) {
         StringBuilder labels = new StringBuilder();
         labels.append("pkg=").append(device.getCurrentPackageName()).append(' ');
         for (UiObject2 node : device.findObjects(By.text(Pattern.compile("(?s).+")))) {
@@ -232,7 +232,7 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "Downloads");
     }
 
-    private static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
+    static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         while (System.nanoTime() < deadline) {
             UiObject2 element = device.findObject(label(text));

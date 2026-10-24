@@ -150,18 +150,36 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(emulator).toContain("const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';");
   });
 
-  it('stops the Auth Tab Gradle daemon after the Firefox probe and before Playwright', () => {
+  it('stops the Auth Tab Gradle daemon before the emulator boots and readies Firefox before Playwright', () => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
     const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
     const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
-    const firefox = acceptance.indexOf('expectedProvider=org.mozilla.firefox');
-    const stop = acceptance.indexOf('./gradlew --stop');
+    const build = authTab.indexOf('./gradlew :app:assembleDebugAndroidTest && ./gradlew --stop');
+    const runner = authTab.indexOf('name: Run Auth Tab acceptance on Google Play emulator');
+    const certificate = acceptance.indexOf('run_instrumentation_test com.miden.wallet.AuthTabCertificateSetupTest');
+    const firefoxSetup = acceptance.indexOf('run_instrumentation_test com.miden.wallet.FirefoxCustomTabSetupTest');
+    const firefoxProbe = acceptance.indexOf('expectedProvider org.mozilla.firefox');
     const playwright = acceptance.indexOf('yarn playwright test --config playwright.android.auth-tab.config.ts');
 
     expect(authTab).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
-    expect(firefox).toBeGreaterThan(-1);
-    expect(stop).toBeGreaterThan(firefox);
-    expect(stop).toBeLessThan(playwright);
+    expect(build).toBeGreaterThan(-1);
+    expect(build).toBeLessThan(runner);
+    expect(acceptance).not.toContain('gradlew');
+    // Firefox trusts the fixture CA only once its setting is on, so the setting follows the CA install.
+    expect(certificate).toBeGreaterThan(-1);
+    expect(firefoxSetup).toBeGreaterThan(certificate);
+    expect(firefoxProbe).toBeGreaterThan(firefoxSetup);
+    expect(playwright).toBeGreaterThan(firefoxProbe);
+    expect(acceptance).toContain(
+      "grep -F 'firefoxThirdPartyCaEnabled=true firefoxOpenLinksInApps=always' \"$results_dir/firefox-setup.log\""
+    );
+    const firefoxTest = readFileSync(
+      resolve(__dirname, '../../../android/app/src/androidTest/java/com/miden/wallet/FirefoxCustomTabSetupTest.java'),
+      'utf8'
+    );
+    expect(firefoxTest).toContain('Uri.parse("fenix://settings")');
+    expect(firefoxTest).toContain('By.res(FIREFOX, "wordmark")');
+    expect(firefoxTest).toContain('"Use third party CA certificates"');
   });
 
   it('runs the full Auth Tab acceptance inside the bounded shared Google Play emulator runner', () => {
@@ -187,12 +205,16 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     const pinBinding = acceptance.indexOf('device_pin=1234');
     const pinSet = acceptance.indexOf('adb shell locksettings set-pin "$device_pin"');
     const certificateSetup = acceptance.indexOf('AuthTabCertificateSetupTest');
-    const pinArgument = acceptance.indexOf('-Pandroid.testInstrumentationRunnerArguments.devicePin=$device_pin');
+    const pinArgument = acceptance.indexOf('caSubject "$AUTH_TAB_CA_SUBJECT" devicePin "$device_pin"');
+    const firefoxPinArgument = acceptance.indexOf(
+      'FirefoxCustomTabSetupTest firefox-setup.log devicePin "$device_pin"'
+    );
     expect(pinBinding).toBeGreaterThan(-1);
     expect(pinSet).toBeGreaterThan(pinBinding);
-    expect(acceptance.split('devicePin=$device_pin')).toHaveLength(2);
+    expect(acceptance.split('devicePin "$device_pin"')).toHaveLength(3);
     expect(pinArgument).toBeGreaterThan(certificateSetup);
-    expect(pinArgument).toBeLessThan(acceptance.indexOf('expectedProvider=com.android.chrome'));
+    expect(firefoxPinArgument).toBeGreaterThan(pinArgument);
+    expect(firefoxPinArgument).toBeLessThan(acceptance.indexOf('expectedProvider "$AUTH_TAB_PROVIDER"'));
     const certificateTest = readFileSync(
       resolve(__dirname, '../../../android/app/src/androidTest/java/com/miden/wallet/AuthTabCertificateSetupTest.java'),
       'utf8'

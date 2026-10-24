@@ -159,6 +159,9 @@ adb shell content call --uri content://media --method scan_volume --arg external
 run_instrumentation_test com.miden.wallet.AuthTabCertificateSetupTest certificate-setup.log \
   caSubject "$AUTH_TAB_CA_SUBJECT" devicePin "$device_pin"
 grep -F "fixtureCaInstalled=true subject=$AUTH_TAB_CA_SUBJECT" "$results_dir/certificate-setup.log"
+# Firefox ignores the user CA store and asks before opening the wallet's callback until two of its settings change.
+run_instrumentation_test com.miden.wallet.FirefoxCustomTabSetupTest firefox-setup.log devicePin "$device_pin"
+grep -F 'firefoxThirdPartyCaEnabled=true firefoxOpenLinksInApps=always' "$results_dir/firefox-setup.log"
 
 adb shell cmd role clear-role-holders --user 0 android.app.role.BROWSER
 adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "$AUTH_TAB_PROVIDER"
