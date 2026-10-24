@@ -2796,16 +2796,30 @@ final class BreadMorphPresentationTests: XCTestCase {
         let (live, plugin) = try await revealedMorph()
         defer { live.dispose() }
         XCTAssertTrue(collapse(live, "c1"))
-        try await Task.sleep(nanoseconds: 30_000_000)
-        grab(live, by: 0.31, release: .zero)
-        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded", "projected travel past 0.3 commits the dragged end")
-        XCTAssertEqual(live.presentation.state.motion, .expanding)
-        grab(live, by: -0.1, release: speed(live, -500))
-        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed", "a 500 pt/s flick commits the flicked end")
-        XCTAssertEqual(live.presentation.state.motion, .collapsing)
-        grab(live, by: 0.1, release: .zero)
-        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed", "a short slow drag keeps the pre-grab target")
-        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, false)
+        let vector = path(live)
+        let length = Double(hypot(vector.x, vector.y))
+        XCTAssertGreaterThan(length, 1)
+        func release(by fraction: Double, at pointsPerSecond: Double, ends target: String, _ message: String) {
+            grab(live, by: CGFloat(fraction), release: speed(live, CGFloat(pointsPerSecond)))
+            XCTAssertEqual(plugin.morphs.last?["target"] as? String, target, message)
+            XCTAssertEqual(live.presentation.state.motion, target == "expanded" ? .expanding : .collapsing, message)
+            XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, false, message)
+        }
+        func flick(at pointsPerSecond: Double, ends target: String, _ message: String) {
+            let fraction = -0.3 * min(8, max(-8, pointsPerSecond / length))
+            XCTAssertLessThan(abs(fraction + 0.3 * min(8, max(-8, pointsPerSecond / length))), 0.3,
+                              "the 450 pt/s arm is reached only when travel stays under 0.3")
+            release(by: fraction, at: pointsPerSecond, ends: target, message)
+        }
+        release(by: 0.31, at: 0, ends: "expanded", "travel of 0.31 commits the dragged end")
+        release(by: -0.29, at: 0, ends: "expanded", "travel of -0.29 keeps the pre-grab target")
+        release(by: -0.31, at: 0, ends: "collapsed", "travel of -0.31 commits the dragged end")
+        release(by: 0.29, at: 0, ends: "collapsed", "travel of 0.29 keeps the pre-grab target")
+        release(by: 0.31, at: 0, ends: "expanded", "travel of 0.31 commits the dragged end")
+        flick(at: -445, ends: "expanded", "445 pt/s keeps the pre-grab target")
+        flick(at: -455, ends: "collapsed", "455 pt/s commits against the pre-grab target")
+        flick(at: 445, ends: "collapsed", "445 pt/s keeps the pre-grab target")
+        flick(at: 455, ends: "expanded", "455 pt/s commits against the pre-grab target")
         let settled = try await eventually { plugin.phases("c1").last == "settled" }
         XCTAssertTrue(settled)
     }
