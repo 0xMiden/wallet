@@ -26,6 +26,7 @@ enum BreadMorphTarget: String { case collapsed, expanded }
 enum BreadMorphPhase: String { case started, retargeted, settled, cancelled }
 
 final class BreadPresentationController: NSObject {
+    static var snapshotHook: ((WKSnapshotConfiguration) -> Void)?
     let state: BreadPresentationState
     let proxy = UIImageView()
     private(set) var animator: BreadMorphAnimator?
@@ -177,6 +178,8 @@ final class BreadPresentationController: NSObject {
 
     func slotFrame() -> CGRect? { instance?.containerWindow.flatMap { slotFrame(for: $0) } }
 
+    func prepareMorph() {}
+
     func dropProxy() {
         proxy.image = nil
         proxyFresh = false
@@ -287,6 +290,7 @@ final class BreadPresentationController: NSObject {
         proxyFresh = false
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = false
+        Self.snapshotHook?(configuration)
         webView.takeSnapshot(with: configuration) { [weak self] image, _ in
             guard let self, self.proxyCapture == serial else { return }
             self.capturing = false
@@ -773,6 +777,7 @@ final class BreadPresentationController: NSObject {
                 }
                 let configuration = WKSnapshotConfiguration()
                 configuration.afterScreenUpdates = true
+                Self.snapshotHook?(configuration)
                 webView.takeSnapshot(with: configuration) { [weak self] image, error in
                     guard let self, self.state.generation == generation, self.layoutRevision == revision,
                           self.state.phase == .preparing else { return }
@@ -856,7 +861,10 @@ final class BreadPresentationController: NSObject {
         owner?.reload()
     }
 
-    @objc private func capsuleTouchDown() { BreadFrameRateBoost.shared.hold() }
+    @objc private func capsuleTouchDown() {
+        BreadFrameRateBoost.shared.hold()
+        prepareMorph()
+    }
 
     @objc private func capsuleTouchEnded() { BreadFrameRateBoost.shared.release() }
 

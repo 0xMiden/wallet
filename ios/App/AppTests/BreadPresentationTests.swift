@@ -2065,6 +2065,12 @@ final class BreadMorphAnimatorTests: XCTestCase {
     }
 }
 
+private final class SnapshotLog {
+    private(set) var configurations = [WKSnapshotConfiguration]()
+    func record(_ configuration: WKSnapshotConfiguration) { configurations.append(configuration) }
+    func reset() { configurations.removeAll() }
+}
+
 @MainActor
 final class BreadMorphPresentationTests: XCTestCase {
     private typealias Motion = BreadPresentationState.Motion
@@ -2708,6 +2714,63 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(live.presentation.state.motion, Motion.none)
     }
 
+    private func prepared(_ live: LivePresentation) async throws -> Bool {
+        try await eventually { live.presentation.state.proxyUsable && live.presentation.proxy.image != nil }
+    }
+
+    func testBreadButtonTouchDownCapturesTheProxySoItsCollapseTakesNoSnapshot() async throws {
+        let (live, plugin) = try await revealedMorph(display: "fullscreen")
+        let log = SnapshotLog()
+        BreadPresentationController.snapshotHook = { log.record($0) }
+        defer { live.dispose(); BreadPresentationController.snapshotHook = nil; BreadFrameRateBoost.shared.release() }
+        let button = try capsule(live)
+        button.sendActions(for: .touchDown)
+        let ready = try await prepared(live)
+        XCTAssertTrue(ready)
+        let image = live.presentation.proxy.image
+        log.reset()
+        button.sendActions(for: .touchUpInside)
+        let morphId = try XCTUnwrap(plugin.minimizations.last?["morphId"] as? String)
+        let settled = try await eventually { plugin.phases(morphId).contains("settled") }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(log.configurations.count, 0)
+        XCTAssertTrue(live.presentation.proxy.image === image)
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+    }
+
+    func testATouchDownProxyOlderThanThePrepareWindowIsCapturedAgainAtTheCollapse() async throws {
+        let (live, plugin) = try await revealedMorph()
+        let log = SnapshotLog()
+        BreadPresentationController.snapshotHook = { log.record($0) }
+        defer { live.dispose(); BreadPresentationController.snapshotHook = nil }
+        live.presentation.prepareMorph()
+        let ready = try await prepared(live)
+        XCTAssertTrue(ready)
+        try await Task.sleep(nanoseconds: UInt64((BreadFrameRateBoost.duration + 0.1) * 1_000_000_000))
+        log.reset()
+        XCTAssertTrue(collapse(live, "c1"))
+        XCTAssertEqual(log.configurations.map(\.afterScreenUpdates), [false])
+        let settled = try await eventually { plugin.phases("c1").contains("settled") }
+        XCTAssertTrue(settled)
+    }
+
+    func testThePaintFenceSnapshotsOnePointInsteadOfThePage() async throws {
+        let (live, _) = try await parkedWithProxy()
+        let log = SnapshotLog()
+        BreadPresentationController.snapshotHook = { log.record($0) }
+        defer { live.dispose(); BreadPresentationController.snapshotHook = nil }
+        XCTAssertTrue(expand(live, "e1"))
+        let fenced = try await eventually { log.configurations.contains { $0.afterScreenUpdates } }
+        XCTAssertTrue(fenced)
+        for configuration in log.configurations where configuration.afterScreenUpdates {
+            XCTAssertEqual(configuration.rect, CGRect(x: 0, y: 0, width: 1, height: 1))
+            XCTAssertEqual(configuration.snapshotWidth?.doubleValue, 1)
+        }
+        let revealed = try await eventually { live.presentation.proxy.isHidden && !live.web.accessibilityElementsHidden }
+        XCTAssertTrue(revealed)
+    }
+
     func testBreadButtonTouchDownBoostsTheFrameRateUntilTheCollapseTakesItOver() async throws {
         let (live, _) = try await revealedMorph(display: "fullscreen")
         let boost = BreadFrameRateBoost.shared
@@ -2890,6 +2953,23 @@ final class BreadMorphPluginTests: XCTestCase {
         XCTAssertTrue(live.cover.isHidden)
         let settled = try await eventually { plugin.phases("x1").last == "settled" }
         XCTAssertTrue(settled)
+    }
+
+    func testPrepareMorphCapturesTheShownPageSoTheCollapseAndItsSnapshotTakeNone() async throws {
+        let (live, _) = try await revealed()
+        let log = SnapshotLog()
+        BreadPresentationController.snapshotHook = { log.record($0) }
+        defer { live.dispose(); BreadPresentationController.snapshotHook = nil; BreadFrameRateBoost.shared.release() }
+        try await call("prepareMorph", ["durationMs": 600])
+        let ready = try await eventually { live.presentation.state.proxyUsable && live.presentation.proxy.image != nil }
+        XCTAssertTrue(ready)
+        log.reset()
+        let accepted = try await morph(["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c1"])
+        XCTAssertTrue(accepted)
+        var data: String?
+        try await call("snapshot", ["id": live.instance.id, "scale": 0.5, "quality": 0.7]) { data = $0?["data"] as? String }
+        XCTAssertEqual(data?.hasPrefix("data:image/jpeg;base64,"), true)
+        XCTAssertEqual(log.configurations.count, 0)
     }
 
     func testPrepareMorphHoldsTheFrameRateUntilAMorphTakesItOver() async throws {

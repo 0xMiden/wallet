@@ -1395,6 +1395,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let duration = min(2, max(0, Double(call.getInt("durationMs") ?? 600) / 1000))
         DispatchQueue.main.async {
             BreadFrameRateBoost.shared.hold(for: duration)
+            for id in WebViewRegistry.shared.allIds() {
+                WebViewRegistry.shared.get(id: id)?.controller.breadPresentation?.prepareMorph()
+            }
             call.resolve()
         }
     }
