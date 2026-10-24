@@ -2318,13 +2318,20 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(plugin.phases("c1").last, "settled")
         XCTAssertTrue(live.presentation.state.proxyUsable)
         XCTAssertTrue(expand(live, "e1"))
+        let proxy = live.presentation.proxy
+        func describe() -> String {
+            "usable=\(live.presentation.state.proxyUsable) foreground=\(live.presentation.state.foreground) " +
+                "image=\(String(describing: proxy.image?.size)) web=\(live.web.bounds.size) motion=\(live.presentation.state.motion) " +
+                "hidden=\(proxy.isHidden) alpha=\(proxy.alpha) cover=\(live.cover.isHidden) phase=\(live.presentation.state.phase)"
+        }
+        let started = describe()
         navigation.additionalSafeAreaInsets = UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
         navigation.view.setNeedsLayout()
         navigation.view.layoutIfNeeded()
         live.owner.view.layoutIfNeeded()
         XCTAssertEqual(live.presentation.state.phase, .preparing)
-        XCTAssertEqual(live.presentation.proxy.alpha, 1)
-        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertEqual(proxy.alpha, 1, "started: \(started) now: \(describe())")
+        XCTAssertFalse(proxy.isHidden, "started: \(started) now: \(describe())")
         XCTAssertTrue(live.web.accessibilityElementsHidden)
         navigation.additionalSafeAreaInsets = .zero
     }
@@ -2347,7 +2354,9 @@ final class BreadMorphPresentationTests: XCTestCase {
         let (live, plugin) = try await parkedWithProxy()
         defer { live.dispose() }
         XCTAssertTrue(expand(live, "e1"))
-        try await Task.sleep(nanoseconds: 100_000_000)
+        let spring = try XCTUnwrap(live.presentation.animator?.spring)
+        let past = try XCTUnwrap(spring.time(reaching: 0.7))
+        while CACurrentMediaTime() < past { try await Task.sleep(nanoseconds: 5_000_000) }
         let rect = CGRect(x: 0, y: 40, width: live.instance.rect.width, height: live.instance.rect.height - 40)
         live.instance.rect = rect
         live.presentation.updateSlot()
@@ -2446,7 +2455,10 @@ final class BreadMorphPresentationTests: XCTestCase {
         XCTAssertEqual(event["morphId"] as? String, "c1")
         XCTAssertEqual(event["target"] as? String, "expanded")
         XCTAssertEqual(event["tracking"] as? Bool, false)
-        XCTAssertEqual(event["progress"] as? Double ?? .nan, before, accuracy: 1e-3)
+        let retargeted = try XCTUnwrap(animator.spring)
+        XCTAssertEqual(event["progress"] as? Double ?? .nan, retargeted.from, accuracy: 1e-9)
+        XCTAssertEqual(retargeted.from, before, accuracy: 0.03)
+        XCTAssertLessThanOrEqual(retargeted.from, before)
         XCTAssertLessThan(velocity, 0)
         XCTAssertLessThan(event["velocity"] as? Double ?? 0, 0)
         XCTAssertEqual(animator.target, 1)
@@ -2671,7 +2683,8 @@ final class BreadMorphPluginTests: XCTestCase {
 
     private func call(_ method: String, _ options: [String: Any], onResolve: @escaping ([String: Any]?) -> Void = { _ in }) async throws {
         let resolved = expectation(description: method)
-        let call = try XCTUnwrap(CAPPluginCall(callbackId: method, methodName: method, options: options,
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: method, methodName: method,
+            options: JSTypes.coerceDictionaryToJSObject(options as [AnyHashable: Any]) ?? [:],
             success: { result, _ in onResolve(result?.data); resolved.fulfill() },
             error: { error in XCTFail(String(describing: error?.message)); resolved.fulfill() }))
         let plugin = InAppBrowserPlugin()
