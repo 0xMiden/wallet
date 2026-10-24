@@ -51,7 +51,7 @@ async function prepareWallet(
     return { ...defaults, depositAddress };
   });
   const document = fixture.configureMidenAsset(funded.faucetHex, funded.decimals);
-  await setEligibilityFixtureConfig(document as Parameters<typeof setEligibilityFixtureConfig>[0]);
+  await setEligibilityFixtureConfig(document);
   await forgetFixtureConfig(wallet.page, 'localnet');
   await wallet.page.reload({ waitUntil: 'domcontentloaded' });
   await wallet.navigateTo('/swap');
