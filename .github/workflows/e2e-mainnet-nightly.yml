@@ -291,6 +291,16 @@ jobs:
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
     steps:
+      # An empty key skips the spec and Playwright exits 0, so this job would read green having bridged nothing.
+      - name: Require the Ethereum key
+        run: |
+          key="${E2E_MAINNET_EVM_KEY#"${E2E_MAINNET_EVM_KEY%%[![:space:]]*}"}"
+          key="${key%"${key##*[![:space:]]}"}"
+          if [ -z "$key" ]; then
+            echo 'E2E_MAINNET_EVM_KEY is empty'
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}

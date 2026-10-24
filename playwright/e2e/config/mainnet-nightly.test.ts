@@ -79,6 +79,17 @@ describe('mainnet nightly workflow', () => {
     expect(agglayer).toContain('agglayer-night.md >> "$GITHUB_STEP_SUMMARY"');
   });
 
+  it('fails the AggLayer job when the Ethereum key is empty', () => {
+    const agglayer = jobText('mainnet-agglayer');
+    const guard = agglayer.indexOf('E2E_MAINNET_EVM_KEY is empty');
+    const playwright = agglayer.indexOf('yarn playwright test mainnet-agglayer-loop.spec.ts');
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(guard).toBeLessThan(playwright);
+    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@v4'));
+    expect(agglayer.slice(guard, playwright)).toContain('exit 1');
+    expect(jobText('mainnet-nightly')).not.toContain('E2E_MAINNET_EVM_KEY is empty');
+  });
+
   it('keeps the run one verdict: a failure in either job fails the run', () => {
     // A job runs after a failed one only by its own if:, and a failed job fails the run; continue-on-error would hide it.
     expect(jobText('mainnet-agglayer')).not.toContain('continue-on-error');
