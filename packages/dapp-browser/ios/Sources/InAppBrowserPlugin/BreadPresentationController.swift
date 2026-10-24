@@ -65,6 +65,7 @@ final class BreadPresentationController: NSObject {
     private var capturing = false
     private var snapshotWaiters: [(UIImage?) -> Void] = []
     private var preparedProxy: (generation: Int, layout: Int, at: CFTimeInterval)?
+    private var systemUIHeld: Bool?
     private var grab: (start: Double, target: Double, raw: Double)?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
@@ -92,6 +93,8 @@ final class BreadPresentationController: NSObject {
     deinit { timer?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 
     var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility && !moving }
+    // Status bar and home indicator keep what the host showed when a motion began and take their end state as it settles.
+    var hidesSystemUI: Bool { systemUIHeld ?? immersive }
     private var moving: Bool { state.motion != .none }
     private var heading: BreadMorphTarget { state.motion == .collapsing ? .collapsed : .expanded }
     private var proxyAvailable: Bool { state.proxyUsable && state.foreground && proxy.image != nil }
@@ -230,6 +233,7 @@ final class BreadPresentationController: NSObject {
               let window = instance?.containerWindow, !id.isEmpty else { return false }
         let wasVisible = state.effectiveVisibility
         let wasMoving = moving
+        let systemUI = hidesSystemUI
         if target == .expanded {
             guard state.requestVisibility(true, policyRevision: policyRevision, sequence: sequence) else { return false }
             guard state.surfaceVisibility else {
@@ -247,6 +251,7 @@ final class BreadPresentationController: NSObject {
         let landing = card.flatMap { fits($0, in: window.bounds.size) ? $0 : nil }
         let progressVelocity = previous != nil ? animator.velocity()
             : landing.map { BreadMorphGeometry.progressVelocity(velocity, card: $0.rect, slot: window.bounds) } ?? 0
+        if !wasMoving { systemUIHeld = systemUI }
         state.beginMotion(target == .expanded ? .expanding : .collapsing)
         morphSequence = sequence ?? state.acknowledgedVisibilitySequence
         CATransaction.begin()
@@ -344,6 +349,7 @@ final class BreadPresentationController: NSObject {
     }
 
     private func stopMorph() {
+        systemUIHeld = nil
         morphId = nil
         grab = nil
         crossfade?.cancel()
@@ -403,6 +409,7 @@ final class BreadPresentationController: NSObject {
 
     @discardableResult private func completeMotion(at end: BreadMorphTarget) -> Bool {
         guard let id = morphId else { return false }
+        systemUIHeld = nil
         morphId = nil
         grab = nil
         crossfade?.cancel()
@@ -671,16 +678,20 @@ final class BreadPresentationController: NSObject {
             instance?.morphContainer?.clipView.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
             window.isHidden = !state.surfaceVisibility
-            if immersive { window.makeKey() }
-            else if window.isKeyWindow { hostWindow?.makeKey() }
+            if systemUIHeld == nil {
+                if immersive { window.makeKey() }
+                else if window.isKeyWindow { hostWindow?.makeKey() }
+            }
         }
-        owner.setNeedsStatusBarAppearanceUpdate()
-        owner.setNeedsUpdateOfHomeIndicatorAutoHidden()
-        owner.navigationController?.setNeedsStatusBarAppearanceUpdate()
-        owner.navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
-        instance?.morphContainer?.setNeedsStatusBarAppearanceUpdate()
-        instance?.morphContainer?.setNeedsUpdateOfHomeIndicatorAutoHidden()
-        hostWindow?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
+        if systemUIHeld == nil {
+            owner.setNeedsStatusBarAppearanceUpdate()
+            owner.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            owner.navigationController?.setNeedsStatusBarAppearanceUpdate()
+            owner.navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            instance?.morphContainer?.setNeedsStatusBarAppearanceUpdate()
+            instance?.morphContainer?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            hostWindow?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
+        }
         if state.phase == .visible { reveal() } else { cancelReveal() }
         let failed = state.phase == .error
         errorLabel.isHidden = !failed

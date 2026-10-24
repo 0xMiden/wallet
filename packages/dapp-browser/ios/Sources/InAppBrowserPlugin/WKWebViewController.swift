@@ -136,8 +136,8 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     var breadAuth: BreadAuthController?
     private var breadNavigation: WKNavigation?
 
-    override open var prefersStatusBarHidden: Bool { breadPresentation?.immersive ?? super.prefersStatusBarHidden }
-    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.immersive ?? super.prefersHomeIndicatorAutoHidden }
+    override open var prefersStatusBarHidden: Bool { breadPresentation?.hidesSystemUI ?? super.prefersStatusBarHidden }
+    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.hidesSystemUI ?? super.prefersHomeIndicatorAutoHidden }
 
     open var hasDynamicTitle = false
     open var source: WKWebSource?
