@@ -36,6 +36,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 jest.mock('lib/animation', () => ({
+  installSheetKeyframes: () => {},
+  sheetMotionVars: {},
   springs: { standard: {} },
   useMotion: () => ({})
 }));
