@@ -197,6 +197,31 @@
       }
     }
   },
+  "usdcxPayoutFeeVaries": {
+    "message": "Deducted from the payout. Varies with network fees.",
+    "englishSource": "Deducted from the payout. Varies with network fees."
+  },
+  "usdcxPayoutDelayed": {
+    "message": "Payout delayed",
+    "englishSource": "Payout delayed"
+  },
+  "usdcxPayoutDelayedNotice": {
+    "message": "Circle has not paid this withdrawal yet. It is retried automatically; a fee above the service limit can delay it.",
+    "englishSource": "Circle has not paid this withdrawal yet. It is retried automatically; a fee above the service limit can delay it."
+  },
+  "usdcxPayoutReceived": {
+    "message": "Received",
+    "englishSource": "Received"
+  },
+  "usdcxPayoutAmount": {
+    "message": "$amount$ USDC",
+    "englishSource": "$amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "Fetching your transaction history and notes",
     "englishSource": "Fetching your transaction history and notes"

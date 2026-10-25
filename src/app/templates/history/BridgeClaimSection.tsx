@@ -1,6 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { formatUnits } from 'viem';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button } from 'components/ui/Button';
@@ -30,6 +31,8 @@ import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
@@ -61,6 +64,8 @@ const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
 interface BridgeClaimSectionProps {
   entry: IHistoryEntry;
   destinationTxHash?: string;
+  /** The row's sent amount in base units, which the payout's Circle fee is measured against. */
+  sentAmount?: bigint;
   /**
    * Whether the row came from a restored backup, read straight off the
    * transaction rather than off `entry`.
@@ -83,7 +88,12 @@ interface BridgeClaimSectionProps {
  * connected address matching the bridge destination. Epoch (Fast) auto-settles,
  * so it shows "no manual claim required" instead.
  */
-export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup, destinationTxHash }) => {
+export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
+  entry,
+  restoredFromBackup,
+  destinationTxHash,
+  sentAmount
+}) => {
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
@@ -93,6 +103,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const isEpoch = entry.bridgeProvider === 'epoch';
   const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
+  const payout = isUsdcx ? entry.usdcxBurn?.payout : undefined;
   const destinationChain = getChain(
     entry.bridgeAgglayerRoute?.chainId ?? entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID
   );
@@ -411,8 +422,18 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         </DetailRow>
         {isUsdcx && entry.usdcxBurn && (
           <>
-            {entry.usdcxBurn.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed && (
+            {isUsdcxPayoutConfirmed(entry.usdcxBurn) && (
               <DetailRow label={t('usdcxBurnTitle')}>{t('usdcxBurnConfirmed')}</DetailRow>
+            )}
+            {payout && (
+              <DetailRow label={t('usdcxPayoutReceived')}>
+                {t('usdcxPayoutAmount', { amount: formatUnits(BigInt(payout.value), USDCX_DECIMALS) })}
+              </DetailRow>
+            )}
+            {payout && sentAmount !== undefined && sentAmount > BigInt(payout.value) && (
+              <DetailRow label={t('usdcxCircleFee')}>
+                {t('usdcxPayoutAmount', { amount: formatUnits(sentAmount - BigInt(payout.value), USDCX_DECIMALS) })}
+              </DetailRow>
             )}
             <DetailRow label={t('usdcxBurnNoteId')}>
               <HashChip hash={entry.usdcxBurn.noteId} trimHash />
@@ -447,6 +468,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         )}
       </DetailSection>
       {isUsdcx && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
+      {isUsdcx && isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt) && (
+        <p className="mt-3 px-4 text-caption text-muted">{t('usdcxPayoutDelayedNotice')}</p>
+      )}
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&

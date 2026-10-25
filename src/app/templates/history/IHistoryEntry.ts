@@ -164,6 +164,8 @@ export interface IHistoryEntry {
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
+  /** When the row settled, in ms: the clock a burn confirmed before `confirmedAt` existed counts from. */
+  bridgeSettledAt?: number;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
   bridgeAgglayerRoute?: AgglayerRecoveryConfig;

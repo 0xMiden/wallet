@@ -16,7 +16,10 @@ jest.mock('lib/i18n', () => ({
 }));
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : `t:${key}`) })
+  useTranslation: () => ({
+    t: (key: string, options?: { amount?: string }) =>
+      key === 'insufficientFeeAsset' ? mockFeeCopy : options?.amount ? `t:${key}|${options.amount}` : `t:${key}`
+  })
 }));
 
 // Only ITransactionStatus (the enum) is used at runtime.
@@ -162,8 +165,14 @@ function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
  * only place the default is written, so a restored-row case has to opt in
  * explicitly rather than inherit a fixture's silence.
  */
-const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean }) =>
-  render(<BridgeClaimSection entry={props.entry} restoredFromBackup={props.restoredFromBackup ?? false} />);
+const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean; sentAmount?: bigint }) =>
+  render(
+    <BridgeClaimSection
+      entry={props.entry}
+      restoredFromBackup={props.restoredFromBackup ?? false}
+      sentAmount={props.sentAmount}
+    />
+  );
 
 const agglayer = (o: Partial<IHistoryEntry> = {}) =>
   entry({
@@ -517,6 +526,82 @@ describe('BridgeClaimSection', () => {
       });
       expect(screen.getByText('t:confirmed')).toBeInTheDocument();
       expect(screen.getByText('t:usdcxBurnTitlet:usdcxBurnConfirmed')).toBeInTheDocument();
+    });
+
+    describe('payout proof', () => {
+      const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+      const burnRow = (burn: Partial<NonNullable<IHistoryEntry['usdcxBurn']>>, extra: Partial<IHistoryEntry> = {}) =>
+        entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          bridgeDestinationNetwork: 5042002,
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 26, phase: 'confirmed', ...burn },
+          ...extra
+        });
+
+      it('shows Received and Circle fee from the recorded payout', () => {
+        renderSection({ entry: burnRow({ payout }), sentAmount: 5_000_000n });
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.5635')).toBeInTheDocument();
+      });
+
+      it('shows neither row for a legacy balance-confirmed row', () => {
+        renderSection({
+          entry: burnRow({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } }),
+          sentAmount: 5_000_000n
+        });
+        expect(screen.queryByText(/usdcxPayoutReceived/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+        expect(screen.getByText('t:confirmed')).toBeInTheDocument();
+      });
+
+      it('shows no fee row when the paid amount is not below the sent amount', () => {
+        renderSection({ entry: burnRow({ payout }), sentAmount: 2_436_500n });
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+      });
+
+      it('links the recorded payout transaction', () => {
+        render(
+          <BridgeClaimSection
+            entry={burnRow({ payout })}
+            restoredFromBackup={false}
+            sentAmount={5_000_000n}
+            destinationTxHash={payout.transactionHash}
+          />
+        );
+        expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
+          `https://explorer.testnet.arc.io/tx/${payout.transactionHash}`
+        );
+        expect(screen.getByText('t:receivingTx')).toBeInTheDocument();
+      });
+
+      it('shows the delayed notice on a delayed row', () => {
+        const settled = Date.now() - 3 * 3_600_000;
+        renderSection({ entry: burnRow({ confirmedAt: settled }, { bridgeSettledAt: settled }) });
+        expect(screen.getByText('t:usdcxPayoutDelayed')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutDelayedNotice')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxWithdrawalNotice')).toBeInTheDocument();
+      });
+
+      it('shows no delayed notice before 2 hours or on a paid row', () => {
+        const recent = Date.now() - 60_000;
+        const { unmount } = render(
+          <BridgeClaimSection
+            entry={burnRow({ confirmedAt: recent }, { bridgeSettledAt: recent })}
+            restoredFromBackup={false}
+          />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        const old = Date.now() - 30 * 3_600_000;
+        renderSection({
+          entry: burnRow({ confirmedAt: old, payout }, { bridgeSettledAt: old }),
+          sentAmount: 5_000_000n
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
     });
 
     it('keeps a sender-completed row pending until the faucet consumes its note', () => {

@@ -95,6 +95,23 @@ export function isUsdcxPayoutConfirmed(burn: IUsdcxBurn | undefined): boolean {
   return burn?.phase === 'confirmed' && (!!burn.payout || !!burn.destinationBalanceConfirmed);
 }
 
+/** How long a confirmed burn may stay unpaid before the row says so. */
+export const USDCX_PAYOUT_DELAYED_MS = 7_200_000;
+
+/**
+ * Confirmed, unpaid and past the delay. The clock starts when the burn first read confirmed; a row confirmed before
+ * that was recorded counts from `settledAtMs`, the row's own settle time. A row the old balance rule confirmed is paid.
+ */
+export function isUsdcxPayoutDelayed(
+  burn: IUsdcxBurn | undefined,
+  settledAtMs: number | undefined,
+  now = Date.now()
+): boolean {
+  if (burn?.phase !== 'confirmed' || isUsdcxPayoutConfirmed(burn)) return false;
+  const since = burn.confirmedAt ?? settledAtMs;
+  return since !== undefined && now - since >= USDCX_PAYOUT_DELAYED_MS;
+}
+
 export function isUsdcxDestinationPending(burn: IUsdcxBurn): boolean {
   return (
     burn.phase === 'confirmed' && !!burn.destinationBalanceBefore && !burn.payout && !burn.destinationBalanceConfirmed

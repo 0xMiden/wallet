@@ -3,6 +3,8 @@ import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/m
 import {
   isUsdcxDestinationPending,
   isUsdcxPayoutConfirmed,
+  isUsdcxPayoutDelayed,
+  USDCX_PAYOUT_DELAYED_MS,
   pollUsdcxDestination,
   readUsdcxDestinationBalance,
   readUsdcxDestinationSnapshot
@@ -379,5 +381,38 @@ describe('isUsdcxPayoutConfirmed', () => {
 
   it('is false without a burn', () => {
     expect(isUsdcxPayoutConfirmed(undefined)).toBe(false);
+  });
+});
+
+describe('isUsdcxPayoutDelayed', () => {
+  const NOW = 1_800_000_000_000;
+  const burnOf = (tx: ITransaction) => tx.extraInputs.usdcxBurn;
+
+  it('is 2 hours', () => {
+    expect(USDCX_PAYOUT_DELAYED_MS).toBe(7_200_000);
+  });
+
+  it('counts from confirmedAt, else from the settle time the caller passes', () => {
+    const confirmed = burnOf(row({ confirmedAt: NOW - USDCX_PAYOUT_DELAYED_MS }));
+    expect(isUsdcxPayoutDelayed(confirmed, NOW + 1_000_000, NOW)).toBe(true);
+    expect(isUsdcxPayoutDelayed(burnOf(row({ confirmedAt: NOW - USDCX_PAYOUT_DELAYED_MS + 1 })), 0, NOW)).toBe(false);
+    expect(isUsdcxPayoutDelayed(burnOf(row()), NOW - USDCX_PAYOUT_DELAYED_MS, NOW)).toBe(true);
+    expect(isUsdcxPayoutDelayed(burnOf(row()), NOW - USDCX_PAYOUT_DELAYED_MS + 1, NOW)).toBe(false);
+  });
+
+  it('is false with no clock to count from', () => {
+    expect(isUsdcxPayoutDelayed(burnOf(row()), undefined, NOW)).toBe(false);
+  });
+
+  it.each([
+    ['a recorded payout', row({ confirmedAt: 1, payout: mint })],
+    ['a legacy balance confirmation', row({ confirmedAt: 1, destinationBalanceConfirmed: arrived })],
+    ['a burn that is not confirmed', row({ confirmedAt: 1, phase: 'consuming' })]
+  ])('is false for %s', (_name, tx) => {
+    expect(isUsdcxPayoutDelayed(burnOf(tx), 1, NOW)).toBe(false);
+  });
+
+  it('is false without a burn', () => {
+    expect(isUsdcxPayoutDelayed(undefined, 1, NOW)).toBe(false);
   });
 });

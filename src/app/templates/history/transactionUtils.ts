@@ -23,6 +23,7 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
+import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
@@ -295,7 +296,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
   if (entry.bridgeProvider === 'usdcx') {
-    if (entry.usdcxBurn?.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed) return 'confirmed';
+    if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
     if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
     return 'pending';
   }
@@ -314,9 +315,10 @@ export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' |
 /**
  * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
  * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
- * as a confirmed destination payout.
+ * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
+ * none arrives within 2 hours.
  */
-export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
+export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
   if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
   if (entry.bridgeInProvider === 'usdcx') {
     const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
@@ -325,7 +327,8 @@ export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
   if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
-      return entry.usdcxBurn.destinationBalanceConfirmed ? 'confirmed' : 'burnConfirmed';
+      if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
+      return isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, now) ? 'payoutDelayed' : 'burnConfirmed';
     case 'discarded':
       return 'burnDiscarded';
     case 'consuming':
