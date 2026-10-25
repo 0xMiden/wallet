@@ -107,8 +107,8 @@ test.describe('swap: create-side guards', () => {
     await page.getByTestId('swap-token-SWPB').click();
 
     const review = page.getByTestId('swap-review-submit');
-    const offerInput = page.getByTestId('send-amount-input').first();
-    const requestInput = page.getByTestId('send-amount-input').nth(1);
+    const offerInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
+    const requestInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
 
     // Guard 1: offer amount exceeds the 1000-SWPA balance -> disabled.
     const noPriceResponse = page.waitForResponse(response => response.url().startsWith(`${etaUrl}/v2/pair-price?`));
