@@ -463,6 +463,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
   const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
+  // Only the live USDCx source-wallet sequence holds dismissal. Always release on settlement of the
+  // local attempt, including errors whose phase could not be saved; background delivery remains dismissible.
+  const [usdcxSubmissionPending, setUsdcxSubmissionPending] = useState(false);
   // True between the approval being signed and the bridge prompt being answered — the gap in
   // which the wallet is silent and the user would otherwise read the flow as finished.
   const [awaitingNextConfirmation, setAwaitingNextConfirmation] = useState(false);
@@ -673,6 +676,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   );
 
   useMobileBackHandler(() => {
+    if (usdcxSubmissionPending) return true;
     if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
       onClose();
       return true;
@@ -683,7 +687,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     onClose();
     return true;
-  }, [activeRoute?.name, cardStack.length, goBack, onClose]);
+  }, [activeRoute?.name, cardStack.length, goBack, onClose, usdcxSubmissionPending]);
 
   useEffect(() => {
     resetEpoch();
@@ -1796,12 +1800,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [navigateTo, setupReady]);
 
   const handleHeaderBack = useCallback(() => {
+    if (usdcxSubmissionPending) return;
     if (cardStack.length > 1) {
       goBack();
       return;
     }
     onClose();
-  }, [cardStack.length, goBack, onClose]);
+  }, [cardStack.length, goBack, onClose, usdcxSubmissionPending]);
 
   // From the Route step: proceed to Review (once the route is confirmable) rather
   // than submitting directly. The Review step's Confirm runs handleConfirm.
@@ -1824,6 +1829,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     if (!canConfirmRoute || creatingBridgeRow) return;
     confirming.current = true;
+    setUsdcxSubmissionPending(route === 'usdcx');
     setTokenDrawerOpen(false);
     setSwitchDrawerOpen(false);
     setCreatingBridgeRow(true);
@@ -1860,7 +1866,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           case 'agglayer':
             return handleSlowBridge(id);
           case 'usdcx':
-            return handleUsdcxDeposit(id);
+            return handleUsdcxDeposit(id).finally(() => setUsdcxSubmissionPending(false));
           case 'epoch':
           default:
             return handleFastBridge(id);
@@ -1906,6 +1912,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
       confirming.current = false;
+      setUsdcxSubmissionPending(false);
       setConfirmSettled(count => count + 1);
     } finally {
       setCreatingBridgeRow(false);
@@ -1946,6 +1953,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               txId={bridgeTxId}
               newSubmissionTxId={bridgeTxId}
               onDone={onClose}
+              submissionPending={usdcxSubmissionPending}
               awaitingNextConfirmation={awaitingNextConfirmation}
             />
           ) : null;
@@ -1994,7 +2002,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                 error != null ? errorId : usdcxFeeHoldNotice ? 'usdcxDepositFeeAboveBalance' : (capHoldErrorId ?? null)
               }
               onConfirm={handleConfirm}
-              onBack={goBack}
+              onBack={handleHeaderBack}
             />
           );
         case ReceiveStep.ShowBridgePageRoute:
@@ -2111,9 +2119,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       networkName,
       sourceChainId,
       submitting,
+      usdcxSubmissionPending,
+      handleHeaderBack,
       reviewCanConfirm,
       reviewConfirmLabel,
-      goBack,
       onClose,
       setupToken,
       selectedBalance.error,
@@ -2138,7 +2147,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <NetworkModeBanner />
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
-          <PageHeader title={t('bridgeInTitle')} onBack={handleHeaderBack} />
+          <PageHeader title={t('bridgeInTitle')} onBack={usdcxSubmissionPending ? undefined : handleHeaderBack} />
         </div>
       )}
       <NetworkNamedByShell>

@@ -1,4 +1,11 @@
+---
+title: Sign-in sheet for dApps in Bread
+permalink: /developers/sign-in-sheet/
+---
+
 # Sign-in sheet for dApps in Bread
+
+Part of the [Bread developer guide](../). This page is the detailed reference, including the native integration.
 
 Google and Apple sign-in refuse to run inside embedded web views, so a dApp in the native Bread mobile browser can't run them in its own page. `window.bread.auth.open(url)` runs the flow in a secure sign-in sheet instead: the system's sign-in sheet on iOS, and an Auth Tab on Android when the selected browser supports it, otherwise a Custom Tab. The flow starts at a URL on the page's own origin and ends at Bread's callback address with that origin in its query, and the page stays loaded throughout.
 
@@ -49,7 +56,7 @@ Only one sheet can be open across the whole app: a second call while one is open
 
 ## The callback
 
-A navigation inside the sheet to `com.miden.wallet.auth://callback` ends the flow, whether it comes from a redirect, a refresh or a link the user taps. The address may end there or continue with `?` or `#`, and it matches regardless of ASCII case; any path, such as `callback/`, fails with `AUTH_FAILED`. Bread resolves `{ url }` only while its own sheet is open, only for that address, and only when the URL names the page that opened the sheet; it forwards the URL untouched, reads nothing from it but the `origin` parameter, and stores and logs nothing from it.
+A navigation inside the sheet to `com.miden.wallet.auth://callback` ends the flow, whether it comes from a redirect, a refresh or a link the user taps. The address may end there or continue with `?` or `#`; any path, such as `callback/`, fails with `AUTH_FAILED`. Write the scheme and host in lowercase: Bread's own check ignores ASCII case, but on Android the Custom Tab callback arrives through an intent filter, which matches the scheme and host case-sensitively. Bread resolves `{ url }` only while its own sheet is open, only for that address, and only when the URL names the page that opened the sheet; it forwards the URL untouched, reads nothing from it but the `origin` parameter, and stores and logs nothing from it.
 
 The callback names the page in exactly one `origin` query parameter: the page's origin, percent-encoded as a query value, such as `com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.org&login=<handle>` for a page on example.org. Bread decodes the value's percent escapes once, keeping a `+` as a `+`, and compares it with the page that called `open` as the URL rules above compare the start of a URL: `https://` in lowercase, the page's host apart from ASCII letter case, `:` and the port only if the page uses a port other than 443 (`:443` is also accepted on a page that uses 443), and nothing after that, not even a `/`. The query is the text after the first `?` that comes before the first `#`, so an `origin` in the fragment doesn't count; parameter names are compared exactly as written, and a parameter without `=` has an empty value. A callback with no `origin`, more than one, or one naming another origin rejects with `AUTH_ORIGIN_MISMATCH`, and the page never receives its URL.
 

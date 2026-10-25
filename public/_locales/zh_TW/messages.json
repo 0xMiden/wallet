@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "備份您的種子短語",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "立即備份",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "您的錢包餘額已達到 150 美元。您必須先備份種子短語，才能繼續操作。請將其寫下、存放在安全的地方，並完成驗證程序以使用您的錢包。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "無法儲存備份檢查。請重試。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "swapBalanceUnavailable": {
     "message": "無法驗證您的可用餘額。請重試。",
     "englishSource": "Could not verify your spendable balance. Please try again."
@@ -3518,6 +3534,34 @@
     "message": "此操作會將錢包從該裝置中移除，以便您日後能重新還原錢包，例如使用不同的「guardian」網址。您的資金仍保留在網路上。您需要使用復原短語來還原錢包。",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "另一個裝置持有此帳戶",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "此帳戶的日常金鑰已移至另一台裝置，通常是透過在該裝置上還原錢包來完成。在您將該裝置重新設為主裝置之前，該裝置無法使用此帳戶。",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "此帳戶的日常金鑰已移至另一台裝置，通常是透過在該裝置上還原錢包來完成。該裝置沒有還原金鑰，因此無法取回該帳戶。請使用您的還原短語還原錢包，以便在此處使用。",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "將此裝置設為主要裝置",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "將此裝置設為主要裝置嗎？",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "錢包會將日常金鑰輪替至此裝置。另一台裝置將失去對該帳戶的存取權限，並會看到相同的通知。帳戶將支付一筆小額網路手續費。",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "從此裝置移除錢包",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "每日金鑰輪替尚未確認",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4953,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet 請求",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "活動",

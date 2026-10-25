@@ -215,6 +215,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         <ActivityGroupedHistory
           key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
           search={search}
+          onReturnToList={() => changeView('list')}
           programId={programId}
           onInitialLoad={handleHistoryLoaded}
         />

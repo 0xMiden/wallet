@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "シードフレーズをバックアップしてください",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "今すぐバックアップしてください",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "ウォレットの残高が150米ドルに達しました。続行するには、シードフレーズをバックアップする必要があります。シードフレーズを書き留め、安全な場所に保管してから、確認手続きを完了させてウォレットをご利用ください。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "バックアップチェックを保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "swapBalanceUnavailable": {
     "message": "利用可能残高を確認できませんでした。もう一度お試しください。",
     "englishSource": "Could not verify your spendable balance. Please try again."
@@ -3518,6 +3534,34 @@
     "message": "これにより、このデバイスからウォレットが削除されるため、例えば別のguardian URLを使用してウォレットを復元することが可能になります。資金はネットワーク上に残ります。ウォレットを復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "別のデバイスがこのアカウントを保持しています",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "このアカウントの日常用キーは、通常はウォレットを復元することで、別のデバイスに移行されました。このデバイスは、あなたが再びメインデバイスに設定するまで、そのアカウントを使用することはできません。",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "このアカウントの日常用キーは、通常はウォレットを別のデバイスに復元することで、そのデバイスに移行されました。このデバイスにはリカバリーキーがないため、アカウントを取り戻すことはできません。ここで使用するには、リカバリーフレーズを使用してウォレットを復元してください。",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "このデバイスをメインにする",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "このデバイスをメインにしますか？",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "ウォレットは、このデバイスへの日常的な鍵をローテーションします。もう一方のデバイスはこのアカウントへのアクセス権を失い、同じ通知が表示されます。アカウントから少額のネットワーク手数料が支払われます。",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "このデバイスからウォレットを削除する",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "毎日の鍵のローテーションは確認されていません",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4953,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet リクエスト",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "アクティビティ",

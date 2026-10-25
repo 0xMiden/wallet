@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Faça backup da sua frase-semente",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Faça backup agora",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Sua carteira atingiu US$ 150. Você deve fazer backup da sua frase-semente antes de poder continuar. Anote-a, guarde-a em um local seguro e conclua a verificação para usar sua carteira.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Não foi possível salvar a verificação do backup. Tente novamente.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "swapBalanceUnavailable": {
     "message": "Não foi possível verificar seu saldo disponível. Tente novamente.",
     "englishSource": "Could not verify your spendable balance. Please try again."
@@ -3518,6 +3534,34 @@
     "message": "Isso remove a carteira deste dispositivo para que você possa restaurá-la novamente, por exemplo, com uma URL de “guardian” diferente. Seus fundos permanecem na rede. Você precisará da sua frase de recuperação para restaurar a carteira.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Outro dispositivo mantém essa conta",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "A chave de uso diário desta conta foi transferida para outro dispositivo, geralmente por meio da restauração da carteira nesse dispositivo. Esse dispositivo não pode usar a conta até que você o torne o dispositivo principal novamente.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "A chave de uso diário desta conta foi transferida para outro dispositivo, geralmente por meio da restauração da carteira nesse dispositivo. Esse dispositivo não possui chave de recuperação, portanto não é possível recuperar a conta. Restaure a carteira com sua frase de recuperação para usá-la aqui.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Defina este dispositivo como o principal",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Tornar este dispositivo o principal?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "A carteira alterna a chave diária para este dispositivo. O outro dispositivo perde o acesso a essa conta e visualiza este mesmo aviso. Uma pequena taxa de rede é paga a partir da conta.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Remova a carteira deste dispositivo",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "A rotação diária da chave não foi confirmada",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4953,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet Solicitação",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Atividade",

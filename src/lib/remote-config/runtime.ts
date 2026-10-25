@@ -471,9 +471,18 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
     let geo: GeoLookup;
     try {
       const snapshot = await ensureBridgeConfig();
-      const decision = snapshot.config
-        ? await lookupFeatureEligibility(snapshot.network, snapshot.config.version)
-        : null;
+      let decision = snapshot.config ? await lookupFeatureEligibility(snapshot.network, snapshot.config.version) : null;
+      if (!decision && snapshot.config) {
+        const state = states.get(snapshot.network);
+        if (state) {
+          // Pair policy with the document accepted during this lookup, not a newer response in flight.
+          await startRefresh(state);
+          const refreshed = state.snapshot;
+          if (refreshed.config && refreshed.config.version > snapshot.config.version) {
+            decision = await lookupFeatureEligibility(refreshed.network, refreshed.config.version);
+          }
+        }
+      }
       geo = decision ? { state: 'ready', ...decision } : { state: 'failed' };
     } catch {
       geo = { state: 'failed' };

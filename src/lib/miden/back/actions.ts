@@ -851,6 +851,35 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
 }
 
 /**
+ * Persist the verdict that another device rotated the account's hot key. On
+ * the accounts write queue like every other read-modify-write of the list;
+ * broadcast only when the vault wrote it, so a refused (stale) verdict moves
+ * nothing on screen.
+ */
+export function markHotKeyRotatedOut(accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const { written, ...updated } = await vault.markHotKeyRotatedOut(
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      );
+      if (written) accountsUpdated(updated);
+    })
+  );
+}
+
+/** Drop the rotated-out hot key and flag the account for a rotation to this device. */
+export function retireRotatedOutHotKey(accountPublicKey: string, expectedHotPubKey: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.retireRotatedOutHotKey(accountPublicKey, expectedHotPubKey);
+      accountsUpdated(updated);
+    })
+  );
+}
+
+/**
  * Frontend-triggered kickoff for the detached Guardian pending-note recovery.
  * Fired by GuardianRecoveryProvider for every flagged account; returns false
  * (so the provider retries) while the account is still ineligible or busy.

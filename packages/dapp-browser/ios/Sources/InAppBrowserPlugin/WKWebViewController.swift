@@ -136,8 +136,8 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     var breadAuth: BreadAuthController?
     private var breadNavigation: WKNavigation?
 
-    override open var prefersStatusBarHidden: Bool { breadPresentation?.immersive ?? super.prefersStatusBarHidden }
-    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.immersive ?? super.prefersHomeIndicatorAutoHidden }
+    override open var prefersStatusBarHidden: Bool { breadPresentation?.hidesSystemUI ?? super.prefersStatusBarHidden }
+    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.hidesSystemUI ?? super.prefersHomeIndicatorAutoHidden }
 
     open var hasDynamicTitle = false
     open var source: WKWebSource?
@@ -2174,6 +2174,9 @@ extension WKWebViewController: WKNavigationDelegate {
         applyCustomDimensions()
     }
 
+    static var snapshotEncodeHook: ((Bool) -> Void)?
+    static let snapshotQueue = DispatchQueue(label: "bread.snapshot", qos: .userInitiated)
+
     /// Miden patch: take a JPEG snapshot of the current webview content.
     /// `scale` < 1 downsamples for memory; `quality` is JPEG compression 0..1.
     open func takeSnapshotData(scale: CGFloat, quality: CGFloat, completion: @escaping (String?) -> Void) {
@@ -2181,17 +2184,47 @@ extension WKWebViewController: WKNavigationDelegate {
             completion(nil)
             return
         }
-        let config = WKSnapshotConfiguration()
-        if scale > 0, scale < 1 {
-            // snapshotWidth is in points; native takeSnapshot scales the result.
-            config.snapshotWidth = NSNumber(value: Double(webView.bounds.width * scale))
-        }
-        webView.takeSnapshot(with: config) { image, _ in
-            guard let image = image, let data = image.jpegData(compressionQuality: max(0.1, min(1.0, quality))) else {
-                completion(nil)
-                return
+        let width = webView.bounds.width * (scale > 0 && scale < 1 ? scale : 1)
+        let live = {
+            let config = WKSnapshotConfiguration()
+            if scale > 0, scale < 1 {
+                // snapshotWidth is in points; native takeSnapshot scales the result.
+                config.snapshotWidth = NSNumber(value: Double(width))
             }
-            completion("data:image/jpeg;base64,\(data.base64EncodedString())")
+            webView.takeSnapshot(with: config) { image, _ in
+                guard let image else { completion(nil); return }
+                WKWebViewController.encodeSnapshot(image, width: width, quality: quality, completion: completion)
+            }
+        }
+        // A collapse already captured this frame at full resolution; the JPEG work stays off the main thread.
+        let fromProxy = breadPresentation?.snapshotFromProxy { image in
+            if let image {
+                WKWebViewController.encodeSnapshot(image, width: width, quality: quality, completion: completion)
+            } else {
+                live()
+            }
+        } ?? false
+        if !fromProxy { live() }
+    }
+
+    static func encodeSnapshot(_ image: UIImage, width: CGFloat, quality: CGFloat, completion: @escaping (String?) -> Void) {
+        snapshotQueue.async {
+            WKWebViewController.snapshotEncodeHook?(Thread.isMainThread)
+            let height = image.size.width > 0 ? image.size.height * width / image.size.width : 0
+            let size = CGSize(width: width, height: height)
+            var scaled = image
+            if size != image.size, width > 0, height > 0 {
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = image.scale
+                format.opaque = true
+                scaled = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: size))
+                }
+            }
+            let url = scaled.jpegData(compressionQuality: max(0.1, min(1.0, quality))).map {
+                "data:image/jpeg;base64,\($0.base64EncodedString())"
+            }
+            DispatchQueue.main.async { completion(url) }
         }
     }
 }

@@ -1007,11 +1007,14 @@ export const recordKillEnd = async (id: string, attemptId: string | undefined): 
  * A writer is ending this row from outside its pipeline (#1081): a user cancel, the stuck reaper, the cold-start
  * sweep, the force-cancel, the stuck-consume verifier. Only a GeneratingTransaction row has a pipeline that can
  * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good.
+ * `onlyIfRow`, when passed, runs in this modify after that check and before the evidence write. False is Dexie's
+ * skip. Callers that omit it keep the GeneratingTransaction and defined-`attemptId` requirements below.
  */
-export const recordOutOfBandEnd = async (id: string): Promise<void> => {
+export const recordOutOfBandEnd = async (id: string, onlyIfRow?: (row: ITransaction) => boolean): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.GeneratingTransaction || tx.attemptId === undefined) return false;
+    if (onlyIfRow !== undefined && !onlyIfRow(tx)) return false;
     tx.submitEvidence = upsertEvidenceEntry(
       tx.submitEvidence,
       tx.attemptId,

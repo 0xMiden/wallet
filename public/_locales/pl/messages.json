@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Utwórz kopię zapasową frazy seed",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Utwórz kopię zapasową teraz",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Saldo Twojego portfela osiągnęło 150 USD. Przed kontynuowaniem musisz wykonać kopię zapasową frazy nasiennej. Zapisz ją, przechowuj w bezpiecznym miejscu i zakończ weryfikację, aby móc korzystać z portfela.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Nie udało się zapisać kopii zapasowej. Spróbuj ponownie.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "swapBalanceUnavailable": {
     "message": "Nie udało się zweryfikować salda dostępnego do wydania. Spróbuj ponownie.",
     "englishSource": "Could not verify your spendable balance. Please try again."
@@ -3518,6 +3534,34 @@
     "message": "Spowoduje to usunięcie portfela z tego urządzenia, dzięki czemu będzie można go przywrócić, na przykład przy użyciu innego adresu URL funkcji „guardian”. Środki pozostają w sieci. Do przywrócenia portfela potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Konto to jest prowadzone na innym urządzeniu",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Klucz codzienny tego konta został przeniesiony na inne urządzenie, zazwyczaj poprzez przywrócenie tam portfela. Urządzenie to nie może korzystać z konta, dopóki nie ustanowisz go ponownie jako urządzenia głównego.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Klucz codzienny tego konta został przeniesiony na inne urządzenie, zazwyczaj poprzez przywrócenie tam portfela. Urządzenie to nie posiada klucza odzyskiwania, więc nie może odzyskać konta. Przywróć portfel za pomocą frazy odzyskiwania, aby móc z niego korzystać tutaj.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Ustaw to urządzenie jako główne",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Czy chcesz ustawić to urządzenie jako główne?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Portfel przenosi codzienny klucz na to urządzenie. Drugie urządzenie traci dostęp do tego konta i widzi ten sam komunikat. Z konta pobierana jest niewielka opłata sieciowa.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Usuń portfel z tego urządzenia",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Codzienna rotacja klucza nie została potwierdzona",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4954,6 +4998,18 @@
   "faucetRequest": {
     "message": "Faucet Prośba",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Działalność",

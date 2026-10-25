@@ -39,7 +39,7 @@ afterAll(() =>
 
 let mockBrowserMode = 'launcher';
 jest.mock('app/providers/DappBrowserProvider', () => ({
-  useDappBrowser: () => ({ mode: mockBrowserMode, open: jest.fn() })
+  useDappBrowser: () => ({ mode: mockBrowserMode, open: jest.fn(), motion: null, session: null })
 }));
 jest.mock('../DappActive', () => ({ DappActive: () => null }));
 jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));

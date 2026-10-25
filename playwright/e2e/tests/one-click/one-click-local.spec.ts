@@ -4,7 +4,7 @@ import { expect, test, type HermeticOneClickFixture } from '../../fixtures/herme
 import { ETH_ASSET_ID, MIDEN_ASSET_ID } from '../../fixtures/hermetic-one-click';
 import type { GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { fundBridgeToken } from '../../helpers/bridge';
-import { forgetFixtureConfig } from '../../helpers/feature-eligibility';
+import { forgetFixtureConfig, setEligibilityFixtureConfig } from '../../helpers/feature-eligibility';
 import { readTransactionRows, TxStatus } from '../../helpers/history';
 import type { MidenCli } from '../../helpers/miden-cli';
 import { AnvilInstance } from '../../ios/helpers/anvil';
@@ -50,7 +50,8 @@ async function prepareWallet(
     const depositAddress = midenDepositAddress ?? accountAddress;
     return { ...defaults, depositAddress };
   });
-  fixture.configureMidenAsset(funded.faucetHex, funded.decimals);
+  const document = fixture.configureMidenAsset(funded.faucetHex, funded.decimals);
+  await setEligibilityFixtureConfig(document);
   await forgetFixtureConfig(wallet.page, 'localnet');
   await wallet.page.reload({ waitUntil: 'domcontentloaded' });
   await wallet.navigateTo('/swap');
