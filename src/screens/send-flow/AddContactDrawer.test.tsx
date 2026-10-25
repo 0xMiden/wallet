@@ -49,12 +49,19 @@ jest.mock('components/NetworkChip', () => ({
     </button>
   )
 }));
+let mockNetworkName = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 jest.mock('./bridge-networks', () => ({
   BRIDGE_NETWORKS: [
-    { id: 'sepolia', name: 'Sepolia', chainId: 1 },
-    { id: 'base', name: 'Base', chainId: 2 }
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
   ],
-  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
+  defaultBridgeNetwork: () =>
+    mockNetworkName === 'mainnet'
+      ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }
+      : { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
 
 const MIDEN = 'mtst1arl2mg5w4524rsfkvuvvtxtwryfdpp48_qr7qqq9wr6w';
@@ -64,7 +71,10 @@ jest.mock('utils/miden', () => ({
   isValidRecipientAddress: (a: string) => a !== 'mtst1bad'
 }));
 
-beforeEach(() => addContactMock.mockReset().mockResolvedValue(undefined));
+beforeEach(() => {
+  mockNetworkName = 'testnet';
+  addContactMock.mockReset().mockResolvedValue(undefined);
+});
 
 function renderSheet(address = MIDEN, network?: string) {
   const onOpenChange = jest.fn();
@@ -111,13 +121,15 @@ it('lets a 0x contact choose its network, starting from the one chosen on the se
 
   fireEvent.click(screen.getByTestId('add-contact-network-picker'));
   expect(screen.getByTestId('add-contact-network-sepolia')).toHaveAttribute('aria-pressed', 'true');
-  fireEvent.click(screen.getByTestId('add-contact-network-base'));
+  fireEvent.click(screen.getByTestId('add-contact-network-base-sepolia'));
   fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Bob' } });
   await act(async () => {
     fireEvent.click(screen.getByTestId('address-book-add-contact'));
   });
 
-  expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ address: EVM, name: 'Bob', network: 'base' }));
+  expect(addContactMock).toHaveBeenCalledWith(
+    expect.objectContaining({ address: EVM, name: 'Bob', network: 'base-sepolia' })
+  );
 });
 
 it('keeps the sheet open and shows the error when saving fails', async () => {
@@ -243,4 +255,18 @@ describe('AddContactDrawer user-visible errors', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+it('keeps the send-step Add Contact picker on Mainnet and normalizes a stale test-chain draft', async () => {
+  mockNetworkName = 'mainnet';
+  renderSheet(EVM, 'sepolia');
+  expect(screen.getByTestId('add-contact-network-picker')).toHaveTextContent('Ethereum');
+  fireEvent.click(screen.getByTestId('add-contact-network-picker'));
+  expect(screen.getByTestId('add-contact-network-base')).toBeInTheDocument();
+  expect(screen.queryByTestId('add-contact-network-sepolia')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('add-contact-network-base-sepolia')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByTestId('add-contact-network-base'));
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Synthetic Mainnet' } });
+  await act(async () => fireEvent.click(screen.getByTestId('address-book-add-contact')));
+  expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ network: 'base' }));
 });

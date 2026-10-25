@@ -62,9 +62,17 @@ jest.mock('components/NetworkChip', () => ({
   NetworkLogo: () => null,
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
+let mockNetworkName = 'testnet';
+let mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
-  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
+  defaultBridgeNetwork: () =>
+    mockNetworkName === 'mainnet'
+      ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }
+      : { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
 jest.mock('screens/send-flow/ScanQrDrawer', () => ({ ScanQrDrawer: () => null }));
 jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false), isExtension: () => false }));
@@ -79,6 +87,8 @@ const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 
 beforeEach(() => {
   // Both must reset, or the previous test's deps make the first render of this one skip its capture.
+  mockNetworkName = 'testnet';
+  mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   capturedMobileBack = undefined;
   capturedMobileBackDeps = undefined;
   addContactMock.mockReset().mockResolvedValue(undefined);
@@ -416,4 +426,37 @@ describe('user-visible error reporting', () => {
     act(() => jest.advanceTimersByTime(2000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+it('offers production external chains on Mainnet without test-network choices', () => {
+  mockNetworkName = 'mainnet';
+  mockBridgeNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
+  ];
+  render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.click(screen.getByTestId('new-contact-network-picker'));
+  expect(screen.getByTestId('new-contact-network-ethereum')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('new-contact-network-base')).toBeInTheDocument();
+  expect(screen.queryByTestId('new-contact-network-sepolia')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('new-contact-network-arc-testnet')).not.toBeInTheDocument();
+});
+
+it('uses the current-network default when a new-contact draft spans a network switch', async () => {
+  mockBridgeNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
+  ];
+  const { rerender } = render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Synthetic' } });
+  mockNetworkName = 'mainnet';
+  rerender(<NewContactPage />);
+  expect(screen.getByTestId('new-contact-network-picker')).toHaveTextContent('Ethereum');
+  await act(async () => fireEvent.click(screen.getByTestId('address-book-add-contact')));
+  expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ network: 'ethereum' }));
 });
