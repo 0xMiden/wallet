@@ -23,8 +23,9 @@ import { isMobile } from 'lib/platform';
  * the next one, and the footer paints at its new place for that gap.
  *
  * A reflow of an element out of sight (inside an `[inert]` ancestor: a hidden tab pane, a covered
- * page layer, an off-screen home pane) only records the new layout top. Nobody sees that slide, and
- * the device trace showed it holding the display at 60Hz through a page push.
+ * page layer, an off-screen home pane) only records the new layout top, and a slide already running
+ * is cancelled in the same turn that ancestor becomes inert. Nobody sees that slide, and the device
+ * trace showed it holding the display at 60Hz through a page push.
  *
  * Observes the element and its parent, which is the page frame the keyboard inset resizes.
  */
@@ -71,12 +72,26 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>) {
       };
     };
 
+    // Those layouts set `inert` from their own layout effects and do not resize this footer, so a
+    // slide already running would otherwise keep the compositor busy until some later reflow.
+    const onInert = () => {
+      if (!running || !el.closest('[inert]')) return;
+      running.cancel();
+      running = undefined;
+    };
+
     const observer = new ResizeObserver(onReflow);
     observer.observe(container);
     // Border box: a padding-only move (the cushion collapsing) changes no content box.
     observer.observe(el, { box: 'border-box' });
+    let inertObserver: MutationObserver | undefined;
+    if (typeof MutationObserver !== 'undefined') {
+      inertObserver = new MutationObserver(onInert);
+      inertObserver.observe(document.documentElement, { subtree: true, attributeFilter: ['inert'] });
+    }
     return () => {
       observer.disconnect();
+      inertObserver?.disconnect();
       running?.cancel();
     };
   }, [ref, reduceMotion]);

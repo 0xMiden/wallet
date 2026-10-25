@@ -228,6 +228,40 @@ describe('out of sight', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels a running slide when an ancestor becomes inert before the next reflow', async () => {
+    const cancel = jest.fn();
+    animateMock.mockImplementation(() => ({ cancel, onfinish: null }));
+    const { rerender } = render(<InertHarness inert={false} />);
+    top = 500;
+    act(() => reflow());
+    rerender(<InertHarness inert />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(animateMock).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    rerender(<InertHarness inert={false} />);
+    top = 450;
+    act(() => reflow());
+
+    expect(keyframes()[0]).toMatchObject({ transform: 'translateY(50px)' });
+  });
+
+  it('stops watching for inert once unmounted', () => {
+    const observe = jest.spyOn(MutationObserver.prototype, 'observe');
+    const disconnect = jest.spyOn(MutationObserver.prototype, 'disconnect');
+    const { unmount } = render(<InertHarness inert={false} />);
+    const watching = observe.mock.calls.findIndex(([, init]) => init?.attributeFilter?.includes('inert'));
+    expect(watching).toBeGreaterThanOrEqual(0);
+    unmount();
+
+    expect(disconnect.mock.contexts).toContain(observe.mock.contexts[watching]);
+    observe.mockRestore();
+    disconnect.mockRestore();
+  });
+
   it('starts from the top it recorded while hidden once the ancestor loses inert', () => {
     const { rerender } = render(<InertHarness inert />);
     top = 500;
