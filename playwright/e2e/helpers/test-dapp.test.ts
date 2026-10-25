@@ -405,7 +405,14 @@ describe('decline replies that close their confirmation popup', () => {
   const targetClosed = new Error('locator.click: Target page, context or browser has been closed');
 
   function scenario(
-    options: { answer?: unknown; crash?: boolean; contextClose?: boolean; error?: Error; clickSucceeds?: boolean } = {}
+    options: {
+      answer?: unknown;
+      crash?: boolean;
+      contextClose?: boolean;
+      error?: Error;
+      clickSucceeds?: boolean;
+      closedBeforeClick?: boolean;
+    } = {}
   ) {
     const popupEvents = new EventEmitter();
     const contextEvents = new EventEmitter();
