@@ -3423,7 +3423,7 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "新しいGuardianは、今後すべての取引を承認します。以前のGuardianは、あなたのアカウントの取引を承認できなくなります。",
+    "message": "新しいGuardianは、今後すべての取引を確認します。以前のGuardianは、あなたのアカウントの取引を確認できなくなります。",
     "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
