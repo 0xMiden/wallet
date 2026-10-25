@@ -321,6 +321,30 @@ async function openForeground(options: { held?: boolean; actions?: boolean } = {
   mockSetVisible.mockReset().mockResolvedValue(undefined);
   return currentTree;
 }
+function managedTokenFor(id: string) {
+  const options = mockOpen.mock.calls.find(([candidate]) => candidate.id === id)?.[0];
+  const token = options?.managedHostClose?.token;
+  if (!token) throw new Error(`No managed-close token for ${id}`);
+  return token;
+}
+async function openManagedSession(id: string) {
+  act(() => {
+    control().open(session(id));
+    control().setSlotRect(RECT);
+  });
+  await waitFor(() => expect(control().sessionStates.find(state => state.session.id === id)?.instance).not.toBeNull());
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id,
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: managedTokenFor(id)
+    })
+  );
+  await settle();
+  await waitFor(() => expect(lastVisibility(id)).toBe(true));
+}
 async function closeAlert() {
   const sheet = screen.getByRole('alertdialog', { name: en.error });
   await act(async () => {
@@ -1461,10 +1485,16 @@ function lastMorphId() {
     throw new Error('No morph was sent');
   return request.morphId;
 }
-function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra: { tracking?: boolean } = {}) {
+function emitMorphForSession(
+  sessionId: string,
+  phase: string,
+  target: string,
+  morphId = lastMorphId(),
+  extra: { tracking?: boolean } = {}
+) {
   act(() =>
     nativeListeners.get('presentationMorph')?.({
-      id: 'origin',
+      id: sessionId,
       morphId,
       phase,
       target,
@@ -1472,9 +1502,12 @@ function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra
       velocity: 0,
       tracking: extra.tracking ?? false,
       visibilitySequence: 0,
-      managedHostCloseToken: lifetime()
+      managedHostCloseToken: managedTokenFor(sessionId)
     })
   );
+}
+function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra: { tracking?: boolean } = {}) {
+  emitMorphForSession('origin', phase, target, morphId, extra);
 }
 const parked = () => control().parkedSessions.map(state => state.session.id);
 
@@ -2342,5 +2375,221 @@ describe('native morph adoption', () => {
     expect(control().motion).toMatchObject({ tracking: true });
     expect(parked()).toEqual([]);
     expect(lastVisibility()).toBeUndefined();
+  });
+});
+
+describe('latest foreground intent across sessions', () => {
+  const statusOf = (id: string) => control().sessionStates.find(state => state.session.id === id)?.status;
+
+  async function openForegroundWithColdSession() {
+    mockLoadPersisted.mockResolvedValue([{ ...session('cold'), parkedAt: 1 }]);
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(parked()).toEqual(['cold']));
+    await openManagedSession('origin');
+  }
+
+  async function openSecondFromParkedOrigin() {
+    await openForeground();
+    await act(async () => control().park('origin'));
+    await openManagedSession('second');
+  }
+
+  it('keeps the later legacy restore foreground when the earlier park resolves last', async () => {
+    await openForegroundWithColdSession();
+    let releaseSnapshot: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string | null>(resolve => {
+          releaseSnapshot = resolve;
+        })
+    );
+
+    let restoringCold: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      restoringCold = control().restore('cold');
+    });
+    await waitFor(() => expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7));
+
+    await act(async () => control().restore('origin'));
+    expect(control().session?.id).toBe('origin');
+    await act(async () => {
+      releaseSnapshot(null);
+      await restoringCold;
+    });
+    await settle();
+
+    expect(control().session?.id).toBe('origin');
+    expect(statusOf('origin')).toBe('active');
+    expect(statusOf('cold')).toBe('parked');
+    expect(parked()).toEqual(['cold']);
+    expect(lastVisibility('origin')).toBe(true);
+  });
+
+  it('does not hide a session restored while an older park is waiting', async () => {
+    await openForeground();
+    let nativeVisible = true;
+    let releaseHide: (() => void) | undefined;
+    let hideReleased = false;
+    mockSetVisible.mockImplementation((id, visible) => {
+      if (id !== 'origin') return Promise.resolve();
+      if (visible) {
+        nativeVisible = true;
+        return Promise.resolve();
+      }
+      return new Promise<void>(resolve => {
+        releaseHide = () => {
+          hideReleased = true;
+          nativeVisible = false;
+          resolve();
+        };
+      });
+    });
+
+    let parking: Promise<void> = Promise.resolve();
+    try {
+      act(() => {
+        parking = control().park('origin');
+      });
+      await waitFor(() => expect(releaseHide).toBeDefined());
+      expect(mockSetVisible).toHaveBeenCalledWith('origin', false);
+
+      await act(async () => control().restore('origin'));
+      await waitFor(() => expect(lastVisibility('origin')).toBe(true));
+      expect(nativeVisible).toBe(true);
+
+      await act(async () => {
+        releaseHide?.();
+        await parking;
+      });
+      expect(statusOf('origin')).toBe('active');
+      expect(lastVisibility('origin')).toBe(true);
+      expect(nativeVisible).toBe(true);
+    } finally {
+      if (!hideReleased && releaseHide) {
+        await act(async () => {
+          releaseHide?.();
+          await parking;
+        });
+      }
+      mockSetVisible.mockReset().mockResolvedValue(undefined);
+    }
+  });
+
+  it('does not park a restored outgoing session when an older expansion settles', async () => {
+    await openSecondFromParkedOrigin();
+    let acceptExpansion: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph.mockImplementationOnce(
+      () =>
+        new Promise<{ accepted: boolean }>(resolve => {
+          acceptExpansion = resolve;
+        })
+    );
+
+    let expandingOrigin: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      expandingOrigin = control().restore('origin', { card: CARD });
+    });
+    await waitFor(() => expect(mockMorph).toHaveBeenCalled());
+    emitMorphForSession('origin', 'started', 'expanded');
+    await act(async () => control().restore('second'));
+    expect(control().session?.id).toBe('second');
+
+    await act(async () => {
+      acceptExpansion({ accepted: true });
+      await expandingOrigin;
+    });
+    emitMorphForSession('origin', 'settled', 'expanded');
+    await settle();
+
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
+    expect(parked()).not.toContain('second');
+    expect(lastVisibility('second')).toBe(true);
+  });
+
+  it('ignores a stale collapse terminal event after a newer foreground intent', async () => {
+    await openSecondFromParkedOrigin();
+    let acceptExpansion: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph.mockImplementationOnce(
+      () =>
+        new Promise<{ accepted: boolean }>(resolve => {
+          acceptExpansion = resolve;
+        })
+    );
+
+    let expandingOrigin: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      expandingOrigin = control().restore('origin', { card: CARD });
+    });
+    await waitFor(() => expect(mockMorph).toHaveBeenCalled());
+    emitMorphForSession('origin', 'started', 'expanded');
+    await act(async () => control().restore('second'));
+    expect(control().session?.id).toBe('second');
+
+    await act(async () => {
+      acceptExpansion({ accepted: true });
+      await expandingOrigin;
+    });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
+
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
+    expect(parked()).not.toContain('second');
+    expect(lastVisibility('second')).toBe(true);
+  });
+
+  it('keeps the confirmation owner reachable after a stale collapse settles', async () => {
+    mockRealApproval = true;
+    await openSecondFromParkedOrigin();
+    let acceptExpansion: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph.mockImplementationOnce(
+      () =>
+        new Promise<{ accepted: boolean }>(resolve => {
+          acceptExpansion = resolve;
+        })
+    );
+
+    let expandingOrigin: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      expandingOrigin = control().restore('origin', { card: CARD });
+    });
+    await waitFor(() => expect(mockMorph).toHaveBeenCalled());
+    emitMorphForSession('origin', 'started', 'expanded');
+
+    let confirmation: Promise<unknown> | undefined;
+    act(() => {
+      confirmation = dappConfirmationStore.requestConfirmation({
+        ...approval(),
+        id: 'confirmation-second',
+        sessionId: 'second',
+        origin: 'https://second.test',
+        type: 'sign',
+        transactionMessages: ['Confirmation owner']
+      });
+    });
+    await screen.findByText('Confirmation owner');
+    await waitFor(() => expect(control().session?.id).toBe('second'));
+
+    await act(async () => {
+      acceptExpansion({ accepted: true });
+      await expandingOrigin;
+    });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
+
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
+    expect(parked()).not.toContain('second');
+    expect(lastVisibility('second')).toBe(true);
+    expect(dappConfirmationStore.getPendingRequest('second')).toMatchObject({ id: 'confirmation-second' });
+    expect(screen.getByText('Confirmation owner').closest('[role="dialog"]')).toBeVisible();
+
+    await act(async () => {
+      dappConfirmationStore.resolveConfirmation('second', { confirmed: false }, 'confirmation-second');
+      await confirmation;
+    });
   });
 });
