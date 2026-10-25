@@ -286,20 +286,25 @@ jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: () => undefined,
   normalizedFaucetId:
     jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
-  getSwapTokens: () => mockRealSwapRegistry
-    ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapTokens()
-    : mockGetSwapTokens(),
-  subscribeSwapTokens: (listener: () => void) => jest.requireActual('lib/miden/swap/tokens').subscribeSwapTokens(listener),
+  getSwapTokens: () =>
+    mockRealSwapRegistry
+      ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapTokens()
+      : mockGetSwapTokens(),
+  subscribeSwapTokens: (listener: () => void) =>
+    jest.requireActual('lib/miden/swap/tokens').subscribeSwapTokens(listener),
   getSwapTokensVersion: () => jest.requireActual('lib/miden/swap/tokens').getSwapTokensVersion(),
-  getSwapPartners: (faucetId: string) => mockRealSwapRegistry
-    ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapPartners(faucetId)
-    : mockSwapPartners(faucetId),
-  isSwapPair: (faucetId: string, other: string) => mockRealSwapRegistry
-    ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').isSwapPair(faucetId, other)
-    : mockSwapPartners(faucetId).some(token => token.faucetId === other),
+  getSwapPartners: (faucetId: string) =>
+    mockRealSwapRegistry
+      ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapPartners(faucetId)
+      : mockSwapPartners(faucetId),
+  isSwapPair: (faucetId: string, other: string) =>
+    mockRealSwapRegistry
+      ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').isSwapPair(faucetId, other)
+      : mockSwapPartners(faucetId).some(token => token.faucetId === other),
   // The form opens on the document's first two tokens; mirror that over the mocked registry.
   getDefaultSwapPair: () => {
-    if (mockRealSwapRegistry) return jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getDefaultSwapPair();
+    if (mockRealSwapRegistry)
+      return jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getDefaultSwapPair();
     if (mockDefaultPairOverride !== undefined) return mockDefaultPairOverride;
     const [offer, request] = mockGetSwapTokens();
     return offer && request ? { offer, request } : null;
@@ -308,12 +313,18 @@ jest.mock('lib/miden/swap/tokens', () => ({
 
 // The gate reads the registry and the bridge config through these; the registry mock above decides the pair.
 jest.mock('lib/miden/swap/use-swap-tokens', () => ({
-  useSwapTokens: () => mockRealSwapRegistry
-    ? jest.requireActual<typeof import('lib/miden/swap/use-swap-tokens')>('lib/miden/swap/use-swap-tokens').useSwapTokens()
-    : mockGetSwapTokens(),
-  swapAvailability: (snapshot: unknown) => mockRealSwapRegistry
-    ? jest.requireActual('lib/miden/swap/use-swap-tokens').swapAvailability(snapshot)
-    : (mockGetSwapTokens().length >= 2 ? { state: 'available' } : { state: 'loading' })
+  useSwapTokens: () =>
+    mockRealSwapRegistry
+      ? jest
+          .requireActual<typeof import('lib/miden/swap/use-swap-tokens')>('lib/miden/swap/use-swap-tokens')
+          .useSwapTokens()
+      : mockGetSwapTokens(),
+  swapAvailability: (snapshot: unknown) =>
+    mockRealSwapRegistry
+      ? jest.requireActual('lib/miden/swap/use-swap-tokens').swapAvailability(snapshot)
+      : mockGetSwapTokens().length >= 2
+        ? { state: 'available' }
+        : { state: 'loading' }
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({
@@ -629,7 +640,7 @@ describe('SwapFlow / SwapManager', () => {
     mockStringToBigInt.mockImplementation(stringToBigInt);
     mockFormatBigInt.mockImplementation(formatBigInt);
     mockQuoteSwap.mockImplementation(async (_offer, offeredAmount, _request, options) => ({
-      ...quoteAt('1', offeredAmount * 9995n / 10000n, { fillStatus: 'full', reason: null }),
+      ...quoteAt('1', (offeredAmount * 9995n) / 10000n, { fillStatus: 'full', reason: null }),
       offeredAmount,
       slippageBps: options.slippageBps,
       fetchedAt: Date.now()
