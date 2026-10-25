@@ -339,6 +339,19 @@ describe('BottomNav — motion', () => {
     expect(playedOn(slot)[1]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(1)' });
   });
 
+  it('dips only on a primary press: a right click leaves the tab and the bubble still', () => {
+    const { container } = renderNav({ activeId: 'home' });
+    // jsdom has no PointerEvent; a MouseEvent carries the button, and the pointer type is added.
+    const rightClick = new MouseEvent('pointerdown', { bubbles: true, button: 2 });
+    Object.defineProperty(rightClick, 'pointerType', { value: 'mouse' });
+
+    fireEvent(getTab('Home'), rightClick);
+
+    expect(playedOn(getTab('Home'))).toHaveLength(0);
+    expect(playedOn(bubbleOf(container)!.parentElement)).toHaveLength(0);
+    expect(bubbleOf(container)).not.toHaveAttribute('data-pressed');
+  });
+
   it('catches a bubble still dipped with its tab where it is drawn, and lets the slot rest', () => {
     const { container, rerender } = renderNav({ activeId: 'home' });
     const bubble = bubbleOf(container)!;

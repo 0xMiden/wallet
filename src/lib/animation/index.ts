@@ -50,9 +50,11 @@ export {
   cancelSpring,
   currentScale,
   currentTranslate,
+  isPrimaryPress,
   playSpring,
   springKeyframes,
   useCompositorPress,
   type CompositorPressHandlers,
+  type PressPointer,
   type SpringKeyframes
 } from './compositor';

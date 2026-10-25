@@ -212,6 +212,18 @@ describe('useCompositorPress', () => {
     expect(played).toHaveLength(4);
   });
 
+  // framer's press gesture: only the primary touch or pen, or a mouse's main button, presses.
+  it('ignores a right click and a second touch', () => {
+    const { handlers } = setup();
+
+    act(() => handlers.onPointerDown({ pointerType: 'mouse', button: 2, isPrimary: true }));
+    act(() => handlers.onPointerDown({ pointerType: 'touch', button: 0, isPrimary: false }));
+    expect(played).toHaveLength(0);
+
+    act(() => handlers.onPointerDown({ pointerType: 'mouse', button: 0, isPrimary: true }));
+    expect(played).toHaveLength(1);
+  });
+
   it('does nothing when disabled', () => {
     const { handlers } = setup(false);
 

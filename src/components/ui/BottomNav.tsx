@@ -6,6 +6,7 @@ import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import {
   cancelSpring,
+  isPrimaryPress,
   playSpring,
   tabBarMotion,
   useCompositorPress,
@@ -128,7 +129,9 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, r
     // Enter and Space press a button as a pointer does: framer's press gesture dipped on both keys.
     const isPressKey = (e: React.KeyboardEvent) => e.key === 'Enter' || e.key === ' ';
     return {
-      onPointerDown: down,
+      onPointerDown: (e: React.PointerEvent) => {
+        if (isPrimaryPress(e)) down();
+      },
       onPointerUp: release(press.onPointerUp),
       onPointerCancel: release(press.onPointerCancel),
       onPointerLeave: release(press.onPointerLeave),

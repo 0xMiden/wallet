@@ -126,8 +126,16 @@ export function currentTranslate(el: HTMLElement): { x: number; y: number } {
 
 export const scaleKeyframe = (value: number): Keyframe => ({ transform: `scale(${value})` });
 
+/** The pointer fields a press reads. */
+export type PressPointer = Pick<PointerEvent, 'pointerType' | 'button' | 'isPrimary'>;
+
+/** framer's press gesture rule: the primary touch or pen, or a mouse's main button. */
+export const isPrimaryPress = (event: PressPointer): boolean =>
+  event.pointerType === 'mouse' ? event.button === 0 : event.isPrimary !== false;
+
 export interface CompositorPressHandlers {
-  onPointerDown: () => void;
+  /** A keyboard press passes no pointer. */
+  onPointerDown: (event?: PressPointer) => void;
   onPointerUp: () => void;
   onPointerCancel: () => void;
   onPointerLeave: () => void;
@@ -135,7 +143,8 @@ export interface CompositorPressHandlers {
 
 /**
  * A press dip on the compositor: down scales `ref` to `scale`, up, cancel or leave bring it back to
- * 1, each from the scale it is drawn at. Nothing happens while `enabled` is false.
+ * 1, each from the scale it is drawn at. Nothing happens while `enabled` is false, or on a pointer
+ * that is not a primary press.
  */
 export function useCompositorPress(
   ref: RefObject<HTMLElement>,
@@ -162,8 +171,8 @@ export function useCompositorPress(
       scaleTo(1);
     };
     return {
-      onPointerDown: () => {
-        if (!enabled) return;
+      onPointerDown: (event?: PressPointer) => {
+        if (!enabled || (event && !isPrimaryPress(event))) return;
         pressed.current = true;
         scaleTo(scale);
       },
