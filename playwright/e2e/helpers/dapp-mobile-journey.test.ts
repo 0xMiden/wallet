@@ -698,7 +698,10 @@ describe('mobile journey hooks and setup', () => {
           declared: ['W1', 'W4', 'X1'],
           registry: registryOf([]),
           budgets: { write: 5_000 },
-          quiesceBudgetMs: quiesceMs
+          quiesceBudgetMs: quiesceMs,
+          // Read the clock per call: the fake timers start after construction, and a captured host Date.now would
+          // shorten the nested join deadline by the real milliseconds that pass.
+          now: () => Date.now()
         })
     );
     const { journey } = await prepare();
