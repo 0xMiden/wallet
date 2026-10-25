@@ -107,15 +107,15 @@ export function sheetKeyframesCss(): string {
 }
 
 /** Idempotent, so every sheet may call it; the keyframes are global CSS. */
-export function installSheetKeyframes(doc: Document = document): void {
+export function installSheetKeyframes(): void {
   const css = sheetKeyframesCss();
-  const existing = doc.getElementById(KEYFRAMES_ELEMENT_ID);
+  const existing = document.getElementById(KEYFRAMES_ELEMENT_ID);
   if (existing) {
     if (existing.textContent !== css) existing.textContent = css;
     return;
   }
-  const style = doc.createElement('style');
+  const style = document.createElement('style');
   style.id = KEYFRAMES_ELEMENT_ID;
   style.textContent = css;
-  doc.head.appendChild(style);
+  document.head.appendChild(style);
 }

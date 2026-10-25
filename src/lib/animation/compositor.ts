@@ -9,7 +9,7 @@
  *
  * One animation per element: playing a spring on an element cancels the one played on it before,
  * so a new motion takes over from the last. Callers read where the element is drawn
- * (`currentScale`, `currentTranslate`, a rect) before they play, to start from there.
+ * (`currentScale`, a rect) before they play, to start from there.
  */
 
 import { RefObject, useEffect, useMemo, useRef } from 'react';
@@ -38,11 +38,10 @@ export function springKeyframes(
   transition: Transition,
   from: number,
   to: number,
-  frame: (value: number) => Keyframe,
-  velocity = 0
+  frame: (value: number) => Keyframe
 ): SpringKeyframes | null {
   const unit = Math.abs(to - from) < GRANULAR_DELTA ? GRANULAR_UNIT : 1;
-  const sampled = springKeyframeStops(transition, { distance: (from - to) * unit, velocity: velocity * unit });
+  const sampled = springKeyframeStops(transition, { distance: (from - to) * unit, velocity: 0 });
   if (!sampled) return null;
   return {
     duration: sampled.duration,
@@ -116,12 +115,6 @@ function computedMatrix(el: Element): DOMMatrixReadOnly | null {
 export function currentScale(el: HTMLElement): number {
   const matrix = computedMatrix(el);
   return matrix ? Math.hypot(matrix.a, matrix.b) : 1;
-}
-
-/** The translation `el` is drawn at, a running animation included. */
-export function currentTranslate(el: HTMLElement): { x: number; y: number } {
-  const matrix = computedMatrix(el);
-  return matrix ? { x: matrix.e, y: matrix.f } : { x: 0, y: 0 };
 }
 
 export const scaleKeyframe = (value: number): Keyframe => ({ transform: `scale(${value})` });

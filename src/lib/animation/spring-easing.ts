@@ -25,6 +25,8 @@ import type { Transition } from 'framer-motion';
 
 /** Sampling interval for the emitted curve. */
 const SAMPLE_STEP_MS = 4;
+/** Keyframe stride. Two solver samples, so a stop still lands every 8 ms. */
+const KEYFRAME_STEP_MS = 8;
 /** Hard ceiling so a pathological spring can't emit an enormous easing string. */
 const MAX_DURATION_MS = 2000;
 /** Distances below this are not worth animating. */
@@ -122,18 +124,14 @@ export function springToLinearEasing(transition: Transition, options: SpringEasi
 /**
  * The same spring as explicit keyframe stops. WebKit runs a `linear()` easing at
  * 60 Hz but samples keyframes at the display rate, so a spring that has to track
- * a 120 Hz panel goes through offsets instead. Every `stepMs / SAMPLE_STEP_MS`-th
+ * a 120 Hz panel goes through offsets instead. Every `KEYFRAME_STEP_MS / SAMPLE_STEP_MS`-th
  * sample is kept, plus the final one.
  */
-export function springKeyframeStops(
-  transition: Transition,
-  options: SpringEasingOptions,
-  stepMs = 8
-): SpringKeyframeStops | null {
+export function springKeyframeStops(transition: Transition, options: SpringEasingOptions): SpringKeyframeStops | null {
   const samples = sampleSpring(transition, options);
   if (!samples) return null;
 
-  const stride = Math.max(1, Math.round(stepMs / SAMPLE_STEP_MS));
+  const stride = Math.max(1, Math.round(KEYFRAME_STEP_MS / SAMPLE_STEP_MS));
   const last = samples.progress.length - 1;
   const stops: SpringKeyframeStop[] = [];
   samples.progress.forEach((progress, i) => {

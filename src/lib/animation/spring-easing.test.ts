@@ -41,4 +41,16 @@ describe('springKeyframeStops', () => {
     expect(springKeyframeStops({ type: 'tween', duration: 0.2 }, { distance: 90 })).toBeNull();
     expect(springKeyframeStops(springs.sheetOpen, { distance: 0.1 })).toBeNull();
   });
+
+  it('keeps the 8 ms stride when a third argument is passed', () => {
+    const fine = springKeyframeStops(springs.sheetOpen, { distance: 420 });
+    const sampled: (
+      transition: Parameters<typeof springKeyframeStops>[0],
+      options: Parameters<typeof springKeyframeStops>[1],
+      stepMs: number
+    ) => ReturnType<typeof springKeyframeStops> = springKeyframeStops;
+    const coarse = sampled(springs.sheetOpen, { distance: 420 }, 1000);
+    if (!fine || !coarse) throw new Error('expected stops');
+    expect(coarse.stops.length).toBe(fine.stops.length);
+  });
 });

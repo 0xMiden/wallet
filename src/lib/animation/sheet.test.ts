@@ -154,12 +154,21 @@ describe('sheet keyframes', () => {
   });
 
   it('installs one style element however many sheets ask', () => {
-    installSheetKeyframes(document);
-    installSheetKeyframes(document);
+    installSheetKeyframes();
+    installSheetKeyframes();
     const styles = document.head.querySelectorAll('#miden-sheet-keyframes');
     expect(styles).toHaveLength(1);
     expect(styles[0]!.textContent).toBe(sheetKeyframesCss());
     styles[0]!.remove();
+  });
+
+  it('installs sheet keyframes on the page document when a caller passes another document', () => {
+    const other = document.implementation.createHTMLDocument('sheet');
+    const install: (doc?: Document) => void = installSheetKeyframes;
+    install(other);
+
+    expect(other.getElementById('miden-sheet-keyframes')).toBeNull();
+    document.getElementById('miden-sheet-keyframes')?.remove();
   });
 });
 

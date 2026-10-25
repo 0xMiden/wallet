@@ -1,15 +1,12 @@
 import { act, renderHook } from '@testing-library/react';
 
-import {
-  cancelSpring,
-  currentScale,
-  currentTranslate,
-  playSpring,
-  springKeyframes,
-  useCompositorPress
-} from './compositor';
+import * as animation from 'lib/animation';
+
+import * as compositor from './compositor';
 import { springKeyframeStops } from './spring-easing';
 import { springs } from './springs';
+
+const { cancelSpring, currentScale, playSpring, springKeyframes, useCompositorPress } = compositor;
 
 interface Played {
   element: Element;
@@ -89,6 +86,20 @@ describe('springKeyframes', () => {
     expect(springKeyframes(springs.tabSwitch, 12, 12, translateX)).toBeNull();
     expect(springKeyframes({ duration: 0.001 }, 80, 0, translateX)).toBeNull();
   });
+
+  it('keeps the same keyframes when a fifth argument is passed', () => {
+    const withVelocity: (
+      transition: Parameters<typeof springKeyframes>[0],
+      from: Parameters<typeof springKeyframes>[1],
+      to: Parameters<typeof springKeyframes>[2],
+      frame: Parameters<typeof springKeyframes>[3],
+      velocity: number
+    ) => ReturnType<typeof springKeyframes> = springKeyframes;
+
+    expect(withVelocity(springs.tabSwitch, 80, 0, translateX, 1200)).toEqual(
+      springKeyframes(springs.tabSwitch, 80, 0, translateX)
+    );
+  });
 });
 
 describe('playSpring', () => {
@@ -147,14 +158,7 @@ describe('playSpring', () => {
   });
 });
 
-describe('currentScale / currentTranslate', () => {
-  it('reads the translation of the computed transform', () => {
-    const el = document.createElement('div');
-    el.style.transform = 'matrix(1, 0, 0, 1, 12, 0)';
-
-    expect(currentTranslate(el)).toEqual({ x: 12, y: 0 });
-  });
-
+describe('currentScale', () => {
   it('reads the scale of the computed transform', () => {
     const el = document.createElement('div');
     el.style.transform = 'matrix(0.92, 0, 0, 0.92, 0, 0)';
@@ -167,7 +171,42 @@ describe('currentScale / currentTranslate', () => {
     el.style.transform = 'none';
 
     expect(currentScale(el)).toBe(1);
-    expect(currentTranslate(el)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('published surface', () => {
+  it('does not publish currentTranslate or sampleSpring', () => {
+    expect(compositor).not.toHaveProperty('currentTranslate');
+    expect(animation).not.toHaveProperty('sampleSpring');
+
+    type Animation = typeof import('lib/animation');
+    type Leftover = Extract<
+      | 'sampleSpring'
+      | 'currentTranslate'
+      | 'SpringSamples'
+      | 'SpringKeyframeStop'
+      | 'SpringKeyframeStops'
+      | 'CompositorSpring',
+      keyof Animation
+    >;
+    const unpublished: [Leftover] extends [never] ? true : Leftover = true;
+    expect(unpublished).toBe(true);
+
+    const present = <T>(_value?: T): true => true;
+    // @ts-expect-error SpringSamples is not a barrel export
+    type SpringSamplesProbe = import('lib/animation').SpringSamples;
+    // @ts-expect-error SpringKeyframeStop is not a barrel export
+    type SpringKeyframeStopProbe = import('lib/animation').SpringKeyframeStop;
+    // @ts-expect-error SpringKeyframeStops is not a barrel export
+    type SpringKeyframeStopsProbe = import('lib/animation').SpringKeyframeStops;
+    // @ts-expect-error CompositorSpring is not a barrel export
+    type CompositorSpringProbe = import('lib/animation').CompositorSpring;
+    expect(
+      present<SpringSamplesProbe>() &&
+        present<SpringKeyframeStopProbe>() &&
+        present<SpringKeyframeStopsProbe>() &&
+        present<CompositorSpringProbe>()
+    ).toBe(true);
   });
 });
 
