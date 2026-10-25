@@ -12,7 +12,15 @@ import { RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, us
 
 import { useReducedMotion, type TargetAndTransition, type Transition } from 'framer-motion';
 
-import { cancelSpring, playKeyframes, scaleKeyframe, springKeyframes, type SpringKeyframes } from './compositor';
+import {
+  cancelSpring,
+  currentScale,
+  playKeyframes,
+  playSpring,
+  scaleKeyframe,
+  springKeyframes,
+  type SpringKeyframes
+} from './compositor';
 import { easings } from './easings';
 import { springs } from './springs';
 import { reducedMotionTransition, resolveTransition } from './use-motion';
@@ -144,7 +152,8 @@ function iconPopKeyframes(): SpringKeyframes | null {
 /**
  * `useTabIconPop` on the compositor, for the bottom nav: the icon in `ref` rises to `iconPopScale`
  * on `iconPopUp` and settles back on `iconPopSettle`, joined into one keyframe animation (see
- * `compositor.ts`). Nothing pops on mount or under reduced motion.
+ * `compositor.ts`). A tab that stops being active settles back on `iconPopSettle` from the scale it is
+ * drawn at. Nothing pops on mount, and reduced motion cancels a running pop.
  */
 export function useCompositorTabIconPop(ref: RefObject<HTMLElement>, active: boolean): void {
   const reduceMotion = useReducedMotion();
@@ -152,12 +161,19 @@ export function useCompositorTabIconPop(ref: RefObject<HTMLElement>, active: boo
 
   // Before paint, so the pop starts in the frame that shows the tab active.
   useLayoutEffect(() => {
-    const becameActive = active && !wasActive.current;
+    const was = wasActive.current;
     wasActive.current = active;
     const el = ref.current;
-    if (!el || !becameActive || reduceMotion) return;
-    const pop = iconPopKeyframes();
-    playKeyframes(el, pop?.keyframes ?? null, pop?.duration ?? 0, scaleKeyframe(1));
+    if (!el) return;
+    if (reduceMotion) {
+      if (was) cancelSpring(el);
+    } else if (active && !was) {
+      const pop = iconPopKeyframes();
+      playKeyframes(el, pop?.keyframes ?? null, pop?.duration ?? 0, scaleKeyframe(1));
+    } else if (!active && was) {
+      // The drawn scale is read before playSpring cancels the rise, which has already written scale(1).
+      playSpring(el, tabBarMotion.iconPopSettle, currentScale(el), 1, scaleKeyframe, 'scale');
+    }
   }, [active, reduceMotion, ref]);
 
   useEffect(() => {
