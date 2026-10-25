@@ -2,19 +2,18 @@ import React, { useContext } from 'react';
 
 import { motion, PresenceContext, Transition, Variants } from 'framer-motion';
 
-import { pageSlideDim, pageSlideParallax, presets } from 'lib/animation';
+import { pageSlideCovered, pageSlideDim, presets } from 'lib/animation';
 
 export type OnboardingStepDirection = 'forward' | 'backward';
 
-// Every x here is the `page` preset's: a new page comes in from, and a popped one leaves to, its
-// `initial`/`exit` x (the right edge); the page beneath parks at `pageSlideParallax`.
-const offscreenX = presets.page.initial?.x ?? '100%';
-
+// Every target here is the `page` preset's: a new page comes in from, and a popped one leaves to, its
+// `initial`/`exit` (the right edge); the page beneath parks at `pageSlideCovered`.
 /** The step itself: in from the right going forward, uncovered from beneath going back. */
 const onboardingStepVariants: Variants = {
-  enter: (direction: OnboardingStepDirection) => ({ x: direction === 'forward' ? offscreenX : pageSlideParallax }),
-  center: { x: 0 },
-  exit: (direction: OnboardingStepDirection) => ({ x: direction === 'forward' ? pageSlideParallax : offscreenX })
+  enter: (direction: OnboardingStepDirection) =>
+    (direction === 'forward' ? presets.page.initial : pageSlideCovered) ?? {},
+  center: presets.page.animate ?? {},
+  exit: (direction: OnboardingStepDirection) => (direction === 'forward' ? pageSlideCovered : presets.page.exit) ?? {}
 };
 
 /** The dim over a step while it sits beneath another, as over the page beneath a pushed page. */

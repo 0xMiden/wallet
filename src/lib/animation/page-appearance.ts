@@ -1,4 +1,4 @@
-import type { Transition } from 'framer-motion';
+import type { TargetAndTransition, Transition } from 'framer-motion';
 
 import { durations } from './durations';
 import { easings } from './easings';
@@ -16,6 +16,10 @@ export const pageSlideEntrance: Transition = {
 
 // Horizontal offset of the page that sits under a slid-in page.
 export const pageSlideParallax = '-24%';
+
+// Where the page beneath a slid-in page rests. A `transform` rather than `x`, like the `page` preset,
+// so the covered page animates on the compositor too.
+export const pageSlideCovered: TargetAndTransition = { transform: `translateX(${pageSlideParallax})` };
 
 // Opacity of the black dim over the page that sits under a slid-in page.
 export const pageSlideDim = 0.08;

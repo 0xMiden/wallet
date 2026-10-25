@@ -4,7 +4,7 @@ import { cancelSwapOrder, createSwapOrder, fundSwapPair, readLineage, tokenBalan
 /**
  * Scenario 3.4 — cancel / reclaim.
  *
- * A offers 10 SWPA for 9 SWPB and no one fills it. A cancels the order and
+ * A offers 10 SWPA for 9.995 SWPB and no one fills it. A cancels the order and
  * reclaims the offered asset. Asserts: creating the order locks the offered 10
  * SWPA out of A's vault, and cancelling restores it (order lineage → reclaimed,
  * A's SWPA balance back to the full funded amount).
@@ -35,8 +35,9 @@ test.describe('swap: cancel + reclaim', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
+      amountAnchor: 'pay',
       payAmount: '10',
-      receiveAmount: '9'
+      receiveAmount: '9.995'
     });
     expect(orderId, 'maker order id').not.toBe('');
 

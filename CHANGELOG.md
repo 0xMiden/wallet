@@ -1,9 +1,18 @@
 # Changelog
 
-## 1.17.7 (TBD)
+## 1.17.7 (2026-10-25)
 
 ### Changes
 
+- [FIX][all] Swap forms react to late token-registry overrides and retain a completed quote when the current token is selected again.
+- [FIX][e2e] Ethereum mainnet bridge bids and funding checks use twice the base fee as headroom so a short-lived quote can survive rising fees.
+
+- [FIX][all] A live note consume keeps ownership of its completion until its result is stored, preventing dApp waits from seeing a completed transaction with no result.
+
+- [FIX][e2e] Ethereum mainnet receipt checks allow up to ten minutes for mined approvals and deposits while keeping other-chain limits and immediate revert detection.
+
+- [FIX][all] Japanese and Russian Guardian acknowledgement copy now describes acknowledgement without implying transaction approval.
+- [CHANGE][all] Guardian polish: Guardian copy says "acknowledges" instead of "co-signs". The What is a Guardian? sheet fits without scrolling, with heavier type and new solid check, alert and cross badges. Choose your Guardian lists the current operator under "Current" and the rest under "Other Guardians available" on outline cards, with a Learn more pill and Nunito throughout; a tapped card keeps its selection ring. Review rotation opens with a short explainer, shows the two operators side by side on round logo tiles, says "Approve with" and states that the old Guardian cannot block the switch as a fact instead of a warning. Guardian settings and the transaction details tighten their spacing.
 - [CHANGE][ci] The mainnet nightly's AggLayer loop runs in its own job on ubuntu-latest after the main job, failed or not, waits up to 120 minutes for its exit and settles once anyone has claimed it, verifying the claim on Ethereum and claiming the exit itself only if it stays unclaimed for five minutes after it is ready; the job summary records the night's timings, and a dispatch can run the main job on ubuntu-latest (#1826).
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).
@@ -44,6 +53,7 @@
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
 - [FIX][android] Sign-in uses Auth Tab where the browser supports it, returning the callback privately to Bread; other browsers keep the Custom Tab flow and its in-memory-secret requirement (#1586).
 - [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
+- [FIX][mobile] Sheets, page slides, the bottom nav, the cold dApp snapshot and the morph companions run at the display's full refresh rate on ProMotion iPhones, where they ran at 60 Hz, and the selection haptic on tabs, segments and pickers fires on iOS (#1841).
 
 ## 1.17.6 (2026-10-23)
 
