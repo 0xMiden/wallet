@@ -78,10 +78,12 @@ import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
 
 import {
+  beginAttemptInThisRealm,
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  endAttemptInThisRealm,
   markStartedInThisRealm,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
@@ -4563,6 +4565,7 @@ export const generateTransactionsLoop = async (
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
+  beginAttemptInThisRealm(nextTransaction.id);
   try {
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
@@ -4755,6 +4758,8 @@ export const generateTransactionsLoop = async (
       await markTransactionUnconfirmed(tx, e);
     }
     return false;
+  } finally {
+    endAttemptInThisRealm(nextTransaction.id);
   }
 
   // Every requeue arm leaves its row Queued with a cooldown of at least 15 s, while a row parked for its recovery seed
