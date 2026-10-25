@@ -223,7 +223,7 @@ describe('Android native keyboard layout', () => {
     });
   });
 
-  it('uses the focused field and input-method state when the keyboard bounds are unavailable', () => {
+  it('reports no usable keyboard when input_method has no rectangle', () => {
     const parse = nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
       'parseAndroidKeyboardLayout'
     );
@@ -233,7 +233,7 @@ describe('Android native keyboard layout', () => {
       'bounds="[20,200][420,244]" /></node></hierarchy>';
 
     expect(parse(hierarchy, 'mInputShown=true', 'dApp input')).toEqual({
-      keyboardVisible: true,
+      keyboardVisible: false,
       keyboardTop: null,
       fieldFrame: { x: 20, y: 200, width: 400, height: 44 },
       webViewFrame: { x: 0, y: 100, width: 440, height: 780 }
@@ -319,5 +319,135 @@ describe('Android native keyboard layout', () => {
 
     expect(typeof device.tapAccessibilityLabel).toBe('function');
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('dApp input');
+  });
+
+  it('taps the Android field from the second hierarchy when the first has no frame', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (!args.includes('uiautomator')) return '';
+      reads += 1;
+      return reads === 1
+        ? '<hierarchy />'
+        : '<hierarchy><node class="android.widget.EditText" content-desc="dApp input" bounds="[20,200][420,244]" /></hierarchy>';
+    };
+
+    await androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input');
+
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'input', 'tap', '220', '222']
+    ]);
+  });
+
+  it('records the missed Android hierarchy and window focus', async () => {
+    const calls: string[][] = [];
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      return args.includes('uiautomator')
+        ? '<hierarchy><node class="android.widget.EditText" content-desc="another input" bounds="[20,200][420,244]" /></hierarchy>'
+        : 'mCurrentFocus=Window{test com.miden.bread/.MainActivity}';
+    };
+
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
+      /Android accessibility label not found: dApp input.*nodes=.*another input.*focus=/
+    );
+    expect(calls.some(call => call.includes('tap'))).toBe(false);
+  });
+
+  it('records an empty Android dump as nodes=0', async () => {
+    const run: AdbRun = async () => 'UI hierchary dumped to: /dev/tty';
+
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('nodes=0');
+  });
+
+  it.each([
+    [
+      'visible frame',
+      'InsetsSource: {3 mType=ime mFrame=[0,1500][1080,2400] mVisible=true mVisibleFrame=[0,1364][1080,2400]}',
+      true,
+      1364
+    ],
+    ['Rect frame', 'mType=ime mVisible=true mFrame=Rect(0, 1364 - 1080, 2400)', true, 1364],
+    [
+      'zero-height visible frame',
+      'mType=ime mVisible=true mFrame=[0,1500][1080,2400] mVisibleFrame=[0,1364][1080,1364]',
+      false,
+      null
+    ]
+  ])('reads keyboardTop from the IME %s', (_name, inputMethod, keyboardVisible, keyboardTop) => {
+    const parse = nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
+      'parseAndroidKeyboardLayout'
+    );
+
+    expect(parse('<hierarchy />', String(inputMethod), 'dApp input')).toMatchObject({ keyboardVisible, keyboardTop });
+  });
+
+  it('reads keyboardTop from dumpsys window displays when input_method has no rectangle', async () => {
+    const calls: string[][] = [];
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('uiautomator')) {
+        return (
+          '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][1080,2400]">' +
+          '<node class="android.widget.EditText" content-desc="dApp input" focused="true" bounds="[20,200][1020,244]" /></node></hierarchy>'
+        );
+      }
+      if (args.includes('input_method')) return 'mInputShown=true';
+      return 'InsetsSource: {3 mType=ime mFrame=[0,1500][1080,2400] mVisible=true mVisibleFrame=[0,1364][1080,2400]}';
+    };
+
+    await expect(androidDevice(['emulator-a'], run).keyboardLayout('A', 'dApp input')).resolves.toMatchObject({
+      keyboardVisible: true,
+      keyboardTop: 1364,
+      fieldFrame: { x: 20, y: 200, width: 1000, height: 44 }
+    });
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'dumpsys', 'input_method'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'dumpsys', 'input_method'],
+      ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
+    ]);
+  });
+});
+
+describe('iOS native keyboard field lookup', () => {
+  it('taps the iOS field from the second tree when the first has no frame', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      if (!args.includes('describe-all')) return '';
+      reads += 1;
+      return reads === 1
+        ? '[]'
+        : JSON.stringify([
+            { type: 'TextField', AXLabel: 'dApp input', frame: { x: 20, y: 200, width: 350, height: 44 } }
+          ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await device.tapAccessibilityLabel('A', 'dApp input');
+
+    expect(calls).toEqual([
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '195', '222']
+    ]);
+  });
+
+  it('records the missed iOS tree when the label is absent', async () => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([{ type: 'WebView', frame: { x: 0, y: 100, width: 390, height: 700 } }]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/iOS accessibility label not found.*nodes=/);
+    expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 });
