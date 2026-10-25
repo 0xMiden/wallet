@@ -455,4 +455,17 @@ describe('a broadcast claim whose receipt wait rejects', () => {
     await expect(claim()).rejects.toBeInstanceOf(AgglayerClaimNotSentError);
     expect(mockWriteContract).not.toHaveBeenCalled();
   });
+
+  it('a proof body the claim cannot be built from is not sent and spends no write', async () => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(async () => new Response(JSON.stringify({}), { status: 200 }))
+      .mockImplementationOnce(
+        async () =>
+          new Response(JSON.stringify({ proof: { ...merkleProof(), main_exit_root: 'not hex' } }), { status: 200 })
+      );
+    await expect(claim()).rejects.toBeInstanceOf(AgglayerClaimNotSentError);
+    await expect(claim()).rejects.toBeInstanceOf(AgglayerClaimNotSentError);
+    expect(mockWriteContract).not.toHaveBeenCalled();
+  });
 });
