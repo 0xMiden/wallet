@@ -350,17 +350,65 @@ export async function installTestDapp(
   server: DappServer = createDappServer(),
   origins: readonly string[] = Object.values(DAPP_ORIGINS)
 ): Promise<void> {
-  for (const origin of origins) {
-    await context.route(`${origin}/**`, async route => {
-      const served = server.serve(new URL(route.request().url()).pathname);
-      await route.fulfill({ status: served.status, contentType: served.contentType, body: served.body });
-    });
+  const listener = http.createServer(staticDappHandler(server));
+  await new Promise<void>((resolve, reject) => {
+    listener.once('error', reject);
+    listener.listen(0, '127.0.0.1', resolve);
+  });
+  listener.unref();
+  const address = listener.address();
+  if (!address || typeof address === 'string') throw new Error('static dApp listener has no TCP address');
+  const stop = (): void => {
+    listener.close();
+    listener.closeAllConnections();
+  };
+  context.once('close', stop);
+  try {
+    for (const origin of origins) {
+      await context.route(`${origin}/**`, async route => {
+        const pathname = new URL(route.request().url()).pathname;
+        const response = await context.request.get(`http://127.0.0.1:${address.port}${pathname}`, {
+          failOnStatusCode: false,
+          maxRedirects: 0
+        });
+        try {
+          const headers = Object.fromEntries(
+            Object.entries(response.headers()).filter(
+              ([name, value]) => name === 'content-type' || (name === 'content-length' && Number(value) > 0)
+            )
+          );
+          // A same-connection response carries its body by reference; body/path would copy base64 into every trace.
+          await route.fulfill({ response, headers });
+        } finally {
+          await response.dispose();
+        }
+      });
+    }
+  } catch (error) {
+    context.off('close', stop);
+    stop();
+    throw error;
   }
 }
 
 /** A handler for the routes the static server does not own; it returns true when it answered the request. */
 export type LoopbackRoutes = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
 const PAGE_MODULE = /^\/[a-z][a-z0-9-]*\.js$/;
+
+function staticDappHandler(server: DappServer, routes?: LoopbackRoutes): http.RequestListener {
+  return (request, response) => {
+    if (routes?.(request, response) === true) return;
+    const pathname = new URL(request.url ?? '/', 'http://loopback').pathname;
+    const served = server.serve(pathname);
+    // The shell and the page modules come from the working tree, which a session edits between loads (spec 3.2).
+    const noStore = served.contentType.startsWith('text/html') || PAGE_MODULE.test(pathname);
+    response.writeHead(served.status, {
+      'content-type': served.contentType,
+      ...(noStore ? { 'cache-control': 'no-store' } : {})
+    });
+    response.end(served.body);
+  };
+}
 
 /**
  * Loopback-listener mode, for when Chromium treats a route-fulfilled page as public and applies Local Network
@@ -373,18 +421,7 @@ export async function serveTestDappOnLoopback(
   port: number = DAPP_PORT,
   routes?: LoopbackRoutes
 ): Promise<() => Promise<void>> {
-  const handler = (request: http.IncomingMessage, response: http.ServerResponse): void => {
-    if (routes?.(request, response) === true) return;
-    const pathname = new URL(request.url ?? '/', 'http://loopback').pathname;
-    const served = server.serve(pathname);
-    // The shell and the page modules come from the working tree, which a session edits between loads (spec 3.2).
-    const noStore = served.contentType.startsWith('text/html') || PAGE_MODULE.test(pathname);
-    response.writeHead(served.status, {
-      'content-type': served.contentType,
-      ...(noStore ? { 'cache-control': 'no-store' } : {})
-    });
-    response.end(served.body);
-  };
+  const handler = staticDappHandler(server, routes);
   const listen = (host: string): Promise<http.Server | null> =>
     new Promise((resolve, reject) => {
       const listener = http.createServer(handler);

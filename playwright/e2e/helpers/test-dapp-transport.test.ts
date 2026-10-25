@@ -38,12 +38,14 @@ it.each([
     }
   };
   let inlineBytes = -1;
+  let backingUrl: string | undefined;
   let delivered: { status: number; headers: Record<string, string>; body: Buffer } | undefined;
   const route = {
     request: () => ({ url: () => `http://localhost:4810${fixture.pathname}?v=1` }),
     fulfill: async (options: NonNullable<Parameters<Route['fulfill']>[0]>) => {
       inlineBytes = options.body === undefined ? 0 : Buffer.byteLength(options.body);
       if (options.response) {
+        backingUrl = options.response.url();
         delivered = {
           status: options.status ?? options.response.status(),
           headers: options.headers ?? options.response.headers(),
@@ -64,6 +66,8 @@ it.each([
       'content-type': fixture.contentType,
       'content-length': String(fixture.body.length)
     });
+    context.emit('close');
+    await expect(api.get(backingUrl!, { timeout: 1000, maxRetries: 0 })).rejects.toThrow();
   } finally {
     context.emit('close');
     await api.dispose();
