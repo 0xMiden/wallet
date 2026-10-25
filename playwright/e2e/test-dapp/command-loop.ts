@@ -100,7 +100,36 @@ function pageFacts(): Record<string, unknown> {
   };
 }
 
+function accessibleLabel(element: HTMLElement): string | null {
+  const ariaLabel = element.getAttribute('aria-label')?.trim();
+  if (ariaLabel) return ariaLabel;
+  const labelledBy = element.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map(id => element.ownerDocument.getElementById(id)?.textContent?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ');
+    if (text) return text;
+  }
+  const control = element as HTMLInputElement;
+  const labels = control.labels;
+  const label = labels
+    ? Array.from(labels)
+        .map(node => node.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ')
+    : '';
+  return label || null;
+}
+
 function snapshot(): Record<string, unknown> {
+  const active = document.activeElement;
+  const input = Array.from(document.querySelectorAll<HTMLInputElement>('input')).find(
+    field => field.type !== 'password' && field.type !== 'hidden'
+  );
+  const textarea = document.querySelector<HTMLTextAreaElement>('textarea');
+  const viewport = window.visualViewport;
   return {
     href: window.location.href,
     origin: window.location.origin,
@@ -108,6 +137,19 @@ function snapshot(): Record<string, unknown> {
     visibility: document.visibilityState,
     provider: typeof Reflect.get(window, 'midenWallet'),
     ready: testDapp().ready,
+    form: {
+      activeField:
+        active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? accessibleLabel(active) : null,
+      inputValue: input?.value ?? null,
+      textareaValue: textarea?.value ?? null
+    },
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      visualWidth: viewport?.width ?? null,
+      visualHeight: viewport?.height ?? null,
+      visualOffsetTop: viewport?.offsetTop ?? null
+    },
     ...pageFacts()
   };
 }
