@@ -40,6 +40,8 @@ test.skip(!process.env.E2E_MAINNET_EVM_KEY, 'E2E_MAINNET_EVM_KEY is unset');
 
 // One deadline for every burn's payout, counted from the last burn.
 const PAYOUT_WAIT_MS = 1_800_000;
+// Left of the test's timeout after the wait, so the proofs, the fee log and the named failure always run.
+const VERIFY_MARGIN_MS = 300_000;
 const PAYOUT_POLL_MS = 10_000;
 const PAYOUT_SUMMARY = 'test-results/mainnet-usdcx-payouts.md';
 
@@ -51,7 +53,8 @@ interface MainnetBurn {
 }
 
 test('loops the minimum on every mainnet USDCx route', async ({ walletA }) => {
-  test.setTimeout(3_600_000);
+  const started = Date.now();
+  test.setTimeout(4_800_000);
   const signer = mainnetEvmKey();
   const evm = privateKeyToAccount(signer);
   const doc = await loadMainnetDocument();
@@ -73,43 +76,63 @@ test('loops the minimum on every mainnet USDCx route', async ({ walletA }) => {
 
   const burns: MainnetBurn[] = [];
   for (const loop of loops) burns.push(await runUsdcx(doc, loop, signer, accountId, evm.address, walletA));
-  await proveMainnetPayouts(doc, burns, evm.address, walletA);
+  const latest = started + test.info().timeout - VERIFY_MARGIN_MS;
+  await proveMainnetPayouts(doc, burns, evm.address, walletA, Math.min(Date.now() + PAYOUT_WAIT_MS, latest));
 });
 
 /**
- * Waits for the wallet to record every burn's payout mint, then proves each on chain and logs Circle's fee. The fees of
- * the paid burns are logged before a burn left unpaid or unproven fails the test.
+ * Waits until `deadline` for the wallet to record every burn's payout mint, then proves each on chain and logs Circle's
+ * fee. The fees of the paid burns are logged before a burn left unpaid or unproven fails the test; when the gateway
+ * source cannot be read, each paid burn's fee is logged as the wallet reported it, marked unverified.
  */
 async function proveMainnetPayouts(
   doc: MainnetUsdcxDocument,
   burns: readonly MainnetBurn[],
   recipient: `0x${string}`,
-  wallet: GuardianAwareWalletPage
+  wallet: GuardianAwareWalletPage,
+  deadline: number
 ): Promise<void> {
-  const gateway = await readMainnetGatewaySource(doc);
   const read = async () => {
     const rows = await readBridgedSendRows(wallet.page);
     return burns.map(burn => ({ burn, usdcxBurn: rows.find(row => row.id === burn.rowId)?.extraInputs?.usdcxBurn }));
   };
-  const deadline = Date.now() + PAYOUT_WAIT_MS;
+  const waitedMinutes = Math.max(0, Math.round((deadline - Date.now()) / 60_000));
   let found = await read();
   while (found.some(({ usdcxBurn }) => !usdcxBurn?.payout) && Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, PAYOUT_POLL_MS));
+    await new Promise(resolve => setTimeout(resolve, Math.min(PAYOUT_POLL_MS, Math.max(0, deadline - Date.now()))));
     found = await read();
   }
   const failures: string[] = [];
+  const gateway = await readMainnetGatewaySource(doc).catch((error: unknown) => {
+    failures.push(`the gateway source read failed, so no payout was verified: ${errorMessage(error)}`);
+    return undefined;
+  });
   for (const { burn, usdcxBurn } of found) {
     const chain = mainnetChain(burn.loop.chainId).name;
     const payout = usdcxBurn?.payout;
     if (!usdcxBurn || !payout) {
       failures.push(
-        `${chain}: burn ${usdcxBurn?.noteId ?? `row ${burn.rowId} with no note id`} unpaid after 30 minutes, ` +
+        `${chain}: burn ${usdcxBurn?.noteId ?? `row ${burn.rowId} with no note id`} unpaid after ` +
+          `${waitedMinutes} minutes, phase ${usdcxBurn?.phase ?? 'none'}, ` +
+          `last error ${usdcxBurn?.lastError ?? 'none'}, ` +
           `the wallet's payout scan reached block ${usdcxBurn?.payoutScannedBlock ?? 'none'}`
       );
       continue;
     }
     if (!isHash(payout.transactionHash)) {
       failures.push(`${chain}: burn ${usdcxBurn.noteId} recorded mint ${payout.transactionHash}, not a hash`);
+      continue;
+    }
+    if (!/^\d+$/.test(payout.value)) {
+      failures.push(`${chain}: burn ${usdcxBurn.noteId} recorded value ${payout.value}, not base units`);
+      continue;
+    }
+    const entry = { chain, burnUnits: LOOP_USDC, transactionHash: payout.transactionHash };
+    if (!gateway) {
+      recordPayoutFee(
+        { ...entry, suite: 'mainnet-bridge-loop (unverified)', value: BigInt(payout.value) },
+        PAYOUT_SUMMARY
+      );
       continue;
     }
     try {
@@ -124,15 +147,16 @@ async function proveMainnetPayouts(
         gatewayMinter: gateway.gatewayMinter,
         depositor: gateway.depositor
       });
-      recordPayoutFee(
-        { suite: 'mainnet-bridge-loop', chain, burnUnits: LOOP_USDC, value, transactionHash: payout.transactionHash },
-        PAYOUT_SUMMARY
-      );
+      recordPayoutFee({ ...entry, suite: 'mainnet-bridge-loop', value }, PAYOUT_SUMMARY);
     } catch (error) {
-      failures.push(`${chain}: ${error instanceof Error ? error.message : String(error)}`);
+      failures.push(`${chain}: ${errorMessage(error)}`);
     }
   }
   if (failures.length > 0) throw new Error(`mainnet USDCx payouts not proven:\n${failures.join('\n')}`);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function usdcxProblem(

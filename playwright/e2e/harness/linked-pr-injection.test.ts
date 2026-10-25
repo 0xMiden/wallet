@@ -397,7 +397,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
       'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',
       'e2e-dapp.yml dapp-e2e-android: push 145, dispatch 190',
-      'e2e-mainnet-nightly.yml mainnet-nightly: push 180, dispatch 225',
+      'e2e-mainnet-nightly.yml mainnet-nightly: push 200, dispatch 245',
       'e2e-mainnet-nightly.yml mainnet-agglayer: push 185, dispatch 230',
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',

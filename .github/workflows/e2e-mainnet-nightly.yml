@@ -37,7 +37,7 @@ jobs:
   mainnet-nightly:
     name: Chrome mainnet round trip
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 225 || 180 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 245 || 200 }}
     outputs:
       started: ${{ steps.started.outputs.started }}
     env:
