@@ -16,6 +16,7 @@ import {
   CONFIRMATION_HANDLER_STATES,
   CONFIRMATION_REGISTRY_STATES,
   CONFIRMATION_REQUEST_SHAPES,
+  CONSUME_VERDICTS,
   GUARDIAN_SIGNER_IN_SET,
   GUARDIAN_SIGNING_KEYS,
   HOT_KEY_ROTATION_PENDING,
@@ -64,6 +65,7 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ["the node's consume verdict", CONSUME_VERDICTS],
   ['storage owner', STORAGE_OWNERS],
   ['storage operation', STORAGE_OPERATIONS],
   ['page visibility', PAGE_VISIBILITY],

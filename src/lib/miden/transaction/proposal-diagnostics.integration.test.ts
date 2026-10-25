@@ -304,7 +304,7 @@ function objectAt(value: unknown, key: string): Record<string, unknown> {
 const consumeAtProposal =
   'Transaction failed: tx_receive; stage signing; signing step creating_proposal; realm unknown; ' +
   'proving preference local; platform extension; queued by unrecorded; last deferral none; ' +
-  'claim fee admission unrecorded; point pipeline; unknown; thrown error. authentication';
+  'claim fee admission unrecorded; submit crossing unavailable; point pipeline; unknown; thrown error. authentication';
 async function failureEvent(step: string, guard?: string, message = consumeAtProposal): Promise<void> {
   await failureEventWith({ proposalStep: step, proposalGuard: guard }, message);
 }

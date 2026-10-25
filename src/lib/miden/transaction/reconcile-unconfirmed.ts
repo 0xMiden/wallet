@@ -6,6 +6,7 @@
 import type { AbandonStatus } from '@openzeppelin/guardian-client';
 
 import { inVerdictTurn } from 'lib/miden/front/storage';
+import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
@@ -251,6 +252,30 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
     return undefined;
   });
   if (failed !== undefined && !failed.restoredFromBackup) {
+    const failedAttemptId = judgement.neverCommittedBy === 'expired' ? failed.attemptId : undefined;
+    const expiredEntry =
+      failedAttemptId === undefined
+        ? undefined
+        : failed.submitEvidence?.find(entry => entry.attemptId === failedAttemptId);
+    const executing = failed.stageTimestamps?.executing;
+    const submitting = failed.stageTimestamps?.submitting;
+    const proofWaitBlocks =
+      expiredEntry !== undefined &&
+      typeof executing === 'number' &&
+      Number.isFinite(executing) &&
+      typeof submitting === 'number' &&
+      Number.isFinite(submitting) &&
+      submitting >= executing
+        ? Math.floor((submitting - executing) / ESTIMATED_MS_PER_BLOCK)
+        : undefined;
+    const expiryWindowBlocks =
+      expiredEntry?.refBlock !== undefined &&
+      expiredEntry.expirationBlock !== undefined &&
+      Number.isFinite(expiredEntry.refBlock) &&
+      Number.isFinite(expiredEntry.expirationBlock) &&
+      expiredEntry.expirationBlock > expiredEntry.refBlock
+        ? expiredEntry.expirationBlock - expiredEntry.refBlock
+        : undefined;
     reportTransactionFailure({
       point: 'node_verdict',
       type: failed.type,
@@ -263,6 +288,11 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       reason: 'never_committed',
       neverCommittedRule: judgement.neverCommittedBy,
       alreadyReported,
+      ...(judgement.neverCommittedBy !== 'expired' || failed.rawError === undefined
+        ? {}
+        : { priorError: failed.rawError }),
+      ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
+      ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
   }

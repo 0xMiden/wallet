@@ -38,4 +38,61 @@ describe('mainnet nightly workflow', () => {
     expect(text).toContain('ref: ${{ github.ref }}');
     expect(text).toContain('cancel-in-progress: false');
   });
+
+  /** The lines of one job, from its id to the next job's. */
+  const jobText = (id: string): string => {
+    const lines = text.split('\n');
+    const at = lines.indexOf(`  ${id}:`);
+    if (at === -1) throw new Error(`no job ${id}`);
+    const end = lines.findIndex((line, index) => index > at && /^ {2}[A-Za-z0-9_-]+:\s*$/.test(line));
+    return lines.slice(at, end === -1 ? undefined : end).join('\n');
+  };
+
+  it('runs the main job on the dispatched runner, and on the free one for the schedule', () => {
+    expect(text).toMatch(
+      /workflow_dispatch:\n {4}inputs:\n {6}runner:\n(?: {8}.*\n)*? {8}default: ubuntu-latest\n {8}options:\n {10}- ubuntu-latest\n {10}- warp-ubuntu-latest-x64-8x\n/
+    );
+    expect(jobText('mainnet-nightly')).toContain(
+      "    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}"
+    );
+  });
+
+  it('loops the USDCx routes in the main job and AggLayer in a job of its own after it', () => {
+    const main = jobText('mainnet-nightly');
+    expect(main).toContain('yarn playwright test mainnet-bridge-loop.spec.ts');
+    expect(main).not.toContain('mainnet-agglayer-loop.spec.ts');
+    // The first step marks the job started, so a failed main job still hands over to the AggLayer job.
+    expect(main).toMatch(/ {4}steps:\n(?: {6}#.*\n)* {6}- name: Mark the main job started\n {8}id: started\n/);
+    expect(main).toContain('      started: ${{ steps.started.outputs.started }}');
+
+    const agglayer = jobText('mainnet-agglayer');
+    expect(agglayer).toContain('    needs: mainnet-nightly');
+    expect(agglayer).toContain("    if: ${{ !cancelled() && needs.mainnet-nightly.outputs.started == 'true' }}");
+    expect(agglayer).toContain('    runs-on: ubuntu-latest');
+    expect(agglayer).toContain("    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}");
+    expect(agglayer).toContain(
+      'yarn playwright test mainnet-agglayer-loop.spec.ts --config playwright.mainnet.config.ts'
+    );
+    expect(agglayer).toContain('E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}');
+    expect(agglayer).toContain('E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}');
+    expect(agglayer).toMatch(/- name: Publish the AggLayer summary\n {8}if: always\(\)\n/);
+    expect(agglayer).toContain('agglayer-night.md >> "$GITHUB_STEP_SUMMARY"');
+  });
+
+  it('fails the AggLayer job when the Ethereum key is empty', () => {
+    const agglayer = jobText('mainnet-agglayer');
+    const guard = agglayer.indexOf('E2E_MAINNET_EVM_KEY is empty');
+    const playwright = agglayer.indexOf('yarn playwright test mainnet-agglayer-loop.spec.ts');
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(guard).toBeLessThan(playwright);
+    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@v4'));
+    expect(agglayer.slice(guard, playwright)).toContain('exit 1');
+    expect(jobText('mainnet-nightly')).not.toContain('E2E_MAINNET_EVM_KEY is empty');
+  });
+
+  it('keeps the run one verdict: a failure in either job fails the run', () => {
+    // A job runs after a failed one only by its own if:, and a failed job fails the run; continue-on-error would hide it.
+    expect(jobText('mainnet-agglayer')).not.toContain('continue-on-error');
+    expect(jobText('mainnet-nightly')).not.toContain('continue-on-error');
+  });
 });

@@ -110,7 +110,8 @@ describe('committed terminal transaction failure reports', () => {
       stage: 'proving',
       delegateTransaction: true,
       diagnostics: undefined,
-      error
+      error,
+      submitCrossing: 'unavailable'
     });
   });
 
@@ -124,7 +125,8 @@ describe('committed terminal transaction failure reports', () => {
       stage: 'proving',
       delegateTransaction: true,
       diagnostics,
-      error: 'failed'
+      error: 'failed',
+      submitCrossing: 'unavailable'
     });
   });
 
@@ -192,7 +194,7 @@ describe('committed terminal transaction failure reports', () => {
       expect.objectContaining({
         name: 'WalletTransactionFailure',
         message: expect.stringContaining(
-          '; reap age missing_start; reaped attempt not_started_here; point pipeline; stuck_reaped'
+          '; reap age missing_start; reaped attempt not_started_here; submit crossing unavailable; point pipeline; stuck_reaped'
         )
       }),
       'manual',
@@ -268,7 +270,7 @@ describe('committed terminal transaction failure reports', () => {
         const [captured] = jest.mocked(captureCrash).mock.calls[0] ?? [];
         const message = captured instanceof Error ? captured.message : '';
         expect(message).toContain(
-          `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; point pipeline; interrupted_on_startup.`
+          `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; submit crossing unavailable; point pipeline; interrupted_on_startup.`
         );
         for (const leak of [accountId, noteId, claim.id, 'abab', 'cdcd', 'efef']) expect(message).not.toContain(leak);
       }
@@ -839,18 +841,162 @@ describe('closed queue facts without failure text', () => {
     expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
     expect(report).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'consume', reason: 'queued_expired', error: TRANSACTION_EXPIRED_ERROR })
+      expect.objectContaining({
+        type: 'consume',
+        reason: 'queued_expired',
+        queueAge: '30m_to_1h',
+        error: TRANSACTION_EXPIRED_ERROR
+      })
     );
     const { message, strings } = capturedFailure();
     expect(message).toContain(
-      '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; point pipeline;'
+      '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; queue age 30m_to_1h; submit crossing unavailable; point pipeline;'
     );
     expect(message).toContain('; point pipeline; queued_expired.');
+    expect(message).toContain('; queue age 30m_to_1h; submit crossing unavailable; point pipeline; queued_expired.');
     for (const text of privateText) {
       expect(message).not.toContain(text);
       expect(strings).not.toContain(text);
     }
+    expect(message).not.toContain(String(claim.initiatedAt));
+    expect(strings).not.toContain(String(claim.initiatedAt));
   });
+
+  it('does not expire a row at exactly the queue TTL', async () => {
+    const nowMs = Math.floor(Date.now() / 1000) * 1000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(nowMs);
+    try {
+      const claim = row({
+        id: 'queue-facts-exact-ttl',
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(nowMs / 1000) - MAX_QUEUED_AGE
+      });
+      await Repo.transactions.put(claim);
+
+      await cancelStaleQueuedTransactions();
+
+      expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Queued);
+      expect(report).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([
+    ['just past the 30-minute TTL', MAX_QUEUED_AGE + 1, '30m_to_1h'],
+    ['just below one hour', 60 * 60 - 1, '30m_to_1h'],
+    ['at one hour', 60 * 60, '1h_to_6h'],
+    ['just below six hours', 6 * 60 * 60 - 1, '1h_to_6h'],
+    ['at six hours', 6 * 60 * 60, '6h_to_24h'],
+    ['just below one day', 24 * 60 * 60 - 1, '6h_to_24h'],
+    ['at one day', 24 * 60 * 60, 'over_24h']
+  ] as const)('buckets an expired row %s', async (_label, ageSeconds, expectedAge) => {
+    const nowMs = Math.floor(Date.now() / 1000) * 1000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(nowMs);
+    useRealReporterWithPrivateError();
+    try {
+      const claim = row({
+        id: `queue-facts-${expectedAge}`,
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(nowMs / 1000) - ageSeconds
+      });
+      await Repo.transactions.put(claim);
+
+      await cancelStaleQueuedTransactions();
+
+      expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
+      expect(report).toHaveBeenCalledWith(expect.objectContaining({ reason: 'queued_expired', queueAge: expectedAge }));
+      const { message } = capturedFailure();
+      expect(message).toContain(
+        `; queue age ${expectedAge}; submit crossing unavailable; point pipeline; queued_expired.`
+      );
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([
+    ['missing', () => undefined],
+    ['NaN', () => Number.NaN],
+    ['infinite', () => Number.POSITIVE_INFINITY],
+    ['negative', () => -1],
+    ['in the future', (nowSeconds: number) => nowSeconds + 1]
+  ] as const)('reports an unavailable queue age for a %s start time', async (_label, makeInitiatedAt) => {
+    const nowMs = Math.floor(Date.now() / 1000) * 1000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(nowMs);
+    useRealReporterWithPrivateError();
+    try {
+      const claim = row({
+        id: `queue-facts-invalid-${_label}`,
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        initiatedAt: makeInitiatedAt(Math.floor(nowMs / 1000)) as number
+      });
+      await Repo.transactions.put(claim);
+
+      await cancelTransaction(claim, TRANSACTION_EXPIRED_ERROR);
+
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'queued_expired', queueAge: 'unavailable' })
+      );
+      const { message, strings } = capturedFailure();
+      expect(message).toContain(
+        '; queue age unavailable; submit crossing unavailable; point pipeline; queued_expired.'
+      );
+      expect(message).not.toContain(String(claim.id));
+      expect(strings).not.toContain(String(claim.id));
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([
+    ['stage marker', { source: 'stage' }, 'crossed'],
+    ['captured submit evidence after a pre-dispatch pin', { source: 'pin', refBlock: 9 }, 'crossed'],
+    ['explicit pre-submit end', { source: 'pin', preSubmitEnd: true }, 'not_crossed'],
+    ['ambiguous pin', { source: 'pin' }, 'unavailable'],
+    ['missing current attempt', undefined, 'unavailable']
+  ] as const)(
+    'reports the matching attempt submit crossing from %s',
+    async (_label, currentEntry, expectedCrossing) => {
+      useRealReporterWithPrivateError();
+      const priorAttemptId = 'private-prior-attempt-id';
+      const currentAttemptId = currentEntry === undefined ? 'private-missing-attempt-id' : 'private-current-attempt-id';
+      const transactionId = `0x${'cd'.repeat(32)}`;
+      const capturedAt = 1_790_000_000;
+      const claim = row({
+        id: 'private-transaction-row-id',
+        attemptId: currentAttemptId,
+        submitEvidence: [
+          { attemptId: priorAttemptId, capturedAt, source: 'stage', transactionId },
+          ...(currentEntry === undefined
+            ? []
+            : [{ attemptId: 'private-current-attempt-id', capturedAt, ...currentEntry }])
+        ]
+      });
+      await Repo.transactions.put(claim);
+
+      await cancelTransaction(claim, error);
+
+      expect(report).toHaveBeenCalledWith(expect.objectContaining({ submitCrossing: expectedCrossing }));
+      const { message, strings } = capturedFailure();
+      expect(message).toContain(`; submit crossing ${expectedCrossing}; point pipeline;`);
+      for (const text of [
+        ...privateText,
+        claim.id,
+        priorAttemptId,
+        currentAttemptId,
+        transactionId,
+        String(capturedAt),
+        error.message
+      ]) {
+        expect(message).not.toContain(text);
+        expect(strings).not.toContain(text);
+      }
+    }
+  );
 
   it("sends the stuck claim's fixed reap facts and none of the failure's text", async () => {
     useRealReporterWithPrivateError();
@@ -884,7 +1030,9 @@ describe('closed queue facts without failure text', () => {
       expect(message).toContain(
         '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; reap age'
       );
-      expect(message).toContain('; reap age past_limit; reaped attempt started_here; point pipeline; stuck_reaped.');
+      expect(message).toContain(
+        '; reap age past_limit; reaped attempt started_here; submit crossing unavailable; point pipeline; stuck_reaped.'
+      );
       for (const text of privateText) {
         expect(message).not.toContain(text);
         expect(strings).not.toContain(text);
