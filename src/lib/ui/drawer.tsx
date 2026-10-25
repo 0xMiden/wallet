@@ -7,7 +7,7 @@ import { Drawer as VaulDrawer } from 'vaul';
 import { IconName } from 'app/icons/v2';
 import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
-import { sheetMotionVars } from 'lib/animation';
+import { installSheetKeyframes, sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -79,6 +79,8 @@ function Drawer({
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
+  // Layout, not passive: the sheet's animation must find its @keyframes on the first style pass.
+  useLayoutEffect(() => installSheetKeyframes(), []);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
@@ -166,7 +168,7 @@ function DrawerContent({
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
-        // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
+        // The tab-bar springs: the durations and easings `main.css` reads off these elements.
         style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
         onOpenAutoFocus={event => {
           focus.remember();

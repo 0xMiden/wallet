@@ -34,8 +34,8 @@ describe('mainnet nightly workflow', () => {
     const live = text.split('\n').filter(line => !line.trim().startsWith('#') && line.includes('cron:'));
     expect(live).toEqual(["    - cron: '30 5 * * *'"]);
     expect(text).toContain('workflow_dispatch:');
-    // A dispatch tests the ref it names; the scheduled run's ref is main.
-    expect(text).toContain('ref: ${{ github.ref }}');
+    // Each run checks out its dispatched commit, even if its branch moves while queued.
+    expect(text).toContain('ref: ${{ github.sha }}');
     expect(text).toContain('cancel-in-progress: false');
   });
 

@@ -11,20 +11,20 @@ import {
 /**
  * Scenario 3.1 — full fill, maker A → taker B.
  *
- * A offers 10 SWPA for 9 SWPB. B fills the entire 9 SWPB request. Asserts the
+ * A offers 10 SWPA for 9.995 SWPB. B fills the entire 9 SWPB request. Asserts the
  * complete settlement: the taker fill lands, the maker order's on-chain lineage
  * goes `filled`, B receives the full offered SWPA, and A — after claiming the
  * P2ID payback — receives the full requested SWPB.
  *
- * OFFER = 10 SWPA (1_000_000_000 base units @ 8dp); REQUEST = 9 SWPB (900_000_000).
+ * OFFER = 10 SWPA (1_000_000_000 base units @ 8dp); REQUEST = 9.995 SWPB (999_500_000).
  */
 test.describe('swap: full fill A→B', () => {
   test.describe.configure({ mode: 'serial' });
 
   const OFFER_BASE = '1000000000'; // 10 SWPA
-  const REQUEST_BASE = '900000000'; // 9 SWPB
+  const REQUEST_BASE = '999500000'; // floor(10 SWPA * price 1 * 0.9995) at 8dp
 
-  test('A offers 10 SWPA for 9 SWPB, B fills fully; both sides settle', async ({
+  test('A offers 10 SWPA for 9.995 SWPB, B fills fully; both sides settle', async ({
     walletA,
     walletB,
     midenCli,
@@ -44,8 +44,9 @@ test.describe('swap: full fill A→B', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
+      amountAnchor: 'pay',
       payAmount: '10',
-      receiveAmount: '9'
+      receiveAmount: '9.995'
     });
     expect(orderId, 'maker order id').not.toBe('');
 

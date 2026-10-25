@@ -1,23 +1,23 @@
 /**
- * Converts a spring preset from `springs.ts` into a `linear()` easing that the
- * compositor can run on its own.
+ * Turns a spring preset from `springs.ts` into a fixed-duration curve that CSS or the Web
+ * Animations API can play without framer stepping it.
  *
  * Framer Motion computes springs on the main thread: it steps the physics every
  * `requestAnimationFrame` and writes the result to an element's inline style.
- * That is the right default — it is interruptible, composable, and driven by the
- * same clock as the rest of the app. It also means the animation can only be as
- * smooth as the main thread is idle, and inside `WKWebView` it can only ever be
- * as fast as `requestAnimationFrame`, which Apple caps at 60Hz regardless of the
+ * That is the right default - it is interruptible, composable, and driven by the
+ * same clock as the rest of the app. Inside `WKWebView` it can only ever be as
+ * fast as `requestAnimationFrame`, which Apple caps at 60Hz regardless of the
  * display (WebKit bug 294338).
  *
- * A Web Animations API animation over `transform` alone escapes both limits: it
- * is handed to the compositor, so it neither blocks on main-thread work nor
- * samples at the `rAF` rate. The cost is that it has to be described up front as
- * a fixed duration plus an easing curve, which a spring is not. So we solve the
- * spring analytically, sample it, and hand the samples over as `linear()`.
+ * Measured on an iPhone 17 Pro Max (iOS 26.5, #1841), WebKit runs a `linear()`
+ * timing function at 60Hz too, like rAF. Keyframes sampled from the spring with
+ * linear segments between them (`springKeyframeStops`), and `cubic-bezier`
+ * timing, run at 120Hz on the compositor. So a spring that has to run at the
+ * display's rate is solved analytically and handed over as sampled keyframes;
+ * `springToLinearEasing` remains for callers that need a single timing function.
  *
- * Use this only where those two properties are worth losing framer's
- * interruptibility — a gesture release that must not hitch is the motivating
+ * Use this only where those properties are worth losing framer's
+ * interruptibility - a gesture release that must not hitch is the motivating
  * case. Everything else should keep using `useMotion` / `useSprings`.
  */
 
@@ -25,6 +25,8 @@ import type { Transition } from 'framer-motion';
 
 /** Sampling interval for the emitted curve. */
 const SAMPLE_STEP_MS = 4;
+/** Keyframe stride. Two solver samples, so a stop still lands every 8 ms. */
+const KEYFRAME_STEP_MS = 8;
 /** Hard ceiling so a pathological spring can't emit an enormous easing string. */
 const MAX_DURATION_MS = 2000;
 /** Distances below this are not worth animating. */
@@ -37,6 +39,24 @@ export interface CompositorSpring {
   easing: string;
 }
 
+export interface SpringSamples {
+  /** Duration in milliseconds, i.e. when the spring has settled. */
+  duration: number;
+  /** Progress every `SAMPLE_STEP_MS`, from 0 to exactly 1; overshoot is above 1. */
+  progress: number[];
+}
+
+export interface SpringKeyframeStop {
+  /** Position in the animation, 0..1. */
+  offset: number;
+  progress: number;
+}
+
+export interface SpringKeyframeStops {
+  duration: number;
+  stops: SpringKeyframeStop[];
+}
+
 interface SpringEasingOptions {
   /** Signed distance still to travel: `from - to`. */
   distance: number;
@@ -47,16 +67,18 @@ interface SpringEasingOptions {
 }
 
 /**
- * Solves `transition` as a damped harmonic oscillator and samples it.
+ * Solves `transition` as a damped harmonic oscillator and samples it every
+ * `SAMPLE_STEP_MS`. `progress` is how far along the travel the spring is, so
+ * values outside 0..1 are the overshoot; it starts at 0 and ends on exactly 1.
  *
  * Returns null when the transition is not a spring (a reduced-motion instant
  * tween, say) or the distance is too small to be worth animating, so callers can
  * fall back to setting the final value directly.
  */
-export function springToLinearEasing(
+export function sampleSpring(
   transition: Transition,
   { distance, velocity = 0, restDelta = 0.5 }: SpringEasingOptions
-): CompositorSpring | null {
+): SpringSamples | null {
   const { stiffness, damping, mass } = transition as {
     stiffness?: number;
     damping?: number;
@@ -77,16 +99,47 @@ export function springToLinearEasing(
     if (Math.abs(displacement(t / 1000)) > restDelta) duration = t + SAMPLE_STEP_MS;
   }
 
-  const points: string[] = [];
+  const progress: number[] = [];
   for (let t = 0; t <= duration; t += SAMPLE_STEP_MS) {
-    // Progress, not position, since `linear()` drives keyframe interpolation.
-    // Values outside 0..1 are legal and are what preserves any overshoot.
-    points.push(round(1 - displacement(t / 1000) / distance));
+    progress.push(1 - displacement(t / 1000) / distance);
   }
   // Land exactly on target rather than wherever the last sample happened to be.
-  points[points.length - 1] = '1';
+  progress[progress.length - 1] = 1;
 
-  return { duration, easing: `linear(${points.join(',')})` };
+  return { duration, progress };
+}
+
+/**
+ * Solves `transition` and formats it as a `linear()` easing. Null under the same
+ * conditions as `sampleSpring`.
+ */
+export function springToLinearEasing(transition: Transition, options: SpringEasingOptions): CompositorSpring | null {
+  const samples = sampleSpring(transition, options);
+  if (!samples) return null;
+  // Progress, not position, since `linear()` drives keyframe interpolation.
+  // Values outside 0..1 are legal and are what preserves any overshoot.
+  return { duration: samples.duration, easing: `linear(${samples.progress.map(round).join(',')})` };
+}
+
+/**
+ * The same spring as explicit keyframe stops. WebKit runs a `linear()` easing at
+ * 60 Hz but samples keyframes at the display rate, so a spring that has to track
+ * a 120 Hz panel goes through offsets instead. Every `KEYFRAME_STEP_MS / SAMPLE_STEP_MS`-th
+ * sample is kept, plus the final one.
+ */
+export function springKeyframeStops(transition: Transition, options: SpringEasingOptions): SpringKeyframeStops | null {
+  const samples = sampleSpring(transition, options);
+  if (!samples) return null;
+
+  const stride = Math.max(1, Math.round(KEYFRAME_STEP_MS / SAMPLE_STEP_MS));
+  const last = samples.progress.length - 1;
+  const stops: SpringKeyframeStop[] = [];
+  samples.progress.forEach((progress, i) => {
+    if (i < last && i % stride === 0) stops.push({ offset: (i * SAMPLE_STEP_MS) / samples.duration, progress });
+  });
+  stops.push({ offset: 1, progress: 1 });
+
+  return { duration: samples.duration, stops };
 }
 
 let linearEasingSupported: boolean | undefined;
