@@ -19,6 +19,7 @@ import {
   type PublicClient
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { mainnet } from 'viem/chains';
 
 import { ERC20_ABI } from './arc-usdcx';
 import arcVectors from './arc-usdcx.vectors.json';
@@ -57,6 +58,21 @@ function l2On(chainId: number): L2BridgeInSource {
 
 function baseSepolia(): L2BridgeInSource {
   return l2On(84532);
+}
+
+function ethereumMainnet(): L2BridgeInSource {
+  const sepolia = l2On(11155111);
+  const usdc = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+  return {
+    payout: { ...sepolia.payout, chainId: 1, chain: mainnet, usdc, maxPriorityFeeCap: undefined },
+    source: {
+      ...sepolia.source,
+      chain: mainnet,
+      domain: 0,
+      usdc,
+      tokenMessengerWithFees: '0x71F54f818671Cd0d7Ea140Da213E5c8B5c92A408'
+    }
+  };
 }
 
 function dataOf(params: readonly unknown[]): Hex {
@@ -107,6 +123,7 @@ function l2Chain(
     heads?: bigint[];
     quoteDeadline?: bigint;
     priorityFee?: bigint;
+    baseFee?: bigint;
   }
 ) {
   const sent: Hex[] = [];
@@ -146,7 +163,7 @@ function l2Chain(
           number: '0x10',
           hash: `0x${'11'.repeat(32)}`,
           timestamp: '0x6a87a0a0',
-          baseFeePerGas: '0x5b8d80',
+          baseFeePerGas: toHex(opts.baseFee ?? 6_000_000n),
           transactions: []
         };
       case 'eth_getBalance':
@@ -251,6 +268,24 @@ describe('submitL2Deposit', () => {
     // runUsdcxExecutorDeposit reads the key's own USDC before the first quote and again once the approve is mined.
     const keyBalance = encodeFunctionData({ abi: ERC20_ABI, functionName: 'balanceOf', args: [DEPOSITOR] });
     expect(chain.balanceReads).toEqual([keyBalance, keyBalance]);
+  });
+
+  it('keeps a mainnet burn eligible throughout the recorded rising-base-fee quote window', async () => {
+    const l2 = ethereumMainnet();
+    const chain = l2Chain(l2, { allowance: 10_000_000n, baseFee: 35_469_537n, priorityFee: 1_800n });
+    await submitL2Deposit(
+      { privateKey: KEY, l2, units: DEPOSIT_UNITS, recipientHex: RECIPIENT_HEX, arc: { endpoints: [] } },
+      { publicClient: chain.publicClient, isRemoteDomainRegistered: async () => true, fetchQuote: quotesInTurn(QUOTE) }
+    );
+    const [burn] = chain.sent.map(raw => parseTransaction(raw));
+    expect(chain.sent).toHaveLength(1);
+    expect(burn?.maxPriorityFeePerGas).toBe(1_800n);
+    // Blocks 26271614-26271625, ending at the actual signed quote's deadline.
+    const baseFees = [
+      43_084_225n, 47_624_525n, 46_338_432n, 46_596_902n, 47_697_659n, 48_859_342n,
+      50_398_569n, 50_143_819n, 50_804_716n, 48_019_026n, 50_852_412n, 49_873_956n
+    ];
+    expect(baseFees.every(baseFee => (burn?.maxFeePerGas ?? 0n) >= baseFee + 1_800n)).toBe(true);
   });
 
   it('sends no approve when the allowance covers the amount and the fee', async () => {
@@ -533,6 +568,27 @@ describe('readL2KeyFunds', () => {
 
     expect(funds.maxFeePerGas).toBe(7_200_000n + 10_000_000n);
   });
+  it('funds the same mainnet fee ceiling that the burn signs and refuses the former budget', async () => {
+    const l2 = ethereumMainnet();
+    const chain = l2Chain(l2, { allowance: 10_000_000n, baseFee: 35_469_537n, priorityFee: 1_800n });
+    const funds = await readL2KeyFunds(DEPOSITOR, l2Reads(l2, { publicClient: chain.publicClient }));
+    await submitL2Deposit(
+      { privateKey: KEY, l2, units: DEPOSIT_UNITS, recipientHex: RECIPIENT_HEX, arc: { endpoints: [] } },
+      { publicClient: chain.publicClient, isRemoteDomainRegistered: async () => true, fetchQuote: quotesInTurn(QUOTE) }
+    );
+    const [burn] = chain.sent.map(raw => parseTransaction(raw));
+    expect(funds.maxFeePerGas).toBe(burn?.maxFeePerGas);
+    expect(funds.maxFeePerGas).toBe(70_940_874n);
+    expect(l2KeyShortfall({
+      label: 'Ethereum', address: DEPOSITOR, wei: 1_100_000n * 42_565_244n,
+      maxFeePerGas: funds.maxFeePerGas, usdc: funds.usdc, units: DEPOSIT_UNITS, fee: QUOTE.feeTotalAmount
+    })).toContain('below');
+    expect(l2KeyShortfall({
+      label: 'Ethereum', address: DEPOSITOR, wei: 1_100_000n * funds.maxFeePerGas,
+      maxFeePerGas: funds.maxFeePerGas, usdc: funds.usdc, units: DEPOSIT_UNITS, fee: QUOTE.feeTotalAmount
+    })).toBeUndefined();
+  });
+
 });
 
 describe('l2KeyShortfall', () => {
