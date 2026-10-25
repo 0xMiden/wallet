@@ -63,6 +63,9 @@ button:disabled,
  * curves from the custom properties `drawer.tsx` sets on both the sheet and its backdrop; the
  * declared fallbacks are vaul's own stock curve.
  *
+ * The close keyframes animate the individual `translate`, not `transform`: a sheet dragged down keeps
+ * vaul's inline drag `transform`, and `translate` adds to it, so the close leaves from the drag position.
+ *
  * The snap-back rule clamps `transition-duration`/`transition-timing-function` with `!important`
  * (an inline style outranks a plain rule) but deliberately leaves `transition-property` alone:
  * vaul sets `transition: none` inline while a drag is in progress, and overriding the property

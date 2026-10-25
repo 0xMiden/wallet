@@ -78,18 +78,21 @@ const KEYFRAMES_ELEMENT_ID = 'miden-sheet-keyframes';
 const round = (value: number) => Number(value.toFixed(4));
 
 /**
- * One `@keyframes` block over the sheet's `translate3d`, as a fraction of `--initial-transform`
- * (vaul sets it on the sheet; 100% is fully offscreen). `closing` omits the 0% stop, so the sheet
- * leaves from wherever it is, as vaul's own `slideToBottom` does with only a `to`.
+ * One `@keyframes` block, as a fraction of `--initial-transform` (vaul sets it on the sheet; 100% is
+ * fully offscreen). The open runs on `transform`. The close runs on the individual `translate` from 0:
+ * vaul's closeDrawer only flips `data-state`, so a sheet dragged down keeps its inline
+ * `transform: translate3d(0, Ypx, 0)`, and `translate` adds to that rather than replacing it, so the
+ * close starts where the finger left the sheet. Nothing is left on `translate` once it ends (vaul sets
+ * no fill mode, and the sheet unmounts).
  */
 function keyframes(name: string, transition: Spring, closing: boolean): string {
   const sampled = springKeyframeStops(transition, { distance: SHEET_TRAVEL_PX });
   if (!sampled) return '';
   const body = sampled.stops
-    .filter(stop => !(closing && stop.offset === 0))
     .map(({ offset, progress }) => {
       const factor = round(closing ? progress : 1 - progress);
-      return `  ${round(offset * 100)}% { transform: translate3d(0, calc(var(--initial-transform, 100%) * ${factor}), 0); }`;
+      const y = `calc(var(--initial-transform, 100%) * ${factor})`;
+      return `  ${round(offset * 100)}% { ${closing ? `translate: 0 ${y}` : `transform: translate3d(0, ${y}, 0)`}; }`;
     })
     .join('\n');
   return `@keyframes ${name} {\n${body}\n}`;

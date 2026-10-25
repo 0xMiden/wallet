@@ -86,32 +86,67 @@ describe('sheet motion without linear() support', () => {
   });
 });
 
-/** The `offset% factor` pairs of one `@keyframes` block, factor being the `--initial-transform` multiplier. */
-const keyframeStops = (css: string, name: string): { offset: number; factor: number }[] => {
+/**
+ * The stops of one `@keyframes` block: the property each animates, and the `--initial-transform`
+ * multiplier it moves the sheet by.
+ */
+const keyframeStops = (css: string, name: string): { offset: number; property: string; factor: number }[] => {
   const block = new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(css)?.[1] ?? '';
+  const factor = String.raw`calc\(var\(--initial-transform, 100%\) \* (-?[\d.]+)\)`;
   return [
     ...block.matchAll(
-      /([\d.]+)%\s*\{\s*transform:\s*translate3d\(0,\s*calc\(var\(--initial-transform, 100%\) \* (-?[\d.]+)\), 0\);\s*\}/g
+      new RegExp(
+        String.raw`([\d.]+)%\s*\{\s*(?:transform:\s*translate3d\(0,\s*${factor}, 0\)|translate:\s*0 ${factor});\s*\}`,
+        'g'
+      )
     )
-  ].map(m => ({ offset: Number(m[1]), factor: Number(m[2]) }));
+  ].map(m => ({
+    offset: Number(m[1]),
+    property: m[2] === undefined ? 'translate' : 'transform',
+    factor: Number(m[2] ?? m[3])
+  }));
 };
+
+/** Every stop of a block, parsed or not, so a stop the parser misses cannot pass unseen. */
+const stopCount = (css: string, name: string): number =>
+  (new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(css)?.[1] ?? '').match(/%\s*\{/g)?.length ?? 0;
 
 describe('sheet keyframes', () => {
   it('opens from offscreen to rest with the spring overshoot between', () => {
     const open = keyframeStops(sheetKeyframesCss(), 'miden-sheet-open');
-    expect(open[0]).toEqual({ offset: 0, factor: 1 });
-    expect(open.at(-1)).toEqual({ offset: 100, factor: 0 });
+    expect(open).toHaveLength(stopCount(sheetKeyframesCss(), 'miden-sheet-open'));
+    expect(open.every(stop => stop.property === 'transform')).toBe(true);
+    expect(open[0]).toEqual({ offset: 0, property: 'transform', factor: 1 });
+    expect(open.at(-1)).toEqual({ offset: 100, property: 'transform', factor: 0 });
     // A negative factor is past the resting edge: the same bounce the nav highlight has.
     expect(Math.min(...open.map(stop => stop.factor))).toBeLessThan(0);
     expect(Math.min(...open.map(stop => stop.factor))).toBeGreaterThan(-0.15);
     expect(open.map(stop => stop.offset)).toEqual([...open.map(stop => stop.offset)].sort((a, b) => a - b));
   });
 
-  it('closes from wherever the sheet is, so it has no 0% stop, and ends offscreen', () => {
+  // vaul's closeDrawer only flips data-state, so a sheet dragged down keeps its inline
+  // `transform: translate3d(0, Ypx, 0)`. The close animates the individual `translate`, which
+  // composes with that inline transform instead of replacing it.
+  it('closes on translate, from 0 to fully offscreen, leaving the inline transform alone', () => {
     const close = keyframeStops(sheetKeyframesCss(), 'miden-sheet-close');
     expect(close.length).toBeGreaterThan(1);
-    expect(close.some(stop => stop.offset === 0)).toBe(false);
-    expect(close.at(-1)).toEqual({ offset: 100, factor: 1 });
+    expect(close).toHaveLength(stopCount(sheetKeyframesCss(), 'miden-sheet-close'));
+    expect(close.every(stop => stop.property === 'translate')).toBe(true);
+    expect(close[0]).toEqual({ offset: 0, property: 'translate', factor: 0 });
+    expect(close.at(-1)).toEqual({ offset: 100, property: 'translate', factor: 1 });
+    expect(close.map(stop => stop.offset)).toEqual([...close.map(stop => stop.offset)].sort((a, b) => a - b));
+  });
+
+  it('starts a dragged close where the finger left the sheet', () => {
+    const close = keyframeStops(sheetKeyframesCss(), 'miden-sheet-close');
+    const sheetHeight = 420;
+    const dragY = 137;
+    // The used position is the inline transform's Y plus the animated translate's Y.
+    const position = (factor: number) => dragY + factor * sheetHeight;
+    expect(position(close[0]!.factor)).toBe(dragY);
+    // Every later stop moves on from there, never back above the drag position.
+    expect(close.every(stop => position(stop.factor) >= dragY)).toBe(true);
+    expect(position(close.at(-1)!.factor)).toBe(dragY + sheetHeight);
   });
 
   it('is sampled densely enough to read as the spring, not a few straight segments', () => {
