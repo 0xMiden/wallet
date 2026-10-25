@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.8 (TBD)
+
+### Changes
+
+- [CHANGE][ci] Manual store publishing builds signed production artifacts from an exact published release, requires telemetry configuration, and verifies app identity, network and artifact provenance before store submission.
+
 ## 1.17.7 (2026-10-25)
 
 ### Changes

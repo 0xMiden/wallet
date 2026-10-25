@@ -1,0 +1,202 @@
+name: Publish Store Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published stable release tag (vX.Y.Z)
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-hex release source SHA
+        required: true
+        type: string
+      platform:
+        description: Store target
+        required: true
+        type: choice
+        options: [chrome, ios, android]
+      action:
+        description: Explicit store operation
+        required: true
+        type: choice
+        options: [status, prepare, begin-edit, upload, submit, release]
+      network:
+        description: Artifact network (Chrome supports testnet/devnet only)
+        required: true
+        type: choice
+        options: [testnet, mainnet, devnet]
+      producer_run_id:
+        description: Successful build-store-artifacts.yml run (upload/submit/release)
+        required: false
+        type: string
+      state_run_id:
+        description: Previous state run (submit/release/Android upload/Chrome resume)
+        required: false
+        type: string
+      build_number:
+        description: Native builder suffix 1-999 (not encoded Android versionCode)
+        required: false
+        type: string
+      edit_id:
+        description: Exact caller-owned Play edit (Android upload/submit)
+        required: false
+        type: string
+      acknowledgement:
+        description: Play edit creation or account pending changes acknowledgement
+        required: true
+        default: none
+        type: choice
+        options: [none, create-new-play-edit, submit-pending-play-changes]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wallet-store-publishing
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == '0xMiden/wallet' && github.ref == 'refs/heads/main' && !github.event.repository.fork
+    environment: wallet-store-publishing
+    runs-on: ${{ inputs.platform == 'ios' && inputs.action == 'upload' && 'macos-26' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PLATFORM: ${{ inputs.platform }}
+      STORE_ACTION: ${{ inputs.action }}
+      NETWORK: ${{ inputs.network }}
+      PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
+      STATE_RUN_ID: ${{ inputs.state_run_id }}
+      BUILD_NUMBER: ${{ inputs.build_number }}
+      EDIT_ID: ${{ inputs.edit_id }}
+      ACKNOWLEDGEMENT: ${{ inputs.acknowledgement }}
+      AUTOMATION_SHA: ${{ github.workflow_sha }}
+      SOURCE_DIR: source
+      CHROME_WEB_STORE_PUBLISHER_ID: ${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}
+    steps:
+      - name: Initialize temporary evidence paths
+        run: |
+          {
+            echo "PRODUCER_DIR=$RUNNER_TEMP/wallet-store-producer"
+            echo "PRIOR_STATE_DIR=$RUNNER_TEMP/wallet-store-prior-state"
+            echo "PRODUCER_RUN_FILE=$RUNNER_TEMP/wallet-store-producer-run.json"
+            echo "PRODUCER_ARTIFACTS_FILE=$RUNNER_TEMP/wallet-store-producer-artifacts.json"
+            echo "STATE_RUN_FILE=$RUNNER_TEMP/wallet-store-state-run.json"
+            echo "STATE_ARTIFACTS_FILE=$RUNNER_TEMP/wallet-store-state-artifacts.json"
+            echo "RELEASE_FILE=$RUNNER_TEMP/wallet-store-release.json"
+            echo "TAG_COMMIT_FILE=$RUNNER_TEMP/wallet-store-tag-commit.json"
+          } >> "$GITHUB_ENV"
+      - name: Check out trusted publishing automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate explicit publishing intent
+        id: plan
+        run: node automation/scripts/store-publishing/publish-plan.mjs request
+      - name: Check out exact release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Verify published release and exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease > "$RELEASE_FILE"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" > "$TAG_COMMIT_FILE"
+          CHECKOUT_SHA=$(git -C source rev-parse HEAD)
+          export CHECKOUT_SHA
+          node automation/scripts/store-publishing/publish-plan.mjs source
+      - name: Verify exact successful artifact producer
+        if: steps.plan.outputs.needs_producer == 'true'
+        id: producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCER_RUN_ID" > "$PRODUCER_RUN_FILE"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCER_RUN_ID/artifacts?per_page=100" > "$PRODUCER_ARTIFACTS_FILE"
+          node automation/scripts/store-publishing/publish-plan.mjs producer
+      - name: Download only the verified producer artifact
+        if: steps.plan.outputs.needs_producer == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.producer.outputs.artifact_id }}
+          run-id: ${{ inputs.producer_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: ${{ env.PRODUCER_DIR }}
+      - name: Verify exact previous publication state run
+        if: steps.plan.outputs.needs_state == 'true'
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STATE_RUN_ID" > "$STATE_RUN_FILE"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STATE_RUN_ID/artifacts?per_page=100" > "$STATE_ARTIFACTS_FILE"
+          node automation/scripts/store-publishing/publish-plan.mjs state-run
+      - name: Download only the verified publication state
+        if: steps.plan.outputs.needs_state == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.state.outputs.artifact_id }}
+          run-id: ${{ inputs.state_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: ${{ env.PRIOR_STATE_DIR }}
+      - name: Validate artifacts and prepare private configuration
+        id: prepare
+        env:
+          CHROME_WEB_STORE_OAUTH_JSON: ${{ inputs.platform == 'chrome' && secrets.CHROME_WEB_STORE_OAUTH_JSON || '' }}
+          APP_STORE_CONNECT_KEY_ID: ${{ inputs.platform == 'ios' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.platform == 'ios' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+          APP_STORE_CONNECT_KEY_P8: ${{ inputs.platform == 'ios' && secrets.APP_STORE_CONNECT_KEY_P8 || '' }}
+        run: node automation/scripts/store-publishing/publish-plan.mjs prepare
+      - name: Obtain short-lived Play publishing token
+        if: inputs.platform == 'android'
+        id: google_auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/538324806738/locations/global/workloadIdentityPools/wallet-publishing/providers/github
+          service_account: bread-wallet-play-publisher@bread-wallet-publishing.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          access_token_lifetime: 1800s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Perform the explicit store operation
+        id: operation
+        env:
+          WALLET_PLAY_ACCESS_TOKEN: ${{ steps.google_auth.outputs.access_token }}
+        run: node automation/scripts/store-publishing/publish-plan.mjs execute
+      - name: Preserve publication state
+        if: always() && steps.prepare.outcome == 'success'
+        env:
+          OPERATION_OUTCOME: ${{ steps.operation.outcome }}
+        run: node automation/scripts/store-publishing/publish-plan.mjs export
+      - name: Save only validated noncredential publication records
+        if: always() && steps.prepare.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.plan.outputs.state_artifact_name }}
+          path: ${{ runner.temp }}/wallet-store-publishing/export/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove private publishing configuration
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/wallet-store-publishing"
