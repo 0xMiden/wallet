@@ -13,6 +13,8 @@
 
 ### Fixes
 
+- [FIX][e2e] iOS and Android dApp browser tests use native taps and typing to verify the software keyboard stays visible and leaves the test field accessible.
+
 - [FIX][all] USDCx bridge deposits keep the signing flow open through source-wallet approvals and confirmation. Close, Hide and mobile back return after initiation or failure.
 
 - [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
