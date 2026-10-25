@@ -129,6 +129,14 @@ describe('when an AggLayer exit is settled', () => {
     expect(exitStep(exit(), undefined, start)).toEqual({ kind: 'wait' });
   });
 
+  it('keeps the ready clock through a lap whose indexer read failed', () => {
+    expect(exitStep(undefined, start, start + 60_000)).toEqual({ kind: 'wait', readySince: start });
+    expect(exitStep(exit({ ready_for_claim: true }), start, start + SELF_CLAIM_GRACE_MS)).toEqual({
+      kind: 'claim',
+      readySince: start
+    });
+  });
+
   it('settles on a claim by anyone, ready flag or not, and never asks to claim it again', () => {
     expect(exitStep(exit({ ready_for_claim: true, claim_tx_hash: CLAIM }), start - 1, start + 10 * 60_000)).toEqual({
       kind: 'settled',
