@@ -282,8 +282,18 @@ describe('submitL2Deposit', () => {
     expect(burn?.maxPriorityFeePerGas).toBe(1_800n);
     // Blocks 26271614-26271625, ending at the actual signed quote's deadline.
     const baseFees = [
-      43_084_225n, 47_624_525n, 46_338_432n, 46_596_902n, 47_697_659n, 48_859_342n,
-      50_398_569n, 50_143_819n, 50_804_716n, 48_019_026n, 50_852_412n, 49_873_956n
+      43_084_225n,
+      47_624_525n,
+      46_338_432n,
+      46_596_902n,
+      47_697_659n,
+      48_859_342n,
+      50_398_569n,
+      50_143_819n,
+      50_804_716n,
+      48_019_026n,
+      50_852_412n,
+      49_873_956n
     ];
     expect(baseFees.every(baseFee => (burn?.maxFeePerGas ?? 0n) >= baseFee + 1_800n)).toBe(true);
   });
@@ -568,6 +578,7 @@ describe('readL2KeyFunds', () => {
 
     expect(funds.maxFeePerGas).toBe(7_200_000n + 10_000_000n);
   });
+
   it('funds the same mainnet fee ceiling that the burn signs and refuses the former budget', async () => {
     const l2 = ethereumMainnet();
     const chain = l2Chain(l2, { allowance: 10_000_000n, baseFee: 35_469_537n, priorityFee: 1_800n });
@@ -579,16 +590,29 @@ describe('readL2KeyFunds', () => {
     const [burn] = chain.sent.map(raw => parseTransaction(raw));
     expect(funds.maxFeePerGas).toBe(burn?.maxFeePerGas);
     expect(funds.maxFeePerGas).toBe(70_940_874n);
-    expect(l2KeyShortfall({
-      label: 'Ethereum', address: DEPOSITOR, wei: 1_100_000n * 42_565_244n,
-      maxFeePerGas: funds.maxFeePerGas, usdc: funds.usdc, units: DEPOSIT_UNITS, fee: QUOTE.feeTotalAmount
-    })).toContain('below');
-    expect(l2KeyShortfall({
-      label: 'Ethereum', address: DEPOSITOR, wei: 1_100_000n * funds.maxFeePerGas,
-      maxFeePerGas: funds.maxFeePerGas, usdc: funds.usdc, units: DEPOSIT_UNITS, fee: QUOTE.feeTotalAmount
-    })).toBeUndefined();
+    expect(
+      l2KeyShortfall({
+        label: 'Ethereum',
+        address: DEPOSITOR,
+        wei: 1_100_000n * 42_565_244n,
+        maxFeePerGas: funds.maxFeePerGas,
+        usdc: funds.usdc,
+        units: DEPOSIT_UNITS,
+        fee: QUOTE.feeTotalAmount
+      })
+    ).toContain('below');
+    expect(
+      l2KeyShortfall({
+        label: 'Ethereum',
+        address: DEPOSITOR,
+        wei: 1_100_000n * funds.maxFeePerGas,
+        maxFeePerGas: funds.maxFeePerGas,
+        usdc: funds.usdc,
+        units: DEPOSIT_UNITS,
+        fee: QUOTE.feeTotalAmount
+      })
+    ).toBeUndefined();
   });
-
 });
 
 describe('l2KeyShortfall', () => {
