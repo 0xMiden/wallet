@@ -503,9 +503,18 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
   // Removing the previous file keeps a swallowed write from being read back as a stale tree.
   const hierarchyPath = '/data/local/tmp/miden-wallet-hierarchy.xml';
   const hierarchyFor = async (serial: string): Promise<string> => {
-    await run(serial, ['shell', 'rm', '-f', hierarchyPath]);
-    await run(serial, ['shell', 'uiautomator', 'dump', hierarchyPath]);
-    return run(serial, ['exec-out', 'cat', hierarchyPath]);
+    for (let attempt = 1; ; attempt += 1) {
+      await run(serial, ['shell', 'rm', '-f', hierarchyPath]);
+      try {
+        await run(serial, ['shell', 'uiautomator', 'dump', hierarchyPath]);
+      } catch (error) {
+        // The dump's own UiAutomation thread can die on a stale binder ("Bad file descriptor"); one fresh dump is
+        // the bound.
+        if (attempt === 1) continue;
+        throw error;
+      }
+      return run(serial, ['exec-out', 'cat', hierarchyPath]);
+    }
   };
   return {
     surface: 'android',
