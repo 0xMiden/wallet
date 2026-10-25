@@ -80,12 +80,19 @@ export const hapticError = async () => {
   }
 };
 
+// iOS fires selectionChanged only on the generator selectionStart creates; set after it resolves so a failure retries.
+let selectionStarted = false;
+
 /**
  * Selection changed - for picker changes, list selections
  */
 export const hapticSelection = async () => {
   if (!isMobile() || !isHapticFeedbackEnabled()) return;
   try {
+    if (!selectionStarted) {
+      await Haptics.selectionStart();
+      selectionStarted = true;
+    }
     await Haptics.selectionChanged();
   } catch {
     // Ignore errors on unsupported devices
