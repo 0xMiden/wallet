@@ -15,12 +15,6 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - name: Test height witness regression without funded actions
         run: yarn jest --ci --maxWorkers=2 --runTestsByPath playwright/e2e/helpers/dapp-node-calls.test.ts --json --outputFile=height-ca-tests.json
-      - name: Type check
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
-        run: yarn tsc --noEmit -p .
-      - name: Lint named height witness files
-        run: yarn eslint --max-warnings=0 playwright/e2e/helpers/dapp-node-calls.ts playwright/e2e/helpers/dapp-node-calls.test.ts
       - name: Query actual SDK through the source height witness
         env:
           TS_NODE_COMPILER_OPTIONS: '{"module":"CommonJS","moduleResolution":"node"}'
@@ -38,6 +32,12 @@ jobs:
             console.log(JSON.stringify(report));
           })().catch(error => { console.error(error); process.exitCode = 1; });
           JS
+      - name: Type check
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: yarn tsc --noEmit -p .
+      - name: Lint named height witness files
+        run: yarn eslint --max-warnings=0 playwright/e2e/helpers/dapp-node-calls.ts playwright/e2e/helpers/dapp-node-calls.test.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
