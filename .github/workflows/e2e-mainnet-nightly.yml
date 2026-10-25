@@ -25,6 +25,13 @@ jobs:
                 const [receipt, tx, block] = await Promise.all([rpc('eth_getTransactionReceipt',[hash]),rpc('eth_getTransactionByHash',[hash]),rpc('eth_getBlockByNumber',['latest',false])]);
                 const result = {url,receipt:receipt && {status:receipt.status,blockNumber:receipt.blockNumber},transaction:tx && {blockNumber:tx.blockNumber,nonce:tx.nonce,maxFeePerGas:tx.maxFeePerGas,maxPriorityFeePerGas:tx.maxPriorityFeePerGas},latestBlock:{number:block.number,timestamp:block.timestamp,baseFeePerGas:block.baseFeePerGas}};
                 if (tx) result.senderNonce = {latest:await rpc('eth_getTransactionCount',[tx.from,'latest']),pending:await rpc('eth_getTransactionCount',[tx.from,'pending'])};
+                if (receipt) result.minedTimestamp = (await rpc('eth_getBlockByNumber',[receipt.blockNumber,false])).timestamp;
+                if (tx && tx.input.startsWith('0x095ea7b3') && tx.input.length === 138) {
+                  const owner = tx.from.slice(2).padStart(64,'0');
+                  const spender = tx.input.slice(10,74);
+                  const allowance = await rpc('eth_call',[{to:tx.to,data:'0xdd62ed3e'+owner+spender},'latest']);
+                  result.approval = {signedUnits:BigInt('0x'+tx.input.slice(74)).toString(),currentAllowanceUnits:BigInt(allowance).toString()};
+                }
                 console.log(JSON.stringify(result));
               } catch (error) {console.log(JSON.stringify({url,error:String(error)}));}
             }
