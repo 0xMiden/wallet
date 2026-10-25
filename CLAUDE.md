@@ -420,7 +420,10 @@ chain whose transaction input carries the burn note id, for the row's token and
 recipient, from the minter and depositor the Arc xReserve reports, after the block
 saved before submission, with a value from 1 up to the sent amount. Received is that
 value and the Circle fee is the sent amount minus it. Scan at most 5 chunks of 10,000
-blocks per check; an RPC failure leaves the row and its cursor where they were.
+blocks per check, and rescan the last 128 blocks on every check (the cursor never moves
+back); a scan the chunk cap stopped below the head is due again at once. A failure
+before any chunk completes (the source read, the block number) leaves the row and its
+cursor unchanged; a chunk failing mid-scan resumes after the last chunk read in full.
 
 A confirmed row not paid 2 hours after confirmation reads `Payout delayed`, for rows
 the wallet can scan only (not restored, snapshot saved). The review shows one line,
@@ -435,5 +438,6 @@ transfer search (one `eth_getLogs` over at most 2,000 blocks, 10-second timeout,
 retries, only when the details are open); omit its link unless one match is unique.
 
 Accepted limits: a fee above the attester's operator ceiling leaves a burn unpaid and
-it reads `Payout delayed`; pruned RPC history can leave an old row unscanned; Circle
-can be slow. Reviewer agents must treat these as known limits, not blocking defects.
+it reads `Payout delayed`; a mint transaction carrying two payouts to the recipient is
+skipped, so a batched payout reads `Payout delayed` too; pruned RPC history can leave an
+old row unscanned; Circle can be slow. Reviewer agents must treat these as known limits, not blocking defects.
