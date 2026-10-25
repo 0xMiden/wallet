@@ -4,6 +4,7 @@ import {
   bridgeLoops,
   BURN_FEE_MULTIPLE,
   depositGasReserve,
+  feePrecheckProblem,
   landedVaultSample,
   LOOP_USDC,
   midenFeeReserve,
@@ -138,5 +139,17 @@ describe('mainnet bridge loops', () => {
       landedVaultSample(() => Promise.reject(new Error('Execution context was destroyed')), read)
     ).rejects.toThrow('Execution context was destroyed');
     expect(read).not.toHaveBeenCalled();
+  });
+
+  it('says when no balance was read', () => {
+    const address = '0xabc';
+    const need = 5_040n;
+    expect(feePrecheckProblem(address, need, undefined)).toBe(
+      `${address} native balance was not read within 60s, so the fee precheck cannot say the account is short`
+    );
+    expect(feePrecheckProblem(address, need, 0n)).toBe(
+      `${address} holds 0 native base units, short of ${need} for two nights of bridge fees`
+    );
+    expect(feePrecheckProblem(address, need, need)).toBeUndefined();
   });
 });

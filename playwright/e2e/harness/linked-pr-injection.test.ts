@@ -153,17 +153,53 @@ const DISPATCH_CEILING = /^\$\{\{ github\.event_name == 'workflow_dispatch' && (
 const EVENT_TEST = /^github\.event_name\s*(==|!=)\s*'([^']*)'$/;
 const PLAIN_TERM = /^[A-Za-z_][\w.-]*(\s*(==|!=)\s*('[^']*'|[A-Za-z_][\w.-]*|\d+))?$/;
 
-/** The minutes every from-source build a dispatch can add to this job takes on its runner. */
-const dispatchMinutes = (file: string, job: Job): number => {
-  const runsOn = job.keys['runs-on'] ?? '';
-  const minutes = BUILD_MINUTES[/^macos-/.test(runsOn) ? 'macos' : (RUNNERS[runsOn] ?? '')];
-  if (minutes === undefined) throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
-  const runs = (action: string): boolean => job.steps.some(step => usesOf(step) === action);
-  const node = runs(LOCAL_NODE) ? minutes.node : 0;
-  if (node === undefined)
-    throw new Error(`${file} ${job.id}: no recorded local node build time for runs-on: ${runsOn}`);
-  return minutes.webSdk + (runs(CLI) ? minutes.cli : 0) + node;
+/** A runs-on a dispatch picks through a choice input, with the runner every other event takes. */
+const INPUT_RUNNER =
+  /^\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.([A-Za-z0-9_-]+) \|\| '([^']+)' \}\}$/;
+
+/** The `options:` of the workflow_dispatch input `name`. */
+const choiceOptions = (file: string, text: string, name: string): string[] => {
+  const lines = text.split('\n');
+  const at = lines.findIndex(line => line === `      ${name}:`);
+  if (at === -1) throw new Error(`${file}: no workflow_dispatch input ${name}`);
+  const options: string[] = [];
+  let optionsIndent = -1;
+  for (const line of lines.slice(at + 1)) {
+    if (!isContent(line)) continue;
+    const indent = indentOf(line);
+    if (indent <= 6) break;
+    if (line.trim() === 'options:') optionsIndent = indent;
+    else if (optionsIndent !== -1 && indent > optionsIndent) options.push(line.trim().replace(/^- /, ''));
+    else optionsIndent = -1;
+  }
+  if (options.length === 0) throw new Error(`${file}: the input ${name} lists no options`);
+  return options;
 };
+
+/** Every runner the job can run on: its runs-on, or each option of the dispatch input that picks it. */
+const runnersOf = (file: string, text: string, job: Job): string[] => {
+  const runsOn = job.keys['runs-on'] ?? '';
+  const [, input, fallback] = INPUT_RUNNER.exec(runsOn) ?? [];
+  if (input === undefined || fallback === undefined) return [runsOn];
+  const options = choiceOptions(file, text, input);
+  if (!options.includes(fallback)) throw new Error(`${file} ${job.id}: ${fallback} is not an option of ${input}`);
+  return options;
+};
+
+/** The minutes every from-source build a dispatch can add to this job takes on its slowest runner. */
+const dispatchMinutes = (file: string, text: string, job: Job): number =>
+  Math.max(
+    ...runnersOf(file, text, job).map(runsOn => {
+      const minutes = BUILD_MINUTES[/^macos-/.test(runsOn) ? 'macos' : (RUNNERS[runsOn] ?? '')];
+      if (minutes === undefined)
+        throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
+      const runs = (action: string): boolean => job.steps.some(step => usesOf(step) === action);
+      const node = runs(LOCAL_NODE) ? minutes.node : 0;
+      if (node === undefined)
+        throw new Error(`${file} ${job.id}: no recorded local node build time for runs-on: ${runsOn}`);
+      return minutes.webSdk + (runs(CLI) ? minutes.cli : 0) + node;
+    })
+  );
 
 /**
  * False when a job `if:` fails on every pull_request event: each `||` alternative has an `&&` term comparing the
@@ -212,7 +248,7 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
     return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
-  const needed = Number(push) + dispatchMinutes(file, job);
+  const needed = Number(push) + dispatchMinutes(file, text, job);
   return Number(dispatch) < needed ? `a dispatch gets ${dispatch} minutes, under the ${needed} it needs` : undefined;
 };
 
@@ -278,6 +314,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
         'e2e-dapp-browser.yml ios-dapp-browser',
         'e2e-dapp-browser.yml android-dapp-browser',
         'e2e-mainnet-nightly.yml mainnet-nightly',
+        'e2e-mainnet-nightly.yml mainnet-agglayer',
         'e2e-resilience.yml resilience-chrome',
         'e2e-stress.yml stress-conservation',
         'e2e-telemetry.yml telemetry-egress',
@@ -360,7 +397,8 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
       'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',
       'e2e-dapp.yml dapp-e2e-android: push 145, dispatch 190',
-      'e2e-mainnet-nightly.yml mainnet-nightly: push 180, dispatch 210',
+      'e2e-mainnet-nightly.yml mainnet-nightly: push 180, dispatch 225',
+      'e2e-mainnet-nightly.yml mainnet-agglayer: push 185, dispatch 230',
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
