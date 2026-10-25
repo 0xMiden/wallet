@@ -383,8 +383,11 @@ jobs:
           python3 <<'PY'
           import os, plistlib
           from pathlib import Path
+          # Select existing distribution assets instead of requesting cloud-signing permission.
           options = {'method': 'app-store-connect', 'destination': 'export', 'teamID': 'LHU7B7J5WL',
-                     'signingStyle': 'automatic', 'manageAppVersionAndBuildNumber': False}
+                     'signingStyle': 'manual', 'signingCertificate': 'Apple Distribution',
+                     'provisioningProfiles': {'com.miden.bread': 'iOS Team Store Provisioning Profile: com.miden.bread'},
+                     'manageAppVersionAndBuildNumber': False}
           with Path(os.environ['RUNNER_TEMP'], 'wallet-store-export.plist').open('wb') as target:
               plistlib.dump(options, target)
           PY
