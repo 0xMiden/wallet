@@ -350,7 +350,7 @@ export async function installTestDapp(
   server: DappServer = createDappServer(),
   origins: readonly string[] = Object.values(DAPP_ORIGINS)
 ): Promise<void> {
-  const listener = http.createServer(staticDappHandler(server));
+  const listener = http.createServer(staticDappHandler(server, undefined, true));
   await new Promise<void>((resolve, reject) => {
     listener.once('error', reject);
     listener.listen(0, '127.0.0.1', resolve);
@@ -395,7 +395,11 @@ export async function installTestDapp(
 export type LoopbackRoutes = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
 const PAGE_MODULE = /^\/[a-z][a-z0-9-]*\.js$/;
 
-function staticDappHandler(server: DappServer, routes?: LoopbackRoutes): http.RequestListener {
+function staticDappHandler(
+  server: DappServer,
+  routes?: LoopbackRoutes,
+  retainContentLength = false
+): http.RequestListener {
   return (request, response) => {
     if (routes?.(request, response) === true) return;
     const pathname = new URL(request.url ?? '/', 'http://loopback').pathname;
@@ -404,7 +408,8 @@ function staticDappHandler(server: DappServer, routes?: LoopbackRoutes): http.Re
     const noStore = served.contentType.startsWith('text/html') || PAGE_MODULE.test(pathname);
     response.writeHead(served.status, {
       'content-type': served.contentType,
-      ...(noStore ? { 'cache-control': 'no-store' } : {})
+      ...(noStore ? { 'cache-control': 'no-store' } : {}),
+      ...(retainContentLength && served.body.length > 0 ? { 'content-length': String(served.body.length) } : {})
     });
     response.end(served.body);
   };
