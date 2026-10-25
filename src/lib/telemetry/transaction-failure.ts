@@ -374,6 +374,8 @@ export interface TransactionFailure {
   /** Read only with the `never_committed` reason. */
   neverCommittedRule?: NeverCommittedRule;
   error?: unknown;
+  /** The failure that preceded an expired `never_committed` verdict; only its fixed identity is reported. */
+  priorError?: unknown;
   delegateTransaction?: boolean;
   outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
@@ -726,9 +728,14 @@ function submitOutcomeIdentity(
   hiddenDuringSubmit: boolean | undefined,
   submitLegMs: number | undefined
 ): string {
-  const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
+  const refusal = submitRequestFailure(error);
+  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal?.endpoint) ?? 'other';
+  const matched = grpcStatusOf(refusal?.kind)?.[0];
   const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
-  return `${coined('submit_outcome_unknown')}; grpc ${status}; ${submitContextIdentity(hiddenDuringSubmit, submitLegMs)}`;
+  return `${coined('submit_outcome_unknown')}; endpoint ${endpoint}; grpc ${status}; ${submitContextIdentity(
+    hiddenDuringSubmit,
+    submitLegMs
+  )}`;
 }
 
 function proofWaitBucket(
@@ -942,7 +949,13 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
       reason === undefined
         ? failureIdentity(failure)
         : reason === 'never_committed' && failure.neverCommittedRule !== undefined
-          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}`
+          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}` +
+            (failure.neverCommittedRule !== 'expired' || failure.priorError === undefined
+              ? ''
+              : `; prior ${failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError })}`) +
+            (failure.neverCommittedRule === 'expired'
+              ? `; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
+              : '')
           : reason;
     const report = new Error(
       [

@@ -164,8 +164,11 @@ jest.mock('../activity/helpers', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
+  isAndroid: () => false,
   isMobile: () => false,
-  isExtension: () => true
+  isIOS: () => false,
+  isExtension: () => true,
+  isDesktop: () => false
 }));
 
 jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
@@ -1381,8 +1384,10 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     try {
       await generateTransactionsLoop(dummySign, false, stubProvider);
       expect(txStore.find(row => row.id === 'nk-verdict-report')!.status).toBe(ITransactionStatus.Failed);
-      expect(captureCrash).toHaveBeenCalledTimes(1);
-      const report = jest.mocked(captureCrash).mock.calls[0]?.[0];
+      const report = jest
+        .mocked(captureCrash)
+        .mock.calls.map(([captured]) => captured)
+        .find(captured => captured instanceof Error && captured.name === 'WalletTransactionFailure');
       expect(report).toBeInstanceOf(Error);
       if (!(report instanceof Error)) throw new Error('missing consume failure report');
       const diagnostics = snapshotCrashDiagnostics(report);
@@ -1505,6 +1510,9 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     expect(syncState).toHaveBeenCalledTimes(1);
     expect(getInputNoteDetails).not.toHaveBeenCalled();
     expect(txStore.find(r => r.id === 'nk-sync-evicted')!.status).toBe(ITransactionStatus.Failed);
+    const report = jest.mocked(captureCrash).mock.calls[0]?.[0];
+    expect(report).toBeInstanceOf(Error);
+    expect(snapshotCrashDiagnostics(report)).not.toHaveProperty('consumeVerdict');
   });
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {

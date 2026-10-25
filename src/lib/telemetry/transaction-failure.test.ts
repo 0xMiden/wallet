@@ -820,11 +820,11 @@ const expectNoTransactionData = (message: string) => {
 };
 
 // web-sdk 0.17.3 `submitProvenTransaction` over miden-client 0.17.3 `SubmissionOutcomeUnknown` and `RpcError`.
-const submitOutcomeUnknown = (kind: string) =>
+const submitOutcomeUnknown = (kind: string, endpoint = 'submit_proven_transaction') =>
   new Error(
     `failed to submit proven transaction: submission of transaction ${TX_ID} came back without a definite outcome, ` +
       'so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
-      `submit_proven_transaction: ${kind}`
+      `${endpoint}: ${kind}`
   );
 
 // `cause` wrapped in `times` Errors, the outermost last.
@@ -1036,9 +1036,27 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      '; submit_outcome_unknown; grpc other; app hidden during submit no; submit leg unavailable. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc other; app hidden during submit no; submit leg unavailable. '
     );
     expect(message).not.toContain('not_found');
+  });
+
+  it('includes the source-known RPC endpoint and no raw request data', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      error: submitOutcomeUnknown(
+        `request to Miden node timed out; the node may be under heavy load ${ACCOUNT} ${AMOUNT} ${TX_ID} https://rpc.testnet.miden.io`,
+        'get_transaction_encryption_key'
+      )
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; point pipeline; submit_outcome_unknown; endpoint get_transaction_encryption_key; grpc deadline_exceeded; app hidden during submit no; submit leg unavailable. authentication'
+    );
+    expectNoTransactionData(message);
   });
 
   it.each([
@@ -1063,7 +1081,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc ${status}; app hidden during submit no; submit leg unavailable. authentication`
+      `; point pipeline; submit_outcome_unknown; endpoint submit_proven_transaction; grpc ${status}; app hidden during submit no; submit leg unavailable. authentication`
     );
     expectNoTransactionData(message);
   });
@@ -1084,7 +1102,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg unavailable. `
+      `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit ${answer}; submit leg unavailable. `
     );
     expectNoTransactionData(message);
   });
@@ -1110,7 +1128,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; submit_outcome_unknown; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
+      `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
     );
     expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
@@ -1282,7 +1300,7 @@ describe('a submit the node refused', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      '; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable; submit leg unavailable. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc cancelled; app hidden during submit unavailable; submit leg unavailable. '
     );
     expect(message).not.toContain('submit_rejected');
   });
@@ -1806,6 +1824,20 @@ describe('the never-committed verdict', () => {
     expectNoTransactionData(message);
   });
 
+  it('omits prior failure identity for non-expired never-committed verdicts', async () => {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'send',
+      reason: 'never_committed',
+      neverCommittedRule: 'superseded',
+      priorError: new Error('failed to fetch transaction inputs from the data store')
+    });
+
+    const message = await reportedMessage();
+    expect(message).toContain('; point node_verdict; never_committed; rule superseded. authentication');
+    expect(message).not.toContain('prior transaction_execution_failed');
+  });
+
   it('names a verdict with no rule by its reason alone, and a rule outside the list as other', async () => {
     reportTransactionFailure({ point: 'guardian_node_verdict', type: 'switch-guardian', reason: 'never_committed' });
     const malformed: TransactionFailure = { point: 'node_verdict', type: 'send', reason: 'never_committed' };
@@ -1907,9 +1939,14 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['device key code', () => [...HOT_KEY_CODES, 'other', 'none'], () => policyText(DEVICE_KEY, DEVICE_KEY_CODES)],
   [
+    'unknown-outcome RPC endpoint',
+    () => SUBMIT_ENDPOINTS,
+    () => policyText(UNKNOWN_OUTCOME, 'request endpoint', 'It carries the kind of answer')
+  ],
+  [
     'unknown-outcome gRPC status',
     () => SUBMIT_UNKNOWN_OUTCOME_STATUSES,
-    () => policyText(UNKNOWN_OUTCOME, 'It carries', 'and whether the App')
+    () => policyText(UNKNOWN_OUTCOME, 'kind of answer', 'and whether the App')
   ],
   [
     'hidden-during-submit answer',

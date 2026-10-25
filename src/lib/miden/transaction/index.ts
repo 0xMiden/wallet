@@ -1281,7 +1281,13 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // A watchdog-evicted pre-flight sync fails without a read (#1233): nothing executed in this attempt,
   // and the read would be the first hold after the eviction.
   if (committed?.stage === 'syncing' && someInCauseChain(error, isSyncWatchdogEviction)) return false;
-  const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
+  let nodeRead = false;
+  const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying, () => {
+    nodeRead = true;
+  });
+  if (nodeRead) {
+    annotateCrash(error, { consumeVerdict: verdict });
+  }
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
   if (verdict === 'processing') return true;

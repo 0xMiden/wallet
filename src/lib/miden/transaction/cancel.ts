@@ -1070,7 +1070,11 @@ export type ConsumeLandedVerdict =
  * reaper. A missing note or a thrown error yields `'unknown'`; an error or any
  * uncertainty NEVER yields `'landed-local'`, so a false Received is impossible.
  */
-export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
+export const verifyConsumeLanded = async (
+  tx: ConsumeTransaction,
+  sync: boolean,
+  afterNodeRead?: () => void
+): Promise<ConsumeLandedVerdict> => {
   try {
     // Best-effort: after a failed sync the last-synced state is still authoritative for a consumed
     // note (it cannot un-consume) and can only under-report "landed" for the rest → a safe Fail.
@@ -1081,6 +1085,7 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
         assertWasmHoldCurrent(hold, 'inside the consume-landed note read, before the record reach-through')
       )
     );
+    afterNodeRead?.();
     const note = noteDetails[0];
     if (!note) return 'unknown';
     if (LOCAL_CONSUMED_NOTE_STATES.includes(note.state)) return 'landed-local';
