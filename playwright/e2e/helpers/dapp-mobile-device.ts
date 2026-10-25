@@ -55,6 +55,95 @@ const idb: IdbRun = (_udid, args) =>
     );
   });
 
+const DIAGNOSTIC_LABELS = ['Keyboard input', 'Keyboard notes', 'Test dApp', 'Done', 'Hide Keyboard', 'Return'];
+function diagnosticMatches(value: unknown): string[] {
+  return typeof value === 'string' ? DIAGNOSTIC_LABELS.filter(label => value.trim() === label) : [];
+}
+function diagnosticIos(tree: string, stage: string): void {
+  const nodes = iosNodes(tree);
+  const selected = nodes
+    .flatMap((node, index) => {
+      const matches = diagnosticMatches(iosLabel(node));
+      const type = String(node.type ?? '');
+      if (!matches.length && !/keyboard|inputset|webview/i.test(type)) return [];
+      return [
+        {
+          index,
+          matches,
+          type,
+          keys: Object.keys(node).sort(),
+          frame: iosFrame(node.frame),
+          role: node.role,
+          role_description: node.role_description,
+          traits: node.traits,
+          typedValueMatch: node.AXValue === 'Native typing 1837' || node.value === 'Native typing 1837',
+          labelKeys: ['AXLabel', 'label', 'title'].filter(key => diagnosticMatches(node[key]).length > 0)
+        }
+      ];
+    })
+    .slice(0, 28);
+  console.log(
+    'NATIVE_ATTRIBUTE_DIAGNOSTIC ' + JSON.stringify({ platform: 'ios', stage, count: nodes.length, selected })
+  );
+}
+function diagnosticAndroid(tree: string, read: number): void {
+  const stack: number[] = [];
+  let index = 0;
+  const selected: unknown[] = [];
+  for (const match of tree.matchAll(/<node\b[^>]*>|<\/node>/g)) {
+    const tag = match[0];
+    if (tag.startsWith('</')) {
+      stack.pop();
+      continue;
+    }
+    const node = xmlAttributes(tag);
+    const current = index++;
+    const matches = Object.fromEntries(
+      ['text', 'content-desc', 'hint', 'resource-id'].map(key => [key, diagnosticMatches(node[key])])
+    );
+    if (/EditText/.test(node.class ?? '') || Object.values(matches).some(values => values.length)) {
+      selected.push({
+        index: current,
+        parent: stack.at(-1) ?? null,
+        siblingIndex: node.index,
+        class: node.class,
+        keys: Object.keys(node).sort(),
+        matches,
+        bounds: androidFrame(node.bounds),
+        resourceIdPresent: Boolean(node['resource-id']),
+        knownResourceId: /(?:^|[:/])keyboard-(?:input|textarea)$/.test(node['resource-id'] ?? '')
+          ? node['resource-id']
+          : null
+      });
+    }
+    if (!tag.endsWith('/>')) stack.push(current);
+  }
+  console.log(
+    'NATIVE_ATTRIBUTE_DIAGNOSTIC ' +
+      JSON.stringify({ platform: 'android', read, count: index, selected: selected.slice(0, 8) })
+  );
+}
+async function diagnosticIosPreferences(): Promise<void> {
+  const result = await new Promise<string>(resolve => {
+    execFile(
+      'defaults',
+      ['read', 'com.apple.iphonesimulator'],
+      { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        const values = Array.from(stdout.matchAll(/ConnectHardwareKeyboard\s*=\s*([^;\n]+)/g), match =>
+          /^(1|true|YES)$/i.test(match[1]?.trim() ?? '')
+            ? 'true'
+            : /^(0|false|NO)$/i.test(match[1]?.trim() ?? '')
+              ? 'false'
+              : 'other'
+        );
+        resolve(JSON.stringify({ status: error ? 'unavailable' : 'read', connectHardwareKeyboardValues: values }));
+      }
+    );
+  });
+  console.log('NATIVE_KEYBOARD_PREFERENCE_DIAGNOSTIC ' + result);
+}
+
 function point(frame: NativeRect): { x: number; y: number } {
   return { x: Math.round(frame.x + frame.width / 2), y: Math.round(frame.y + frame.height / 2) };
 }
@@ -385,10 +474,13 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
   // FileWriter swallows a failed dump and DumpCommand still exits 0, so stdout is only the banner.
   // Removing the previous file keeps a swallowed write from being read back as a stale tree.
   const hierarchyPath = '/data/local/tmp/miden-wallet-hierarchy.xml';
+  let diagnosticRead = 0;
   const hierarchyFor = async (serial: string): Promise<string> => {
     await run(serial, ['shell', 'rm', '-f', hierarchyPath]);
     await run(serial, ['shell', 'uiautomator', 'dump', hierarchyPath]);
-    return run(serial, ['exec-out', 'cat', hierarchyPath]);
+    const tree = await run(serial, ['exec-out', 'cat', hierarchyPath]);
+    if (diagnosticRead < 4) diagnosticAndroid(tree, diagnosticRead++);
+    return tree;
   };
   return {
     surface: 'android',
@@ -458,8 +550,18 @@ export function iosDevice(
     return wallet.udid;
   };
   // Host ax stops at the application process. axbridge is the guest reader that can see web content.
-  const treeFor = (udid: string): Promise<string> =>
-    run(udid, ['ui', 'describe-all', '--udid', udid, '--api', 'axbridge']);
+  let diagnosticRead = 0;
+  let diagnosticStage = 'before-native-typing';
+  let preferencesRead = false;
+  const treeFor = async (udid: string): Promise<string> => {
+    if (!preferencesRead) {
+      preferencesRead = true;
+      await diagnosticIosPreferences();
+    }
+    const tree = await run(udid, ['ui', 'describe-all', '--udid', udid, '--api', 'axbridge']);
+    if (diagnosticRead < 12) diagnosticIos(tree, `${diagnosticStage}-${diagnosticRead++}`);
+    return tree;
+  };
   return {
     surface: 'ios',
     tapAccessibilityLabel: async (device, label) => {
@@ -478,6 +580,7 @@ export function iosDevice(
     typeText: async (device, value) => {
       const udid = udidFor(device);
       await run(udid, ['ui', 'text', value, '--udid', udid]);
+      diagnosticStage = 'after-native-typing';
     },
     keyboardLayout: async (device, label) => {
       const udid = udidFor(device);
