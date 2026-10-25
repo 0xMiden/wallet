@@ -25,6 +25,8 @@ const ATTESTATION_USED = parseAbiItem(
 const PAYOUT_READ_TIMEOUT_MS = 15_000;
 export const USDCX_PAYOUT_LOG_CHUNK = 10_000n;
 export const USDCX_PAYOUT_CHUNKS_PER_CHECK = 5;
+/** Blocks below the last one read that the next check reads again, for logs that lag their head and short reorgs. */
+export const USDCX_PAYOUT_RESCAN_BLOCKS = 128n;
 
 export type PayoutReadClient = Pick<PublicClient, 'getBlockNumber' | 'getLogs' | 'getTransaction' | 'readContract'>;
 

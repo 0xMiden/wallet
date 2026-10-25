@@ -418,7 +418,7 @@ export interface IUsdcxBurn {
   destinationBalanceConfirmed?: { balance: string; blockNumber: string };
   /** The GatewayMinter mint that paid this burn, found by its note id. */
   payout?: UsdcxPayout;
-  /** Last destination block fully scanned for the payout; the next check resumes after it. */
+  /** Destination block the next payout check resumes after: the last one scanned less 128, never moved back. */
   payoutScannedBlock?: string;
   /** When the burn first read confirmed, in ms. */
   confirmedAt?: number;

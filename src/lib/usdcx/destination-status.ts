@@ -5,7 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { getChain } from 'lib/walletconnect/config';
 
 import { usdcxDestinations, ERC20_BALANCE_OF_ABI } from './constant';
-import { readGatewayPayoutSource, scanUsdcxPayout } from './payout-proof';
+import { readGatewayPayoutSource, scanUsdcxPayout, USDCX_PAYOUT_RESCAN_BLOCKS } from './payout-proof';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -130,8 +130,10 @@ export interface UsdcxPayoutDeps {
 /**
  * Records the mint that paid a confirmed burn. A balance increase proves nothing about this burn, so the scan looks
  * for the GatewayMinter mint whose transaction carries the burn's note id. Every network with a USDCx row is polled;
- * the destination's USDC and RPC come from the document for that row's chain. An RPC error rejects and leaves the
- * row and its cursor as they were.
+ * the destination's USDC and RPC come from the document for that row's chain. A failure before any chunk completes
+ * (the source read, the block number) leaves the row and its cursor unchanged; a chunk failing mid-scan resumes after
+ * the last chunk read in full. The cursor is saved 128 blocks below the last block read, never below where it was, so
+ * every check reads those blocks again.
  */
 export async function pollUsdcxDestination(
   tx: ITransaction,
@@ -157,16 +159,22 @@ export async function pollUsdcxDestination(
   if (!usdc) return;
 
   const cursor = burn.payoutScannedBlock;
+  const floor = BigInt(cursor ?? before.blockNumber);
   const { payout, scannedTo } = await scan({
     chainId: extra.destinationNetwork,
     recipient: extra.destinationAddress,
     usdc,
     burnNoteId: burn.noteId,
     amount: tx.amount,
-    fromBlock: BigInt(cursor ?? before.blockNumber) + 1n,
+    fromBlock: floor + 1n,
     source: await readSource()
   });
   if (!payout && scannedTo === undefined) return;
+  const resumeAfter =
+    scannedTo !== undefined && scannedTo - USDCX_PAYOUT_RESCAN_BLOCKS > floor
+      ? scannedTo - USDCX_PAYOUT_RESCAN_BLOCKS
+      : floor;
+  if (!payout && resumeAfter === floor) return;
 
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;
@@ -190,7 +198,7 @@ export async function pollUsdcxDestination(
     if (!payout && previous.payoutScannedBlock !== cursor) return;
     row.extraInputs = {
       ...current,
-      usdcxBurn: payout ? { ...previous, payout } : { ...previous, payoutScannedBlock: scannedTo?.toString() }
+      usdcxBurn: payout ? { ...previous, payout } : { ...previous, payoutScannedBlock: resumeAfter.toString() }
     };
   });
 }

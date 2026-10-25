@@ -268,11 +268,11 @@ describe('pollUsdcxDestination', () => {
     expect(burnOf().payout).toEqual(mint);
   });
 
-  it('moves the cursor to the scanned block when nothing matched', async () => {
+  it('moves the cursor to 128 blocks below the scanned block when nothing matched', async () => {
     scan.mockResolvedValueOnce({ scannedTo: 50_100n });
     await poll(stored);
     expect(burnOf().payout).toBeUndefined();
-    expect(burnOf().payoutScannedBlock).toBe('50100');
+    expect(burnOf().payoutScannedBlock).toBe('49972');
     expect(isUsdcxDestinationPending(burnOf())).toBe(true);
   });
 
@@ -281,7 +281,26 @@ describe('pollUsdcxDestination', () => {
     scan.mockResolvedValueOnce({ scannedTo: 60_100n });
     await poll(stored);
     expect(scan).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 50_101n }));
-    expect(burnOf().payoutScannedBlock).toBe('60100');
+    expect(burnOf().payoutScannedBlock).toBe('59972');
+  });
+
+  // A backend whose logs lag its head answers an empty chunk for blocks it has not indexed yet.
+  it('rescans the last 128 blocks on the next check', async () => {
+    const late = { ...mint, blockNumber: '950' };
+    scan
+      .mockResolvedValueOnce({ scannedTo: 1_000n })
+      .mockImplementationOnce(async ({ fromBlock }) => (fromBlock <= 950n ? { payout: late } : { scannedTo: 1_100n }));
+    await poll(stored);
+    await poll(stored);
+    expect(scan).toHaveBeenLastCalledWith(expect.objectContaining({ fromBlock: 873n }));
+    expect(burnOf().payout).toEqual(late);
+  });
+
+  it('never moves the cursor backwards when the head reads lower', async () => {
+    stored = row({ payoutScannedBlock: '50100' });
+    scan.mockResolvedValueOnce({ scannedTo: 50_150n });
+    await poll(stored);
+    expect(burnOf().payoutScannedBlock).toBe('50100');
   });
 
   it('writes nothing when the scan read no block', async () => {
