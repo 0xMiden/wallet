@@ -19,15 +19,15 @@ final class AppViewControllerTests: XCTestCase {
             for: InstanceConfiguration(with: InstanceDescriptor(), isDebug: true)
         )
 
-        XCTAssertEqual(isFeatureEnabled(key, in: WKPreferences()), true)
-        XCTAssertEqual(isFeatureEnabled(key, in: configuration.preferences), false)
+        XCTAssertEqual(webKitFeatureIsEnabled(key, in: WKPreferences()), true)
+        XCTAssertEqual(webKitFeatureIsEnabled(key, in: configuration.preferences), false)
     }
 
     func testFeatureSwitchLeavesPreferencesAloneWhenWebKitListsNoSuchFeature() {
         let preferences = WKPreferences()
 
         XCTAssertEqual(WebKitFeature.disable("NoSuchFeatureEnabled", in: preferences), .missing)
-        XCTAssertEqual(isFeatureEnabled(WebKitFeature.preferNear60FPS, in: preferences), true)
+        XCTAssertEqual(webKitFeatureIsEnabled(WebKitFeature.preferNear60FPS, in: preferences), true)
     }
 
     func testFeatureSwitchLeavesPreferencesAloneWhenWebKitHasNoFeatureList() {
@@ -37,20 +37,20 @@ final class AppViewControllerTests: XCTestCase {
             WebKitFeature.disable(WebKitFeature.preferNear60FPS, in: preferences, featureSource: NSObject()),
             .unsupported
         )
-        XCTAssertEqual(isFeatureEnabled(WebKitFeature.preferNear60FPS, in: preferences), true)
+        XCTAssertEqual(webKitFeatureIsEnabled(WebKitFeature.preferNear60FPS, in: preferences), true)
     }
+}
 
-    // Reads the feature straight from WebKit, independently of the app's own lookup; nil when WebKit lists no such key.
-    private func isFeatureEnabled(_ key: String, in preferences: WKPreferences) -> Bool? {
-        let featuresSelector = NSSelectorFromString("_features")
-        let keySelector = NSSelectorFromString("key")
-        let isEnabledSelector = NSSelectorFromString("_isEnabledForFeature:")
-        let features = (WKPreferences.self as AnyObject).perform(featuresSelector)?.takeUnretainedValue() as? [NSObject]
-        guard let feature = features?.first(where: { ($0.perform(keySelector)?.takeUnretainedValue() as? String) == key })
-        else { return nil }
+// Reads a feature straight from WebKit, independently of the app's own lookup; nil when WebKit lists no such key.
+func webKitFeatureIsEnabled(_ key: String, in preferences: WKPreferences) -> Bool? {
+    let featuresSelector = NSSelectorFromString("_features")
+    let keySelector = NSSelectorFromString("key")
+    let isEnabledSelector = NSSelectorFromString("_isEnabledForFeature:")
+    let features = (WKPreferences.self as AnyObject).perform(featuresSelector)?.takeUnretainedValue() as? [NSObject]
+    guard let feature = features?.first(where: { ($0.perform(keySelector)?.takeUnretainedValue() as? String) == key })
+    else { return nil }
 
-        typealias IsEnabled = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
-        let isEnabled = unsafeBitCast(preferences.method(for: isEnabledSelector), to: IsEnabled.self)
-        return isEnabled(preferences, isEnabledSelector, feature)
-    }
+    typealias IsEnabled = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
+    let isEnabled = unsafeBitCast(preferences.method(for: isEnabledSelector), to: IsEnabled.self)
+    return isEnabled(preferences, isEnabledSelector, feature)
 }
