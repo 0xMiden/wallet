@@ -23,6 +23,23 @@ final class AppViewControllerTests: XCTestCase {
         XCTAssertEqual(isFeatureEnabled(key, in: configuration.preferences), false)
     }
 
+    func testFeatureSwitchLeavesPreferencesAloneWhenWebKitListsNoSuchFeature() {
+        let preferences = WKPreferences()
+
+        XCTAssertEqual(WebKitFeature.disable("NoSuchFeatureEnabled", in: preferences), .missing)
+        XCTAssertEqual(isFeatureEnabled(WebKitFeature.preferNear60FPS, in: preferences), true)
+    }
+
+    func testFeatureSwitchLeavesPreferencesAloneWhenWebKitHasNoFeatureList() {
+        let preferences = WKPreferences()
+
+        XCTAssertEqual(
+            WebKitFeature.disable(WebKitFeature.preferNear60FPS, in: preferences, featureSource: NSObject()),
+            .unsupported
+        )
+        XCTAssertEqual(isFeatureEnabled(WebKitFeature.preferNear60FPS, in: preferences), true)
+    }
+
     // Reads the feature straight from WebKit, independently of the app's own lookup; nil when WebKit lists no such key.
     private func isFeatureEnabled(_ key: String, in preferences: WKPreferences) -> Bool? {
         let featuresSelector = NSSelectorFromString("_features")
