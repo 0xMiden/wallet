@@ -39,6 +39,14 @@ android {
     }
     testOptions {
         unitTests.includeAndroidResources = true
+        unitTests.all {
+            // Robolectric keeps a sandbox per SDK level the suite runs on, each holding its android-all jar.
+            maxHeapSize = "2g"
+            testLogging {
+                events "passed", "failed", "skipped"
+                exceptionFormat "full"
+            }
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21

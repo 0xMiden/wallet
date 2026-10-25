@@ -420,9 +420,19 @@ export interface BrowserSession {
   origin: string;
   isLoading: boolean;
 }
+export interface BrowserMotion {
+  id: string;
+  target: 'collapsed' | 'expanded';
+  started: boolean;
+  acknowledging: boolean;
+  progress: number;
+  tracking: boolean;
+}
 export interface BrowserState {
   foregroundId: string | null;
   sessions: BrowserSession[];
+  /** The native morph in flight (#1817); null at rest, absent from a build without it. */
+  motion?: BrowserMotion | null;
 }
 
 /** DappBrowserProvider's read-only hook; the JSON round trip drops its function members. */

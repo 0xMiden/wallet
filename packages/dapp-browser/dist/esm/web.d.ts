@@ -1,5 +1,5 @@
 import { WebPlugin } from '@capacitor/core';
-import type { InAppBrowserPlugin, OpenWebViewOptions, OpenOptions, GetCookieOptions, ClearCookieOptions, DimensionOptions } from './definitions';
+import type { InAppBrowserPlugin, OpenWebViewOptions, OpenOptions, GetCookieOptions, ClearCookieOptions, DimensionOptions, MorphOptions, MorphResult, MorphTargetOptions, PrepareMorphOptions } from './definitions';
 export declare class InAppBrowserWeb extends WebPlugin implements InAppBrowserPlugin {
     clearAllCookies(): Promise<any>;
     clearCache(): Promise<any>;
@@ -21,4 +21,7 @@ export declare class InAppBrowserWeb extends WebPlugin implements InAppBrowserPl
         version: string;
     }>;
     updateDimensions(options: DimensionOptions): Promise<void>;
+    morph(options: MorphOptions): Promise<MorphResult>;
+    setMorphTarget(options: MorphTargetOptions): Promise<void>;
+    prepareMorph(options: PrepareMorphOptions): Promise<void>;
 }
