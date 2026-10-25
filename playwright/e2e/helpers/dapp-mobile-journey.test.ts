@@ -117,6 +117,9 @@ jest.mock('./dapp-node-calls', () => ({
 
 const source = (file: string): string => fs.readFileSync(path.resolve(__dirname, '../../..', file), 'utf8');
 
+/** The host clock, captured before any test installs fake timers. */
+const REAL_DATE_NOW = Date.now;
+
 describe('pending note provenance reads', () => {
   const readPending = jest.requireActual<typeof import('./dapp-mobile-wallet')>('./dapp-mobile-wallet').pendingNotes;
   const key = 'claimable_notes:v1:https://rpc.testnet.miden.io|testnet:mtst1b';
@@ -943,6 +946,21 @@ describe('mobile journey hooks and setup', () => {
 
   it('blocks the leg when the raw claim cannot join within the next quiesce budget', async () => {
     const { journey, runner, raw, claim } = await pendingRecipientClaim(20_000);
+    // Real milliseconds pass while the quiesce starts; the join budget must still follow the fake clock alone.
+    let pending = journey.recipientClaim;
+    Object.defineProperty(journey, 'recipientClaim', {
+      configurable: true,
+      get: () => {
+        const until = REAL_DATE_NOW() + 5;
+        while (REAL_DATE_NOW() < until) {
+          // spin on the host clock
+        }
+        return pending;
+      },
+      set: value => {
+        pending = value;
+      }
+    });
     const run = jest.fn(async () => undefined);
     let finished = false;
     const next = runner.run({ id: 'W4', budget: 'read', run }).then(record => {
