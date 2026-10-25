@@ -1,4 +1,5 @@
 import { renderHook } from '@testing-library/react';
+import type { TargetAndTransition } from 'framer-motion';
 
 import { durations } from './durations';
 import { easings } from './easings';
@@ -67,17 +68,24 @@ describe('lib/animation/presets', () => {
 
     it('page: the incoming page slides in from the right on the stacked-page tween', () => {
       expect(presets.page.initial).toEqual({ transform: 'translateX(100%)' });
-      expect(presets.page.animate).toEqual({ transform: 'translateX(0%)' });
+      expect(presets.page.animate).toEqual({ transform: 'translateX(0%)', transitionEnd: { transform: 'none' } });
+      expect(presets.page.animate?.transitionEnd).toEqual({ transform: 'none' });
       expect(presets.page.exit).toEqual({ transform: 'translateX(100%)' });
       expect(presets.page.transition).toBe(pageSlideEntrance);
       expect(pageSlideEntrance).toEqual({ type: 'tween', duration: 0.34, ease: easings.standard });
     });
 
+    const withoutTransitionEnd = (target: TargetAndTransition | undefined) => {
+      const { transitionEnd, ...animated } = target ?? {};
+      void transitionEnd;
+      return animated;
+    };
+
     it('page: only animates transform and opacity, the values framer-motion hands to the compositor', () => {
       // `x` is not on this list: framer-motion runs it from rAF, so WebKit never composites the slide.
       const accelerated = new Set(['transform', 'opacity']);
       const keys = [presets.page.initial, presets.page.animate, presets.page.exit, pageSlideCovered].flatMap(target =>
-        Object.keys(target ?? {})
+        Object.keys(withoutTransitionEnd(target))
       );
       expect(keys.length).toBeGreaterThan(0);
       keys.forEach(key => expect(accelerated.has(key)).toBe(true));

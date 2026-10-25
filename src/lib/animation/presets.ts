@@ -91,7 +91,9 @@ export const presets: Record<PresetName, MotionPreset> = {
     // `transform`, not `x`: framer-motion hands only `transform` and `opacity` to the Web Animations
     // API, where WebKit composites the slide at the display rate. An `x` animation runs from rAF.
     initial: { transform: 'translateX(100%)' },
-    animate: { transform: 'translateX(0%)' },
+    // The end value must stay interpolable for the compositor, but a page at rest holds no transform:
+    // a resting one would make the page the containing block of its `position: fixed` content.
+    animate: { transform: 'translateX(0%)', transitionEnd: { transform: 'none' } },
     exit: { transform: 'translateX(100%)' },
     transition: pageSlideEntrance
   },

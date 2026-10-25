@@ -155,7 +155,7 @@ it('slides a popped slide page out instead of parking it under the page beneath'
   expect(revealed).toHaveStyle({ zIndex: '2', pointerEvents: 'auto' });
   expect(revealed).not.toHaveAttribute('inert');
   expect(revealed).not.toHaveAttribute('aria-hidden');
-  await waitFor(() => expect(revealed).toHaveStyle({ transform: 'translateX(0%)' }));
+  await waitFor(() => expect(revealed).toHaveStyle({ transform: 'none' }));
 });
 
 it('plays no Back animation on a push from a slide page to a plain page, and covers nothing after popping back', async () => {
@@ -313,7 +313,7 @@ it('covers the page beneath when a push returns to a slide page that was popped 
 
   // The page opens fresh, and it is the only present layer.
   expect(screen.getByRole('button')).toHaveTextContent('/rotate-guardian count 0');
-  expect(container.querySelector('[data-page-layer="/rotate-guardian"]')).toHaveStyle({ transform: 'translateX(0%)' });
+  expect(container.querySelector('[data-page-layer="/rotate-guardian"]')).toHaveStyle({ transform: 'none' });
 });
 
 it('drops a popped copy still sliding out at once when its page is pushed again, leaving one copy', async () => {
