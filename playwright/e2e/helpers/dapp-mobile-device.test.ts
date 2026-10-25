@@ -3,13 +3,7 @@
  */
 import { HarnessFault } from './dapp-cells';
 import * as mobileDeviceModule from './dapp-mobile-device';
-import {
-  androidDevice,
-  iosDevice,
-  parseReverseList,
-  reversePagePort,
-  type AdbRun
-} from './dapp-mobile-device';
+import { androidDevice, iosDevice, parseReverseList, reversePagePort, type AdbRun } from './dapp-mobile-device';
 
 interface NativeRect {
   x: number;
@@ -56,6 +50,72 @@ function androidDeviceWithControls(
   run: AdbRun
 ): ReturnType<typeof androidDevice> & NativeControls {
   return androidDevice(serials, run) as ReturnType<typeof androidDevice> & NativeControls;
+}
+
+type IosNode = Record<string, unknown>;
+
+const IOS_SCREEN: IosNode = { type: 'WebView', role: 'WebView', frame: { x: 0, y: 0, width: 402, height: 874 } };
+const IOS_HOST: IosNode = {
+  type: 'UIInputSetHostView',
+  role: 'UIInputSetHostView',
+  frame: { x: 0, y: 471, width: 402, height: 403 }
+};
+const IOS_KEYBOARD: IosNode = { type: 'Keyboard', role: 'Keyboard', frame: { x: 0, y: 583, width: 402, height: 233 } };
+const IOS_DONE: IosNode = {
+  type: 'Button',
+  role: 'Button',
+  AXLabel: 'Done',
+  traits: ['Button', 'Scrollable'],
+  frame: { x: 341, y: 486, width: 40, height: 38 }
+};
+
+function iosEditing(label: string, frame: NativeRect): IosNode {
+  return { type: 'TextField', AXLabel: label, traits: ['WebContent', 'TextEntry', 'IsEditing'], frame };
+}
+
+function iosKey(label: string, x: number, y: number, width = 39, traits: string[] = []): IosNode {
+  return {
+    type: 'Key',
+    role: 'Key',
+    AXLabel: label,
+    traits: ['PlaysSound', 'KeyboardKey', 'Scrollable', ...traits],
+    frame: { x, y, width, height: 54 }
+  };
+}
+
+type IosKeyMode = 'upper' | 'lower' | 'digits';
+
+/** The keys the simulator exposed inside the 0,583,402,233 keyboard, in its three layouts. */
+function iosKeys(mode: IosKeyMode): IosNode[] {
+  const row = (letters: string, start: number, y: number) =>
+    Array.from(letters, (letter, index) =>
+      iosKey(mode === 'upper' ? letter.toUpperCase() : letter, start + index * 39, y)
+    );
+  const bottom = [iosKey(' ', 103, 752, 197), iosKey('return', 301, 752, 99, ['Button'])];
+  if (mode === 'digits') {
+    return [...row('1234567890', 5, 590), iosKey('delete', 348, 698, 52), iosKey('letters', 5, 752, 98), ...bottom];
+  }
+  return [
+    ...row('qwertyuiop', 5, 590),
+    ...row('asdfghjkl', 24, 644),
+    iosKey('shift', 5, 698, 50, mode === 'upper' ? ['Button', 'Selected'] : ['Button']),
+    ...row('zxcvbnm', 66, 698),
+    iosKey('delete', 348, 698, 52),
+    iosKey('numbers', 5, 752, 98),
+    ...bottom
+  ];
+}
+
+function iosTypingTree(
+  mode: IosKeyMode,
+  field: IosNode = iosEditing('Keyboard input', { x: 16, y: 302, width: 370, height: 33 })
+) {
+  return JSON.stringify([IOS_SCREEN, field, IOS_HOST, IOS_DONE, IOS_KEYBOARD, ...iosKeys(mode)]);
+}
+
+function center(frame: unknown): [string, string] {
+  const { x, y, width, height } = frame as NativeRect;
+  return [String(Math.round(x + width / 2)), String(Math.round(y + height / 2))];
 }
 
 function adbAnswering(list: string): { run: AdbRun; calls: string[][] } {
@@ -122,13 +182,19 @@ describe('the iOS device', () => {
 
   it('uses native IDB commands to tap, type, inspect and dismiss the keyboard', async () => {
     const calls: string[][] = [];
+    const field = iosEditing('dApp input', { x: 20, y: 200, width: 350, height: 44 });
+    const tree = JSON.stringify([
+      { type: 'Heading', AXLabel: 'Test dApp', frame: { x: 16, y: 120, width: 120, height: 24 } },
+      IOS_SCREEN,
+      field,
+      IOS_HOST,
+      IOS_DONE,
+      IOS_KEYBOARD,
+      ...iosKeys('lower')
+    ]);
     const run: IdbRun = async (udid, args) => {
       calls.push([udid, ...args]);
-      return JSON.stringify([
-        { type: 'WebView', frame: { x: 0, y: 100, width: 390, height: 700 } },
-        { type: 'TextField', AXLabel: 'dApp input', frame: { x: 20, y: 200, width: 350, height: 44 } },
-        { type: 'Keyboard', frame: { x: 0, y: 580, width: 390, height: 300 } }
-      ]);
+      return tree;
     };
     const device = iosDeviceWithControls(
       [{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }],
@@ -143,19 +209,26 @@ describe('the iOS device', () => {
     await device.typeText('A', 'typed value');
     await expect(device.keyboardLayout('A', 'dApp input')).resolves.toEqual({
       keyboardVisible: true,
-      keyboardTop: 580,
+      keyboardTop: 471,
       fieldFrame: { x: 20, y: 200, width: 350, height: 44 },
-      webViewFrame: { x: 0, y: 100, width: 390, height: 700 }
+      webViewFrame: { x: 0, y: 0, width: 402, height: 874 }
     });
     await device.dismissKeyboard('A');
 
+    const describe = ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'];
+    const keyFrames = new Map(iosKeys('lower').map(key => [key.AXLabel, key.frame]));
+    const typing = Array.from('typed value').flatMap(character => [
+      describe,
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', ...center(keyFrames.get(character))]
+    ]);
     expect(calls).toEqual([
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
+      describe,
       ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '195', '222'],
-      ['sim-a', 'ui', 'text', 'typed value', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'key', '4', '--udid', 'sim-a']
+      ...typing,
+      describe,
+      describe,
+      describe,
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '361', '505']
     ]);
   });
 
@@ -163,13 +236,19 @@ describe('the iOS device', () => {
     const parse = nativeParser<(tree: string, label: string) => NativeKeyboardLayout>('parseIosKeyboardLayout');
     const tree = JSON.stringify([
       { type: 'WebView', frame: { x: 0, y: 100, width: 390, height: 700 } },
-      { type: 'TextField', AXLabel: 'dApp input', frame: { x: 20, y: 200, width: 350, height: 44 } },
-      { type: 'Keyboard', frame: { x: 0, y: 580, width: 390, height: 300 } }
+      {
+        type: 'TextField',
+        AXLabel: 'dApp input',
+        traits: ['TextEntry'],
+        frame: { x: 20, y: 200, width: 350, height: 44 }
+      },
+      { type: 'UIInputSetHostView', frame: { x: 0, y: 500, width: 390, height: 300 } },
+      { type: 'Keyboard', frame: { x: 0, y: 580, width: 390, height: 220 } }
     ]);
 
     expect(parse(tree, 'dApp input')).toEqual({
       keyboardVisible: true,
-      keyboardTop: 580,
+      keyboardTop: 500,
       fieldFrame: { x: 20, y: 200, width: 350, height: 44 },
       webViewFrame: { x: 0, y: 100, width: 390, height: 700 }
     });
@@ -201,13 +280,169 @@ describe('the iOS device', () => {
     });
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('dApp input');
   });
+
+  it('measures the TextEntry instead of the label', async () => {
+    const parse = nativeParser<(tree: string, label: string) => NativeKeyboardLayout>('parseIosKeyboardLayout');
+    const tree = JSON.stringify([
+      IOS_SCREEN,
+      { type: 'WebView', role: 'WebView', frame: { x: 0, y: 166, width: 402, height: 708 } },
+      {
+        type: 'WebAccessibilityObjectWrapper',
+        AXLabel: 'Keyboard input',
+        traits: ['WebContent'],
+        frame: { x: 16, y: 279, width: 370, height: 20 }
+      },
+      {
+        type: 'StaticText',
+        AXLabel: 'Keyboard input',
+        traits: ['StaticText', 'WebContent'],
+        frame: { x: 16, y: 279, width: 98, height: 19 }
+      },
+      {
+        type: 'WebAccessibilityObjectWrapper',
+        AXLabel: 'Keyboard input',
+        traits: ['WebContent', 'TextEntry'],
+        frame: { x: 16, y: 302, width: 370, height: 33 }
+      }
+    ]);
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return tree;
+    };
+
+    expect(parse(tree, 'Keyboard input')).toMatchObject({
+      fieldFrame: { x: 16, y: 302, width: 370, height: 33 },
+      webViewFrame: { x: 0, y: 166, width: 402, height: 708 }
+    });
+    await iosDevice(
+      [{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }],
+      run
+    ).tapAccessibilityLabel('A', 'Keyboard input');
+    expect(calls).toEqual([
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '201', '319']
+    ]);
+  });
+
+  it('rejects the off-screen Keyboard beside the accessory bar', () => {
+    const parse = nativeParser<(tree: string, label: string) => NativeKeyboardLayout>('parseIosKeyboardLayout');
+    const tree = JSON.stringify([
+      IOS_SCREEN,
+      iosEditing('Keyboard input', { x: 16, y: 332, width: 370, height: 33 }),
+      {
+        type: 'UIKeyboardItemContainerView',
+        role: 'UIKeyboardItemContainerView',
+        frame: { x: 0, y: 806, width: 402, height: 68 }
+      },
+      { type: 'UIInputSetHostView', role: 'UIInputSetHostView', frame: { x: 0, y: 806, width: 402, height: 379 } },
+      { type: 'Keyboard', role: 'Keyboard', frame: { x: 0, y: 952, width: 402, height: 233 } }
+    ]);
+
+    expect(parse(tree, 'Keyboard input')).toMatchObject({ keyboardVisible: false, keyboardTop: null });
+  });
+
+  it('uses the input-host top while the semantic Keyboard is on screen', () => {
+    const parse = nativeParser<(tree: string, label: string) => NativeKeyboardLayout>('parseIosKeyboardLayout');
+    const tree = JSON.stringify([
+      IOS_SCREEN,
+      iosEditing('Keyboard input', { x: 16, y: 302, width: 370, height: 33 }),
+      IOS_KEYBOARD,
+      IOS_HOST,
+      {
+        type: 'UIKeyboardItemContainerView',
+        role: 'UIKeyboardItemContainerView',
+        frame: { x: 0, y: 471, width: 402, height: 403 }
+      }
+    ]);
+
+    expect(parse(tree, 'Keyboard input')).toMatchObject({ keyboardVisible: true, keyboardTop: 471 });
+  });
+});
+
+describe('iOS native typing', () => {
+  const describe_ = ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'];
+
+  /** A simulated keyboard: shift toggles case, numbers and letters switch layouts, a letter leaves the mode as is. */
+  function simulatedKeyboard(
+    onShift: (mode: IosKeyMode) => IosKeyMode = mode => (mode === 'upper' ? 'lower' : 'upper')
+  ) {
+    const calls: string[][] = [];
+    let mode: IosKeyMode = 'upper';
+    let typed = '';
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      if (args.includes('describe-all')) return iosTypingTree(mode);
+      if (args[1] !== 'tap') return '';
+      const key = iosKeys(mode).find(node => center(node.frame).join() === [args[4], args[5]].join());
+      const label = String(key?.AXLabel);
+      if (label === 'shift') mode = onShift(mode);
+      else if (label === 'numbers') mode = 'digits';
+      else if (label === 'letters') mode = 'lower';
+      else typed += label;
+      return '';
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+    return { calls, device, typed: () => typed };
+  }
+
+  it('types Native typing 1837 on native key frames and keeps the software keyboard on screen', async () => {
+    const keyboard = simulatedKeyboard();
+
+    await keyboard.device.typeText('A', 'Native typing 1837');
+
+    expect(keyboard.typed()).toBe('Native typing 1837');
+    const taps = keyboard.calls.filter(call => call[2] === 'tap').map(call => call.slice(5));
+    expect(taps[0]).toEqual(['281', '725']);
+    expect(taps[1]).toEqual(['30', '725']);
+    expect(taps).toContainEqual(['54', '779']);
+    expect(taps).toContainEqual(['202', '779']);
+    expect(keyboard.calls.some(call => ['text', 'key', 'key-sequence', 'button'].includes(call[2] ?? ''))).toBe(false);
+    expect(keyboard.calls.at(-1)?.[2]).toBe('tap');
+    await expect(keyboard.device.keyboardLayout('A', 'Keyboard input')).resolves.toMatchObject({
+      keyboardVisible: true,
+      keyboardTop: 471
+    });
+  });
+
+  it('fails closed when shift does not reveal the lowercase key', async () => {
+    const keyboard = simulatedKeyboard(mode => mode);
+
+    await expect(keyboard.device.typeText('A', 'Na')).rejects.toThrow('iOS native key not found: a');
+
+    expect(keyboard.calls.filter(call => call[2] === 'tap').map(call => call.slice(5))).toEqual([
+      ['281', '725'],
+      ['30', '725']
+    ]);
+    expect(keyboard.calls.at(-1)).toEqual(describe_);
+    expect(keyboard.typed()).toBe('N');
+  });
+
+  it('types nothing while the software keyboard is off screen', async () => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([
+        IOS_SCREEN,
+        iosEditing('Keyboard input', { x: 16, y: 332, width: 370, height: 33 }),
+        { type: 'UIInputSetHostView', role: 'UIInputSetHostView', frame: { x: 0, y: 806, width: 402, height: 379 } },
+        { type: 'Keyboard', role: 'Keyboard', frame: { x: 0, y: 952, width: 402, height: 233 } },
+        iosKey('N', 261, 1067)
+      ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.typeText('A', 'N')).rejects.toThrow('iOS software keyboard is not on screen');
+    expect(calls).toEqual([describe_]);
+  });
 });
 
 describe('Android native keyboard layout', () => {
   it('reads the field, webview and keyboard bounds from the native hierarchy', () => {
-    const parse = nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
-      'parseAndroidKeyboardLayout'
-    );
+    const parse =
+      nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
+        'parseAndroidKeyboardLayout'
+      );
     const hierarchy =
       '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][440,880]">' +
       '<node class="android.widget.EditText" content-desc="dApp input" focused="true" ' +
@@ -224,9 +459,10 @@ describe('Android native keyboard layout', () => {
   });
 
   it('reports no usable keyboard when input_method has no rectangle', () => {
-    const parse = nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
-      'parseAndroidKeyboardLayout'
-    );
+    const parse =
+      nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
+        'parseAndroidKeyboardLayout'
+      );
     const hierarchy =
       '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][440,880]">' +
       '<node class="android.widget.EditText" content-desc="dApp input" focused="true" ' +
@@ -244,13 +480,16 @@ describe('Android native keyboard layout', () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      if (args.includes('uiautomator')) {
-        return '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][440,880]">' +
+      if (args.includes('cat')) {
+        return (
+          '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][440,880]">' +
           '<node class="android.widget.EditText" content-desc="dApp input" focused="true" ' +
           'bounds="[20,200][420,244]" /></node><node package="com.android.inputmethod.latin" ' +
           'class="android.widget.FrameLayout" resource-id="com.android.inputmethod.latin:id/keyboard_view" ' +
-          'bounds="[0,580][440,880]" /></hierarchy>';
+          'bounds="[0,580][440,880]" /></hierarchy>'
+        );
       }
+      if (args.includes('uiautomator')) return 'UI hierchary dumped to: /data/local/tmp/miden-wallet-hierarchy.xml';
       if (args.includes('dumpsys')) return 'mInputShown=true';
       return '';
     };
@@ -266,13 +505,19 @@ describe('Android native keyboard layout', () => {
     await device.dismissKeyboard('B');
 
     expect(calls).toEqual([
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'tap', '220', '222'],
       ['emulator-b', 'shell', 'input', 'text', "'typed%svalue'"],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'keyevent', '4']
     ]);
   });
@@ -287,9 +532,7 @@ describe('Android native keyboard layout', () => {
 
     await device.typeText('A', "x';$(id);\\z");
 
-    expect(calls).toEqual([
-      ['emulator-a', 'shell', 'input', 'text', String.raw`'x'"'"';$(id);\z'`]
-    ]);
+    expect(calls).toEqual([['emulator-a', 'shell', 'input', 'text', String.raw`'x'"'"';$(id);\z'`]]);
   });
 
   it('preserves literal percent-s sequences while encoding spaces', async () => {
@@ -321,24 +564,112 @@ describe('Android native keyboard layout', () => {
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('dApp input');
   });
 
-  it('taps the Android field from the second hierarchy when the first has no frame', async () => {
+  it('does not tap when only the dump stdout contains the field', async () => {
     const calls: string[][] = [];
     let reads = 0;
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      if (!args.includes('uiautomator')) return '';
+      const field =
+        '<hierarchy><node class="android.widget.EditText" content-desc="dApp input" ' +
+        'bounds="[20,200][420,244]" /></hierarchy>';
+      if (args.includes('uiautomator')) return field;
+      if (!args.includes('cat')) return '';
       reads += 1;
-      return reads === 1
-        ? '<hierarchy />'
-        : '<hierarchy><node class="android.widget.EditText" content-desc="dApp input" bounds="[20,200][420,244]" /></hierarchy>';
+      return reads === 1 ? 'UI hierchary dumped to: /data/local/tmp/miden-wallet-hierarchy.xml' : field;
     };
 
-    await androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input');
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
+      'nodes=0'
+    );
+    expect(calls.filter(call => call.includes('cat'))).toHaveLength(1);
+    expect(calls.some(call => call.includes('tap'))).toBe(false);
+  });
 
+  const unreadyWebViewShell =
+    '<hierarchy>' +
+    '<node class="android.webkit.WebView" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.FrameLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.LinearLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.FrameLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.view.ViewGroup" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.RelativeLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.FrameLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.view.View" bounds="[0,463][1078,591]" />' +
+    '</hierarchy>';
+
+  it('taps the Android field from the fresh dump after an unready WebView shell', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('uiautomator')) return 'UI hierchary dumped to: /data/local/tmp/miden-wallet-hierarchy.xml';
+      if (!args.includes('cat')) return '';
+      reads += 1;
+      return reads === 1
+        ? unreadyWebViewShell
+        : '<hierarchy><node class="android.webkit.WebView" bounds="[0,463][1078,2400]">' +
+            '<node class="android.widget.EditText" content-desc="dApp input" bounds="[20,700][420,744]" />' +
+            '</node></hierarchy>';
+    };
+
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).resolves.toBeUndefined();
     expect(calls).toEqual([
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
-      ['emulator-a', 'shell', 'input', 'tap', '220', '222']
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'input', 'tap', '220', '722']
+    ]);
+  });
+
+  it('taps the hinted EditText on the fresh dump after an unready WebView shell', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (!args.includes('cat')) return '';
+      reads += 1;
+      return reads === 1
+        ? unreadyWebViewShell
+        : '<hierarchy><node class="android.webkit.WebView" bounds="[0,463][1078,2400]">' +
+            '<node class="android.view.View" text="Keyboard input" content-desc="" bounds="[42,1030][1036,1085]" />' +
+            '<node class="android.widget.EditText" text="" content-desc="" hint="Keyboard input" ' +
+            'resource-id="keyboard-input" bounds="[42,1090][1036,1169]" />' +
+            '</node></hierarchy>';
+    };
+
+    await expect(
+      androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'Keyboard input')
+    ).resolves.toBeUndefined();
+    expect(calls.filter(call => call.includes('cat'))).toHaveLength(2);
+    expect(calls.at(-1)).toEqual(['emulator-a', 'shell', 'input', 'tap', '539', '1130']);
+    expect(calls.some(call => call.includes('window'))).toBe(false);
+  });
+
+  it('faults the second unready WebView shell without a third dump', async () => {
+    const calls: string[][] = [];
+    const focus = 'mCurrentFocus=Window{38ae75 u0 com.miden.wallet/com.miden.wallet.MainActivity}';
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('cat')) return unreadyWebViewShell;
+      return args.includes('window') ? focus : '';
+    };
+    const failure = androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input');
+
+    await expect(failure).rejects.toThrow(/nodes=8.*class=android.webkit.WebView.*class=android.view.View/);
+    await expect(failure).rejects.toThrow('bounds=[0,463][1078,2400]');
+    await expect(failure).rejects.toThrow('bounds=[0,463][1078,591]');
+    await expect(failure).rejects.toThrow(`focus=${focus}`);
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
     ]);
   });
 
@@ -346,21 +677,25 @@ describe('Android native keyboard layout', () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      return args.includes('uiautomator')
-        ? '<hierarchy><node class="android.widget.EditText" content-desc="another input" bounds="[20,200][420,244]" /></hierarchy>'
-        : 'mCurrentFocus=Window{test com.miden.bread/.MainActivity}';
+      if (args.includes('cat')) {
+        return '<hierarchy><node class="android.widget.EditText" content-desc="another input" bounds="[20,200][420,244]" /></hierarchy>';
+      }
+      return args.includes('window') ? 'mCurrentFocus=Window{test com.miden.bread/.MainActivity}' : '';
     };
 
     await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
       /Android accessibility label not found: dApp input.*nodes=.*another input.*focus=/
     );
+    expect(calls.filter(call => call.includes('cat'))).toHaveLength(1);
     expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 
   it('records an empty Android dump as nodes=0', async () => {
     const run: AdbRun = async () => 'UI hierchary dumped to: /dev/tty';
 
-    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('nodes=0');
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
+      'nodes=0'
+    );
   });
 
   it.each([
@@ -378,9 +713,10 @@ describe('Android native keyboard layout', () => {
       null
     ]
   ])('reads keyboardTop from the IME %s', (_name, inputMethod, keyboardVisible, keyboardTop) => {
-    const parse = nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
-      'parseAndroidKeyboardLayout'
-    );
+    const parse =
+      nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
+        'parseAndroidKeyboardLayout'
+      );
 
     expect(parse('<hierarchy />', String(inputMethod), 'dApp input')).toMatchObject({ keyboardVisible, keyboardTop });
   });
@@ -389,7 +725,7 @@ describe('Android native keyboard layout', () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      if (args.includes('uiautomator')) {
+      if (args.includes('cat')) {
         return (
           '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][1080,2400]">' +
           '<node class="android.widget.EditText" content-desc="dApp input" focused="true" bounds="[20,200][1020,244]" /></node></hierarchy>'
@@ -405,17 +741,21 @@ describe('Android native keyboard layout', () => {
       fieldFrame: { x: 20, y: 200, width: 1000, height: 44 }
     });
     expect(calls).toEqual([
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'input_method'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
     ]);
   });
 });
 
 describe('iOS native keyboard field lookup', () => {
-  it('taps the iOS field from the second tree when the first has no frame', async () => {
+  it('does not retry the host Application tree', async () => {
     const calls: string[][] = [];
     let reads = 0;
     const run: IdbRun = async (udid, args) => {
@@ -423,20 +763,16 @@ describe('iOS native keyboard field lookup', () => {
       if (!args.includes('describe-all')) return '';
       reads += 1;
       return reads === 1
-        ? '[]'
+        ? JSON.stringify([{ type: 'Application', AXLabel: 'Bread', frame: { x: 0, y: 0, width: 402, height: 874 } }])
         : JSON.stringify([
             { type: 'TextField', AXLabel: 'dApp input', frame: { x: 20, y: 200, width: 350, height: 44 } }
           ]);
     };
     const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
 
-    await device.tapAccessibilityLabel('A', 'dApp input');
+    await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/nodes=1.*Bread.*bounds=0,0,402,874/);
 
-    expect(calls).toEqual([
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '195', '222']
-    ]);
+    expect(calls).toEqual([['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge']]);
   });
 
   it('records the missed iOS tree when the label is absent', async () => {
@@ -447,7 +783,54 @@ describe('iOS native keyboard field lookup', () => {
     };
     const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
 
-    await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/iOS accessibility label not found.*nodes=/);
+    await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
+      /iOS accessibility label not found.*nodes=/
+    );
+    expect(calls.filter(call => call.includes('describe-all'))).toHaveLength(1);
     expect(calls.some(call => call.includes('tap'))).toBe(false);
+  });
+});
+
+describe('iOS native keyboard dismissal', () => {
+  it('taps the host Done button and sends no key', async () => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([
+        IOS_SCREEN,
+        IOS_HOST,
+        IOS_KEYBOARD,
+        iosEditing('Keyboard input', { x: 16, y: 302, width: 370, height: 33 }),
+        IOS_DONE
+      ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await device.dismissKeyboard('A');
+
+    expect(calls).toEqual([
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '361', '505']
+    ]);
+  });
+
+  it('sends no key or tap when no Done button is safe', async () => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([
+        IOS_SCREEN,
+        IOS_HOST,
+        IOS_KEYBOARD,
+        iosEditing('Keyboard input', { x: 16, y: 302, width: 370, height: 33 }),
+        { type: 'Heading', AXLabel: 'Test dApp', frame: { x: 16, y: 120, width: 120, height: 24 } },
+        { ...IOS_DONE, traits: ['Button', 'WebContent'] },
+        { ...IOS_DONE, frame: { x: 16, y: 140, width: 40, height: 38 } }
+      ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.dismissKeyboard('A')).rejects.toThrow('iOS keyboard dismiss found no safe Done button');
+    expect(calls).toEqual([['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge']]);
   });
 });
