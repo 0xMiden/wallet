@@ -369,6 +369,7 @@ async function workspace(t, extra = {}) {
     EDIT_ID: '',
     ACKNOWLEDGEMENT: 'none',
     PRODUCER_DIR: join(directory, 'producer'),
+    SOURCE_DIR: join(directory, 'source'),
     CHROME_WEB_STORE_PUBLISHER_ID: 'publisher',
     CHROME_WEB_STORE_OAUTH_JSON: JSON.stringify({
       client_id: 'client',
@@ -604,4 +605,85 @@ test('workflow state selection accepts exactly the explicit prior Chrome run art
     })
   );
   await assert.rejects(main('state-run', env), /Exactly one/);
+});
+
+test('screenshot sync is a separate source-bound metadata action and Android requires the restored caller edit', () => {
+  const ios = validatePublishRequest({ ...input, platform: 'ios', action: 'sync-screenshots', producerRunId: '' });
+  assert.equal(ios.needsProducer, false);
+  assert.equal(ios.needsState, false);
+  assert.equal(ios.buildNumber, undefined);
+  const android = validatePublishRequest({
+    ...input,
+    platform: 'android',
+    action: 'sync-screenshots',
+    producerRunId: '',
+    stateRunId: '80',
+    editId: 'edit-1'
+  });
+  assert.equal(android.needsState, true);
+  assert.equal(android.versionCode, undefined);
+  for (const extra of [{ stateRunId: '' }, { editId: '' }, { producerRunId: '42' }])
+    assert.throws(() =>
+      validatePublishRequest({
+        ...input,
+        platform: 'android',
+        action: 'sync-screenshots',
+        producerRunId: '',
+        stateRunId: '80',
+        editId: 'edit-1',
+        ...extra
+      })
+    );
+});
+
+test('publishing workflow exposes explicit sync while pinning screenshot root to source checkout', () => {
+  const text = readFileSync(new URL('../../.github/workflows/publish-stores.yml', import.meta.url), 'utf8');
+  assert.match(text, /options:.*sync-screenshots/);
+  assert.doesNotMatch(text, /^ {6}(screenshots_root|manifest_path):/m);
+});
+
+test('Android metadata sync restores only its edit without requiring a native build attestation', () => {
+  const plan = validatePublishRequest({
+    ...input,
+    platform: 'android',
+    action: 'sync-screenshots',
+    producerRunId: '',
+    stateRunId: '80',
+    editId: 'edit-1'
+  });
+  const original = { ...plan, buildNumber: '19', versionCode: 11707019 };
+  const edit = {
+    packageName: 'com.miden.wallet',
+    editId: 'edit-1',
+    version: plan.version,
+    sourceSha: sha,
+    network: plan.network,
+    expiryTimeSeconds: '2000000000'
+  };
+  const previous = snapshot(original, { edit });
+  const restored = validateStateSnapshot(plan, previous, { run: run('state'), nowSeconds: 1700000010 });
+  assert.deepEqual(Object.keys(restored), ['android-edit.json']);
+  const editBytes = bytes(edit);
+  const metadataState = {
+    ...previous,
+    files: { 'android-edit.json': editBytes },
+    manifest: {
+      ...previous.manifest,
+      intent: { ...previous.manifest.intent, buildNumber: undefined },
+      files: [{ name: 'android-edit.json', sha256: digest(editBytes) }]
+    }
+  };
+  const upload = validatePublishRequest({
+    ...input,
+    platform: 'android',
+    action: 'upload',
+    buildNumber: '19',
+    stateRunId: '80',
+    editId: 'edit-1'
+  });
+  assert.equal(
+    validateStateSnapshot(upload, metadataState, { run: run('state'), nowSeconds: 1700000010 })['android-edit.json']
+      .editId,
+    'edit-1'
+  );
 });

@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.
 - [CHANGE][ci] Manual store publishing builds signed production artifacts from an exact published release, requires telemetry configuration, and verifies app identity, network and artifact provenance before store submission.
 
 ## 1.17.7 (2026-10-25)

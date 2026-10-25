@@ -178,3 +178,29 @@ Enable and verify managed publishing in Play Console when review and public rele
 ## Monitor each transition
 
 After each action, inspect its structured result and repeat read-only status for the exact version and build or code. Keep an active monitor while processing or review is pending, with its owner, expected source SHA, run ID where applicable, and next check recorded. An error, expired edit, review rejection, missing attestation or ambiguous store state needs inspection before another mutation. Verify all three public store results independently before calling a cross-store release complete.
+
+## Versioned screenshots
+
+`store-listing/screenshots.json` and its ordered files are the screenshot source for future releases. The workflow loads them from the exact `source_sha` checkout. It checks the commit, package version, clean tracked assets, image hashes and store identity before any publishing mutation. Mobile submission also compares the remote ordered screenshots with that source. It stops on drift instead of submitting unrelated console edits.
+
+Change screenshots through a PR: replace the intended image files, update their SHA256, size and technical metadata, and preserve the array order. Include the previous ordered remote checksums in `baselineSets` when authorizing replacements. Remove stale original-upload provenance when replacing an image. PR CI decodes the actual files and checks their format, dimensions, alpha, color depth, byte limits and counts against dated store rules. It cannot establish the stores' content-policy approval.
+
+Use `action=sync-screenshots` before submission when a new iOS version has no screenshots or an approved screenshot PR changes them. iOS `prepare` reuses an existing draft or creates its skeleton; screenshot synchronization is a separate explicit step. Android synchronization requires the exact restored caller-owned edit and preserves its pending changes. It never creates or commits an edit implicitly. Reuse its returned state for subsequent upload and submission.
+
+```sh
+node scripts/store-publishing/cli.mjs ios sync-screenshots \
+  --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
+  --screenshots-root "$RELEASE_SOURCE_CHECKOUT" --confirm "$VERSION"
+
+node scripts/store-publishing/cli.mjs android sync-screenshots \
+  --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
+  --screenshots-root "$RELEASE_SOURCE_CHECKOUT" --edit-id "$EDIT_ID" --confirm "$VERSION"
+```
+
+Matching images are kept. Apple replacement uploads must finish processing before old images are removed; a set without enough free slots stops for console handling. An uncertain or partial operation requires inventory and inspection before another attempt.
+
+Chrome's public API supports package publishing but has no listing-image operation. `chrome sync-screenshots` returns the exact listing identity and approved local asset paths with `consoleRequired=true`. Use those files in the authenticated developer console, preserve localized versus global groups, and verify order before submission. This command does not claim to have synchronized Chrome images.
+
+The initial baseline contains both existing iOS draft groups (9 large and 5 smaller iPhone screenshots), the 5 Android draft phone images, and the 5 English published screenshots from each active Chrome listing. Android originals and the 5 smaller iPhone originals match their store downloads/checksums exactly. Apple's 9 older large screenshots are full-resolution delivery renditions, explicitly marked with their original store MD5 and the SHA256 of the imported bytes. They are kept in existing drafts without re-upload. Chrome exports are from the published listings, not a byte-verified draft export: inspect both localized and global console groups before changing them. No retired Chrome item is included.
+
+The already cut `1.17.7` source predates this manifest. Only that version has an explicit `--preserve-legacy-screenshots` exception for existing drafts; invalid manifests or missing image files never use the exception. Later release sources require canonical screenshots.

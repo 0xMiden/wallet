@@ -30,7 +30,7 @@ export function validatePublishRequest(input) {
     throw new Error('An exact source SHA is required');
   if (
     !['chrome', 'ios', 'android'].includes(platform) ||
-    !['status', 'prepare', 'begin-edit', 'upload', 'submit', 'release'].includes(action)
+    !['status', 'prepare', 'begin-edit', 'upload', 'submit', 'release', 'sync-screenshots'].includes(action)
   )
     throw new Error('Unsupported platform or action');
   if (
@@ -42,7 +42,9 @@ export function validatePublishRequest(input) {
   if ((action === 'prepare' && platform !== 'ios') || (action === 'begin-edit' && platform !== 'android'))
     throw new Error('Action does not match platform');
   const needsProducer = ['upload', 'submit', 'release'].includes(action);
-  const needsState = ['submit', 'release'].includes(action) || (platform === 'android' && action === 'upload');
+  const needsState =
+    ['submit', 'release'].includes(action) ||
+    (platform === 'android' && ['upload', 'sync-screenshots'].includes(action));
   const producerRunId = input.producerRunId || undefined;
   const stateRunId = input.stateRunId || undefined;
   for (const value of [producerRunId, stateRunId])
@@ -51,17 +53,17 @@ export function validatePublishRequest(input) {
     (needsProducer && !producerRunId) ||
     (!needsProducer && producerRunId) ||
     (needsState && !stateRunId) ||
-    (!needsProducer && stateRunId)
+    (!needsProducer && stateRunId && !(platform === 'android' && action === 'sync-screenshots'))
   )
     throw new Error('Explicit evidence run IDs do not match the action');
   const buildNumber = input.buildNumber || undefined;
   if (buildNumber !== undefined && !/^[1-9][0-9]{0,2}$/.test(buildNumber))
     throw new Error('Mobile build number must be 1 through 999');
-  if (platform !== 'chrome' && !['status', 'prepare'].includes(action) && !buildNumber)
+  if (platform !== 'chrome' && !['status', 'prepare', 'sync-screenshots'].includes(action) && !buildNumber)
     throw new Error('An explicit mobile build number is required');
   if (platform === 'chrome' && buildNumber) throw new Error('Chrome does not use a native build number');
   const editId = input.editId || undefined;
-  const needsEdit = platform === 'android' && ['upload', 'submit'].includes(action);
+  const needsEdit = platform === 'android' && ['upload', 'submit', 'sync-screenshots'].includes(action);
   if ((needsEdit && !editId) || (!needsEdit && editId) || (editId && !/^[A-Za-z0-9_-]+$/.test(editId)))
     throw new Error('Explicit Play edit does not match the action');
   const acknowledgement = input.acknowledgement || 'none';
@@ -172,7 +174,7 @@ function validateEdit(plan, edit, nowSeconds) {
     !/^[A-Za-z0-9_-]+$/.test(edit.editId ?? '') ||
     (plan.editId && edit.editId !== plan.editId) ||
     !/^[0-9]+$/.test(String(edit.expiryTimeSeconds ?? '')) ||
-    (['upload', 'submit'].includes(plan.action) && Number(edit.expiryTimeSeconds) <= nowSeconds)
+    (['upload', 'submit', 'sync-screenshots'].includes(plan.action) && Number(edit.expiryTimeSeconds) <= nowSeconds)
   )
     throw new Error('Prior Play edit must match the caller-owned unexpired edit');
 }
@@ -229,17 +231,30 @@ export function validateStateSnapshot(
   verifyWorkflowRun(run, { runId: plan.stateRunId, kind: 'state' });
   const manifest = snapshot?.manifest;
   const rollover = plan.platform === 'chrome' && plan.action === 'upload' && manifest?.intent?.version !== plan.version;
-  const evidencePlan = rollover
-    ? validatePublishRequest({
-        ...plan,
-        ...manifest?.intent,
-        action: 'upload',
-        stateRunId: '',
-        buildNumber: '',
-        editId: '',
-        acknowledgement: 'none'
-      })
-    : plan;
+  const metadataEdit = plan.platform === 'android' && plan.action === 'sync-screenshots';
+  const editOnlySource =
+    plan.platform === 'android' && plan.action === 'upload' && manifest?.intent?.buildNumber === undefined;
+  const evidencePlan = editOnlySource
+    ? { ...plan, buildNumber: undefined }
+    : metadataEdit
+      ? {
+          ...plan,
+          buildNumber: manifest?.intent?.buildNumber,
+          ...(manifest?.intent?.buildNumber
+            ? { versionCode: androidVersionCode(plan.version, manifest.intent.buildNumber) }
+            : {})
+        }
+      : rollover
+        ? validatePublishRequest({
+            ...plan,
+            ...manifest?.intent,
+            action: 'upload',
+            stateRunId: '',
+            buildNumber: '',
+            editId: '',
+            acknowledgement: 'none'
+          })
+        : plan;
   if (
     rollover &&
     (evidencePlan.platform !== plan.platform ||
@@ -308,6 +323,10 @@ export function validateStateSnapshot(
   const attestation = records[recordName(evidencePlan)];
   if (attestation) validateAttestation(evidencePlan, attestation, evidenceReceipt, publisherId);
   if (rollover) return { [journalName(plan)]: journal };
+  if (metadataEdit) {
+    validateEdit(plan, records['android-edit.json'], nowSeconds);
+    return { 'android-edit.json': records['android-edit.json'] };
+  }
   if (['submit', 'release'].includes(plan.action) && !attestation && !(plan.action === 'submit' && journal))
     throw new Error('Prior upload attestation is required');
   if (plan.platform === 'android' && ['upload', 'submit'].includes(plan.action))
@@ -412,7 +431,16 @@ function safeResult(result) {
     'deployPercentage',
     'releaseLifecycleState',
     'completionEvidence',
-    'submittedRevisionVerified'
+    'submittedRevisionVerified',
+    'changed',
+    'matches',
+    'consoleRequired',
+    'storeId',
+    'locale',
+    'displayType',
+    'count',
+    'path',
+    'sha256'
   ];
   if (Array.isArray(result)) return result.map(value => (typeof value === 'object' ? safeResult(value) : value));
   const clean = Object.fromEntries(
@@ -428,7 +456,9 @@ function safeResult(result) {
     'submittedItemRevisionStatus',
     'distributionChannels',
     'releases',
-    'activeArtifacts'
+    'activeArtifacts',
+    'updatedSets',
+    'assets'
   ]) {
     if (result?.[key] && typeof result[key] === 'object') clean[key] = safeResult(result[key]);
   }
@@ -553,7 +583,10 @@ export async function main(command, env = process.env, dependencies = {}) {
       '--source-sha',
       plan.sourceSha
     ];
-    if (plan.action !== 'status') args.push('--confirm', plan.version);
+    if (plan.action !== 'status') {
+      args.push('--confirm', plan.version, '--screenshots-root', resolve(env.SOURCE_DIR));
+      if (plan.version === '1.17.7' && plan.action !== 'sync-screenshots') args.push('--preserve-legacy-screenshots');
+    }
     if (plan.buildNumber) args.push('--build-number', plan.buildNumber);
     if (plan.platform === 'android' && plan.versionCode) args.push('--version-code', String(plan.versionCode));
     if (plan.editId) args.push('--edit-id', plan.editId);
