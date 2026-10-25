@@ -368,13 +368,13 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           KEY_PATH="$RUNNER_TEMP/wallet-store-signing/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          # Archive signing is automatic per target; App Store distribution signing happens during export.
           xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -jobs 2 -archivePath "$RUNNER_TEMP/Wallet.xcarchive" \
             -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
             -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
-            CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=LHU7B7J5WL \
+            CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=LHU7B7J5WL \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/wallet-store-signing.keychain-db" \
             2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
           if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-archive.log"; then
             echo 'iOS archive log contains errors' >&2; exit 1
