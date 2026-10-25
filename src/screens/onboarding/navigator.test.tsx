@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
+import { pageSlideCovered, pageSlideDim, pageSlideEntrance, presets, reducedMotionTransition } from 'lib/animation';
 
 import { OnboardingFlow } from './navigator';
 import { ImportType, NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from './types';
@@ -720,8 +720,10 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     expect(mockMotion.step.transition).toEqual(presets.page.transition);
     const enter = mockMotion.step.variants.enter as (d: string) => object;
     const exit = mockMotion.step.variants.exit as (d: string) => object;
-    expect(enter('forward')).toEqual({ x: presets.page.initial?.x });
-    expect(exit('forward')).toEqual({ x: pageSlideParallax });
+    const center = mockMotion.step.variants.center;
+    expect(enter('forward')).toEqual(presets.page.initial);
+    expect(exit('forward')).toEqual(pageSlideCovered);
+    expect(center).toEqual(presets.page.animate);
     const dimExit = mockMotion.dim.variants.exit as (d: string) => object;
     expect(dimExit('forward')).toEqual({ opacity: pageSlideDim });
   });
@@ -735,8 +737,8 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     const enter = mockMotion.step.variants.enter as (d: string) => object;
     const exit = mockMotion.step.variants.exit as (d: string) => object;
     const dimEnter = mockMotion.dim.variants.enter as (d: string) => object;
-    expect(enter('backward')).toEqual({ x: pageSlideParallax });
-    expect(exit('backward')).toEqual({ x: presets.page.exit?.x });
+    expect(enter('backward')).toEqual(pageSlideCovered);
+    expect(exit('backward')).toEqual(presets.page.exit);
     expect(dimEnter('backward')).toEqual({ opacity: pageSlideDim });
   });
 

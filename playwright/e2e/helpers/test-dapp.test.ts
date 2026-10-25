@@ -1,4 +1,5 @@
 import type { BrowserContext, Page } from '@playwright/test';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import {
 import {
   advanceChain,
   answerIfPrompted,
+  answerPrompt,
   callDapp,
   ChainUnavailable,
   connectAsCurrent,
@@ -395,5 +397,130 @@ describe('answering a popup only if the wallet opens one', () => {
     const connecting = connectAsCurrent(handle, 'testnet', contextFor(deadlineIn(1_000, 'M1')));
     await expect(connecting).rejects.toThrow(`the connect popup names ${DAPP_ORIGINS.two}`);
     expect(clicks).toEqual([]);
+  });
+});
+
+describe('decline replies that close their confirmation popup', () => {
+  const denied = { ok: false, error: { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' } };
+  const targetClosed = new Error('locator.click: Target page, context or browser has been closed');
+
+  function scenario(
+    options: {
+      answer?: unknown;
+      crash?: boolean;
+      contextClose?: boolean;
+      error?: Error;
+      clickSucceeds?: boolean;
+      closedBeforeClick?: boolean;
+    } = {}
+  ) {
+    const popupEvents = new EventEmitter();
+    const contextEvents = new EventEmitter();
+    let closed = options.closedBeforeClick ?? false;
+    let connected = true;
+    let settle: (value: unknown) => void = () => undefined;
+    const pending = new Promise(resolve => {
+      settle = resolve;
+    });
+    const popup = Object.assign(popupEvents, {
+      isClosed: () => closed,
+      getByTestId: () => ({
+        waitFor: async () => undefined,
+        getAttribute: async () => DAPP_ORIGINS.one,
+        click: async () => {
+          if ('answer' in options) settle(options.answer);
+          await Promise.resolve();
+          if (options.crash) popupEvents.emit('crash');
+          if (options.contextClose) {
+            connected = false;
+            contextEvents.emit('close');
+          }
+          if (options.clickSucceeds) return;
+          closed = true;
+          throw options.error ?? targetClosed;
+        }
+      })
+    }) as unknown as Page;
+    const context = Object.assign(contextEvents, {
+      waitForEvent: async () => popup,
+      browser: () => ({ isConnected: () => connected }),
+      pages: () => []
+    }) as unknown as BrowserContext;
+    const dapp = { ...dappAnswering([]).dapp, context };
+    return { dapp, popup, pending, popupEvents, contextEvents };
+  }
+
+  it('keeps the exact NOT_GRANTED reply when the decline click loses its closed popup', async () => {
+    const { dapp, popup, pending } = scenario({ answer: denied });
+    const ctx = contextFor(deadlineIn(1_000, 'R1'));
+    await expect(
+      answerPrompt(dapp, () => pending, { kind: 'transaction', decision: 'decline', origin: dapp.origin }, ctx)
+    ).resolves.toEqual({ result: denied, popup });
+    expect(ctx.evidence).toEqual({ popupOpened: true, dappError: denied.error });
+  });
+
+  it.each([
+    ['an accepted reply', { answer: { ok: true, value: 'accepted' } }],
+    ['a different refusal', { answer: { ok: false, error: { name: 'OtherError', message: 'WRONG_ANSWER' } } }],
+    ['a popup crash', { answer: denied, crash: true }],
+    ['an already closed popup', { answer: denied, closedBeforeClick: true }],
+    ['a closed browser context', { answer: denied, contextClose: true }]
+  ] as const)('does not hide TargetClosed after %s', async (_name, options) => {
+    const { dapp, pending } = scenario(options);
+    await expect(
+      answerPrompt(
+        dapp,
+        () => pending,
+        { kind: 'transaction', decision: 'decline', origin: dapp.origin },
+        contextFor(deadlineIn(1_000, 'R1'))
+      )
+    ).rejects.toBe(targetClosed);
+  });
+
+  it('preserves an approve click failure even after NOT_GRANTED', async () => {
+    const { dapp, pending } = scenario({ answer: denied });
+    await expect(
+      answerPrompt(
+        dapp,
+        () => pending,
+        { kind: 'transaction', decision: 'approve', origin: dapp.origin },
+        contextFor(deadlineIn(1_000, 'R1'))
+      )
+    ).rejects.toBe(targetClosed);
+  });
+
+  it('preserves a genuine click failure on a closed popup', async () => {
+    const failure = new Error('locator.click: renderer failed');
+    const { dapp, pending } = scenario({ answer: denied, error: failure });
+    await expect(
+      answerPrompt(
+        dapp,
+        () => pending,
+        { kind: 'transaction', decision: 'decline', origin: dapp.origin },
+        contextFor(deadlineIn(1_000, 'R1'))
+      )
+    ).rejects.toBe(failure);
+  });
+
+  it('still times out when a successful decline click has no answer', async () => {
+    jest.useFakeTimers();
+    try {
+      const { dapp, pending } = scenario({ clickSucceeds: true });
+      const outcome = answerPrompt(
+        dapp,
+        () => pending,
+        { kind: 'transaction', decision: 'decline', origin: dapp.origin },
+        contextFor(deadlineIn(1_000, 'R1'))
+      ).then(
+        value => ({ value }),
+        error => ({ error })
+      );
+      await jest.advanceTimersByTimeAsync(1_000);
+      await expect(outcome).resolves.toEqual({
+        error: expect.objectContaining({ message: expect.stringMatching(/transaction answer|deadline|budget/i) })
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

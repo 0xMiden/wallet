@@ -1215,7 +1215,8 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
  * `sync: false`: this reaper runs alongside AutoSync (which keeps note state
  * fresh), so it must NOT fire one sync per stuck consume — matching its pre-#3a
  * behavior of 0 syncs/cycle.
- *   - `'landed-local'` → mark Completed. FUNDS-SAFETY: this is the ONLY verdict that
+ *   - `'landed-local'` → leave a live attempt to store its result; otherwise mark Completed.
+ *                      FUNDS-SAFETY: this is the ONLY verdict that
  *                      may become a 'Received' row, exactly as on the killed-consume
  *                      path (see tryCompleteKilledConsume). This reaper is the sole
  *                      consume reconciler on mobile and desktop — its one caller
@@ -1267,8 +1268,11 @@ const verifyStuckTransactions = async (): Promise<number> => {
     // sync: false — this reaper rides AutoSync; syncing per stuck consume would be
     // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
     const verdict = await verifyConsumeLanded(tx, false);
-    // Do not cancel a local live attempt from a negative note read; the spare lasts while that attempt is on the stack.
-    if (attemptOpenInThisRealm(tx.id) && (verdict === 'not-landed' || verdict === 'landed-external')) {
+    // A live attempt owns completion and its result; a locally consumed note can precede that write.
+    if (
+      attemptOpenInThisRealm(tx.id) &&
+      (verdict === 'landed-local' || verdict === 'not-landed' || verdict === 'landed-external')
+    ) {
       continue;
     }
 

@@ -54,6 +54,7 @@ let mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
 let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
+  ...jest.requireActual('app/hooks/useCurrentGuardianEndpoint'),
   useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint })
 }));
 
@@ -263,13 +264,15 @@ it('renders the current and destination endpoints in the shared transition hero'
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
-it('draws the rotation warning as a warning Notice in theme-aware tokens', async () => {
+it('states the old Guardian cannot block the rotation as a reassuring fact, not a warning', async () => {
   render(<RotateGuardianReview />);
 
-  const notice = screen.getByText('oldGuardianCantBlockBody').closest('[role="note"]');
-  expect(notice).toHaveAttribute('data-tone', 'warning');
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-pending-ink');
-  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-ink');
+  // A fact row with a sage shield on a `fill` card, as the switch's success screen states its facts.
+  const fact = screen.getByText('oldGuardianCantBlockBody').closest('[data-slot="fact-row"]');
+  expect(fact).not.toBeNull();
+  expect(fact).toHaveTextContent('oldGuardianCantBlockTitle');
+  expect(fact?.querySelector('[data-slot="icon"]')).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
+  expect(screen.queryByText('oldGuardianCantBlockBody')?.closest('[role="note"]')).toBeNull();
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
