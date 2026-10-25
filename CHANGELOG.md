@@ -13,6 +13,8 @@
 
 ### Fixes
 
+- [FIX][all] Add and edit contact network pickers follow the current Miden network, keeping test chains out of Mainnet choices while preserving saved contact destinations.
+
 - [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
 - [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
 
