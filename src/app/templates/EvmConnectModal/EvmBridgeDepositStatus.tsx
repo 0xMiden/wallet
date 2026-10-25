@@ -34,6 +34,8 @@ interface EvmBridgeDepositStatusProps {
   /** The new row returned by this mounted deposit flow, absent when viewing history. */
   newSubmissionTxId?: string;
   onDone: () => void;
+  /** The mounted flow is still creating/signing/confirming the source deposit; absent in history views. */
+  submissionPending?: boolean;
   /**
    * The deposit has taken one wallet confirmation and is about to ask for the next. The Slow (AggLayer)
    * and USDCx routes can say this: the screen raises their approve and their bridge, deposit or burn
@@ -127,6 +129,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   txId,
   newSubmissionTxId,
   onDone,
+  submissionPending = false,
   awaitingNextConfirmation = false
 }) => {
   const { t } = useTranslation();
@@ -171,6 +174,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
+  const dismissalBlocked = inputs.provider === 'usdcx' && submissionPending && !failed;
   // A failure has its own message, and a submitted deposit has left this screen, so the wait only
   // speaks while the deposit is still in flight.
   const waiting = awaitingNextConfirmation && !failed && !submitted;
@@ -244,17 +248,19 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       <FlowLayout
         title={t('transactionProcessingHeader')}
-        onClose={onDone}
+        onClose={dismissalBlocked ? undefined : onDone}
         footer={
-          <Button
-            type="button"
-            accent="receive"
-            variant={ButtonVariant.Primary}
-            onClick={onDone}
-            className="w-full max-w-none"
-          >
-            {failed ? t('done') : t('hide')}
-          </Button>
+          !dismissalBlocked && (
+            <Button
+              type="button"
+              accent="receive"
+              variant={ButtonVariant.Primary}
+              onClick={onDone}
+              className="w-full max-w-none"
+            >
+              {failed ? t('done') : t('hide')}
+            </Button>
+          )
         }
       >
         <section className="flex w-full flex-col items-center pt-5">
