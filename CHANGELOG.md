@@ -5,6 +5,7 @@
 ### Changes
 
 - [FIX][all] Swap forms react to late token-registry overrides and retain a completed quote when the current token is selected again.
+- [FIX][e2e] Ethereum mainnet bridge bids and funding checks use twice the base fee as headroom so a short-lived quote can survive rising fees.
 
 - [FIX][all] A live note consume keeps ownership of its completion until its result is stored, preventing dApp waits from seeing a completed transaction with no result.
 

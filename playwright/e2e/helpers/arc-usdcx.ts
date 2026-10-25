@@ -220,10 +220,15 @@ export interface ArcReadDeps {
 /** Writes sign locally with the key and send raw through the read client, so they need nothing more. */
 export type ArcWriteDeps = ArcReadDeps;
 
+function feeChain(chain: Chain): Chain {
+  // Mainnet fee spikes can outlast Circle's block-bound quote before a 1.2x bid becomes eligible again.
+  return chain.id === 1 ? { ...chain, fees: { ...chain.fees, baseFeeMultiplier: 2 } } : chain;
+}
+
 function defaultPublicClient(endpoint: string, chain: Chain): PublicClient {
   // cacheTime 0: viem caches eth_blockNumber for its polling interval, and every payout cycle needs a fresh head.
   return createPublicClient({
-    chain,
+    chain: feeChain(chain),
     cacheTime: 0,
     transport: http(endpoint, { retryCount: 0, timeout: ARC_RPC_TIMEOUT_MS })
   });
@@ -866,6 +871,10 @@ export function capPriorityFee(
   return { maxFeePerGas: headroom + cap, maxPriorityFeePerGas: cap };
 }
 
+export async function estimateUsdcxFees(client: PublicClient, chain: PayoutChain) {
+  return capPriorityFee(await client.estimateFeesPerGas({ chain: feeChain(chain.chain) }), chain.maxPriorityFeeCap);
+}
+
 /**
  * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas. The estimate executes the
  * call, so one that depends on an approve runs at `tx.atBlock`, the block its simulation ran at; the signed transaction
@@ -880,7 +889,8 @@ export async function sendSigned(
   tx: { what: string; to: Address; data: Hex; nonce: number; atBlock?: bigint },
   signal: AbortSignal | undefined
 ): Promise<Hash> {
-  const { chainId, label, maxPriorityFeeCap } = chainOf(deps);
+  const chain = chainOf(deps);
+  const { chainId, label } = chain;
   const gas = await chainRead(
     `${label} gas estimate`,
     [endpoints.write],
@@ -888,10 +898,7 @@ export async function sendSigned(
     (client, blockNumber) => client.estimateGas({ account: account.address, to: tx.to, data: tx.data, blockNumber }),
     tx.atBlock
   );
-  const fees = capPriorityFee(
-    await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas()),
-    maxPriorityFeeCap
-  );
+  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => estimateUsdcxFees(client, chain));
   const serializedTransaction = await account.signTransaction({
     chainId,
     type: 'eip1559',
