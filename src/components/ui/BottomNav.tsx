@@ -6,7 +6,6 @@ import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import {
   cancelSpring,
-  CompositorPressHandlers,
   playSpring,
   tabBarMotion,
   useCompositorPress,
@@ -115,20 +114,31 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, r
     },
     [item.id, registerTab]
   );
-  const handlers = useMemo((): CompositorPressHandlers => {
+  const handlers = useMemo(() => {
+    const down = () => {
+      press.onPointerDown();
+      if (active) bubble.press();
+    };
     // Released from every tab, not only the active one: the tab can stop being active mid-press.
     const release = (own: () => void) => () => {
       own();
       bubble.release();
     };
+    const keyUp = release(press.onPointerUp);
+    // Enter and Space press a button as a pointer does: framer's press gesture dipped on both keys.
+    const isPressKey = (e: React.KeyboardEvent) => e.key === 'Enter' || e.key === ' ';
     return {
-      onPointerDown: () => {
-        press.onPointerDown();
-        if (active) bubble.press();
-      },
+      onPointerDown: down,
       onPointerUp: release(press.onPointerUp),
       onPointerCancel: release(press.onPointerCancel),
-      onPointerLeave: release(press.onPointerLeave)
+      onPointerLeave: release(press.onPointerLeave),
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (isPressKey(e) && !e.repeat) down();
+      },
+      onKeyUp: (e: React.KeyboardEvent) => {
+        if (isPressKey(e)) keyUp();
+      },
+      onBlur: keyUp
     };
   }, [active, bubble, press]);
 
@@ -245,6 +255,11 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
     // Read before moving, so a slide still running is caught where it is drawn.
     const slides = shownAt.current !== null && shownAt.current !== activeId && !reduceMotion;
     const first = slides ? el.getBoundingClientRect() : null;
+    // `first` holds any dip the slot is drawn at; left on the slot, the dip would scale the slide twice.
+    if (first) {
+      cancelSpring(slot);
+      slot.style.removeProperty('transform');
+    }
     const width = tab.offsetWidth - 2 * BUBBLE_INSET_PX;
     const height = tab.offsetHeight - 2 * BUBBLE_INSET_PX;
     slot.hidden = false;

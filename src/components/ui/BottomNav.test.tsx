@@ -107,8 +107,11 @@ beforeEach(() => {
   jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     if (isTab(this)) return rect(ROW_LEFT + tabIndex(this) * TAB_STEP, 0, 64, 48);
     if (isBubble(this)) {
+      // The slot's own dip scales the bubble about the slot's centre.
       const slot = this.parentElement?.style;
-      return rect(ROW_LEFT + parseFloat(slot?.left ?? '0') + bubbleShift, 4, 56, 40);
+      const scale = Number(/scale\(([^)]+)\)/.exec(slot?.transform ?? '')?.[1] ?? 1);
+      const centre = ROW_LEFT + parseFloat(slot?.left ?? '0') + 28 + bubbleShift;
+      return rect(centre - 28 * scale, 24 - 20 * scale, 56 * scale, 40 * scale);
     }
     return rect(0, 0, 0, 0);
   });
@@ -334,6 +337,77 @@ describe('BottomNav — motion', () => {
     expect(playedOn(slot)[0]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(0.92)' });
     fireEvent.pointerUp(getTab('Home'));
     expect(playedOn(slot)[1]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(1)' });
+  });
+
+  it('catches a bubble still dipped with its tab where it is drawn, and lets the slot rest', () => {
+    const { container, rerender } = renderNav({ activeId: 'home' });
+    const bubble = bubbleOf(container)!;
+    const slot = bubble.parentElement!;
+    fireEvent.pointerDown(getTab('Home'));
+    // The dip still on its way back: drawn at 0.95 when the switch lands.
+    fireEvent.pointerUp(getTab('Home'));
+    slot.style.transform = 'scale(0.95)';
+
+    rerender(<BottomNav items={items} activeId="settings" onChange={jest.fn()} />);
+
+    const dips = playedOn(slot);
+    expect(dips.at(-1)!.cancel).toHaveBeenCalled();
+    expect(slot.style.transform).toBe('');
+    // The bubble alone carries the drawn scale, from the old tab's centre.
+    const [first] = playedOn(bubble)[0]!.keyframes;
+    const drawn = /^translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+), ([\d.]+)\)$/.exec(
+      String(first!.transform)
+    );
+    expect(drawn).not.toBeNull();
+    expect(Number(drawn![1])).toBeCloseTo(-2 * TAB_STEP);
+    expect(Number(drawn![2])).toBeCloseTo(0);
+    expect(Number(drawn![3])).toBeCloseTo(0.95);
+    expect(Number(drawn![4])).toBeCloseTo(0.95);
+  });
+
+  it('dips a tab held down with Enter, and the bubble with the active one', () => {
+    const { container } = renderNav({ activeId: 'home' });
+    const slot = bubbleOf(container)!.parentElement;
+
+    fireEvent.keyDown(getTab('Settings'), { key: 'Enter' });
+    expect(playedOn(getTab('Settings'))[0]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(0.92)' });
+    expect(playedOn(slot)).toHaveLength(0);
+    fireEvent.keyUp(getTab('Settings'), { key: 'Enter' });
+    expect(playedOn(getTab('Settings'))[1]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(1)' });
+
+    fireEvent.keyDown(getTab('Home'), { key: 'Enter' });
+    expect(playedOn(slot)[0]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(0.92)' });
+    expect(bubbleOf(container)).toHaveAttribute('data-pressed');
+    fireEvent.keyUp(getTab('Home'), { key: 'Enter' });
+    expect(playedOn(slot)[1]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(1)' });
+    expect(bubbleOf(container)).not.toHaveAttribute('data-pressed');
+  });
+
+  it('dips the active tab and sinks the bubble while Space is held, ignoring key repeat', () => {
+    const { container } = renderNav({ activeId: 'home' });
+    const tab = getTab('Home');
+
+    fireEvent.keyDown(tab, { key: ' ' });
+    fireEvent.keyDown(tab, { key: ' ', repeat: true });
+    expect(playedOn(tab)).toHaveLength(1);
+    expect(bubbleOf(container)).toHaveAttribute('data-pressed');
+
+    fireEvent.keyUp(tab, { key: ' ' });
+    expect(playedOn(tab)[1]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(1)' });
+    expect(bubbleOf(container)).not.toHaveAttribute('data-pressed');
+  });
+
+  it('releases a key press when the tab loses focus, and ignores other keys', () => {
+    const { container } = renderNav({ activeId: 'home' });
+    const tab = getTab('Home');
+
+    fireEvent.keyDown(tab, { key: 'a' });
+    expect(playedOn(tab)).toHaveLength(0);
+
+    fireEvent.keyDown(tab, { key: 'Enter' });
+    fireEvent.blur(tab);
+    expect(playedOn(tab)[1]!.keyframes.at(-1)).toMatchObject({ transform: 'scale(1)' });
+    expect(bubbleOf(container)).not.toHaveAttribute('data-pressed');
   });
 
   it('pops the icon of the tab that becomes active, up to 1.12 and back to rest in one animation', () => {
