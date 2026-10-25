@@ -2555,6 +2555,26 @@ describe('latest foreground intent across sessions', () => {
     }
   });
 
+  it('route-away keeps an earlier background park current', async () => {
+    await openForeground();
+    const releases = holdSnapshotsFor('origin');
+    try {
+      await openManagedSession('second');
+      await waitFor(() => expect(releases).toHaveLength(1));
+      act(() => control().setSlotRect(null));
+      await waitFor(() => expect(statusOf('second')).toBe('parked'));
+      await act(async () => releases[0]?.(null));
+      await settle();
+
+      expect(statusOf('origin')).toBe('parked');
+      expect(parked().sort()).toEqual(['origin', 'second']);
+      expect(control().session).toBeNull();
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+    } finally {
+      await act(async () => releases.forEach(release => release(null)));
+    }
+  });
+
   it.each(['snapshot', 'hide'])('route-away during a cold restore %s beats that restore', async phase => {
     await openForegroundWithColdSession();
     const previousHash = window.location.hash;

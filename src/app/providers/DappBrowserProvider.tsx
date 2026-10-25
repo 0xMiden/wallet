@@ -249,6 +249,15 @@ interface DappBrowserContextValue {
 
 type ParkGuard = (afterHide: boolean) => boolean;
 
+interface PendingLegacyPark {
+  lifetime: symbol;
+  instance: DappWebViewInstance;
+  revision: number;
+  guard?: ParkGuard;
+  clearedShown: boolean;
+  promise: Promise<true | undefined>;
+}
+
 /** Where a restore gesture started: the peek card's rect and the release velocity, in host CSS px. */
 export interface RestoreGesture {
   card: MorphCard;
@@ -513,6 +522,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Native handles can materialize later; lifetime identity changes only on removal and a new session.
   const sessionLifetimes = useRef(new Map<string, symbol>());
+  const pendingParks = useRef(new Map<string, PendingLegacyPark>());
   const openingSessions = useRef(new Map<string, symbol>());
   const listenerSetup = useRef<Promise<void>>(Promise.resolve());
   const finalizations = useRef(new Map<string, SessionFinalization>());
@@ -1146,12 +1156,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   const reconcileVisibility = useCallback(
-    async (id: string, instance: DappWebViewInstance) => {
+    async (id: string, lifetime: symbol, instance: DappWebViewInstance) => {
       let revision: number;
       do {
         revision = intentRevisionRef.current;
         const state = getSessionStateById(id);
-        if (!providerAlive.current || finalizations.current.has(id) || state?.instance !== instance) return;
+        if (
+          !providerAlive.current ||
+          finalizations.current.has(id) ||
+          sessionLifetimes.current.get(id) !== lifetime ||
+          state?.instance !== instance
+        )
+          return;
         const visible =
           foregroundIdRef.current === id &&
           state.status === 'active' &&
@@ -1164,15 +1180,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           console.warn('[DappBrowserProvider] visibility reconciliation failed:', error);
           return;
         }
+        if (sessionLifetimes.current.get(id) !== lifetime || getSessionStateById(id)?.instance !== instance) return;
       } while (!isCurrentIntent(revision));
     },
     [getSessionStateById, isCurrentIntent]
   );
 
   const parkLegacy = useCallback(
-    async (id: string, revision: number, guard?: ParkGuard) => {
+    (id: string, revision: number, guard?: ParkGuard): Promise<true | undefined> => {
       const state = getSessionStateById(id);
-      if (!isCurrentIntent(revision) || !state?.instance || (guard && !guard(false))) return;
+      if (!isCurrentIntent(revision) || !state?.instance || (guard && !guard(false))) return Promise.resolve(undefined);
+      const lifetime = sessionLifetimes.current.get(id);
+      if (!lifetime) return Promise.resolve(undefined);
+      const instance = state.instance;
       // Clear the "was visible" watermark so the auto-park effect
       // below doesn't treat a subsequent restore() as a stale-foreground
       // → auto-park trigger. Without this, parking session A then
@@ -1183,51 +1203,114 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       //   4. fires parkInternal(A) again → session flashes then re-parks
       // (User-visible: "dApp opens and closes immediately on first tap,
       // works on second tap once the ref was cleared by step 4.")
-      if (!guard && slotRectShownForRef.current === id) {
+      const noteUnguardedClear = (pending: PendingLegacyPark) => {
+        if (guard || slotRectShownForRef.current !== id) return;
         slotRectShownForRef.current = null;
-      }
-      // Snapshot first so the bubble has a frozen preview to render.
-      let snapshotDataUrl: string | null = null;
-      try {
-        snapshotDataUrl = await captureSnapshot(id, 0.5, 0.7);
-      } catch (e) {
-        console.warn('[DappBrowserProvider] snapshot capture failed:', e);
-      }
-      if (
-        !isCurrentIntent(revision) ||
-        finalizations.current.has(id) ||
-        getSessionStateById(id)?.instance !== state.instance ||
-        (guard && !guard(false))
-      )
-        return;
-      try {
-        await state.instance.setVisible(false);
-      } catch (e) {
-        console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
-      }
-      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
-      if (!isCurrentIntent(revision) || (guard && !guard(true))) {
-        await reconcileVisibility(id, state.instance);
-        return;
-      }
-      if (guard && slotRectShownForRef.current === id) slotRectShownForRef.current = null;
-      updateSession(id, s => ({ ...s, status: 'parked' }));
-
-      // PR-6 cold-bubble persistence: write both the session metadata and
-      // the freshly-captured snapshot to disk so the bubble can be
-      // rehydrated on the next cold app launch. Both writes are
-      // best-effort — the user never blocks on them.
-      const persistedSession = {
-        ...toPersisted(state.session),
-        // Keep the live origin (may differ from session.origin after
-        // cross-origin navigation).
-        origin: state.origin
+        pending.clearedShown = true;
       };
-      void upsertPersistedSession(persistedSession);
-      if (snapshotDataUrl) {
-        void writeSnapshotToDisk(id, snapshotDataUrl);
+      const stored = pendingParks.current.get(id);
+      if (stored && stored.lifetime === lifetime && stored.instance === instance) {
+        if (revision >= stored.revision) {
+          stored.revision = revision;
+          stored.guard = guard;
+          noteUnguardedClear(stored);
+        }
+        return stored.promise;
       }
-      return true;
+
+      let settlePark: (committed: true | undefined) => void = () => undefined;
+      let failPark: (error: unknown) => void = () => undefined;
+      const promise = new Promise<true | undefined>((resolve, reject) => {
+        settlePark = resolve;
+        failPark = reject;
+      });
+      const record: PendingLegacyPark = {
+        lifetime,
+        instance,
+        revision,
+        guard,
+        clearedShown: false,
+        promise
+      };
+      noteUnguardedClear(record);
+      pendingParks.current.set(id, record);
+      const restoreShownSlot = () => {
+        if (!record.clearedShown || foregroundIdRef.current !== id) return;
+        if (sessionLifetimes.current.get(id) !== record.lifetime) return;
+        if (getSessionStateById(id)?.instance !== record.instance) return;
+        slotRectShownForRef.current = id;
+      };
+      void (async () => {
+        let committed: true | undefined;
+        let failure: unknown;
+        try {
+          // Snapshot first so the bubble has a frozen preview to render.
+          let snapshotDataUrl: string | null = null;
+          try {
+            snapshotDataUrl = await captureSnapshot(id, 0.5, 0.7);
+          } catch (e) {
+            console.warn('[DappBrowserProvider] snapshot capture failed:', e);
+          }
+          if (
+            !isCurrentIntent(record.revision) ||
+            finalizations.current.has(id) ||
+            sessionLifetimes.current.get(id) !== record.lifetime ||
+            getSessionStateById(id)?.instance !== record.instance ||
+            (record.guard && !record.guard(false))
+          ) {
+            restoreShownSlot();
+            return;
+          }
+          try {
+            await record.instance.setVisible(false);
+          } catch (e) {
+            console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
+          }
+          if (
+            finalizations.current.has(id) ||
+            sessionLifetimes.current.get(id) !== record.lifetime ||
+            getSessionStateById(id)?.instance !== record.instance
+          ) {
+            restoreShownSlot();
+            return;
+          }
+          if (!isCurrentIntent(record.revision) || (record.guard && !record.guard(true))) {
+            if (
+              sessionLifetimes.current.get(id) === record.lifetime &&
+              getSessionStateById(id)?.instance === record.instance
+            ) {
+              await reconcileVisibility(id, record.lifetime, record.instance);
+            }
+            restoreShownSlot();
+            return;
+          }
+          if (record.guard && slotRectShownForRef.current === id) slotRectShownForRef.current = null;
+          updateSession(id, s => ({ ...s, status: 'parked' }));
+
+          // PR-6 cold-bubble persistence: write both the session metadata and
+          // the freshly-captured snapshot to disk so the bubble can be
+          // rehydrated on the next cold app launch. Both writes are
+          // best-effort — the user never blocks on them.
+          const persistedSession = {
+            ...toPersisted(state.session),
+            // Keep the live origin (may differ from session.origin after
+            // cross-origin navigation).
+            origin: state.origin
+          };
+          void upsertPersistedSession(persistedSession);
+          if (snapshotDataUrl) {
+            void writeSnapshotToDisk(id, snapshotDataUrl);
+          }
+          committed = true;
+        } catch (error) {
+          failure = error;
+        } finally {
+          if (pendingParks.current.get(id) === record) pendingParks.current.delete(id);
+          if (failure === undefined) settlePark(committed);
+          else failPark(failure);
+        }
+      })();
+      return promise;
     },
     [getSessionStateById, isCurrentIntent, reconcileVisibility, updateSession]
   );
@@ -1988,11 +2071,26 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // freshly-opened session on render 1 — which is not what the user wants.
   useEffect(() => {
     if (!foregroundId || slotRect) return;
-    if (slotRectShownForRef.current !== foregroundId) return;
-    slotRectShownForRef.current = null;
     const id = foregroundId;
-    const revision = intentRevisionRef.current;
+    const lifetime = sessionLifetimes.current.get(id);
+    const instance = getSessionStateById(id)?.instance;
+    const pending = pendingParks.current.get(id);
+    const samePark =
+      !!pending &&
+      pending.clearedShown &&
+      pending.lifetime === lifetime &&
+      pending.instance === instance &&
+      isCurrentIntent(pending.revision);
+    if (slotRectShownForRef.current !== id && !samePark) return;
+    slotRectShownForRef.current = null;
+    const revision = beginIntent();
+    parkBackgroundSessions(revision, id);
     const generation = restoreGeneration.current.get(id);
+    const joined = pendingParks.current.get(id);
+    if (joined && joined.lifetime === lifetime && joined.instance === instance) {
+      joined.revision = revision;
+      joined.guard = () => restoreGeneration.current.get(id) === generation;
+    }
     // The page collapses into its card over whichever tab is now showing; without the native morph it hides at once.
     // A restore while native answers keeps the session; otherwise the foreground clears at once.
     void parkByMorph(id, revision).then(outcome => {
@@ -2001,7 +2099,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       void parkLegacy(id, revision, () => restoreGeneration.current.get(id) === generation);
       if (foregroundIdRef.current === id) setForegroundId(null);
     });
-  }, [foregroundId, slotRect, isCurrentIntent, parkByMorph, parkLegacy]);
+  }, [
+    foregroundId,
+    slotRect,
+    beginIntent,
+    getSessionStateById,
+    isCurrentIntent,
+    parkBackgroundSessions,
+    parkByMorph,
+    parkLegacy
+  ]);
 
   // Mirror the foreground session id into the legacy Zustand field for
   // backwards compat with callers (e.g. native-notifications) that check
