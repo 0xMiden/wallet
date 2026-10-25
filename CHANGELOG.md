@@ -14,6 +14,8 @@
 
 ### Fixes
 
+- [FIX][all] USDCx bridge deposits keep the signing flow open through source-wallet approvals and confirmation. Close, Hide and mobile back return after initiation or failure.
+
 - [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
 - [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
 
