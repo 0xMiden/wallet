@@ -153,8 +153,13 @@ describe('macOS height-query trust roots', () => {
     `);
     try {
       const read = waitForNodeHeight('http://stub', 5, 5_000, root);
-      if (fail) await expect(read).rejects.toThrow('node request failed');
-      else await expect(read).resolves.toBe(7);
+      const expected = fail ? { error: 'node http://stub height 5: node request failed' } : { height: 7 };
+      await expect(
+        read.then(
+          height => ({ height }),
+          error => ({ error: error.message })
+        )
+      ).resolves.toEqual(expected);
       expect(fs.existsSync(fs.readFileSync(marker, 'utf8'))).toBe(false);
       expect(process.env.SSL_CERT_FILE).toBeUndefined();
     } finally {
