@@ -1,11 +1,20 @@
 // The stuck-consume reaper spares a consume only while this realm's attempt for it is still running: it reads the
 // attempt `generateTransactionsLoop` opens and closes, not the realm's lifetime record of rows it started.
+import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 
 import { beginAttemptInThisRealm, endAttemptInThisRealm, verifyStuckTransactionsFromNode } from './cancel';
+import { waitForTransactionCompletion } from './helper';
 import { generateTransaction, generateTransactionsLoop } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus } from '../db/types';
+
+const mockDeserializeResult = jest.fn();
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
+  TransactionResult: { deserialize: (bytes: Uint8Array) => mockDeserializeResult(bytes) }
+}));
 
 const mockConsumeNoteId = jest.fn();
 const mockGetInputNoteDetails = jest.fn();
@@ -141,6 +150,77 @@ it('fails a consume whose direct generateTransaction call has thrown, once the g
 
   expect(await verifyStuckTransactionsFromNode()).toBe(1);
   expect(await status()).toBe(ITransactionStatus.Failed);
+});
+
+it.each(['ConsumedAuthenticatedLocal', 'ConsumedUnauthenticatedLocal'])(
+  'keeps the live %s consume open until its real result reaches the dApp waiter',
+  async state => {
+    await Repo.transactions.put(queuedConsume());
+    const bytes = new Uint8Array([7, 8, 9]);
+    const result: TransactionResult = Object.create(null);
+    Object.assign(result, {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'real-chain-tx' }),
+        inputNotes: () => ({
+          notes: () => [
+            {
+              note: () => ({
+                id: () => ({ toString: () => 'note' }),
+                metadata: () => ({ sender: () => 'sender', noteType: () => 0 }),
+                assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'faucet', amount: () => 1n }] })
+              })
+            }
+          ]
+        }),
+        outputNotes: () => ({ notes: () => [{ intoFull: () => ({ serialize: () => new Uint8Array([4, 5, 6]) }) }] })
+      }),
+      serialize: () => bytes
+    });
+    mockDeserializeResult.mockReturnValue(result);
+    let reaped: number | undefined;
+    let duringPipeline: ITransactionStatus | undefined;
+    mockConsumeNoteId.mockImplementation(async () => {
+      await pastGraceWindow();
+      mockGetInputNoteDetails.mockResolvedValue(note(state));
+      reaped = await verifyStuckTransactionsFromNode();
+      duringPipeline = await status();
+      return result;
+    });
+    const waiting = waitForTransactionCompletion('consume');
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    await expect(waiting).resolves.toEqual({ txHash: 'real-chain-tx', outputNotes: ['BAUG'] });
+    expect(reaped).toBe(0);
+    expect(duringPipeline).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(await Repo.transactions.get('consume')).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'real-chain-tx',
+      resultBytes: bytes
+    });
+  }
+);
+
+it('recovers a locally landed consume once its abandoned attempt is no longer live', async () => {
+  await Repo.transactions.put({ ...queuedConsume(), status: ITransactionStatus.GeneratingTransaction });
+  mockGetInputNoteDetails.mockResolvedValue(note('ConsumedAuthenticatedLocal'));
+  beginAttemptInThisRealm('consume');
+  endAttemptInThisRealm('consume');
+
+  expect(await verifyStuckTransactionsFromNode()).toBe(1);
+  expect(await status()).toBe(ITransactionStatus.Completed);
+});
+
+it('still fails an invalid note immediately while its consume attempt is live', async () => {
+  await Repo.transactions.put({ ...queuedConsume(), status: ITransactionStatus.GeneratingTransaction });
+  mockGetInputNoteDetails.mockResolvedValue(note('Invalid'));
+  beginAttemptInThisRealm('consume');
+  try {
+    expect(await verifyStuckTransactionsFromNode()).toBe(1);
+    expect(await status()).toBe(ITransactionStatus.Failed);
+  } finally {
+    endAttemptInThisRealm('consume');
+  }
 });
 
 describe('an attempt the sync stage never began', () => {

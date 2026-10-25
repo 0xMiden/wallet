@@ -2810,8 +2810,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "Выберите один из вариантов ниже",
-    "englishSource": "Select an option below"
+    "message": "Ваш Guardian подтверждает каждую транзакцию и может помочь вам восстановить доступ к учетной записи.",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "Проверяю, какой оператор отвечает быстрее всего…",
@@ -2862,8 +2862,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "«Guardian» создает резервную копию ваших личных данных учетной записи и соподписывает ваши транзакции.",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Guardian создает резервную копию данных вашего личного счёта и подтверждает ваши транзакции.",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Восстановление на новом телефоне",
@@ -2878,8 +2878,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Ваш «Guardian» подписывает транзакции совместно с вами. Он никогда не может самостоятельно перемещать средства.",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "Ваш Guardian подтверждает ваши транзакции. Он никогда не может самостоятельно перемещать средства.",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "Смена возможна в любое время",
@@ -2971,16 +2971,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian — это независимый сервис, который <b>подтверждает каждую транзакцию</b> из вашего кошелька, создавая дополнительную защиту без потери самостоятельного хранения.",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Для чего это нужно",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Совершает совместную подпись каждой транзакции — ни ваше устройство, ни «Guardian» не могут перемещать средства самостоятельно. Помогает восстановить доступ к учетной записи в случае потери устройства.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "Принимает к сведению каждую транзакцию; ни ваше устройство, ни Guardian не могут самостоятельно перемещать средства. Помогает восстановить доступ к учетной записи в случае потери устройства.",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Чего он не может делать",
@@ -2995,8 +2995,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Вы можете в любой момент перейти на другой Guardian, используя свою фразу восстановления. Меняется только соавтор; ваш аккаунт и средства остаются прежними.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "Вы можете в любой момент перейти на другого Guardian с помощью своей фразы восстановления. Меняется только лицо, подтверждающее ваши транзакции; ваш аккаунт и средства остаются прежними.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Понял",
@@ -3383,8 +3383,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Смена отправлена, но это устройство не смогло подтвердить, что она прошла в сети. Кошелёк не может подтвердить это за вас — и настройки Guardian, и запись этой транзакции в Активности в любом случае покажут нового Guardian. Если следующая транзакция будет отклонена из-за отсутствия соподписи, выполните смену ещё раз.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Запрос на смену был отправлен, но это устройство не смогло подтвердить, что он прошел в цепочке. Ничто в кошельке не может подтвердить это за вас — ваши настройки Guardian и запись об этой транзакции в разделе «Активность» в любом случае будут указывать нового Guardian. Если последующая транзакция будет отклонена из-за невозможности подтверждения, запустите запрос на смену снова.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "Ещё не сохранено на этом устройстве.",
@@ -3411,8 +3411,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "После подтверждения смены ончейн новый Guardian будет совместно подписывать каждую транзакцию, а прежний Guardian больше не сможет подписывать за ваш аккаунт.",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "После подтверждения смены в блокчейне ваш новый Guardian принимает к сведению каждую транзакцию, а прежний Guardian больше не может принимать к сведению транзакции по вашему счету.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Смена подтверждена в блокчейне, но этому устройству не удалось сохранить адрес нового Guardian. Кошелёк проверяет это автоматически и при необходимости предложит ввести его снова — это не начнёт новую смену. Если подсказка не появится, обратитесь в службу поддержки.",
@@ -3423,8 +3423,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не может подписывать транзакции для вашего счёта.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "С этого момента ваш новый Guardian принимает к сведению каждую транзакцию - ваш прежний Guardian больше не может принимать к сведению транзакции по вашему счету.",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "Адрес вашего кошелька, средства и история остаются без изменений. Во время ротации ничего не перемещалось.",
@@ -3439,12 +3439,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "Ваш новый «Guardian» осуществляет совместное подписание",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "Ваш новый Guardian принимает к сведению транзакции",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "Новый «Guardian» осуществляет совместное подписание после подтверждения",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "После подтверждения смены новый Guardian принимает к сведению транзакции",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "Ничего не изменилось",
@@ -3473,6 +3473,22 @@
   "recoveryPhraseCold": {
     "message": "Фраза восстановления (холодное хранение)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "С этого момента ваши транзакции подтверждает $newGuardian$ вместо $oldGuardian$. Ваш адрес, средства и история остаются точно такими же.",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "Утвердить с помощью",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "Ваш старый «Guardian» не может заблокировать это",
@@ -3656,8 +3672,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "Ваш «guardian» не отвечает, поэтому транзакции не могут быть соподписаны.",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "Ваш guardian не отвечает, поэтому транзакции не могут быть подтверждены.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Переключить Guardian",
@@ -4039,8 +4055,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "Используйте «guardian» для восстановления доступа и соподписания действий по данному аккаунту.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "Используйте guardian для восстановления и подтверждения транзакций по данному счету.",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "Импортировать общедоступный аккаунт",
@@ -6862,6 +6878,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "Другие доступные Guardians",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",

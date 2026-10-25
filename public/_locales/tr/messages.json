@@ -2810,8 +2810,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "Aşağıdaki seçeneklerden birini seçin",
-    "englishSource": "Select an option below"
+    "message": "Guardian'ınız her işlemi onaylar ve hesabınızı geri kazanmanıza yardımcı olabilir.",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",
@@ -2862,8 +2862,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Guardian, özel hesap verilerinizi yedekler ve işlemlerinizi ortak imzalar.",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Guardian, özel hesap verilerinizi yedekler ve işlemlerinizi onaylar.",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Yeni bir telefonda kurtarma",
@@ -2878,8 +2878,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Guardian, sizinle birlikte imza atar. Asla kendi başına fon transferi yapamaz.",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "Guardian'ınız işlemlerinizi onaylar. Asla kendi başına fon transferi yapamaz.",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "İstediğiniz zaman değiştirin",
@@ -2971,16 +2971,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>onaylayan</b> ve kendi kendine saklama hakkından vazgeçmeden bir güvenlik ağı ekleyen bağımsız bir hizmettir.",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Ne işe yarar?",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Her işlemi birlikte imzalar — ne cihazınız ne de Guardian tek başına fon transferi yapamaz. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "Her işlem için gönderilen bildirimi aldığını teyit eder — ne cihazınız ne de Guardian fonları tek başına hareket ettirebilir. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Neleri yapamaz?",
@@ -2995,8 +2995,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian'a geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian'a geçebilirsiniz. Yalnızca işlemlerinizi onaylayan kişi değişir; hesabınız ve varlıklarınız aynı kalır.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Anladım",
@@ -3383,8 +3383,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Değişiklik gönderildi, ancak bu cihaz zincirde gerçekleştiğini doğrulayamadı. Cüzdan bunu sizin için doğrulayamaz — Guardian ayarlarınız da bu işlemin Etkinlik kaydı da her durumda yeni Guardian'ı gösterecek. Daha sonraki bir işlem ortak imzalanamadığı için reddedilirse değişikliği yeniden çalıştırın.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Değişim talebi gönderildi, ancak bu cihaz bunun zincir üzerinde gerçekleştiğini doğrulayamadı. Cüzdandaki hiçbir şey bunu sizin için doğrulayamaz — Guardian ayarlarınız ve bu işlemin Etkinlik kaydı, her halükarda yeni Guardian'ı gösterecektir. Daha sonraki bir işlem, onaylanamadığı için reddedilirse, değişim işlemini tekrar gerçekleştirin.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "Henüz bu cihaza kaydedilmemiştir.",
@@ -3411,8 +3411,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "Değişiklik zincir üzerinde onaylandığında yeni Guardian'ınız her işlemi birlikte imzalar ve eski Guardian'ınız hesabınız için artık birlikte imzalayamaz.",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "Değişimin zincir üzerinde kesinleşmesinden sonra yeni Guardian'ınız her işlemin alındığını bildirir ve eski Guardian'ınız artık hesabınızdaki işlemlerin alındığını bildiremez.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Değişiklik zincir üzerinde onaylandı, ancak bu cihaz yeni Guardian'ın adresini kaydedemedi. Cüzdan bunu otomatik olarak kontrol eder ve gerekirse adresi yeniden girmenizi ister; bu, başka bir değişiklik başlatmaz. İstem görünmezse destek ekibiyle iletişime geçin.",
@@ -3423,8 +3423,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Yeni Guardian’ınız bundan sonra her işlemi sizinle birlikte imzalayacaktır — eski Guardian’ınız artık hesabınız için işlemleri birlikte imzalayamaz.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "Yeni Guardian'ınız bundan sonra her işlemin alındığını bildirir - eski Guardian'ınız artık hesabınızdaki işlemlerin alındığını bildiremez.",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "Cüzdan adresiniz, fonlarınız ve geçmişiniz değişmemiştir. Rotasyon sırasında hiçbir şey taşınmamıştır.",
@@ -3439,12 +3439,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "Yeni Guardian'ınız ortak imza atıyor",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "Yeni Guardian'ınız şunları kabul eder:",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "Onaylandıktan sonra yeni Guardian, ortak imza atar",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "Değişim kesinleşince yeni Guardian işlemlerin alındığını bildirir",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "Hiçbir şey değişmedi",
@@ -3473,6 +3473,22 @@
   "recoveryPhraseCold": {
     "message": "Geri yükleme ifadesi (soğuk)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "Bundan böyle, işlemlerinizi $oldGuardian$ yerine $newGuardian$ onaylayacaktır. Adresiniz, bakiyeniz ve işlem geçmişiniz tamamen aynı kalacaktır.",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "Onaylayın",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "Eski Guardian’ınız bunu engelleyemez",
@@ -3656,8 +3672,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "guardian'ınız yanıt vermiyor, bu nedenle işlemler ortak imzalanamıyor.",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "guardian'ınız yanıt vermiyor, bu nedenle işlemler onaylanamıyor.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Guardian’ı değiştir",
@@ -4039,8 +4055,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "Bu hesabı kurtarmak ve ortak imza atmak için guardian adresini kullanın.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "Bu hesabın işlemlerini kurtarmak ve onaylamak için bir guardian kullanın.",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "Genel hesabı içe aktar",
@@ -6862,6 +6878,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "Kullanılabilir diğer Guardians",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "Bu cüzdanın kilit açma yöntemini kontrol edilemedi. Lütfen tekrar deneyin.",

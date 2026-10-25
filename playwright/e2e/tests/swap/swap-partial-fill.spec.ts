@@ -12,9 +12,9 @@ import {
 /**
  * Scenario 3.3 — partial fill + remainder.
  *
- * A offers 10 SWPA for 10 SWPB (1:1 so proportions stay whole). B fills only 4
+ * A offers 10 SWPA for 9.995 SWPB at price 1 and 5bps slippage. B fills 3.998
  * SWPB. Asserts the partial-swap mechanics: B receives the proportional 4 SWPA,
- * A's 4-SWPB payback stays hidden/unconsumed while active. At the fixed
+ * A's 3.998-SWPB payback stays hidden/unconsumed while active. At the fixed
  * two-minute deadline the lifecycle consumes it together with the remainder,
  * crediting the fill and restoring the unfilled 6 SWPA.
  */
@@ -29,17 +29,18 @@ test.describe('swap: partial fill + remainder', () => {
   test.describe.configure({ mode: 'serial', timeout: 720_000 });
 
   const OFFER_BASE = '1000000000'; // 10 SWPA
-  const REQUEST_BASE = '1000000000'; // 10 SWPB
-  const FILL_BASE = '400000000'; // 4 SWPB
+  const REQUEST_BASE = '999500000'; // floor(10 * 1e8 * price 1 * 0.9995)
+  const FILL_BASE = '399800000'; // 40% of the requested SWPB
   const PROP_OFFER_BASE = '400000000'; // 4 SWPA (4/10 * 10)
-  const REMAIN_BASE = '600000000'; // 6 of each (on-chain lineage remainder)
+  const REMAIN_OFFER_BASE = '600000000'; // 60% of the offered SWPA
+  const REMAIN_REQUEST_BASE = '599700000'; // 60% of the requested SWPB
   // The maker was funded DEFAULT_FUND_AMOUNT of the offer token, not the offered
   // 10, so its final offer-token balance is `funded − proportional-delivered`
   // (the taker's 4). The unfilled 6-remainder is reclaimed back into that balance
   // on expiry, so the net is funded − 4, NOT the bare 6-remainder.
   const MAKER_OFFER_BALANCE = (BigInt(DEFAULT_FUND_AMOUNT) - BigInt(PROP_OFFER_BASE)).toString(); // 99_600_000_000
 
-  test('A offers 10 SWPA for 10 SWPB, B fills 4; expiry settles payback + remainder', async ({
+  test('A offers 10 SWPA for 9.995 SWPB, B fills 40%; expiry settles payback + remainder', async ({
     walletA,
     walletB,
     midenCli,
@@ -59,8 +60,9 @@ test.describe('swap: partial fill + remainder', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
+      amountAnchor: 'pay',
       payAmount: '10',
-      receiveAmount: '10'
+      receiveAmount: '9.995'
     });
     expect(orderId, 'maker order id').not.toBe('');
 
@@ -86,7 +88,7 @@ test.describe('swap: partial fill + remainder', () => {
         },
         { timeout: 90_000, intervals: [3000] }
       )
-      .toBe(`active:${REMAIN_BASE}:${REMAIN_BASE}`);
+      .toBe(`active:${REMAIN_OFFER_BASE}:${REMAIN_REQUEST_BASE}`);
 
     // Settlement 2: taker received the proportional 4 SWPA.
     await expect

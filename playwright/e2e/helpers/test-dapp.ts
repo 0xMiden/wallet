@@ -231,7 +231,48 @@ export async function answerPrompt<T>(
     if (plan.tickPrivateData) await tickPrivateData(popup);
     await plan.whileOpen?.(popup);
     if (plan.decision === 'close') await popup.close();
-    else await popup.getByTestId(plan.decision === 'approve' ? ids.approve : ids.decline).click();
+    else if (plan.decision === 'approve') await popup.getByTestId(ids.approve).click();
+    else {
+      let settledNotGranted = false;
+      let popupCrashed = false;
+      let contextClosed = false;
+      const startedOpen = !popup.isClosed();
+      const onCrash = () => {
+        popupCrashed = true;
+      };
+      const onContextClose = () => {
+        contextClosed = true;
+      };
+      popup.on('crash', onCrash);
+      dapp.context.on('close', onContextClose);
+      void pending.then(
+        result => {
+          settledNotGranted = failedOutcome(result) && result.error?.message === 'NOT_GRANTED';
+        },
+        () => undefined
+      );
+      try {
+        await popup.getByTestId(ids.decline).click();
+      } catch (error) {
+        // The refusal can arrive and close this popup before Playwright finishes its click.
+        // A crash, context shutdown or any other answer still fails the interaction.
+        const targetClosed =
+          error instanceof Error && error.message.includes('Target page, context or browser has been closed');
+        if (
+          !targetClosed ||
+          !settledNotGranted ||
+          !startedOpen ||
+          !popup.isClosed() ||
+          popupCrashed ||
+          contextClosed ||
+          !dapp.context.browser()?.isConnected()
+        )
+          throw error;
+      } finally {
+        popup.off('crash', onCrash);
+        dapp.context.off('close', onContextClose);
+      }
+    }
   }
   const result = await ctx.deadline.race(pending, `${plan.kind} answer`);
   if (failedOutcome(result)) ctx.evidence.dappError = result.error;

@@ -3,12 +3,12 @@
  *
  * The page itself moves natively; the host only hears where it is from `presentationMorph` events. So each event
  * starts compositor-only Web Animations (opacity and transform) from the values the elements show now, the launcher
- * on the page's own spring sampled into a `linear()` easing, the capsule on a short fade. Nothing runs on the main
- * thread between events.
+ * on the page's own spring as sampled keyframes with linear timing between stops, the capsule on a short fade.
+ * Nothing runs on the main thread between events.
  */
 
 import type { MorphTarget } from '@miden/dapp-browser';
-import { MORPH_TIMING, springTimeToReach, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
+import { MORPH_TIMING, springKeyframeStops, springTimeToReach, springs, supportsLinearEasing } from 'lib/animation';
 
 export interface CompanionElements {
   capsule: HTMLElement | null;
@@ -66,10 +66,11 @@ export function startMorphCompanions(
   }
 
   if (launcher) {
+    // The capability gate this path always had; the keyframes themselves do not need linear().
     const spring =
       reduceMotion || !supportsLinearEasing()
         ? null
-        : springToLinearEasing(collapsing ? springs.morphCollapse : springs.morphExpand, {
+        : springKeyframeStops(collapsing ? springs.morphCollapse : springs.morphExpand, {
             distance: (shown - shownTo) * PATH_UNITS,
             velocity: -motion.velocity * PATH_UNITS
           });
@@ -78,8 +79,17 @@ export function startMorphCompanions(
         duration: MORPH_TIMING.reducedFadeMs,
         easing: 'ease-out'
       });
+    } else if (!spring) {
+      play(launcher, [launcherFrame(shown), launcherFrame(shownTo)], { duration: 0 });
     } else {
-      play(launcher, [launcherFrame(shown), launcherFrame(shownTo)], spring ? spring : { duration: 0 });
+      play(
+        launcher,
+        spring.stops.map(({ offset, progress }) => ({
+          ...launcherFrame(shown + (shownTo - shown) * progress),
+          offset
+        })),
+        { duration: spring.duration, easing: 'linear' }
+      );
     }
   }
 
