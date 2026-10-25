@@ -292,6 +292,17 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
   });
 
+  it('moves keyboard selection from the current Guardian to the other options', () => {
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
+
+    const currentGuardian = screen.getByRole('radio', { name: 'OpenZeppelin' });
+    const otherGuardian = screen.getByRole('radio', { name: 'Gateway Operator' });
+    fireEvent.keyDown(currentGuardian, { key: 'ArrowDown' });
+
+    expect(otherGuardian).toHaveFocus();
+    expect(otherGuardian).toHaveAttribute('aria-checked', 'true');
+  });
+
   // Every card leads with the provider's logo on the same 48px brand tile (white in light mode, a
   // dark neutral in dark mode): OpenZeppelin's colour mark untouched, a grey mark recoloured to ink.
   it('leads each card with the provider mark on the brand tile', () => {
