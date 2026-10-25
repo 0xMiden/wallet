@@ -2149,7 +2149,11 @@ describe('waitForReceipt chain budgets', () => {
     const clock = fakeClock();
     const client = stubClient(() => (clock.now() >= 300_000 ? DEPOSIT_RECEIPT : null));
     await expect(
-      waitForReceipt([ARC_DRPC_URL], { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock }, hash)
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
     ).resolves.toMatchObject({ status: 'success', blockNumber: 66290091n });
     expect(clock.now()).toBe(300_000);
   });
@@ -2158,7 +2162,11 @@ describe('waitForReceipt chain budgets', () => {
     const clock = fakeClock();
     const client = stubClient(() => null);
     await expect(
-      waitForReceipt([ARC_DRPC_URL], { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock }, hash)
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
     ).rejects.toThrow('has no receipt after 600000 ms');
     expect(clock.now()).toBe(600_000);
   });
@@ -2169,7 +2177,11 @@ describe('waitForReceipt chain budgets', () => {
       const clock = fakeClock();
       const client = stubClient(() => (clock.now() >= 150_000 ? DEPOSIT_RECEIPT : null));
       await expect(
-        waitForReceipt([ARC_DRPC_URL], { endpoints: [ARC_DRPC_URL], payoutChain, publicClient: () => client, clock }, hash)
+        waitForReceipt(
+          [ARC_DRPC_URL],
+          { endpoints: [ARC_DRPC_URL], payoutChain, publicClient: () => client, clock },
+          hash
+        )
       ).rejects.toThrow('has no receipt after 120000 ms');
       expect(clock.now()).toBe(120_000);
     }
@@ -2179,7 +2191,11 @@ describe('waitForReceipt chain budgets', () => {
     const clock = fakeClock();
     const client = stubClient(() => ({ ...DEPOSIT_RECEIPT, status: '0x0' }));
     await expect(
-      waitForReceipt([ARC_DRPC_URL], { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock }, hash)
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
     ).rejects.toThrow('Ethereum transaction ' + hash + ' reverted in block 66290091');
     expect(clock.slept).toEqual([]);
   });
