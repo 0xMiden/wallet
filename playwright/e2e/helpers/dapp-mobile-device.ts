@@ -39,8 +39,11 @@ export interface MobileDevice {
 export type AdbRun = (serial: string, args: readonly string[]) => Promise<string>;
 const adb: AdbRun = (serial, args) =>
   new Promise((resolve, reject) => {
-    execFile('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 30_000 }, (error, stdout) =>
-      error ? reject(error) : resolve(stdout)
+    execFile(
+      'adb',
+      ['-s', serial, ...args],
+      { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout) => (error ? reject(error) : resolve(stdout))
     );
   });
 
@@ -133,6 +136,47 @@ function androidFrame(bounds: string | undefined): NativeRect | null {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
+function firstRect(text: string): NativeRect | null {
+  const bounds = /\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]/.exec(text);
+  const rounded = /Rect\(\s*(-?\d+)\s*,\s*(-?\d+)\s*-\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/.exec(text);
+  const boundsAt = bounds?.index ?? Number.POSITIVE_INFINITY;
+  const roundedAt = rounded?.index ?? Number.POSITIVE_INFINITY;
+  const chosen = boundsAt <= roundedAt ? bounds : rounded;
+  if (!chosen) return null;
+  const left = Number(chosen[1]);
+  const top = Number(chosen[2]);
+  const right = Number(chosen[3]);
+  const bottom = Number(chosen[4]);
+  if (![left, top, right, bottom].every(Number.isFinite)) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function markerEnd(line: string, marker: RegExp): number {
+  const match = marker.exec(line);
+  return match === null ? -1 : match.index + match[0].length;
+}
+
+function imeLineRect(line: string): NativeRect | null {
+  const visibleEnd = markerEnd(line, /(?:^|[^A-Za-z0-9_])mVisibleFrame(?![A-Za-z0-9_])/i);
+  const visibleFrameEnd =
+    visibleEnd >= 0 ? visibleEnd : markerEnd(line, /(?:^|[^A-Za-z0-9_])visibleFrame(?![A-Za-z0-9_])/i);
+  if (visibleFrameEnd >= 0) return firstRect(line.slice(visibleFrameEnd));
+  const frameEnd = markerEnd(line, /(?:^|[^A-Za-z0-9_])mFrame(?![A-Za-z0-9_])/i);
+  const plainEnd = frameEnd >= 0 ? frameEnd : markerEnd(line, /(?:^|[^A-Za-z0-9_])frame(?![A-Za-z0-9_])/i);
+  return plainEnd >= 0 ? firstRect(line.slice(plainEnd)) : null;
+}
+
+function imeKeyboardRect(text: string): NativeRect | null {
+  for (const line of text.split('\n')) {
+    const typeValue = /(?:^|[^A-Za-z0-9_])(?:mType|type)=([^\s,}]+)/i.exec(line)?.[1];
+    if (typeValue === undefined || !/ime/i.test(typeValue)) continue;
+    if (!/visible=true(?![A-Za-z0-9_])/i.test(line)) continue;
+    const rect = imeLineRect(line);
+    if (rect !== null && rect.height > 0) return rect;
+  }
+  return null;
+}
+
 export function parseAndroidKeyboardLayout(
   hierarchy: string,
   inputMethod: string,
@@ -146,17 +190,109 @@ export function parseAndroidKeyboardLayout(
       /edittext|textfield/i.test(node.class ?? '')
   );
   const keyboard = nodes.find(node => /keyboard_view|input_view/i.test(node['resource-id'] ?? ''));
-  const keyboardFrame = keyboard ? androidFrame(keyboard.bounds) : null;
+  const hierarchyKeyboard = keyboard ? androidFrame(keyboard.bounds) : null;
+  // Visibility follows a positive-height rectangle. mInputShown alone leaves the top null.
+  const keyboardFrame =
+    hierarchyKeyboard !== null && hierarchyKeyboard.height > 0 ? hierarchyKeyboard : imeKeyboardRect(inputMethod);
   const fieldFrame = field ? androidFrame(field.bounds) : null;
-  const inputShown = /mInputShown\s*=\s*true/i.test(inputMethod);
-  const keyboardVisible =
-    (keyboardFrame !== null && keyboardFrame.height > 0) || (inputShown && field?.focused === 'true');
   return {
-    keyboardVisible,
-    keyboardTop: keyboardVisible ? (keyboardFrame?.y ?? null) : null,
+    keyboardVisible: keyboardFrame !== null,
+    keyboardTop: keyboardFrame === null ? null : keyboardFrame.y,
     fieldFrame,
     webViewFrame: webView ? androidFrame(webView.bounds) : null
   };
+}
+
+const MISSED_NODE_HINT = /edit|text|webview|keyboard|input/i;
+const MISSED_TREE_NODES = 25;
+const MISSED_TREE_CHARS = 4000;
+const WINDOW_FOCUS_CHARS = 300;
+
+interface MissedNode {
+  className: string;
+  name: string;
+  bounds: string;
+}
+
+interface LabeledFieldRead {
+  frame: NativeRect | null;
+  tree: string;
+  secondError: string;
+}
+
+function missedTreeSummary(nodes: readonly MissedNode[]): string {
+  const preferred: MissedNode[] = [];
+  const others: MissedNode[] = [];
+  for (const node of nodes) {
+    if (MISSED_NODE_HINT.test(node.className) || MISSED_NODE_HINT.test(node.name)) preferred.push(node);
+    else others.push(node);
+  }
+  const chosen = [...preferred, ...others].slice(0, MISSED_TREE_NODES);
+  const entries = chosen.map(node => `class=${node.className} name=${node.name} bounds=${node.bounds}`);
+  const summary = entries.length === 0 ? `nodes=${nodes.length}` : `nodes=${nodes.length} ${entries.join('; ')}`;
+  return summary.slice(0, MISSED_TREE_CHARS);
+}
+
+function androidMissedSummary(hierarchy: string): string {
+  return missedTreeSummary(
+    androidNodes(hierarchy).map(node => {
+      const described = node['content-desc'];
+      return {
+        className: node.class ?? '',
+        name: described !== undefined && described !== '' ? described : (node.text ?? ''),
+        bounds: node.bounds ?? ''
+      };
+    })
+  );
+}
+
+function iosMissedSummary(tree: string): string {
+  return missedTreeSummary(
+    iosNodes(tree).map(node => {
+      const frame = iosFrame(node.frame);
+      const className = node.type;
+      return {
+        className: typeof className === 'string' ? className : '',
+        name: iosLabel(node),
+        bounds: frame === null ? '' : `${frame.x},${frame.y},${frame.width},${frame.height}`
+      };
+    })
+  );
+}
+
+async function readLabeledField(
+  read: () => Promise<string>,
+  frameOf: (tree: string) => NativeRect | null
+): Promise<LabeledFieldRead> {
+  const firstTree = await read();
+  const firstFrame = frameOf(firstTree);
+  if (firstFrame) return { frame: firstFrame, tree: firstTree, secondError: '' };
+  try {
+    const secondTree = await read();
+    const secondFrame = frameOf(secondTree);
+    if (secondFrame) return { frame: secondFrame, tree: secondTree, secondError: '' };
+    return { frame: null, tree: secondTree, secondError: '' };
+  } catch (error) {
+    // The second read never arrived, so the first tree is the only hierarchy to keep.
+    return { frame: null, tree: firstTree, secondError: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function androidWindowFocus(serial: string, run: AdbRun): Promise<string> {
+  let dump: string;
+  try {
+    dump = await run(serial, ['shell', 'dumpsys', 'window', 'displays']);
+  } catch {
+    return 'unavailable';
+  }
+  const lines = dump.split('\n').map(line => line.trim());
+  const line = lines.find(item => item.includes('mCurrentFocus')) ?? lines.find(item => item.includes('mFocusedApp'));
+  return line === undefined ? 'absent' : line.slice(0, WINDOW_FOCUS_CHARS);
+}
+
+function missedLabelFault(surface: 'Android' | 'iOS', label: string, parts: readonly string[]): HarnessFault {
+  const detail = parts.filter(part => part !== '').join(' ');
+  return new HarnessFault(`${surface} accessibility label not found: ${label} ${detail}`);
 }
 
 function walletIndex(device: MobileWalletKey): number {
@@ -225,10 +361,21 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
     surface: 'android',
     tapAccessibilityLabel: async (device, label) => {
       const serial = serialFor(device);
-      const layout = parseAndroidKeyboardLayout(await hierarchyFor(serial), '', label);
-      if (!layout.fieldFrame) throw new HarnessFault(`Android accessibility label not found: ${label}`);
-      const { x, y } = point(layout.fieldFrame);
-      await run(serial, ['shell', 'input', 'tap', String(x), String(y)]);
+      const found = await readLabeledField(
+        () => hierarchyFor(serial),
+        tree => parseAndroidKeyboardLayout(tree, '', label).fieldFrame
+      );
+      if (found.frame) {
+        const { x, y } = point(found.frame);
+        await run(serial, ['shell', 'input', 'tap', String(x), String(y)]);
+        return;
+      }
+      const focus = await androidWindowFocus(serial, run);
+      throw missedLabelFault('Android', label, [
+        androidMissedSummary(found.tree),
+        found.secondError,
+        `focus=${focus}`
+      ]);
     },
     typeText: async (device, value) => {
       const serial = serialFor(device);
@@ -248,7 +395,12 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
       // Allow the native hierarchy to settle before returning the measured layout.
       await readLayout();
       const layout = await readLayout();
-      return layout;
+      // The discarded settle read never asks for window displays. Only a null top does.
+      if (layout.keyboardTop !== null) return layout;
+      const displays = await run(serial, ['shell', 'dumpsys', 'window', 'displays']);
+      const keyboard = imeKeyboardRect(displays);
+      if (keyboard === null) return layout;
+      return { ...layout, keyboardVisible: true, keyboardTop: keyboard.y };
     },
     dismissKeyboard: async device => {
       await run(serialFor(device), ['shell', 'input', 'keyevent', '4']);
@@ -278,10 +430,16 @@ export function iosDevice(
     surface: 'ios',
     tapAccessibilityLabel: async (device, label) => {
       const udid = udidFor(device);
-      const layout = parseIosKeyboardLayout(await treeFor(udid), label);
-      if (!layout.fieldFrame) throw new HarnessFault(`iOS accessibility label not found: ${label}`);
-      const { x, y } = point(layout.fieldFrame);
-      await run(udid, ['ui', 'tap', '--udid', udid, String(x), String(y)]);
+      const found = await readLabeledField(
+        () => treeFor(udid),
+        tree => parseIosKeyboardLayout(tree, label).fieldFrame
+      );
+      if (found.frame) {
+        const { x, y } = point(found.frame);
+        await run(udid, ['ui', 'tap', '--udid', udid, String(x), String(y)]);
+        return;
+      }
+      throw missedLabelFault('iOS', label, [iosMissedSummary(found.tree), found.secondError]);
     },
     typeText: async (device, value) => {
       const udid = udidFor(device);
