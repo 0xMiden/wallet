@@ -34,6 +34,8 @@ import UIKit
     /// presentation flow.
     @objc public var containerWindow: UIWindow?
 
+    weak var morphContainer: BreadMorphContainerViewController?
+
     @objc public init(id: String,
                       controller: WKWebViewController,
                       navigationController: UINavigationController) {

@@ -7,7 +7,7 @@ const ETH_ASSET_ID = 'nep141:eth.omft.near';
 
 export interface HermeticOneClickFixture {
   service: FakeOneClickService;
-  configureMidenAsset(faucetId: string, decimals: number): void;
+  configureMidenAsset(faucetId: string, decimals: number): BridgeConfigDocument;
 }
 
 export const test = bridgeTest.extend<{}, { oneClick: HermeticOneClickFixture }>({
@@ -43,6 +43,7 @@ export const test = bridgeTest.extend<{}, { oneClick: HermeticOneClickFixture }>
             { assetId: ETH_ASSET_ID, blockchain: 'eth', symbol: 'ETH', decimals: 18, contractAddress: 'native' }
           ]);
           bridgeConfig.setDocument(document);
+          return document;
         }
       });
       await service.stop();

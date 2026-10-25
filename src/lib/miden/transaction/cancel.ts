@@ -13,6 +13,7 @@ import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagno
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
   reportTransactionFailure,
+  type QueueAgeBucket,
   type ReapSnapshot,
   type StartupSnapshot,
   type TransactionFailureReason
@@ -158,6 +159,11 @@ const describeFailure = (
  * `GeneratingTransaction` in the gap, and failing THAT row would report a
  * failure for a pipeline still running, which can still submit.
  *
+ * @param onlyIfRow When given, invoked inside the same `modify` after the status
+ * check and before any field write. False is Dexie's skip: `applied` stays false,
+ * nothing is counted, and no failure notification or report is sent. The skip log
+ * then says the judged attempt was no longer the row.
+ *
  * The terminal check is re-run at write time for EVERY caller, gated or not,
  * because the same gap runs the other way: a pipeline that commits `Completed`
  * between the read and the write would otherwise be overwritten with `Failed`,
@@ -173,7 +179,8 @@ export const cancelTransaction = async (
   // still follow `error`.
   reportedReason?: TransactionFailureReason,
   reap?: ReapSnapshot,
-  startup?: StartupSnapshot
+  startup?: StartupSnapshot,
+  onlyIfRow?: (row: ITransaction) => boolean
 ) => {
   const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
@@ -195,6 +202,7 @@ export const cancelTransaction = async (
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
   let applied = false;
   let racedTerminal = false;
+  let attemptRefused = false;
   let committed: ITransaction | undefined;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     // `false`, not a bare return: Dexie treats `undefined` as "modified" and
@@ -205,6 +213,10 @@ export const cancelTransaction = async (
       return false;
     }
     if (onlyIfStatus !== undefined && dbTx.status !== onlyIfStatus) return false;
+    if (onlyIfRow !== undefined && !onlyIfRow(dbTx)) {
+      attemptRefused = true;
+      return false;
+    }
     applied = true;
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
@@ -236,9 +248,11 @@ export const cancelTransaction = async (
     // happened. Either way the call failed nothing and notified no one.
     console.warn(
       `[cancelTransaction] skipped — tx ${transaction.id} ` +
-        (onlyIfStatus === undefined
-          ? 'was absent when the write ran'
-          : `was no longer ${onlyIfStatus}, or was absent, when the guarded write ran`) +
+        (attemptRefused
+          ? 'the judged attempt was no longer the row when the guarded write ran'
+          : onlyIfStatus === undefined
+            ? 'was absent when the write ran'
+            : `was no longer ${onlyIfStatus}, or was absent, when the guarded write ran`) +
         '; the row was not failed and no notification was raised. Suppressed error:',
       error
     );
@@ -253,6 +267,7 @@ export const cancelTransaction = async (
     );
   }
   if (committed !== undefined && !committed.restoredFromBackup) {
+    const failureReason = reportedReason ?? reportedWalletReason(error);
     reportTransactionFailure({
       point: 'pipeline',
       type: committed.type,
@@ -262,7 +277,9 @@ export const cancelTransaction = async (
       entryPoint: committed.consumeEntryPoint,
       lastDeferral: committed.lastDeferral,
       feeAdmission: committed.feeAdmission,
-      reason: reportedReason ?? reportedWalletReason(error),
+      reason: failureReason,
+      ...(failureReason === 'queued_expired' ? { queueAge: queueAgeBucket(committed, returnedAtMs) } : {}),
+      submitCrossing: attemptSubmitCrossing(committed),
       reap,
       startup,
       error,
@@ -362,6 +379,41 @@ const expiryWait = (row: ITransaction): { proofWaitBlocks?: number; expiryWindow
       ? undefined
       : entry.expirationBlock - entry.refBlock;
   return { proofWaitBlocks, expiryWindowBlocks };
+};
+
+const QUEUE_AGE_LIMITS: ReadonlyArray<[number, Exclude<QueueAgeBucket, 'over_24h' | 'unavailable'>]> = [
+  [3_600_000, '30m_to_1h'],
+  [21_600_000, '1h_to_6h'],
+  [86_400_000, '6h_to_24h']
+];
+
+const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
+  if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
+  const ageMs = nowMs - row.initiatedAt * 1000;
+  if (!Number.isFinite(ageMs) || ageMs < MAX_QUEUED_AGE * 1000) return 'unavailable';
+  return QUEUE_AGE_LIMITS.find(([limit]) => ageMs < limit)?.[1] ?? 'over_24h';
+};
+
+const SUBMIT_CROSSING_EVIDENCE_FIELDS = [
+  'transactionId',
+  'initialCommitment',
+  'finalCommitment',
+  'initialNonce',
+  'outputNoteIds',
+  'nullifiers',
+  'refBlock',
+  'refBlockCommitment',
+  'expirationBlock'
+] as const;
+
+const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | 'unavailable' => {
+  if (row.attemptId === undefined) return 'unavailable';
+  const attempt = row.submitEvidence?.find(({ attemptId }) => attemptId === row.attemptId);
+  if (attempt === undefined) return 'unavailable';
+  if (attempt.preSubmitEnd === true) return 'not_crossed';
+  return attempt.source === 'stage' || SUBMIT_CROSSING_EVIDENCE_FIELDS.some(field => attempt[field] !== undefined)
+    ? 'crossed'
+    : 'unavailable';
 };
 
 /**
@@ -775,6 +827,48 @@ export const markStartedInThisRealm = (id: string): void => {
   startedInThisRealm.add(id);
 };
 
+// Per-id depth of attempts this realm still has on the stack. The consume spare reads it.
+// `startedInThisRealm` stays add-only for the realm's life and is not this map.
+const attemptDepthInThisRealm = new Map<string, number>();
+
+/**
+ * Records one in-flight attempt this realm is driving for `id`. A second overlapping call increments,
+ * so one end cannot drop the other call's spare.
+ */
+export const beginAttemptInThisRealm = (id: string): void => {
+  attemptDepthInThisRealm.set(id, (attemptDepthInThisRealm.get(id) ?? 0) + 1);
+};
+
+/**
+ * Drops one in-flight attempt for `id`. An id that was never begun stays absent. Depth 1 deletes the
+ * entry; a greater depth decrements.
+ */
+export const endAttemptInThisRealm = (id: string): void => {
+  const depth = attemptDepthInThisRealm.get(id);
+  if (depth === undefined) return;
+  if (depth > 1) {
+    attemptDepthInThisRealm.set(id, depth - 1);
+    return;
+  }
+  attemptDepthInThisRealm.delete(id);
+};
+
+/** Begins an attempt for `id`, runs `run`, and ends that attempt when `run` settles. */
+export const withAttemptInThisRealm = async <T>(id: string, run: () => Promise<T>): Promise<T> => {
+  beginAttemptInThisRealm(id);
+  try {
+    return await run();
+  } finally {
+    endAttemptInThisRealm(id);
+  }
+};
+
+/** True while this realm still has an attempt for `id` on the stack. */
+const attemptOpenInThisRealm = (id: string): boolean => {
+  const depth = attemptDepthInThisRealm.get(id);
+  return depth !== undefined && depth > 0;
+};
+
 /**
  * True for a row this realm did not start whose `processingStartedAt` lies more than
  * `MAX_WAIT_BEFORE_CANCEL` past `nowSeconds`, a clock the caller read after its table read. Used by
@@ -1015,7 +1109,11 @@ export type ConsumeLandedVerdict =
  * reaper. A missing note or a thrown error yields `'unknown'`; an error or any
  * uncertainty NEVER yields `'landed-local'`, so a false Received is impossible.
  */
-export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
+export const verifyConsumeLanded = async (
+  tx: ConsumeTransaction,
+  sync: boolean,
+  afterNodeRead?: () => void
+): Promise<ConsumeLandedVerdict> => {
   try {
     // Best-effort: after a failed sync the last-synced state is still authoritative for a consumed
     // note (it cannot un-consume) and can only under-report "landed" for the rest → a safe Fail.
@@ -1026,6 +1124,7 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
         assertWasmHoldCurrent(hold, 'inside the consume-landed note read, before the record reach-through')
       )
     );
+    afterNodeRead?.();
     const note = noteDetails[0];
     if (!note) return 'unknown';
     if (LOCAL_CONSUMED_NOTE_STATES.includes(note.state)) return 'landed-local';
@@ -1168,6 +1267,10 @@ const verifyStuckTransactions = async (): Promise<number> => {
     // sync: false — this reaper rides AutoSync; syncing per stuck consume would be
     // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
     const verdict = await verifyConsumeLanded(tx, false);
+    // Do not cancel a local live attempt from a negative note read; the spare lasts while that attempt is on the stack.
+    if (attemptOpenInThisRealm(tx.id) && (verdict === 'not-landed' || verdict === 'landed-external')) {
+      continue;
+    }
 
     if (verdict === 'landed-local') {
       // The node confirms the note is consumed on chain by THIS client's own tracked
@@ -1200,10 +1303,26 @@ const verifyStuckTransactions = async (): Promise<number> => {
       // fast-fail the #3a refactor accidentally collapsed into 'not-landed').
       // Counted only if the row was actually failed. `resolvedCount` is what
       // this function returns and what `useClaimNotes` reports, so counting a
-      // refused write — a row a concurrent driver already settled — overstates
-      // what the reaper did.
-      await recordOutOfBandEnd(tx.id);
-      if (await cancelTransaction(tx, INVALID_NOTE_ERROR)) resolvedCount++;
+      // refused write (a row a concurrent driver already settled, or one whose
+      // attempt is no longer the one this lap judged) overstates what the reaper
+      // did. A live same-attempt invalid note still fails.
+      const { attemptId: judgedAttemptId }: ITransaction = tx;
+      const sameJudgedAttempt = (row: ITransaction): boolean => row.attemptId === judgedAttemptId;
+      await recordOutOfBandEnd(tx.id, sameJudgedAttempt);
+      if (
+        await cancelTransaction(
+          tx,
+          INVALID_NOTE_ERROR,
+          undefined,
+          ITransactionStatus.GeneratingTransaction,
+          undefined,
+          undefined,
+          undefined,
+          sameJudgedAttempt
+        )
+      ) {
+        resolvedCount++;
+      }
     } else if (verdict === 'not-landed' || verdict === 'landed-external') {
       // Either the note is not consumed at all, or it is consumed by someone who is
       // not provably us ('landed-external'). Both mean this consume did not
@@ -1215,10 +1334,25 @@ const verifyStuckTransactions = async (): Promise<number> => {
         ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
-        await recordOutOfBandEnd(tx.id);
+        // The spare above is before these awaits. Read it again in the write, against the attempt this lap judged.
+        const { attemptId: judgedAttemptId }: ITransaction = tx;
+        const judgedAttemptClosed = (row: ITransaction): boolean =>
+          row.attemptId === judgedAttemptId && !attemptOpenInThisRealm(tx.id);
+        await recordOutOfBandEnd(tx.id, judgedAttemptClosed);
         // The row reads the same for both verdicts; only the report tells them apart.
         const reportedReason = verdict === 'landed-external' ? 'consume_landed_external' : undefined;
-        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR, undefined, undefined, reportedReason)) {
+        if (
+          await cancelTransaction(
+            tx,
+            TRANSACTION_INTERRUPTED_ERROR,
+            undefined,
+            ITransactionStatus.GeneratingTransaction,
+            reportedReason,
+            undefined,
+            undefined,
+            judgedAttemptClosed
+          )
+        ) {
           resolvedCount++;
         }
       }

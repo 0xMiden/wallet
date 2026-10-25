@@ -97,7 +97,7 @@ jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
     <header>
       {title}
-      <button type="button" aria-label="close" onClick={onClose} />
+      {onClose && <button type="button" aria-label="close" onClick={onClose} />}
     </header>
   )
 }));
@@ -150,16 +150,19 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
     title,
     footerDescription,
     secondaryAction,
+    primaryAction,
     children
   }: {
     title: string;
     footerDescription?: string;
     secondaryAction?: { label: string; onClick: () => void };
+    primaryAction?: { label: string; onClick: () => void };
     children?: React.ReactNode;
   }) => (
     <div data-testid="success-layout">
       {title}
       <p data-testid="success-footer">{footerDescription}</p>
+      {primaryAction && <button onClick={primaryAction.onClick}>{primaryAction.label}</button>}
       {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
       {children}
     </div>
@@ -226,6 +229,42 @@ describe('EvmBridgeDepositStatus', () => {
     // default, which is the Send flow's blue.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
 
+    fireEvent.click(screen.getByRole('button', { name: 'hide' }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('hides dismissal during an active USDCx submission (next prompt: %s)', awaiting => {
+    mockRowState = { row: makeRow(makeInputs({ provider: 'usdcx' })), loaded: true };
+    render(
+      <EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending awaitingNextConfirmation={awaiting} />
+    );
+
+    expect(screen.queryByRole('button', { name: 'close' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'hide' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+  });
+
+  it.each(['failed', 'delivering', 'ready', 'received'] satisfies IBridgedReceivePhase[])(
+    'restores dismissal at %s even if the submission callback has not settled yet',
+    phase => {
+      mockRowState = { row: makeRow(makeInputs({ provider: 'usdcx', phase })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending />);
+      fireEvent.click(screen.getByRole('button', { name: 'done' }));
+      expect(onDone).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('allows a submitted hash awaiting background receipt recovery to be hidden after local work settles', () => {
+    mockRowState = { row: makeRow(makeInputs({ provider: 'usdcx' })), loaded: true };
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending />);
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    fireEvent.click(screen.getByRole('button', { name: 'hide' }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['epoch', 'agglayer'] as const)('keeps %s processing dismissible', provider => {
+    mockRowState = { row: makeRow(makeInputs({ provider })), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending />);
     fireEvent.click(screen.getByRole('button', { name: 'hide' }));
     expect(onDone).toHaveBeenCalledTimes(1);
   });

@@ -35,6 +35,7 @@ export class DappWebViewInstance {
     this.managedHostCloseToken = managedHostCloseToken;
     this.closed = false;
     this.visibilitySequence = 0;
+    this.hidden = false;
   }
 
   get currentVisibilitySequence() { return this.visibilitySequence; }
@@ -55,6 +56,9 @@ export class DappWebViewInstance {
   /** Toggle this instance's visibility. The WebView's JS context survives. */
   setVisible(visible, policyRevision) {
     if (this.closed || this.closePromise) return Promise.resolve();
+    // Until a show or a morph, a repeated hide changes nothing native, so it stays off the bridge (#1817).
+    if (!visible && this.hidden) return Promise.resolve();
+    this.hidden = !visible;
     return InAppBrowser.setVisible({
       id: this.id,
       visible,
@@ -63,6 +67,27 @@ export class DappWebViewInstance {
         visibilitySequence: ++this.visibilitySequence,
         ...(policyRevision === undefined ? {} : { policyRevision })
       } : {})
+    }).catch(error => {
+      this.hidden = false;
+      throw error;
+    });
+  }
+
+  /** Run the native expand or collapse (#1817); a managed morph takes the next setVisible sequence. */
+  morph(request) {
+    if (this.closed || this.closePromise) return Promise.resolve({ accepted: false });
+    this.hidden = false;
+    return InAppBrowser.morph({
+      id: this.id,
+      ...(this.managedHostCloseToken ? {
+        managedHostCloseToken: this.managedHostCloseToken,
+        visibilitySequence: ++this.visibilitySequence
+      } : {}),
+      ...(request.to === 'expanded' && request.policyRevision !== undefined ? { policyRevision: request.policyRevision } : {}),
+      to: request.to,
+      card: request.card,
+      morphId: request.morphId,
+      ...(request.velocity === undefined ? {} : { velocity: request.velocity })
     });
   }
 
@@ -147,6 +172,11 @@ export const dappWebViewManager = {
   /** Snapshot of all live JS-side instances. Doesn't query the native registry. */
   list() {
     return Array.from(liveInstances.values(), entry => entry.instance);
+  },
+
+  /** Publish the landing card a native-initiated collapse lands on (#1817); null when none is visible. */
+  setMorphTarget(card) {
+    return InAppBrowser.setMorphTarget({ card });
   },
 
   /**

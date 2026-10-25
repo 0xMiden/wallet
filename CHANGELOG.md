@@ -6,8 +6,10 @@
 
 - [FIX][all] Japanese and Russian Guardian acknowledgement copy now describes acknowledgement without implying transaction approval.
 - [CHANGE][all] Guardian polish: Guardian copy says "acknowledges" instead of "co-signs". The What is a Guardian? sheet fits without scrolling, with heavier type and new solid check, alert and cross badges. Choose your Guardian lists the current operator under "Current" and the rest under "Other Guardians available" on outline cards, with a Learn more pill and Nunito throughout; a tapped card keeps its selection ring. Review rotation opens with a short explainer, shows the two operators side by side on round logo tiles, says "Approve with" and states that the old Guardian cannot block the switch as a fact instead of a warning. Guardian settings and the transaction details tighten their spacing.
+- [CHANGE][ci] The mainnet nightly's AggLayer loop runs in its own job on ubuntu-latest after the main job, failed or not, waits up to 120 minutes for its exit and settles once anyone has claimed it, verifying the claim on Ethereum and claiming the exit itself only if it stays unclaimed for five minutes after it is ready; the job summary records the night's timings, and a dispatch can run the main job on ubuntu-latest (#1826).
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).
+- [CHANGE][all] Failure reports include the node's closed consume verdict, the RPC endpoint for an unknown submit, the matching attempt's closed submit-crossing status, and, for an expired transaction, the prior failure's fixed identity, an expiry-relative proof-wait bucket and a queue-age bucket from the 30-minute TTL without sending raw failure text, timestamps, identifiers or exact counts (#1843).
 ### Features
 
 - [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
@@ -15,6 +17,9 @@
 
 ### Fixes
 
+- [FIX][all] USDCx bridge deposits keep the signing flow open through source-wallet approvals and confirmation. Close, Hide and mobile back return after initiation or failure.
+
+- [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
 - [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
 
 - [FIX][all] Activity shows every accepted transfer on mainnet. A mainnet-only rule hid a consume of the native asset sent by its faucet as a faucet drip, but on mainnet that faucet is the USDCx minter, so every bridged-in claim and its pending card vanished from the feed, the filters and the search. Such a row, card, badge and receipt now read as an ordinary receive on mainnet, grouped under the sender, and as a faucet claim on every other network.
@@ -29,12 +34,14 @@
 - [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
 ### Fixes
 
+- [FIX][mobile] Minimizing a dApp to its peek card and opening it again moves the live page on one native spring, at 120 Hz on ProMotion, interruptible mid-flight with its velocity kept, from every entry point including the Bread button over a fullscreen dApp (#1817).
 - [FIX][all] Encryption-key lookup timeouts before submission no longer show ambiguous submission-unanswered feedback.
 - [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
 - [FIX][all] Crash reports keep the trace id they share with the swap diagnostic records sent before them, so a failure can be read beside those records in Sentry; the privacy policy now states that the records are kept for 30 days (#1660).
 - [FIX][all] The Home panes are a native scroll-snap pager: a swipe on mobile is smooth and always lands on the pane in the direction you swiped, a trackpad swipe pages them in the extension and desktop, and a mouse drag no longer does (#1811).
 - [FIX][mobile] Tapping a text field in an Explore dApp keeps its keyboard: the wallet no longer pads its own layout for a keyboard the dApp raised, and the dApp window keeps key status while a field in it is focused, so the dApp no longer blanks to its loading cover and loses focus on every tap.
 - [FIX][all] A network chosen in Developer Settings before setup is kept after the Mainnet launch, so a new install can still create, import or recover a Testnet wallet; a plain install still gets the invite-only Mainnet onboarding, and resetting the wallet returns to it (#1813).
+- [FIX][all] A consume in progress is no longer reported as failed from an inconclusive note read while the wallet is processing it; confirmed local consumption and invalid notes are still reconciled promptly.
 - [FIX][all] Recognize verified Mainnet badge activity after invitation onboarding: the stored network choice now preserves transaction provenance and permits badge checks while custom developer endpoints remain excluded. Available badges appear first, unavailable badges read Coming soon, and unread dots lead to new awards until My badges is opened. The unread badge key is loaded with the other startup storage keys, so the first tab can show the badge dot with that read already cached. Resetting the wallet includes an in-flight badge seen write in the snapshot it removes. Balance snapshots taken after the endpoint-free Mainnet onboarding choice count as Mainnet for deposit and swap badges.
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
 - [FIX][android] Sign-in uses Auth Tab where the browser supports it, returning the callback privately to Bread; other browsers keep the Custom Tab flow and its in-memory-secret requirement (#1586).

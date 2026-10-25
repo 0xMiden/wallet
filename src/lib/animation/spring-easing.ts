@@ -65,7 +65,8 @@ export function springToLinearEasing(
   if (typeof stiffness !== 'number' || typeof damping !== 'number') return null;
   if (Math.abs(distance) < MIN_DISTANCE_PX) return null;
 
-  const displacement = solveSpring(stiffness, damping, mass ?? 1, distance, velocity);
+  const physics = { stiffness, damping, mass: mass ?? 1 };
+  const displacement = (t: number) => solveSpring(physics, distance, velocity, t).displacement;
 
   // Settle time is where the spring stops moving perceptibly, not where the
   // analytical solution reaches zero — it never does. Keep scanning past the
@@ -104,35 +105,45 @@ export function supportsLinearEasing(): boolean {
 }
 
 /**
- * Returns displacement from the target over time, in the spring's own units.
- * `t` is in seconds.
+ * Displacement from the target and its rate after `t` seconds, from an initial
+ * displacement and rate. `t` is in seconds.
  */
-function solveSpring(
-  stiffness: number,
-  damping: number,
-  mass: number,
+export function solveSpring(
+  { stiffness, damping, mass }: { stiffness: number; damping: number; mass: number },
   from: number,
-  velocity: number
-): (t: number) => number {
+  velocity: number,
+  t: number
+): { displacement: number; rate: number } {
   const omega = Math.sqrt(stiffness / mass);
   const zeta = damping / (2 * Math.sqrt(stiffness * mass));
 
   if (zeta < 1) {
     const omegaDamped = omega * Math.sqrt(1 - zeta * zeta);
     const c = (velocity + zeta * omega * from) / omegaDamped;
-    return t => Math.exp(-zeta * omega * t) * (from * Math.cos(omegaDamped * t) + c * Math.sin(omegaDamped * t));
+    const decay = Math.exp(-zeta * omega * t);
+    const cos = Math.cos(omegaDamped * t);
+    const sin = Math.sin(omegaDamped * t);
+    return {
+      displacement: decay * (from * cos + c * sin),
+      rate: decay * ((c * omegaDamped - zeta * omega * from) * cos - (from * omegaDamped + zeta * omega * c) * sin)
+    };
   }
 
   if (zeta === 1) {
-    return t => Math.exp(-omega * t) * (from + (velocity + omega * from) * t);
+    const decay = Math.exp(-omega * t);
+    const slope = velocity + omega * from;
+    return { displacement: decay * (from + slope * t), rate: decay * (velocity - omega * slope * t) };
   }
 
-  const rate = omega * Math.sqrt(zeta * zeta - 1);
-  const fast = -zeta * omega + rate;
-  const slow = -zeta * omega - rate;
+  const spread = omega * Math.sqrt(zeta * zeta - 1);
+  const fast = -zeta * omega + spread;
+  const slow = -zeta * omega - spread;
   const fastPart = (velocity - slow * from) / (fast - slow);
   const slowPart = from - fastPart;
-  return t => fastPart * Math.exp(fast * t) + slowPart * Math.exp(slow * t);
+  return {
+    displacement: fastPart * Math.exp(fast * t) + slowPart * Math.exp(slow * t),
+    rate: fastPart * fast * Math.exp(fast * t) + slowPart * slow * Math.exp(slow * t)
+  };
 }
 
 function round(value: number): string {
