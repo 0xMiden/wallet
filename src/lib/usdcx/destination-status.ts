@@ -4,7 +4,8 @@ import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn }
 import * as Repo from 'lib/miden/repo';
 import { getChain } from 'lib/walletconnect/config';
 
-import { usdcxDestinations, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
+import { usdcxDestinations, ERC20_BALANCE_OF_ABI } from './constant';
+import { readGatewayPayoutSource, scanUsdcxPayout } from './payout-proof';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -89,15 +90,32 @@ export async function readUsdcxDestinationSnapshot(
   return attempt(SNAPSHOT_BACKOFF_MS);
 }
 
+/** Paid when the payout mint is recorded; rows the old balance rule confirmed stay paid. */
+export function isUsdcxPayoutConfirmed(burn: IUsdcxBurn | undefined): boolean {
+  return burn?.phase === 'confirmed' && (!!burn.payout || !!burn.destinationBalanceConfirmed);
+}
+
 export function isUsdcxDestinationPending(burn: IUsdcxBurn): boolean {
-  return burn.phase === 'confirmed' && !!burn.destinationBalanceBefore && !burn.destinationBalanceConfirmed;
+  return (
+    burn.phase === 'confirmed' && !!burn.destinationBalanceBefore && !burn.payout && !burn.destinationBalanceConfirmed
+  );
+}
+
+export interface UsdcxPayoutDeps {
+  readSource?: typeof readGatewayPayoutSource;
+  scan?: typeof scanUsdcxPayout;
 }
 
 /**
- * A balance increase is an estimate of arrival; it does not identify a bridge transfer. Every network with a
- * USDCx row is polled; the destination's USDC and RPC come from the document for that row's chain.
+ * Records the mint that paid a confirmed burn. A balance increase proves nothing about this burn, so the scan looks
+ * for the GatewayMinter mint whose transaction carries the burn's note id. Every network with a USDCx row is polled;
+ * the destination's USDC and RPC come from the document for that row's chain. An RPC error rejects and leaves the
+ * row and its cursor as they were.
  */
-export async function pollUsdcxDestination(tx: ITransaction, readBalance = readUsdcxDestinationBalance): Promise<void> {
+export async function pollUsdcxDestination(
+  tx: ITransaction,
+  { readSource = readGatewayPayoutSource, scan = scanUsdcxPayout }: UsdcxPayoutDeps = {}
+): Promise<void> {
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
   const burn = extra?.usdcxBurn;
   const before = burn?.destinationBalanceBefore;
@@ -114,23 +132,20 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
   ) {
     return;
   }
+  const usdc = burn.destinationUsdc ?? usdcxDestinations().get(extra.destinationNetwork)?.usdc;
+  if (!usdc) return;
 
-  // Circle deducts its fee from the payout, so the balance rises by less than the sent amount. A burn the fee
-  // allowance takes whole has no floor an unrelated credit could not meet, so it stays at Burn confirmed.
-  const minimum =
-    burn.payoutFeeAllowance === undefined
-      ? minimumUsdcxPayout(extra.destinationNetwork, tx.amount)
-      : tx.amount - BigInt(burn.payoutFeeAllowance);
-  if (minimum <= 0n) return;
-
-  const observed = await readBalance(
-    extra.destinationNetwork,
-    extra.destinationAddress,
-    DESTINATION_READ_TIMEOUT_MS,
-    burn.destinationUsdc
-  );
-  if (BigInt(observed.blockNumber) <= BigInt(before.blockNumber)) return;
-  if (BigInt(observed.balance) < BigInt(before.balance) + minimum) return;
+  const cursor = burn.payoutScannedBlock;
+  const { payout, scannedTo } = await scan({
+    chainId: extra.destinationNetwork,
+    recipient: extra.destinationAddress,
+    usdc,
+    burnNoteId: burn.noteId,
+    amount: tx.amount,
+    fromBlock: BigInt(cursor ?? before.blockNumber) + 1n,
+    source: await readSource()
+  });
+  if (!payout && scannedTo === undefined) return;
 
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;
@@ -150,9 +165,11 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
     ) {
       return;
     }
+    // A cursor another surface already moved is left alone, so two realms cannot walk it backwards.
+    if (!payout && previous.payoutScannedBlock !== cursor) return;
     row.extraInputs = {
       ...current,
-      usdcxBurn: { ...previous, destinationBalanceConfirmed: observed }
+      usdcxBurn: payout ? { ...previous, payout } : { ...previous, payoutScannedBlock: scannedTo?.toString() }
     };
   });
 }

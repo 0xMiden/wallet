@@ -1,6 +1,13 @@
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 
-import { pollUsdcxDestination, readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
+import {
+  isUsdcxDestinationPending,
+  isUsdcxPayoutConfirmed,
+  pollUsdcxDestination,
+  readUsdcxDestinationBalance,
+  readUsdcxDestinationSnapshot
+} from './destination-status';
+import type { scanUsdcxPayout } from './payout-proof';
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
@@ -28,7 +35,6 @@ jest.mock('lib/miden/repo', () => ({
 const recipient = '0x1111111111111111111111111111111111111111';
 const before = { balance: '5000000', blockNumber: '100' };
 const arrived = { balance: '6000000', blockNumber: '101' };
-const read = jest.fn(async () => arrived);
 
 function row(burn: Partial<NonNullable<IBridgedSendExtraInputs['usdcxBurn']>> = {}): ITransaction {
   const extraInputs: IBridgedSendExtraInputs = {
@@ -61,15 +67,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockNetworkName = 'testnet';
   stored = row();
-});
-
-// A testnet-only gate left every mainnet withdrawal at "Burn confirmed" after the USDC had arrived.
-it('confirms a mainnet arrival like a testnet one', async () => {
-  mockNetworkName = 'mainnet';
-  stored = row({ payoutFeeAllowance: '100000' });
-  await pollUsdcxDestination(stored, read);
-  expect(read).toHaveBeenCalledTimes(1);
-  expect(stored.extraInputs.usdcxBurn).toMatchObject({ phase: 'confirmed', destinationBalanceConfirmed: arrived });
 });
 
 it('reads the recipient USDC balance at the reported block', async () => {
@@ -225,95 +222,162 @@ describe('readUsdcxDestinationSnapshot', () => {
   });
 });
 
-it('confirms arrival and preserves burn confirmation', async () => {
-  await pollUsdcxDestination(stored, read);
-  expect(read).toHaveBeenCalledWith(5042002, recipient, 15000, undefined);
-  expect(stored.extraInputs.usdcxBurn).toMatchObject({
-    phase: 'confirmed',
-    destinationBalanceBefore: before,
-    destinationBalanceConfirmed: arrived
+const source = {
+  gatewayMinter: '0x0022222ABE238Cc2C7Bb1f21003F0a260052475B',
+  depositor: `0x${'0'.repeat(24)}b21c91a0f4d4c03f4b6a0fc5214f06e431ff2b2d`,
+  sourceDomain: 26
+} as const;
+const mint = { transactionHash: `0x${'ab'.repeat(32)}`, blockNumber: '104', value: '970000' } as const;
+const readSource = jest.fn(async () => source);
+const scan = jest.fn<ReturnType<typeof scanUsdcxPayout>, Parameters<typeof scanUsdcxPayout>>(async () => ({
+  payout: mint
+}));
+const poll = (tx: ITransaction) => pollUsdcxDestination(tx, { readSource, scan });
+const burnOf = () => stored.extraInputs.usdcxBurn;
+
+describe('pollUsdcxDestination', () => {
+  beforeEach(() => {
+    scan.mockImplementation(async () => ({ payout: mint }));
   });
-  await pollUsdcxDestination(stored, read);
-  expect(read).toHaveBeenCalledTimes(1);
-});
 
-it.each([
-  { balance: '5000000', blockNumber: '101' },
-  // One unit below the amount minus Arc's 0.1 USDC fee allowance.
-  { balance: '5899999', blockNumber: '101' },
-  { balance: '4000000', blockNumber: '101' },
-  { balance: '6000000', blockNumber: '100' },
-  { balance: '6000000', blockNumber: '99' }
-])('keeps the burn stage for insufficient or stale evidence: %j', async observation => {
-  await pollUsdcxDestination(stored, async () => observation);
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
-});
-
-it('confirms a payout that Circle reduced by its fee', async () => {
-  const afterFee = { balance: '5988701', blockNumber: '101' };
-  await pollUsdcxDestination(stored, async () => afterFee);
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(afterFee);
-});
-
-it('confirms 2.92 USDC received for a 3 USDC withdrawal', async () => {
-  stored.amount = 3_000_000n;
-  const afterFee = { balance: '7920000', blockNumber: '101' };
-  await pollUsdcxDestination(stored, async () => afterFee);
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(afterFee);
-});
-
-it('retries after an RPC error', async () => {
-  read.mockRejectedValueOnce(new Error('timeout'));
-  await expect(pollUsdcxDestination(stored, read)).rejects.toThrow('timeout');
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
-  await pollUsdcxDestination(stored, read);
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(arrived);
-});
-
-it('does not check old, restored, unsubmitted or unburned rows', async () => {
-  await pollUsdcxDestination(row({ destinationBalanceBefore: undefined }), read);
-  await pollUsdcxDestination({ ...stored, restoredFromBackup: true }, read);
-  await pollUsdcxDestination({ ...stored, status: ITransactionStatus.Queued }, read);
-  await pollUsdcxDestination(row({ phase: 'pending' }), read);
-  await pollUsdcxDestination(row({ phase: 'discarded' }), read);
-  expect(read).not.toHaveBeenCalled();
-});
-
-it('does not apply an RPC response after the burn note changes', async () => {
-  await pollUsdcxDestination(stored, async () => {
-    stored = row({ noteId: 'note-2' });
-    return arrived;
+  it('records the mint the scan found and leaves the balance fields alone', async () => {
+    await poll(stored);
+    expect(scan).toHaveBeenCalledWith({
+      chainId: 5042002,
+      recipient,
+      usdc: '0x3600000000000000000000000000000000000000',
+      burnNoteId: 'note-1',
+      amount: 1000000n,
+      fromBlock: 101n,
+      source
+    });
+    expect(burnOf()).toMatchObject({ phase: 'confirmed', destinationBalanceBefore: before, payout: mint });
+    expect(burnOf().destinationBalanceConfirmed).toBeUndefined();
+    expect(burnOf().payoutScannedBlock).toBeUndefined();
+    expect(isUsdcxPayoutConfirmed(burnOf())).toBe(true);
+    expect(isUsdcxDestinationPending(burnOf())).toBe(false);
   });
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
-});
 
-it('does not overwrite confirmation from another window', async () => {
-  const other = { balance: '7000000', blockNumber: '102' };
-  await pollUsdcxDestination(stored, async () => {
-    stored = row({ destinationBalanceConfirmed: other });
-    return arrived;
+  it('scans a mainnet burn like a testnet one, with the row saved token', async () => {
+    mockNetworkName = 'mainnet';
+    stored = row({ destinationUsdc: '0x2222222222222222222222222222222222222222' });
+    await poll(stored);
+    expect(scan).toHaveBeenCalledWith(expect.objectContaining({ usdc: '0x2222222222222222222222222222222222222222' }));
+    expect(burnOf().payout).toEqual(mint);
   });
-  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(other);
-});
 
-// Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
-describe('a burn paid out on Sepolia', () => {
-  function onSepolia(amount: bigint): ITransaction {
+  it('moves the cursor to the scanned block when nothing matched', async () => {
+    scan.mockResolvedValueOnce({ scannedTo: 50_100n });
+    await poll(stored);
+    expect(burnOf().payout).toBeUndefined();
+    expect(burnOf().payoutScannedBlock).toBe('50100');
+    expect(isUsdcxDestinationPending(burnOf())).toBe(true);
+  });
+
+  it('resumes from the saved cursor', async () => {
+    stored = row({ payoutScannedBlock: '50100' });
+    scan.mockResolvedValueOnce({ scannedTo: 60_100n });
+    await poll(stored);
+    expect(scan).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 50_101n }));
+    expect(burnOf().payoutScannedBlock).toBe('60100');
+  });
+
+  it('writes nothing when the scan read no block', async () => {
+    scan.mockResolvedValueOnce({});
+    await poll(stored);
+    expect(burnOf().payout).toBeUndefined();
+    expect(burnOf().payoutScannedBlock).toBeUndefined();
+  });
+
+  // Circle's fee on Ethereum is flat, about 1.0035 USDC, so a 5 USDC burn pays out 2.4365 after the allowance-era 1.5.
+  it('confirms a Sepolia burn whose fee exceeded the 1.5 USDC allowance', async () => {
     const base = row();
-    return { ...base, amount, extraInputs: { ...base.extraInputs, destinationNetwork: 11155111 } };
-  }
-
-  it('confirms a 2 USDCx burn that arrived less the flat fee, under half the amount', async () => {
-    stored = onSepolia(2_000_000n);
-    const paid = { balance: '5996500', blockNumber: '101' };
-    await pollUsdcxDestination(stored, async () => paid);
-    expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(paid);
+    stored = { ...base, amount: 5_000_000n, extraInputs: { ...base.extraInputs, destinationNetwork: 11155111 } };
+    const paid = { ...mint, value: '2436500' };
+    scan.mockResolvedValueOnce({ payout: paid });
+    await poll(stored);
+    expect(scan).toHaveBeenCalledWith(expect.objectContaining({ chainId: 11155111, amount: 5_000_000n }));
+    expect(burnOf().payout).toEqual(paid);
   });
 
-  it('neither reads nor confirms an older burn the allowance takes whole', async () => {
-    stored = onSepolia(1_500_000n);
-    await pollUsdcxDestination(stored, read);
-    expect(read).not.toHaveBeenCalled();
-    expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
+  it('neither scans nor rewrites a row already confirmed by balance', async () => {
+    const confirmed = { balance: '6000000', blockNumber: '101' };
+    stored = row({ destinationBalanceConfirmed: confirmed });
+    await poll(stored);
+    expect(readSource).not.toHaveBeenCalled();
+    expect(scan).not.toHaveBeenCalled();
+    expect(burnOf()).toMatchObject({ destinationBalanceConfirmed: confirmed });
+    expect(burnOf().payout).toBeUndefined();
+    expect(isUsdcxPayoutConfirmed(burnOf())).toBe(true);
+    expect(isUsdcxDestinationPending(burnOf())).toBe(false);
+  });
+
+  it('writes nothing when another surface recorded the payout first', async () => {
+    const other = { ...mint, transactionHash: `0x${'cd'.repeat(32)}` } as const;
+    scan.mockImplementationOnce(async () => {
+      stored = row({ payout: other });
+      return { payout: mint };
+    });
+    await poll(stored);
+    expect(burnOf().payout).toEqual(other);
+  });
+
+  it('does not move a cursor another surface already advanced', async () => {
+    scan.mockImplementationOnce(async () => {
+      stored = row({ payoutScannedBlock: '70000' });
+      return { scannedTo: 50_100n };
+    });
+    await poll(stored);
+    expect(burnOf().payoutScannedBlock).toBe('70000');
+  });
+
+  it('leaves the row and cursor unchanged when the source read fails', async () => {
+    stored = row({ payoutScannedBlock: '50100' });
+    readSource.mockRejectedValueOnce(new Error('timeout'));
+    await expect(poll(stored)).rejects.toThrow('timeout');
+    expect(scan).not.toHaveBeenCalled();
+    expect(burnOf().payout).toBeUndefined();
+    expect(burnOf().payoutScannedBlock).toBe('50100');
+  });
+
+  it('leaves the row unchanged when the scan itself fails', async () => {
+    scan.mockRejectedValueOnce(new Error('timeout'));
+    await expect(poll(stored)).rejects.toThrow('timeout');
+    expect(burnOf().payout).toBeUndefined();
+    expect(burnOf().payoutScannedBlock).toBeUndefined();
+  });
+
+  it('does not check old, restored, unsubmitted or unburned rows', async () => {
+    await poll(row({ destinationBalanceBefore: undefined }));
+    await poll({ ...stored, restoredFromBackup: true });
+    await poll({ ...stored, status: ITransactionStatus.Queued });
+    await poll(row({ phase: 'pending' }));
+    await poll(row({ phase: 'discarded' }));
+    await poll({ ...stored, amount: undefined });
+    expect(scan).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a scan after the burn note changes', async () => {
+    scan.mockImplementationOnce(async () => {
+      stored = row({ noteId: 'note-2' });
+      return { payout: mint };
+    });
+    await poll(stored);
+    expect(burnOf().payout).toBeUndefined();
+  });
+});
+
+describe('isUsdcxPayoutConfirmed', () => {
+  it.each([
+    ['a payout on a confirmed burn', row({ payout: mint }), true],
+    ['a balance confirmation on a confirmed burn', row({ destinationBalanceConfirmed: arrived }), true],
+    ['a confirmed burn with neither', row(), false],
+    ['a payout on a burn that is not confirmed', row({ phase: 'consuming', payout: mint }), false]
+  ])('reads %s', (_name, tx, expected) => {
+    expect(isUsdcxPayoutConfirmed(tx.extraInputs.usdcxBurn)).toBe(expected);
+  });
+
+  it('is false without a burn', () => {
+    expect(isUsdcxPayoutConfirmed(undefined)).toBe(false);
   });
 });
