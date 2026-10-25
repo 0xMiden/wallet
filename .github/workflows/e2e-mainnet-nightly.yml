@@ -14,7 +14,11 @@ jobs:
           node-version: 22
       - uses: ./.github/actions/yarn-install
       - name: Test live consume completion without funded actions
-        run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/miden/transaction/consume-reaper-liveness.test.ts --json --outputFile=consume-result-proof.json
+        run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/miden/transaction/consume-reaper-liveness.test.ts src/lib/miden/transaction/consume-landing-adoption.test.ts src/lib/miden/transaction/cancel.test.ts src/lib/miden/transaction/cancel.ends.test.ts src/lib/miden/transaction/cancel.unconfirmed.test.ts src/lib/miden/transaction/transactions.guardian-offscreen.test.ts src/lib/miden/transaction/transactions.guardian.test.ts src/lib/miden/transaction/transactions.extended.test.ts src/lib/miden/transaction/transactions.branches.test.ts --json --outputFile=consume-result-proof.json
+      - name: Type check
+        run: yarn ts
+      - name: Lint changed transaction files
+        run: yarn eslint src/lib/miden/transaction/cancel.ts src/lib/miden/transaction/consume-reaper-liveness.test.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
