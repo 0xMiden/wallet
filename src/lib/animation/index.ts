@@ -17,6 +17,7 @@ export { presets, presetNames, usePreset, resolvePreset, type MotionPreset, type
 export {
   pageSlideEntrance,
   pageSlideParallax,
+  pageSlideCovered,
   pageSlideDim,
   pageStepTransition,
   pageStepOffset,

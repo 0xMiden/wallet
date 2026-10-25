@@ -62,7 +62,7 @@ it('brings a slide page in from the right without vertical movement', async () =
   const { container } = render(<FullScreenPage entrance="slide">Settings</FullScreenPage>);
   const page = container.firstElementChild;
   expect(page).toHaveStyle({ transform: 'translateX(100%)', opacity: '1' });
-  await waitFor(() => expect(page).toHaveStyle({ transform: 'none' }));
+  await waitFor(() => expect(page).toHaveStyle({ transform: 'translateX(0%)' }));
 });
 
 it('shows a slide page immediately when reduced motion is enabled', () => {
