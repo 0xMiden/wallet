@@ -351,6 +351,70 @@ describe('Android native keyboard layout', () => {
     expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 
+  const unreadyWebViewShell =
+    '<hierarchy>' +
+    '<node class="android.webkit.WebView" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.FrameLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.LinearLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.FrameLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.view.ViewGroup" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.RelativeLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.widget.FrameLayout" bounds="[0,463][1078,2400]" />' +
+    '<node class="android.view.View" bounds="[0,463][1078,591]" />' +
+    '</hierarchy>';
+
+  it('taps the Android field from the fresh dump after an unready WebView shell', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('uiautomator')) return 'UI hierchary dumped to: /data/local/tmp/miden-wallet-hierarchy.xml';
+      if (!args.includes('cat')) return '';
+      reads += 1;
+      return reads === 1
+        ? unreadyWebViewShell
+        : '<hierarchy><node class="android.webkit.WebView" bounds="[0,463][1078,2400]">' +
+            '<node class="android.widget.EditText" content-desc="dApp input" bounds="[20,700][420,744]" />' +
+            '</node></hierarchy>';
+    };
+
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'input', 'tap', '220', '722']
+    ]);
+  });
+
+  it('faults the second unready WebView shell without a third dump', async () => {
+    const calls: string[][] = [];
+    const focus = 'mCurrentFocus=Window{38ae75 u0 com.miden.wallet/com.miden.wallet.MainActivity}';
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('cat')) return unreadyWebViewShell;
+      return args.includes('window') ? focus : '';
+    };
+    const failure = androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input');
+
+    await expect(failure).rejects.toThrow(/nodes=8.*class=android.webkit.WebView.*class=android.view.View/);
+    await expect(failure).rejects.toThrow('bounds=[0,463][1078,2400]');
+    await expect(failure).rejects.toThrow('bounds=[0,463][1078,591]');
+    await expect(failure).rejects.toThrow(`focus=${focus}`);
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
+    ]);
+  });
+
   it('records the missed Android hierarchy and window focus', async () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
@@ -364,6 +428,7 @@ describe('Android native keyboard layout', () => {
     await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
       /Android accessibility label not found: dApp input.*nodes=.*another input.*focus=/
     );
+    expect(calls.filter(call => call.includes('cat'))).toHaveLength(1);
     expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 
@@ -460,6 +525,7 @@ describe('iOS native keyboard field lookup', () => {
     const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
 
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/iOS accessibility label not found.*nodes=/);
+    expect(calls.filter(call => call.includes('describe-all'))).toHaveLength(1);
     expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 });

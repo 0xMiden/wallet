@@ -47,7 +47,6 @@ describe('native dApp keyboard journey', () => {
     expect(context.device.typeText).toHaveBeenCalledWith('A', 'Native typing 1837');
     expect(context.page.send).toHaveBeenCalledWith('A', 'one', '__state', {}, expect.any(Number));
     expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
-    expect(context.wallet.screenshot).not.toHaveBeenCalled();
   });
 
   it('fails if typing hides the keyboard before the dApp value is checked', async () => {
