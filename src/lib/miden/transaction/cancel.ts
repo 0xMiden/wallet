@@ -13,6 +13,7 @@ import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagno
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
   reportTransactionFailure,
+  type QueueAgeBucket,
   type ReapSnapshot,
   type StartupSnapshot,
   type TransactionFailureReason
@@ -266,6 +267,7 @@ export const cancelTransaction = async (
     );
   }
   if (committed !== undefined && !committed.restoredFromBackup) {
+    const failureReason = reportedReason ?? reportedWalletReason(error);
     reportTransactionFailure({
       point: 'pipeline',
       type: committed.type,
@@ -275,7 +277,9 @@ export const cancelTransaction = async (
       entryPoint: committed.consumeEntryPoint,
       lastDeferral: committed.lastDeferral,
       feeAdmission: committed.feeAdmission,
-      reason: reportedReason ?? reportedWalletReason(error),
+      reason: failureReason,
+      ...(failureReason === 'queued_expired' ? { queueAge: queueAgeBucket(committed, returnedAtMs) } : {}),
+      submitCrossing: attemptSubmitCrossing(committed),
       reap,
       startup,
       error,
@@ -375,6 +379,41 @@ const expiryWait = (row: ITransaction): { proofWaitBlocks?: number; expiryWindow
       ? undefined
       : entry.expirationBlock - entry.refBlock;
   return { proofWaitBlocks, expiryWindowBlocks };
+};
+
+const QUEUE_AGE_LIMITS: ReadonlyArray<[number, Exclude<QueueAgeBucket, 'over_24h' | 'unavailable'>]> = [
+  [3_600_000, '30m_to_1h'],
+  [21_600_000, '1h_to_6h'],
+  [86_400_000, '6h_to_24h']
+];
+
+const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
+  if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
+  const ageMs = nowMs - row.initiatedAt * 1000;
+  if (!Number.isFinite(ageMs) || ageMs < MAX_QUEUED_AGE * 1000) return 'unavailable';
+  return QUEUE_AGE_LIMITS.find(([limit]) => ageMs < limit)?.[1] ?? 'over_24h';
+};
+
+const SUBMIT_CROSSING_EVIDENCE_FIELDS = [
+  'transactionId',
+  'initialCommitment',
+  'finalCommitment',
+  'initialNonce',
+  'outputNoteIds',
+  'nullifiers',
+  'refBlock',
+  'refBlockCommitment',
+  'expirationBlock'
+] as const;
+
+const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | 'unavailable' => {
+  if (row.attemptId === undefined) return 'unavailable';
+  const attempt = row.submitEvidence?.find(({ attemptId }) => attemptId === row.attemptId);
+  if (attempt === undefined) return 'unavailable';
+  if (attempt.preSubmitEnd === true) return 'not_crossed';
+  return attempt.source === 'stage' || SUBMIT_CROSSING_EVIDENCE_FIELDS.some(field => attempt[field] !== undefined)
+    ? 'crossed'
+    : 'unavailable';
 };
 
 /**
@@ -1070,7 +1109,11 @@ export type ConsumeLandedVerdict =
  * reaper. A missing note or a thrown error yields `'unknown'`; an error or any
  * uncertainty NEVER yields `'landed-local'`, so a false Received is impossible.
  */
-export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
+export const verifyConsumeLanded = async (
+  tx: ConsumeTransaction,
+  sync: boolean,
+  afterNodeRead?: () => void
+): Promise<ConsumeLandedVerdict> => {
   try {
     // Best-effort: after a failed sync the last-synced state is still authoritative for a consumed
     // note (it cannot un-consume) and can only under-report "landed" for the rest → a safe Fail.
@@ -1081,6 +1124,7 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
         assertWasmHoldCurrent(hold, 'inside the consume-landed note read, before the record reach-through')
       )
     );
+    afterNodeRead?.();
     const note = noteDetails[0];
     if (!note) return 'unknown';
     if (LOCAL_CONSUMED_NOTE_STATES.includes(note.state)) return 'landed-local';
