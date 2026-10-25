@@ -33,12 +33,17 @@ export function exitCursor(deposits: readonly AgglayerDeposit[], target: ExitTar
   return deposits.filter(deposit => isExitTo(deposit, target)).reduce((max, d) => Math.max(max, d.deposit_cnt), -1);
 }
 
+const isTonightsCandidate = (
+  d: AgglayerDeposit,
+  args: ExitTarget & { afterDepositCnt: number; wei: bigint }
+): boolean => isExitTo(d, args) && d.deposit_cnt > args.afterDepositCnt && BigInt(d.amount) === args.wei;
+
 /**
- * Tonight's exit. When `exitTxHash` is given and a listed exit to `target` has that `tx_hash` (`sameTxHash`), that
- * exit is returned. Otherwise the lowest-numbered exit to `target` above the cursor read before the bridge-out that
- * carries exactly the wei bridged. The counter is the rollup's, so a number above the cursor was filed after that
+ * Tonight's exit: an exit to `target` above the cursor read before the bridge-out that carries exactly the wei
+ * bridged. When `exitTxHash` is given and one of those has that `tx_hash` (`sameTxHash`), that one is returned;
+ * otherwise the lowest-numbered. The counter is the rollup's, so a number above the cursor was filed after that
  * read; the amount keeps an earlier night's exit that the indexer filed late from passing for tonight's. The hash
- * only narrows: it is never required, and a hash no listed exit carries leaves this rule unchanged.
+ * only narrows: it is never required, and a hash no candidate carries leaves the lowest-numbered rule unchanged.
  */
 export function tonightsExit(
   deposits: readonly AgglayerDeposit[],
@@ -47,18 +52,18 @@ export function tonightsExit(
   const { exitTxHash } = args;
   if (exitTxHash !== undefined) {
     const named = deposits.find(
-      d => isExitTo(d, args) && typeof d.tx_hash === 'string' && sameTxHash(d.tx_hash, exitTxHash)
+      d => isTonightsCandidate(d, args) && typeof d.tx_hash === 'string' && sameTxHash(d.tx_hash, exitTxHash)
     );
     if (named) return named;
   }
   return deposits
-    .filter(d => isExitTo(d, args) && d.deposit_cnt > args.afterDepositCnt && BigInt(d.amount) === args.wei)
+    .filter(d => isTonightsCandidate(d, args))
     .sort((left, right) => left.deposit_cnt - right.deposit_cnt)[0];
 }
 
 const EXITS_PAGE = 10;
-/** One exit a night: 50 pages cover more than a year of them. */
-const MAX_EXIT_PAGES = 50;
+/** The address lists a bridge-in and an exit a night: 200 pages cover about 1000 nights. */
+const MAX_EXIT_PAGES = 200;
 const INDEXER_TIMEOUT_MS = 15_000;
 
 /**

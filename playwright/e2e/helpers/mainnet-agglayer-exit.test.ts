@@ -105,6 +105,9 @@ describe('which AggLayer exit is tonight', () => {
     expect(tonightsExit(listed, { ...args, exitTxHash: higher.tx_hash })).toBe(higher);
     expect(tonightsExit(listed, { ...args, exitTxHash: '0xnot-listed' })).toBe(lower);
     expect(tonightsExit(listed, { ...args, exitTxHash: higher.tx_hash.slice(2).toUpperCase() })).toBe(higher);
+    // A hash that names an exit at or below the cursor, or of another amount, is not tonight's.
+    const stale = exit({ deposit_cnt: 5, amount: '2000000000000', tx_hash: `0x${'33'.repeat(32)}` });
+    expect(tonightsExit([stale, lower], { ...args, exitTxHash: stale.tx_hash })).toBe(lower);
   });
 
   it('never takes an older exit, even one with the same amount', () => {
