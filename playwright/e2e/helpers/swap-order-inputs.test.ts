@@ -1,7 +1,6 @@
 /** @jest-environment node */
-import type { ChromeWalletPageApi } from './wallet-page';
-
 import { createSwapOrder } from './swap';
+import type { ChromeWalletPageApi } from './wallet-page';
 
 interface Input {
   inputValue(): Promise<string>;
