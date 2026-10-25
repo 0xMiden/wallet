@@ -30,12 +30,23 @@ function fixture(settle: () => Promise<void>) {
       events.push('create');
       return { address: 'test-account', seedPhrase: Array(12).fill('test') };
     },
-    claimAllNotes: async () => { events.push('claim'); },
-    waitForGuardianSettled: async () => { events.push('settle'); await settle(); },
-    lockWallet: async () => { events.push('lock'); throw stopped; }
+    claimAllNotes: async () => {
+      events.push('claim');
+    },
+    waitForGuardianSettled: async () => {
+      events.push('settle');
+      await settle();
+    },
+    lockWallet: async () => {
+      events.push('lock');
+      throw stopped;
+    }
   };
   const midenCli = {
-    init: async () => {}, createFaucet: async () => 'faucet', mint: async () => {}, sync: async () => {}
+    init: async () => {},
+    createFaucet: async () => 'faucet',
+    mint: async () => {},
+    sync: async () => {}
   };
   const steps = { step: async (_name: string, run: () => Promise<void>) => run() };
   return { events, stopped, run: () => mockJourney({ walletA: wallet, midenCli, steps }) };
@@ -43,7 +54,9 @@ function fixture(settle: () => Promise<void>) {
 
 it('tracks before funding and holds destructive reset until the funded Guardian delta is canonical', async () => {
   let canonicalize!: () => void;
-  const settling = new Promise<void>(resolve => { canonicalize = resolve; });
+  const settling = new Promise<void>(resolve => {
+    canonicalize = resolve;
+  });
   const f = fixture(() => settling);
   const result = f.run().catch(error => error);
   for (let i = 0; i < 30; i++) await Promise.resolve();
@@ -55,7 +68,9 @@ it('tracks before funding and holds destructive reset until the funded Guardian 
 
 it('preserves the wallet when the Guardian cannot canonicalize the funded state', async () => {
   const failure = new Error('guardian has not canonicalized the last pushed delta');
-  const f = fixture(async () => { throw failure; });
+  const f = fixture(async () => {
+    throw failure;
+  });
   await expect(f.run()).rejects.toBe(failure);
   expect(f.events).not.toContain('lock');
 });

@@ -114,6 +114,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     //   note-discovery pin            120s
     //   claimAllNotes                 132s (120s + ~12s of reload/prepare)
     //   funded-balance pin            120s
+    //   guardian settlement           240s (queue drain + canonicalization)
     //   lockWallet ×2                  64s (reload + unlock-screen wait)
     //   openForgotPasswordFlow        165s (navigateHome 60s + 7×15s)
     //   submitRecoveryFromSeed        135s (4 bounded clicks + 3 waits)
@@ -121,7 +122,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     //   post-recovery reload + pin    180s
     //   expectUnlockRejects           105s   unlockWallet 105s
     //
-    // ≈ 1996s = 33.3 minutes, hence 35. Deliberately NOT included: the CLI
+    // About 2236s = 37.3 minutes, hence 40. Deliberately NOT included: the CLI
     // helpers' transient-RPC retry ceilings (createFaucet alone is 5×180s +
     // backoff — helpers/miden-cli.ts) and `navigateHome`'s unbounded `page.goto`
     // (wallet-page.ts, shared). No wall-clock budget can cover a full retry
@@ -138,13 +139,14 @@ test.describe('Forgot password — destructive in-place reset', () => {
     // artifacts that would explain it. That is the trade being made: a budget
     // shorter than the waits reports a bare "Test timeout" naming no step, which
     // is worse. Sharding the guardian job is the real fix if this bites.
-    test.setTimeout(2_100_000);
+    test.setTimeout(2_400_000);
 
     let addressBeforeReset: string;
     let seed = '';
     let faucetId: string;
 
     await steps.step('create_and_fund_the_wallet_we_are_about_to_wipe', async () => {
+      walletA.trackGuardianCommitments();
       const created = await walletA.createGuardianWallet(A, OLD_PASSWORD);
       addressBeforeReset = created.address;
       seed = created.seedPhrase.join(' ');
@@ -179,6 +181,8 @@ test.describe('Forgot password — destructive in-place reset', () => {
         timeoutMs: 120_000,
         decimals: TOKEN_DECIMALS
       });
+      // The vault updates before the Guardian canonicalizes its backup; recovery must start from that backup.
+      await walletA.waitForGuardianSettled();
     });
 
     await steps.step(
