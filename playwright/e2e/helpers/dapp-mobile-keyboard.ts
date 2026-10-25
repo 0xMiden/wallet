@@ -122,6 +122,13 @@ export async function runNativeKeyboardJourney(input: NativeKeyboardJourneyInput
       );
     }
 
+    const focusedPath = input.testInfo.outputPath(`dapp-keyboard-${input.surface}-focused.png`);
+    await input.wallet.screenshot({ path: focusedPath });
+    await input.testInfo.attach(`dApp keyboard ${input.surface} focused`, {
+      path: focusedPath,
+      contentType: 'image/png'
+    });
+
     await input.device.dismissKeyboard('A');
     latest = await waitForKeyboardDismissed(input.device);
     dismissed = true;
