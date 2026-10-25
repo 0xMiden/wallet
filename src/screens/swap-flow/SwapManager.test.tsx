@@ -632,7 +632,7 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
   });
 
-  it('propagates a fulfilled real quote hook into the manager receive amount', async () => {
+  it('keeps a fulfilled real quote when the already-selected receive token is picked again', async () => {
     jest.useFakeTimers();
     const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
     const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
@@ -649,6 +649,12 @@ describe('SwapFlow / SwapManager', () => {
     setOffer('10');
 
     await act(async () => jest.advanceTimersByTime(500));
+
+    expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9.995');
+    expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+
+    fireEvent.click(screen.getByTestId('sa-select-request'));
+    act(() => mockDrawerProps.onSelect(mockTokenB));
 
     expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9.995');
     expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
