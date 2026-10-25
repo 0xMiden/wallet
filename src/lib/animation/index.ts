@@ -2,7 +2,16 @@ export { springs, type SpringName } from './springs';
 export { durations, type DurationName } from './durations';
 export { easings, type EasingName } from './easings';
 export { useMotion, useSprings, resolveTransition, reducedMotionTransition } from './use-motion';
-export { springToLinearEasing, supportsLinearEasing, type CompositorSpring } from './spring-easing';
+export {
+  sampleSpring,
+  springKeyframeStops,
+  springToLinearEasing,
+  supportsLinearEasing,
+  type CompositorSpring,
+  type SpringKeyframeStop,
+  type SpringKeyframeStops,
+  type SpringSamples
+} from './spring-easing';
 export { MORPH_TIMING, springProgressAt, springTimeToReach, type MorphTiming, type SpringSample } from './morph';
 export { presets, presetNames, usePreset, resolvePreset, type MotionPreset, type PresetName } from './presets';
 export {
