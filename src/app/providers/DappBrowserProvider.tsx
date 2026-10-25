@@ -1288,7 +1288,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // below will pick up foregroundId + slotRect and call openInternal
       // once the layout has reported a target rect.
       setSessionStates(prev => [
-        ...prev,
+        ...prev.map(
+          (state): DappSessionState =>
+            state.session.id !== next.id && state.status === 'loading' && state.instance === null
+              ? { ...state, status: 'parked', isLoading: false }
+              : state
+        ),
         {
           session: next,
           instance: null,
@@ -1756,6 +1761,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       });
       // Committed before native answers, so DappActive mounts while the page is still small and its capsule can
       // return alongside it.
+      setSessionStates(prev =>
+        prev.map(
+          (state): DappSessionState =>
+            state.session.id !== id && state.status === 'loading' && state.instance === null
+              ? { ...state, status: 'parked', isLoading: false }
+              : state
+        )
+      );
       updateSession(id, s => ({ ...s, status: 'active' }));
       setForegroundId(id);
       setActiveDappSession(id);
@@ -1869,6 +1882,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // once the slot rect is reported. The bubble's cached snapshot
       // stays visible under the loading state until browserPageLoaded
       // fires — see DappActive for the crossfade.
+      setSessionStates(prev =>
+        prev.map(
+          (state): DappSessionState =>
+            state.session.id !== sessionId && state.status === 'loading' && state.instance === null
+              ? { ...state, status: 'parked', isLoading: false }
+              : state
+        )
+      );
       if (!target.instance || target.isCold) {
         updateSession(sessionId, s => ({
           ...s,

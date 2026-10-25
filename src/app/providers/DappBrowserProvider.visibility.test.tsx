@@ -2495,6 +2495,21 @@ describe('latest foreground intent across sessions', () => {
     expect(control().session?.id).toBe('second');
   });
 
+  it('parks a slotless loading session when a cold session is restored', async () => {
+    mockLoadPersisted.mockResolvedValue([{ ...session('cold'), parkedAt: 1 }]);
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(parked()).toEqual(['cold']));
+    act(() => control().open(session('first')));
+    await settle();
+    expect(statusOf('first')).toBe('loading');
+    await act(async () => control().restore('cold'));
+
+    expect(statusOf('first')).toBe('parked');
+    expect(parked()).toContain('first');
+    expect(control().session?.id).toBe('cold');
+    expect(statusOf('cold')).toBe('loading');
+  });
+
   it('parks a slotless loading session when a warm session is restored', async () => {
     await openForeground();
     await act(async () => control().park('origin'));
