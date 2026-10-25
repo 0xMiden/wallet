@@ -2979,7 +2979,7 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Подтверждает каждую транзакцию — ни ваше устройство, ни Guardian не могут самостоятельно перемещать средства. Помогает восстановить доступ к учетной записи в случае потери устройства.",
+    "message": "Принимает к сведению каждую транзакцию; ни ваше устройство, ни Guardian не могут самостоятельно перемещать средства. Помогает восстановить доступ к учетной записи в случае потери устройства.",
     "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {

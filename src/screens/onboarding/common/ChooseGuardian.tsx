@@ -9,7 +9,6 @@ import { Button } from 'components/Button';
 import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
@@ -205,35 +204,17 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       {/* `isCustom` overrides the cards, matching what Continue will submit: while the custom field
           is the live choice no card may report itself checked. */}
       {currentOptions.length > 0 && otherOptions.length > 0 ? (
-        <>
-          <section>
-            <SectionHeader as="h3" size="md">
-              {t('currentLabel')}
-            </SectionHeader>
-            <ChoiceCardGroup
-              items={currentOptions.map(toCard)}
-              value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
-              onChange={handleSelect}
-              onReselect={handleSelect}
-              surface="outline"
-              aria-label={t('currentLabel')}
-            />
-          </section>
-          <div aria-hidden="true" className="h-px shrink-0 bg-hairline" />
-          <section>
-            <SectionHeader as="h3" size="md">
-              {t('otherGuardiansAvailable')}
-            </SectionHeader>
-            <ChoiceCardGroup
-              items={otherOptions.map(toCard)}
-              value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
-              onChange={handleSelect}
-              onReselect={handleSelect}
-              surface="outline"
-              aria-label={t('otherGuardiansAvailable')}
-            />
-          </section>
-        </>
+        <ChoiceCardGroup
+          sections={[
+            { label: t('currentLabel'), items: currentOptions.map(toCard) },
+            { label: t('otherGuardiansAvailable'), items: otherOptions.map(toCard) }
+          ]}
+          value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
+          onChange={handleSelect}
+          onReselect={handleSelect}
+          surface="outline"
+          aria-label={t('chooseYourGuardian')}
+        />
       ) : (
         <ChoiceCardGroup
           items={options.map(toCard)}

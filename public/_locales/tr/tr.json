@@ -651,7 +651,7 @@
   "guardianKindPara": "Gömülü cüzdan altyapısı",
   "guardianInfoDescription": "Guardian, cüzdanınızdan yapılan her işlemi <b>onaylayan</b> ve kendi kendine saklama hakkından vazgeçmeden bir güvenlik ağı ekleyen bağımsız bir hizmettir.",
   "guardianInfoWhatItDoesTitle": "Ne işe yarar?",
-  "guardianInfoWhatItDoesDescription": "Her işlemi onaylar — ne cihazınız ne de Guardian, fonları tek başına hareket ettiremez. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
+  "guardianInfoWhatItDoesDescription": "Her işlem için gönderilen bildirimi aldığını teyit eder — ne cihazınız ne de Guardian fonları tek başına hareket ettirebilir. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
   "guardianInfoWhatItCannotDoTitle": "Neleri yapamaz?",
   "guardianInfoWhatItCannotDoDescription": "Paranızı kendi başınıza aktarın. Kişisel durumunuza erişin. Paylaşmadığınız sürece bakiyelerinizi görüntüleyin.",
   "guardianInfoSwitchingIsEasyTitle": "Geçiş yapmak çok kolay",

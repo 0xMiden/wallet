@@ -2979,7 +2979,7 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Her işlemi onaylar — ne cihazınız ne de Guardian, fonları tek başına hareket ettiremez. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
+    "message": "Her işlem için gönderilen bildirimi aldığını teyit eder — ne cihazınız ne de Guardian fonları tek başına hareket ettirebilir. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
     "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
