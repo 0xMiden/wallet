@@ -690,6 +690,54 @@ describe('Android native keyboard layout', () => {
     expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 
+  const hintedField =
+    '<hierarchy><node class="android.webkit.WebView" bounds="[0,463][1078,2400]">' +
+    '<node class="android.widget.EditText" hint="Keyboard input" bounds="[42,1090][1036,1169]" /></node></hierarchy>';
+  const crashedDump = new Error(
+    'Command failed: adb -s emulator-a shell uiautomator dump /data/local/tmp/miden-wallet-hierarchy.xml'
+  );
+
+  it('repeats one crashed uiautomator dump and taps from the fresh file', async () => {
+    const calls: string[][] = [];
+    let dumps = 0;
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('uiautomator')) {
+        dumps += 1;
+        if (dumps === 1) throw crashedDump;
+        return '';
+      }
+      return args.includes('cat') ? hintedField : '';
+    };
+
+    await expect(
+      androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'Keyboard input')
+    ).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'input', 'tap', '539', '1130']
+    ]);
+  });
+
+  it('propagates a second crashed uiautomator dump without reading or tapping', async () => {
+    const calls: string[][] = [];
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      if (args.includes('uiautomator')) throw crashedDump;
+      return args.includes('cat') ? hintedField : '';
+    };
+
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'Keyboard input')).rejects.toBe(
+      crashedDump
+    );
+    expect(calls.filter(call => call.includes('uiautomator'))).toHaveLength(2);
+    expect(calls.some(call => call.includes('cat') || call.includes('tap'))).toBe(false);
+  });
+
   it('records an empty Android dump as nodes=0', async () => {
     const run: AdbRun = async () => 'UI hierchary dumped to: /dev/tty';
 
