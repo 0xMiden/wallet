@@ -1,6 +1,6 @@
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 
-import { isMobile } from 'lib/platform';
+import { isIOS, isMobile } from 'lib/platform';
 import { isHapticFeedbackEnabled } from 'lib/settings/helpers';
 
 /**
@@ -80,7 +80,9 @@ export const hapticError = async () => {
   }
 };
 
-// iOS fires selectionChanged only on the generator selectionStart creates; set after it resolves so a failure retries.
+// Both native plugins ignore selectionChanged until selectionStart, but only iOS is started here:
+// Android's selection effect is a 100 ms vibration, so Android is left as it was on purpose.
+// Set after the start resolves so a failure retries.
 let selectionStarted = false;
 
 /**
@@ -89,7 +91,7 @@ let selectionStarted = false;
 export const hapticSelection = async () => {
   if (!isMobile() || !isHapticFeedbackEnabled()) return;
   try {
-    if (!selectionStarted) {
+    if (isIOS() && !selectionStarted) {
       await Haptics.selectionStart();
       selectionStarted = true;
     }

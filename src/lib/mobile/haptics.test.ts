@@ -33,7 +33,8 @@ jest.mock('@capacitor/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn()
+  isMobile: jest.fn(),
+  isIOS: jest.fn()
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -204,6 +205,7 @@ describe('haptics', () => {
       const platform = await import('lib/platform');
       const settings = await import('lib/settings/helpers');
       jest.mocked(platform.isMobile).mockReturnValue(true);
+      jest.mocked(platform.isIOS).mockReturnValue(true);
       jest.mocked(settings.isHapticFeedbackEnabled).mockReturnValue(true);
       const { hapticSelection: freshSelection } = await import('./haptics');
       return { Haptics: capacitor.Haptics, platform, settings, hapticSelection: freshSelection };
@@ -244,6 +246,16 @@ describe('haptics', () => {
       await select();
       expect(H.selectionStart).not.toHaveBeenCalled();
       expect(H.selectionChanged).not.toHaveBeenCalled();
+    });
+
+    // Android's selection effect is a 100 ms vibration, so it keeps main's behaviour: no start.
+    it('never starts the generator on Android and still calls selectionChanged', async () => {
+      const { Haptics: H, platform, hapticSelection: select } = await load();
+      jest.mocked(platform.isIOS).mockReturnValue(false);
+      await select();
+      await select();
+      expect(H.selectionStart).not.toHaveBeenCalled();
+      expect(H.selectionChanged).toHaveBeenCalledTimes(2);
     });
 
     it('does not throw when selectionStart rejects and retries it on the next call', async () => {
