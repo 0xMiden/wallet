@@ -2592,13 +2592,16 @@ describe('latest foreground intent across sessions', () => {
     expect(control().session?.id).toBe('second');
     expect(statusOf('second')).toBe('active');
     expect(parked()).not.toContain('second');
-    expect(lastVisibility('second')).toBe(true);
+    expect(lastVisibility('second')).toBe(false);
     expect(dappConfirmationStore.getPendingRequest('second')).toMatchObject({ id: 'confirmation-second' });
-    expect(screen.getByText('Confirmation owner').closest('[role="dialog"]')).toBeVisible();
+    await waitFor(() => expect(screen.getByText('Confirmation owner').closest('[role="dialog"]')).toBeVisible());
 
     await act(async () => {
       dappConfirmationStore.resolveConfirmation('second', { confirmed: false }, 'confirmation-second');
       await confirmation;
     });
+    await waitFor(() => expect(lastVisibility('second')).toBe(true));
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
   });
 });
