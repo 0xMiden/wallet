@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [FIX][all] A live note consume keeps ownership of its completion until its result is stored, preventing dApp waits from seeing a completed transaction with no result.
+
 - [FIX][e2e] Ethereum mainnet receipt checks allow up to ten minutes for mined approvals and deposits while keeping other-chain limits and immediate revert detection.
 
 - [FIX][all] Japanese and Russian Guardian acknowledgement copy now describes acknowledgement without implying transaction approval.
