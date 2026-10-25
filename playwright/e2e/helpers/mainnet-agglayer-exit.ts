@@ -42,8 +42,9 @@ const isTonightsCandidate = (
  * Tonight's exit: an exit to `target` above the cursor read before the bridge-out that carries exactly the wei
  * bridged. When `exitTxHash` is given and one of those has that `tx_hash` (`sameTxHash`), that one is returned;
  * otherwise the lowest-numbered. The counter is the rollup's, so a number above the cursor was filed after that
- * read; the amount keeps an earlier night's exit that the indexer filed late from passing for tonight's. The hash
- * only narrows: it is never required, and a hash no candidate carries leaves the lowest-numbered rule unchanged.
+ * read. The amount is the same every night, so it only rules out exits of other sizes: an earlier night's exit that
+ * the indexer files after the cursor read passes for tonight's unless the hash names tonight's. The hash only
+ * narrows: it is never required, and a hash no candidate carries leaves the lowest-numbered rule unchanged.
  */
 export function tonightsExit(
   deposits: readonly AgglayerDeposit[],
