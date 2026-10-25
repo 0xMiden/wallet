@@ -231,8 +231,8 @@
         ],
         "alphaAllowed": false,
         "formats": ["png", "jpeg"],
-        "colorSpaces": ["srgb", "rgb"],
-        "depths": ["uchar"]
+        "colorSpaces": ["srgb", "rgb", "rgb16"],
+        "depths": ["uchar", "ushort"]
       },
       "requiredKinds": {
         "smallPromo": {

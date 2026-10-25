@@ -201,7 +201,7 @@ test('rejects decoded dimensions, format, alpha and color depth that differ from
     { format: 'webp' },
     { hasAlpha: true },
     { space: 'cmyk' },
-    { depth: 'ushort' }
+    { depth: 'float' }
   ]) {
     await assert.rejects(
       validateScreenshotManifest({
@@ -211,6 +211,33 @@ test('rejects decoded dimensions, format, alpha and color depth that differ from
       /dimensions|format|alpha|color|depth/i
     );
   }
+});
+test('Chrome accepts the 16-bit RGB PNGs its listing serves while Google Play keeps 24-bit PNG', async t => {
+  const f = await fixture(t);
+  const deep = { space: 'rgb16', depth: 'ushort' };
+  const inspectImage = async () => ({ ...(await f.inspectImage()), ...deep });
+  await validateScreenshotManifest({ ...f.options, inspectImage });
+  const set = f.doc.sets[0];
+  Object.assign(set, { platform: 'android', storeId: 'com.miden.wallet', displayType: 'phoneScreenshots' });
+  const bytes = png(1080, 2160);
+  Object.assign(f.image, {
+    width: 1080,
+    height: 2160,
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex')
+  });
+  delete f.image.source;
+  await writeFile(path.join(f.root, f.image.path), bytes);
+  const second = { ...f.image, path: 'store-listing/assets/02.png' };
+  await writeFile(path.join(f.root, second.path), bytes);
+  set.images.push(second);
+  await f.save();
+  const android = async () => ({ ...(await f.inspectImage()), width: 1080, height: 2160 });
+  await validateScreenshotManifest({ ...f.options, inspectImage: android });
+  await assert.rejects(
+    validateScreenshotManifest({ ...f.options, inspectImage: async () => ({ ...(await android()), ...deep }) }),
+    /color space/i
+  );
 });
 test('rejects technical dimension and format claims even if hashes match', async t => {
   for (const change of [{ width: 641 }, { format: 'webp' }, { size: 0 }, { sha256: 'invalid' }]) {
