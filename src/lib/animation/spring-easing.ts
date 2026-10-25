@@ -7,8 +7,9 @@
  * That is the right default — it is interruptible, composable, and driven by the
  * same clock as the rest of the app. It also means the animation can only be as
  * smooth as the main thread is idle, and inside `WKWebView` it can only ever be
- * as fast as `requestAnimationFrame`, which Apple caps at 60Hz regardless of the
- * display (WebKit bug 294338).
+ * as fast as `requestAnimationFrame`, whose cap is WebKit's
+ * `PreferPageRenderingUpdatesNear60FPSEnabled` preference (WebKit bug 294338).
+ * `AppViewController` turns it off (#1864).
  *
  * A Web Animations API animation over `transform` alone escapes both limits: it
  * is handed to the compositor, so it neither blocks on main-thread work nor

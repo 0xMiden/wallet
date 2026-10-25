@@ -16,10 +16,12 @@ import { isMobile } from 'lib/platform';
  * hiding and showing) and picks up from mid-flight when a move interrupts a slide.
  *
  * The curve is `springs.standard` solved into a `linear()` easing, so the slide runs on the
- * compositor at the display's rate rather than through `requestAnimationFrame`, which WKWebView
- * caps at 60Hz (see lib/animation/spring-easing). The spring is all but critically damped: a CTA
- * riding the keyboard must not overshoot past the keyboard's edge on the way up. An engine that
- * cannot parse `linear()` gets an ease-out cubic-bezier instead, since `animate` would throw.
+ * compositor at the display's rate rather than through `requestAnimationFrame`. The cap is
+ * WebKit's `PreferPageRenderingUpdatesNear60FPSEnabled` preference (WebKit bug 294338).
+ * `AppViewController` turns it off (#1864). The compositor path still does not sample on the
+ * main thread. The spring is all but critically damped: a CTA riding the keyboard must not
+ * overshoot past the keyboard's edge on the way up. An engine that cannot parse `linear()` gets
+ * an ease-out cubic-bezier instead, since `animate` would throw.
  * The animation's start time is this frame: left unset, it waits for the next one, and the footer
  * paints at its new place for that gap.
  *

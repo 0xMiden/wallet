@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 
 import { act, render } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { durations, easings, springToLinearEasing, springs } from 'lib/animation';
 
@@ -126,9 +128,10 @@ it('slides down when the keyboard closes', () => {
   expect(keyframes()).toEqual([{ transform: 'translateY(-200px)' }, { transform: 'translateY(0)' }]);
 });
 
-// The slide is one of the app's springs, solved into a `linear()` curve so the compositor can run
-// it above WKWebView's 60Hz rAF cap. `standard` is all but critically damped on purpose: a CTA
-// riding the keyboard up must not overshoot past the keyboard's edge.
+// The case pins `springs.standard` as a `linear()` curve so the compositor can run the slide.
+// The cap is WebKit's `PreferPageRenderingUpdatesNear60FPSEnabled` preference (WebKit bug 294338).
+// `AppViewController` turns it off (#1864). `standard` is all but critically damped on purpose: a
+// CTA riding the keyboard up must not overshoot past the keyboard's edge.
 it('runs the slide on the shared standard spring, as a compositor curve', () => {
   render(<Harness />);
   top = 500;
@@ -262,4 +265,34 @@ describe('on an engine without linear() easing', () => {
       easing: `cubic-bezier(${easings.easeOutCubic.join(',')})`
     });
   });
+});
+
+it('states the WebKit rAF cap as lifted by AppViewController', () => {
+  const files = [
+    '../../lib/mobile/high-refresh-rate.ts',
+    '../../lib/animation/spring-easing.ts',
+    './useSlideOnReflow.ts',
+    './useSlideOnReflow.test.tsx'
+  ];
+  const required = ['PreferPageRenderingUpdatesNear60FPSEnabled', 'AppViewController', '#1864'];
+  const forbidden = [
+    'capped at 60Hz by WebKit regardless',
+    'is itself capped at 60Hz',
+    'Apple caps at 60Hz',
+    'caps at 60Hz',
+    '60Hz rAF cap'
+  ];
+  const offenders = files
+    .map(file => path.join(__dirname, file))
+    .filter(file => {
+      const comments = fs
+        .readFileSync(file, 'utf8')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('*') || line.startsWith('//'))
+        .join(' ');
+      return required.some(token => !comments.includes(token)) || forbidden.some(text => comments.includes(text));
+    })
+    .map(file => path.relative(path.join(__dirname, '../../..'), file));
+  expect(offenders).toEqual([]);
 });
