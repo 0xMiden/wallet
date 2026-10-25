@@ -898,7 +898,9 @@ export async function sendSigned(
     (client, blockNumber) => client.estimateGas({ account: account.address, to: tx.to, data: tx.data, blockNumber }),
     tx.atBlock
   );
-  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => estimateUsdcxFees(client, chain));
+  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client =>
+    estimateUsdcxFees(client, chain)
+  );
   const serializedTransaction = await account.signTransaction({
     chainId,
     type: 'eip1559',
