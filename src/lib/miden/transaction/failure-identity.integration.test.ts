@@ -118,7 +118,10 @@ describe('the never-committed verdicts', () => {
       expect(outcome.kind).toBe('never-committed');
       const [report, ...rest] = captured();
       expect(rest).toEqual([]);
-      expect(report?.message).toContain(`; point node_verdict; never_committed; rule ${rule}. authentication`);
+      expect(report?.message).toContain(`; point node_verdict; never_committed; rule ${rule}`);
+      expect(report?.message).toContain(
+        rule === 'expired' ? '; proof wait unavailable. authentication' : '. authentication'
+      );
       expect(report?.message).not.toContain('; network.');
       expect(report?.level).toBe('error');
       expectNoTransactionData(report?.message ?? '');
@@ -234,7 +237,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
       `Transaction unconfirmed: tx_receive; stage submitting; realm unknown; proving preference delegated;`
     );
     expect(report?.message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg under_9s. authentication`
+      `; point pipeline; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit ${answer}; submit leg under_9s. authentication`
     );
     expect(report?.level).toBe('warning');
     expectNoTransactionData(report?.message ?? '');
@@ -298,7 +301,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     for (const [index, report] of reports.entries()) {
       const bucket = index === 0 ? 'under_9s' : 'unavailable';
       expect(report.message).toContain(
-        `; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg ${bucket}. `
+        `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit unavailable; submit leg ${bucket}. `
       );
     }
   });
@@ -317,7 +320,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
       Repo.transactions.hook('updating').unsubscribe(advanceDuringWrite);
     }
     expect(captured()[0]?.message).toContain(
-      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg 9_to_11s. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit unavailable; submit leg 9_to_11s. '
     );
   });
 
@@ -327,7 +330,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     clock.mockReturnValue(SUBMITTED_AT_MS + 9_500);
     await markTransactionUnconfirmed(submitting(), unavailable());
     expect(captured()[0]?.message).toContain(
-      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
     );
   });
 });

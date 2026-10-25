@@ -83,6 +83,7 @@ import {
   markBridgedSendFailed,
   SESSION_STARTED_AT
 } from './index';
+import { keptCandidateHoldUntil } from './verdict-rules';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import {
@@ -264,15 +265,51 @@ let currentHold: object | null = null;
 const revokeHold = () => {
   currentHold = null;
 };
-const mockWithWasmClientLock = jest.fn(async (fn: (hold: object) => Promise<unknown>) => {
-  const hold = { mock: 'wasm-lock-hold' };
-  currentHold = hold;
-  try {
-    return await fn(hold);
-  } finally {
-    if (currentHold === hold) currentHold = null;
+const mockWithWasmClientLock = jest.fn(
+  async (fn: (hold: object) => Promise<unknown>, _options?: { onEvicted?: () => void }) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
   }
-});
+);
+const installWasmLockAbortRace = () => {
+  const originalImplementation = mockWithWasmClientLock.getMockImplementation()!;
+  const detachedWork = new Set<Promise<unknown>>();
+  let abortCurrentLock!: (reason: unknown) => void;
+  let notifyEvicted: (() => void) | undefined;
+  mockWithWasmClientLock.mockImplementation(async (fn, options) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentHold = hold;
+    notifyEvicted = options?.onEvicted;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      abortCurrentLock = reject;
+    });
+    const running = fn(hold);
+    detachedWork.add(running);
+    running.catch(() => {});
+    try {
+      return await Promise.race([running, aborted]);
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  });
+  return {
+    abort: (reason: unknown) => {
+      revokeHold();
+      notifyEvicted?.();
+      abortCurrentLock(reason);
+    },
+    settleDetached: async () => Promise.all([...detachedWork].map(work => work.catch(() => undefined))),
+    restore: () => {
+      mockWithWasmClientLock.mockImplementation(originalImplementation);
+      currentHold = null;
+    }
+  };
+};
 const mockWithWasmLockWatchdogPaused = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
@@ -293,7 +330,8 @@ jest.mock('../sdk/miden-client', () => {
   // same shape production throws.
   const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
   return {
-    withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+    withWasmClientLock: (...a: unknown[]) =>
+      mockWithWasmClientLock(...(a as Parameters<typeof mockWithWasmClientLock>)),
     withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
     getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
     getCurrentWasmLockHold: () => currentHold,
@@ -4521,6 +4559,263 @@ describe('generateTransaction — Guardian routing', () => {
     });
     errorSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+
+  it('Guardian send: an eviction after the submitting stamp but before submit records a pre-submit end', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-evicted-before-submit';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    let allowCrossingWrite!: () => void;
+    let signalCrossingWrite!: () => void;
+    const crossingWriteStarted = new Promise<void>(resolve => {
+      signalCrossingWrite = resolve;
+    });
+    const crossingWriteBlocked = new Promise<void>(resolve => {
+      allowCrossingWrite = resolve;
+    });
+    const lockRace = installWasmLockAbortRace();
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let blockedCrossingWrite = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => void) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => void) => {
+          const probe = { ...txStore.find(row => row.id === query.id) };
+          fn(probe);
+          const entries = probe.submitEvidence as Array<{ source?: string }> | undefined;
+          if (!blockedCrossingWrite && entries?.some(entry => entry.source === 'stage')) {
+            blockedCrossingWrite = true;
+            signalCrossingWrite();
+            await crossingWriteBlocked;
+          }
+          return handle.modify(fn);
+        }
+      };
+    });
+
+    const pending = generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+    try {
+      await crossingWriteStarted;
+      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+      lockRace.abort(new WasmClientPoisonedError('watchdog', new Error('mock watchdog eviction')));
+      // The outer lock race has returned while the crossing write is still pending.
+      await pending;
+      allowCrossingWrite();
+      await lockRace.settleDetached();
+    } finally {
+      allowCrossingWrite();
+      repo.transactions.where.mockImplementation(realWhere);
+      lockRace.restore();
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(5);
+    const stored = txStore.find(row => row.id === txId);
+    expect(stored?.submitEvidence).toEqual(expect.arrayContaining([expect.objectContaining({ preSubmitEnd: true })]));
+    expect(stored?.submitEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(stored?.guardianCandidate).toBeUndefined();
+    expect(
+      keptCandidateHoldUntil(
+        { submitEvidence: stored?.submitEvidence as ISubmitEvidence[] | undefined },
+        Math.floor(Date.now() / 1000)
+      )
+    ).toBeUndefined();
+  });
+
+  it('Guardian send: an eviction during delegated proving retires a late submit-stage stamp', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-evicted-during-prove';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    let allowProve!: () => void;
+    let signalProveStarted!: () => void;
+    const proveStarted = new Promise<void>(resolve => {
+      signalProveStarted = resolve;
+    });
+    const proveBlocked = new Promise<void>(resolve => {
+      allowProve = resolve;
+    });
+    client.transactions.prove.mockImplementationOnce(async () => {
+      signalProveStarted();
+      await proveBlocked;
+      return { proved: true };
+    });
+    const lockRace = installWasmLockAbortRace();
+    const pending = generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+    try {
+      await proveStarted;
+      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+      lockRace.abort(new WasmClientPoisonedError('watchdog', new Error('mock watchdog eviction')));
+      // The outer lock race returns before the abandoned delegated prove resolves.
+      await pending;
+      allowProve();
+      await lockRace.settleDetached();
+    } finally {
+      allowProve();
+      lockRace.restore();
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(5);
+    const stored = txStore.find(row => row.id === txId);
+    expect(stored?.submitEvidence).toEqual(expect.arrayContaining([expect.objectContaining({ preSubmitEnd: true })]));
+    expect(stored?.submitEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(stored?.guardianCandidate).toBeUndefined();
+    expect(
+      keptCandidateHoldUntil(
+        { submitEvidence: stored?.submitEvidence as ISubmitEvidence[] | undefined },
+        Math.floor(Date.now() / 1000)
+      )
+    ).toBeUndefined();
+  });
+
+  it('Guardian send: an eviction during execution does not keep a pre-submit candidate', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-evicted-during-execute';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    const execute = client.transactions.executeRequest.getMockImplementation()!;
+    let allowExecute!: () => void;
+    let signalExecuteStarted!: () => void;
+    const executeStarted = new Promise<void>(resolve => {
+      signalExecuteStarted = resolve;
+    });
+    const executeBlocked = new Promise<void>(resolve => {
+      allowExecute = resolve;
+    });
+    client.transactions.executeRequest.mockImplementationOnce(async (...args) => {
+      signalExecuteStarted();
+      await executeBlocked;
+      return execute(...args);
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const lockRace = installWasmLockAbortRace();
+    const pending = generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+    try {
+      await executeStarted;
+      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+      lockRace.abort(new WasmClientPoisonedError('watchdog', new Error('mock watchdog eviction')));
+      // The outer lock race returns while executeRequest is still pending.
+      await pending;
+      allowExecute();
+      await lockRace.settleDetached();
+    } finally {
+      allowExecute();
+      lockRace.restore();
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(5);
+    const stored = txStore.find(row => row.id === txId);
+    expect(stored?.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(stored?.guardianCandidate).toBeUndefined();
   });
 
   it('Guardian send: an eviction wrapped in another error does NOT abandon the candidate either (#1313)', async () => {
