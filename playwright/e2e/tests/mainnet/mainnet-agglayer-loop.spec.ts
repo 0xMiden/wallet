@@ -211,8 +211,15 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
       record({ readyAt: iso(step.readySince) });
     }
     if (step.kind !== 'settled') readySince = step.readySince;
-    if (exit && step.kind === 'settled') return settle(step.claimTxHash, exit);
-    if (pendingClaim !== undefined) {
+    if (exit && step.kind === 'settled') {
+      if (!isHex(step.claimTxHash)) throw new Error(`exit ${exit.deposit_cnt} has a claim hash that is not hex`);
+      // The RPC can trail the indexer: a claim receipt it cannot serve yet is read again next lap.
+      const read = await readClaim(step.claimTxHash).catch((error: unknown) => {
+        lastError = error instanceof Error ? error.message : String(error);
+        return undefined;
+      });
+      if (read) return settle(step.claimTxHash, exit, read);
+    } else if (pendingClaim !== undefined) {
       // The broadcast is already on chain. Read that receipt and do not send another claimAsset.
       const hash = pendingClaim;
       try {
@@ -275,10 +282,16 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
           }
         }
         if (hash !== undefined) {
-          const own = await readClaim(hash);
-          if (own.receipt.status === 'success') return settle(hash, exit, own);
+          const own = await readClaim(hash).catch((error: unknown) => {
+            // Mined but unread: keep the hash so the pending branch reads it next lap and nothing is sent again.
+            pendingClaim = hash;
+            record({ claimTx: hash });
+            lastError = error instanceof Error ? error.message : String(error);
+            return undefined;
+          });
+          if (own?.receipt.status === 'success') return settle(hash, exit, own);
           // A claim that lost the race to the auto-claimer reverts; the next poll reads the winner.
-          lastError = `this job's claim ${hash} reverted`;
+          if (own) lastError = `this job's claim ${hash} reverted`;
         }
       }
     }
