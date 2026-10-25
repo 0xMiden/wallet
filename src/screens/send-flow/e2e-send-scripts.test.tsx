@@ -136,7 +136,6 @@ describe('USDCX_ROUTE_JS', () => {
         pressed,
         cardText: expect.stringContaining('usdcxMidenFees|USDCx'),
         fee: 'usdcxPayoutFeeVaries',
-        net: null,
         notice: 'usdcxWithdrawalNotice'
       });
     }
