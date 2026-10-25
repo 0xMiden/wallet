@@ -40,6 +40,8 @@ import {
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
+  QUEUE_AGE_BUCKETS,
+  SUBMIT_CROSSINGS,
   OFFSCREEN_DEADLINE_KILLERS,
   OFFSCREEN_DEADLINE_OWNERS,
   OFFSCREEN_DEADLINE_TIMERS,
@@ -198,6 +200,8 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     REAPED_ATTEMPT_ORIGINS,
     STARTUP_SELECTIONS,
     STORED_STAGE_AGES,
+    QUEUE_AGE_BUCKETS,
+    SUBMIT_CROSSINGS,
     SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
     HOT_KEY_CODES,
@@ -1987,6 +1991,8 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['reaped attempt', () => [...REAPED_ATTEMPT_ORIGINS, 'unavailable'], () => policyText('The stuck-transaction check')],
   ['startup selection', () => [...STARTUP_SELECTIONS, 'unavailable'], () => policyText('The startup check')],
   ['stored stage age', () => [...STORED_STAGE_AGES, 'unavailable'], () => policyText('The startup check')],
+  ['queue age bucket', () => QUEUE_AGE_BUCKETS, () => policyText('The age of a queued row that expired')],
+  ['submit crossing', () => SUBMIT_CROSSINGS, () => policyText("The attempt's submit crossing")],
   ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]

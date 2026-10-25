@@ -6,7 +6,7 @@
 
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).
-- [CHANGE][all] Failure reports include the node's closed consume verdict, the RPC endpoint for an unknown submit, and, for an expired transaction, the prior failure's fixed identity and an expiry-relative proof-wait bucket without sending raw error text or exact block counts (#1843).
+- [CHANGE][all] Failure reports include the node's closed consume verdict, the RPC endpoint for an unknown submit, the matching attempt's closed submit-crossing status, and, for an expired transaction, the prior failure's fixed identity, an expiry-relative proof-wait bucket and a queue-age bucket from the 30-minute TTL without sending raw failure text, timestamps, identifiers or exact counts (#1843).
 ### Features
 
 - [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
