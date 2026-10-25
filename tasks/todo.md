@@ -557,3 +557,10 @@ Service validation: 145 Node tests passed with zero skips, all five targeted mut
 - Deferred P2 test-proof gap under the session rule: the mixed-status cursor fixture does not model displaced-row backfill.
 
 # Follow-up to #1790: describe wallet-file contents accurately
+
+# Release Guardian forgot-password canonicalization
+
+- [x] Inspect main workflow history, failed trace and actual stale-state rejection.
+- [ ] Prove reset-before-canonical regression red in isolated CI.
+- [ ] Gate destructive reset on the existing Guardian settlement ledger.
+- [ ] Verify focused CI, types and lint; hand off for normal review.
