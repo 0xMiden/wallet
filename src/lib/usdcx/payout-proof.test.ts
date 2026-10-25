@@ -108,7 +108,7 @@ it('accepts the mint whose calldata carries the note id', async () => {
 
 it('ignores a credit whose transaction lacks the note id', async () => {
   inputs[txHash(1)] = `0xdeadbeef${OTHER_NOTE_ID.slice(2)}`;
-  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n });
+  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n, head: 11_999_999n });
 });
 
 it("picks this burn's mint when two burns to one recipient are paid in one window", async () => {
@@ -127,13 +127,13 @@ it.each([
   ['a value above the amount', mint({ value: AMOUNT + 1n })]
 ])('ignores %s', async (_name, log) => {
   logsByStart.set(11_992_000n, [log]);
-  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n });
+  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n, head: 11_999_999n });
 });
 
-it('scans at most five 10,000-block chunks and reports the last one', async () => {
+it('scans at most five 10,000-block chunks and reports the last one with the head', async () => {
   head = 12_500_000n;
   logsByStart = new Map();
-  await expect(scan()).resolves.toEqual({ scannedTo: 11_992_000n + 5n * 10_000n - 1n });
+  await expect(scan()).resolves.toEqual({ scannedTo: 11_992_000n + 5n * 10_000n - 1n, head: 12_500_000n });
   expect(USDCX_PAYOUT_LOG_CHUNK).toBe(10_000n);
   expect(USDCX_PAYOUT_CHUNKS_PER_CHECK).toBe(5);
   expect(getLogs.mock.calls.map(([call]) => [call.fromBlock, call.toBlock])).toEqual([
@@ -167,7 +167,7 @@ it('keeps the cursor at the previous chunk when getTransaction throws while a ch
 // The harness takes a payout only when it is the one AttestationUsed log, so a batched mint is not split here either.
 it('skips a mint transaction carrying two payouts to the recipient', async () => {
   logsByStart.set(11_992_000n, [mint(), mint({ logIndex: 1, value: 1_000_000n })]);
-  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n });
+  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n, head: 11_999_999n });
   expect(getTransaction).not.toHaveBeenCalled();
 });
 

@@ -105,6 +105,8 @@ interface PayoutScanArgs {
  * enough: a manual transfer or another burn's payout can credit the same recipient, so the mint's calldata must carry
  * this burn's note id. At most five 10,000-block chunks are read per call; `scannedTo` is the last block of the last
  * chunk that was read in full, so a caller resumes after it and no range is skipped when an RPC fails mid-scan.
+ * `head` is the latest block, reported only when every planned chunk was read, so a caller can tell a scan the chunk
+ * cap stopped below the head from one an RPC failure cut short.
  */
 export async function scanUsdcxPayout({
   chainId,
@@ -115,7 +117,7 @@ export async function scanUsdcxPayout({
   fromBlock,
   source,
   client = readClient(chainId)
-}: PayoutScanArgs): Promise<{ payout?: UsdcxPayout; scannedTo?: bigint }> {
+}: PayoutScanArgs): Promise<{ payout?: UsdcxPayout; scannedTo?: bigint; head?: bigint }> {
   const noteId = burnNoteId.replace(/^0x/i, '').toLowerCase();
   // Every calldata contains the empty string, so a row without a hex note id could match any mint.
   if (!/^[0-9a-f]+$/.test(noteId)) return {};
@@ -171,5 +173,5 @@ export async function scanUsdcxPayout({
     }
     scannedTo = stop;
   }
-  return { scannedTo };
+  return { scannedTo, head: latest };
 }

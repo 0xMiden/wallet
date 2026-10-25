@@ -303,6 +303,17 @@ describe('pollUsdcxDestination', () => {
     expect(burnOf().payoutScannedBlock).toBe('50100');
   });
 
+  it('reports more to scan only when a full scan stopped below the head', async () => {
+    scan.mockResolvedValueOnce({ scannedTo: 50_100n, head: 90_000n });
+    await expect(poll(row())).resolves.toEqual({ more: true });
+    scan.mockResolvedValueOnce({ scannedTo: 90_000n, head: 90_000n });
+    await expect(poll(row())).resolves.toEqual({ more: false });
+    scan.mockResolvedValueOnce({ scannedTo: 50_100n });
+    await expect(poll(row())).resolves.toEqual({ more: false });
+    await expect(poll(row())).resolves.toEqual({ more: false });
+    await expect(poll(row({ destinationBalanceBefore: undefined }))).resolves.toEqual({ more: false });
+  });
+
   it('writes nothing when the scan read no block', async () => {
     scan.mockResolvedValueOnce({});
     await poll(stored);
