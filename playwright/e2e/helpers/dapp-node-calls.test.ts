@@ -139,7 +139,7 @@ describe('macOS height-query trust roots', () => {
     else process.env.SSL_CERT_DIR = certDir;
   });
 
-  it('provides parseable public roots to the child and removes the temporary bundle afterwards', async () => {
+  it.each([false, true])('provides parseable roots and cleans up after child failure=%s', async fail => {
     const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'height-cert-marker-')), 'path');
     const root = stubSdk(`
       const fs = await import('node:fs');
@@ -148,10 +148,13 @@ describe('macOS height-query trust roots', () => {
       if (!file) throw new Error('no native certs found');
       new X509Certificate(fs.readFileSync(file));
       fs.writeFileSync(${JSON.stringify(marker)}, file);
+      if (${JSON.stringify(fail)}) throw new Error('node request failed');
       return { blockNum: () => 7 };
     `);
     try {
-      await expect(waitForNodeHeight('http://stub', 5, 5_000, root)).resolves.toBe(7);
+      const read = waitForNodeHeight('http://stub', 5, 5_000, root);
+      if (fail) await expect(read).rejects.toThrow('node request failed');
+      else await expect(read).resolves.toBe(7);
       expect(fs.existsSync(fs.readFileSync(marker, 'utf8'))).toBe(false);
       expect(process.env.SSL_CERT_FILE).toBeUndefined();
     } finally {
