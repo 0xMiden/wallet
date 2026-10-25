@@ -134,7 +134,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     // The honest cost, since an earlier version of this comment cited
     // `maxFailures` as the reason it fits: `maxFailures` bounds the NUMBER of
     // failures, not wall clock, so it does not cap this. A single wedged run of
-    // this file can claim 35 of the guardian job's 60 minutes while sitting
+    // this file can claim 40 of the guardian job's 60 minutes while sitting
     // partway through a long sequential list — and a job timeout loses the
     // artifacts that would explain it. That is the trade being made: a budget
     // shorter than the waits reports a bare "Test timeout" naming no step, which
