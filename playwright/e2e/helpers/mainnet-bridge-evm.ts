@@ -209,11 +209,32 @@ export async function claimAgglayerOnEthereum(args: {
       const reason = isFetchTimeout(error) ? 'was not read within 15s' : 'could not be read';
       throw new AgglayerClaimNotSentError(`the AggLayer merkle proof ${reason}`, { cause: error });
     });
-  if (args.deposit.global_index === undefined) {
+  const { deposit } = args;
+  if (deposit.global_index === undefined) {
     throw new AgglayerClaimNotSentError('AggLayer deposit has no global index, so the claim was not sent');
   }
-  const metadata =
-    args.deposit.metadata && args.deposit.metadata !== '0x' ? hexValue(args.deposit.metadata, 'metadata') : '0x';
+  const globalIndex = deposit.global_index;
+  // Everything the claim is built from is read before the write, so a malformed proof or deposit sends nothing.
+  const inputs = (() => {
+    try {
+      return {
+        smtLocal: padSmtProof(proof.merkle_proof),
+        smtRollup: padSmtProof(proof.rollup_merkle_proof),
+        globalIndex: BigInt(globalIndex),
+        mainExitRoot: hexValue(proof.main_exit_root, 'main exit root'),
+        rollupExitRoot: hexValue(proof.rollup_exit_root, 'rollup exit root'),
+        origAddr: hexValue(deposit.orig_addr, 'origin address'),
+        destAddr: hexValue(deposit.dest_addr, 'destination address'),
+        amount: BigInt(deposit.amount),
+        metadata: deposit.metadata && deposit.metadata !== '0x' ? hexValue(deposit.metadata, 'metadata') : '0x'
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new AgglayerClaimNotSentError(`the AggLayer claim could not be built (${reason}), so it was not sent`, {
+        cause: error
+      });
+    }
+  })();
   const { publicClient, wallet } = clientFor(args.chain, args.rpcUrl, args.key);
   let broadcast: Hex | undefined;
   try {
@@ -222,17 +243,17 @@ export async function claimAgglayerOnEthereum(args: {
       abi: AGGLAYER_BRIDGE_ABI,
       functionName: 'claimAsset',
       args: [
-        padSmtProof(proof.merkle_proof),
-        padSmtProof(proof.rollup_merkle_proof),
-        BigInt(args.deposit.global_index),
-        hexValue(proof.main_exit_root, 'main exit root'),
-        hexValue(proof.rollup_exit_root, 'rollup exit root'),
-        args.deposit.orig_net,
-        hexValue(args.deposit.orig_addr, 'origin address'),
-        args.deposit.dest_net,
-        hexValue(args.deposit.dest_addr, 'destination address'),
-        BigInt(args.deposit.amount),
-        metadata
+        inputs.smtLocal,
+        inputs.smtRollup,
+        inputs.globalIndex,
+        inputs.mainExitRoot,
+        inputs.rollupExitRoot,
+        deposit.orig_net,
+        inputs.origAddr,
+        deposit.dest_net,
+        inputs.destAddr,
+        inputs.amount,
+        inputs.metadata
       ]
     });
     broadcast = hash;
