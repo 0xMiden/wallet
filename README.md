@@ -112,6 +112,8 @@ yarn mobile:android       # Build and open in Android Studio
 
 #### Release Builds
 
+For store releases, follow the [publishing procedure](scripts/store-publishing/README.md). It builds production artifacts from an exact published release and verifies their identity before upload, submission and publication.
+
 ```bash
 # Android
 yarn mobile:android:keystore     # Generate keystore (one-time)

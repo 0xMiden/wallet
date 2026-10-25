@@ -5,6 +5,7 @@
 ### Changes
 
 - [CHANGE][ios] JavaScript-driven animations (requestAnimationFrame and the springs, layout animations and drags built on it) run at up to 120 fps on ProMotion iPhones and iPads, in the wallet and in dApps opened in the in-app browser: both WebViews turn off WebKit's preference for rendering near 60 fps, and keep it when an iOS version lacks the setting (#1864).
+- [CHANGE][ci] Manual store publishing builds signed production artifacts from an exact published release, requires telemetry configuration, and verifies app identity, network and artifact provenance before store submission.
 
 ## 1.17.7 (2026-10-25)
 
