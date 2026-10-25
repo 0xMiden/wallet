@@ -463,8 +463,7 @@ function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
     return {
       pressed: 'true',
       cardText: ROUTE_CARD_TEXT,
-      fee: 'Up to 0.1 USDC',
-      net: 'At least 9.9 USDC',
+      fee: enText('usdcxPayoutFeeVaries'),
       notice: enText('usdcxWithdrawalNotice')
     };
   }
@@ -473,8 +472,7 @@ function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
     return {
       network: 'Arc Testnet',
       networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
-      fee: 'Up to 0.1 USDC',
-      net: 'At least 9.9 USDC',
+      fee: enText('usdcxPayoutFeeVaries'),
       notice: enText('usdcxWithdrawalNotice')
     };
   }
@@ -530,7 +528,7 @@ function burnPage(
 }
 
 describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
-  // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout rows.
+  // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout row.
   it('drives every step inside the Send flow, its network sheet and the review layer, picks Arc and returns routes without the password', async () => {
     const { page, selectors, bodies } = burnPage();
 
@@ -558,6 +556,9 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     expect(rootsFor('function row(')).toEqual([REVIEW]);
     expect(rootsFor("state: 'enabled'")).toEqual([REVIEW]);
     expect(rootsFor('loading')).toEqual([REVIEW]);
+    // The wallet draws one payout row, the fee, on the route and the review.
+    expect(bodies.filter(js => js.includes('usdcx-payout-fee'))).toHaveLength(2);
+    expect(bodies.join('\n')).not.toContain('usdcx-payout-net');
   }, 15_000);
 
   it("refuses an amount that does not exceed Arc's payout fee allowance before it touches the UI", async () => {
@@ -613,7 +614,6 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
           network: BASE_SEPOLIA_PAYOUT.networkName,
           networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
           fee: rows.fee,
-          net: rows.net,
           notice: enText('usdcxWithdrawalNotice')
         };
       }
@@ -622,7 +622,6 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
           pressed: 'true',
           cardText: ROUTE_CARD_TEXT,
           fee: rows.fee,
-          net: rows.net,
           notice: enText('usdcxWithdrawalNotice')
         };
       }
