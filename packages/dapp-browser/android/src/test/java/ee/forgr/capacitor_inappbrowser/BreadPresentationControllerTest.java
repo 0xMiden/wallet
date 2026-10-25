@@ -2499,6 +2499,7 @@ public class BreadPresentationControllerTest {
         open(true, true, "default");
         controller.state.configure("doc", false, true);
         acknowledgePolicy();
+        assertTrue(controller.state.ready());
         WebView page = webView;
         morphFixture();
         reveal();
@@ -2527,6 +2528,7 @@ public class BreadPresentationControllerTest {
         open(true, true, "default");
         controller.state.configure("doc", false, true);
         acknowledgePolicy();
+        assertTrue(controller.state.ready());
         WebView page = webView;
         morphFixture();
         reveal();
@@ -2542,6 +2544,7 @@ public class BreadPresentationControllerTest {
         open(true, true, "default");
         controller.state.configure("doc", false, true);
         acknowledgePolicy();
+        assertTrue(controller.state.ready());
         WebView page = webView;
         morphFixture();
         reveal();
