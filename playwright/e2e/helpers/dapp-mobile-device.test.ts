@@ -268,12 +268,45 @@ describe('Android native keyboard layout', () => {
     expect(calls).toEqual([
       ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
       ['emulator-b', 'shell', 'input', 'tap', '220', '222'],
-      ['emulator-b', 'shell', 'input', 'text', 'typed%svalue'],
+      ['emulator-b', 'shell', 'input', 'text', "'typed%svalue'"],
       ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
       ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
       ['emulator-b', 'shell', 'input', 'keyevent', '4']
+    ]);
+  });
+
+  it('quotes Android text before it reaches the remote shell', async () => {
+    const calls: string[][] = [];
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      return '';
+    };
+    const device = androidDeviceWithControls(['emulator-a'], run);
+
+    await device.typeText('A', "x';$(id);\\z");
+
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'input', 'text', String.raw`'x'"'"';$(id);\z'`]
+    ]);
+  });
+
+  it('preserves literal percent-s sequences while encoding spaces', async () => {
+    const calls: string[][] = [];
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      return '';
+    };
+    const device = androidDeviceWithControls(['emulator-a'], run);
+
+    await device.typeText('A', 'typed %s value');
+
+    expect(calls).toEqual([
+      ['emulator-a', 'shell', 'input', 'text', "'typed%s'"],
+      ['emulator-a', 'shell', 'input', 'text', "'%'"],
+      ['emulator-a', 'shell', 'input', 'text', "'s'"],
+      ['emulator-a', 'shell', 'input', 'text', "'%svalue'"]
     ]);
   });
 

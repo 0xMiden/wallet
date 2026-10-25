@@ -45,7 +45,7 @@ const adb: AdbRun = (serial, args) =>
   });
 
 export type IdbRun = (udid: string, args: readonly string[]) => Promise<string>;
-const idb: IdbRun = (udid, args) =>
+const idb: IdbRun = (_udid, args) =>
   new Promise((resolve, reject) => {
     execFile('idb', [...args], { encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
       error ? reject(error) : resolve(stdout)
@@ -105,7 +105,10 @@ export function parseIosKeyboardLayout(tree: string, label: string): NativeKeybo
 function xmlAttributes(tag: string): Record<string, string> {
   const attributes: Record<string, string> = {};
   for (const match of tag.matchAll(/([\w:-]+)="([^"]*)"/g)) {
-    attributes[match[1]] = match[2]
+    const name = match[1];
+    const value = match[2];
+    if (name === undefined || value === undefined) continue;
+    attributes[name] = value
       .replace(/&quot;/g, '"')
       .replace(/&apos;/g, "'")
       .replace(/&lt;/g, '<')
@@ -122,7 +125,11 @@ function androidNodes(hierarchy: string): Record<string, string>[] {
 function androidFrame(bounds: string | undefined): NativeRect | null {
   const match = bounds?.match(/^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/);
   if (!match) return null;
-  const [, left, top, right, bottom] = match.map(Number);
+  const left = Number(match[1]);
+  const top = Number(match[2]);
+  const right = Number(match[3]);
+  const bottom = Number(match[4]);
+  if (![left, top, right, bottom].every(Number.isFinite)) return null;
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
@@ -156,8 +163,32 @@ function walletIndex(device: MobileWalletKey): number {
   return device === 'A' ? 0 : 1;
 }
 
-function encodeInputText(value: string): string {
-  return value.replace(/%/g, '\\%').replace(/\s/g, '%s');
+function quoteRemoteShellArgument(value: string): string {
+  let quoted = "'";
+  for (const character of value) quoted += character === "'" ? `'"'"'` : character;
+  return `${quoted}'`;
+}
+
+function encodeAndroidInputText(value: string): string[] {
+  const arguments_: string[] = [];
+  let encoded = '';
+  const flush = () => {
+    if (encoded !== '') arguments_.push(quoteRemoteShellArgument(encoded));
+    encoded = '';
+  };
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value.charAt(index);
+    if (character === '%' && value.charAt(index + 1) === 's') {
+      flush();
+      arguments_.push(quoteRemoteShellArgument('%'), quoteRemoteShellArgument('s'));
+      index += 1;
+    } else {
+      encoded += /\s/.test(character) ? '%s' : character;
+    }
+  }
+  flush();
+  return arguments_;
 }
 
 /** `adb reverse --list`'s rules. With none it prints a bare newline, which a line count reads as one rule. */
@@ -200,7 +231,10 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
       await run(serial, ['shell', 'input', 'tap', String(x), String(y)]);
     },
     typeText: async (device, value) => {
-      await run(serialFor(device), ['shell', 'input', 'text', encodeInputText(value)]);
+      const serial = serialFor(device);
+      for (const text of encodeAndroidInputText(value)) {
+        await run(serial, ['shell', 'input', 'text', text]);
+      }
     },
     keyboardLayout: async (device, label) => {
       const serial = serialFor(device);

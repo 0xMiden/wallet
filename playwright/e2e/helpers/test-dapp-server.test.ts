@@ -107,6 +107,14 @@ describe('test dApp server', () => {
     );
   });
 
+  it('serves accessible text fields for native keyboard coverage', () => {
+    const html = createDappServer({ roots }).serve('/').body.toString('utf8');
+    const document = new JSDOM(html).window.document;
+
+    expect(document.querySelector('input#keyboard-input[aria-label="Keyboard input"]')).not.toBeNull();
+    expect(document.querySelector('textarea#keyboard-textarea[aria-label="Keyboard notes"]')).not.toBeNull();
+  });
+
   it('retries an extensionless import with .js, as the adapters need', () => {
     const server = createDappServer({ pageDir: pageFixture(), roots });
     const served = server.serve('/npm/@miden-sdk/miden-wallet-adapter-miden/dist/adapter');
