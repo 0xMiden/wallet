@@ -103,7 +103,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   const isEpoch = entry.bridgeProvider === 'epoch';
   const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
-  const payout = isUsdcx ? entry.usdcxBurn?.payout : undefined;
+  const payout = isUsdcx && isUsdcxPayoutConfirmed(entry.usdcxBurn) ? entry.usdcxBurn?.payout : undefined;
   const destinationChain = getChain(
     entry.bridgeAgglayerRoute?.chainId ?? entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID
   );
@@ -468,9 +468,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
         )}
       </DetailSection>
       {isUsdcx && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
-      {isUsdcx && isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt) && (
-        <p className="mt-3 px-4 text-caption text-muted">{t('usdcxPayoutDelayedNotice')}</p>
-      )}
+      {isUsdcx &&
+        !transactionFailed &&
+        !entry.isUnconfirmed &&
+        isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, Date.now(), restoredFromBackup) && (
+          <p className="mt-3 px-4 text-caption text-muted">{t('usdcxPayoutDelayedNotice')}</p>
+        )}
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&

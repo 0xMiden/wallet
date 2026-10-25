@@ -328,7 +328,9 @@ export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Sta
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
       if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
-      return isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, now) ? 'payoutDelayed' : 'burnConfirmed';
+      return isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, now, entry.restoredFromBackup === true)
+        ? 'payoutDelayed'
+        : 'burnConfirmed';
     case 'discarded':
       return 'burnDiscarded';
     case 'consuming':

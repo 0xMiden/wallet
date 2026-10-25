@@ -536,7 +536,13 @@ describe('BridgeClaimSection', () => {
           bridgeProvider: 'usdcx',
           bridgeDestinationNetwork: 5042002,
           status: 2,
-          usdcxBurn: { noteId: 'burn-note', destinationDomain: 26, phase: 'confirmed', ...burn },
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+            ...burn
+          },
           ...extra
         });
 
@@ -583,6 +589,41 @@ describe('BridgeClaimSection', () => {
         expect(screen.getByText('t:usdcxPayoutDelayed')).toBeInTheDocument();
         expect(screen.getByText('t:usdcxPayoutDelayedNotice')).toBeInTheDocument();
         expect(screen.getByText('t:usdcxWithdrawalNotice')).toBeInTheDocument();
+      });
+
+      it('shows no delayed notice on a restored row or one without a saved snapshot', () => {
+        const old = Date.now() - 30 * 3_600_000;
+        const { unmount } = render(
+          <BridgeClaimSection entry={burnRow({ confirmedAt: old }, { bridgeSettledAt: old })} restoredFromBackup />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        renderSection({
+          entry: burnRow({ confirmedAt: old, destinationBalanceBefore: undefined }, { bridgeSettledAt: old })
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
+
+      it('shows no delayed notice on a failed or unconfirmed row', () => {
+        const old = Date.now() - 30 * 3_600_000;
+        const { unmount } = render(
+          <BridgeClaimSection
+            entry={burnRow({ confirmedAt: old }, { bridgeSettledAt: old, status: FAILED })}
+            restoredFromBackup={false}
+          />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        renderSection({
+          entry: burnRow({ confirmedAt: old }, { bridgeSettledAt: old, isUnconfirmed: true, status: UNCONFIRMED })
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
+
+      it('shows Received and Circle fee only while the burn reads confirmed', () => {
+        renderSection({ entry: burnRow({ phase: 'consuming', payout }), sentAmount: 5_000_000n });
+        expect(screen.queryByText(/usdcxPayoutReceived/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
       });
 
       it('shows no delayed notice before 2 hours or on a paid row', () => {

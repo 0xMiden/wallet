@@ -756,7 +756,13 @@ describe('USDCx payout badge', () => {
       txType: 'bridged-send',
       bridgeProvider: 'usdcx',
       bridgeSettledAt: NOW - 3 * HOUR,
-      usdcxBurn: { noteId: 'note', destinationDomain: 26, phase: 'confirmed', ...extra }
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+        ...extra
+      }
     });
 
   it('reads Confirmed on a recorded payout', () => {
@@ -791,6 +797,16 @@ describe('USDCx payout badge', () => {
     });
     expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
     expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 30 * HOUR, payout }), NOW)).toBe('confirmed');
+  });
+
+  it('a restored row never reads Payout delayed', () => {
+    const restored = { ...burn({ confirmedAt: NOW - 30 * HOUR }), restoredFromBackup: true };
+    expect(bridgeBadgeStatusOf(restored, NOW)).toBe('burnConfirmed');
+  });
+
+  it('a row without a saved snapshot never reads Payout delayed', () => {
+    const old = burn({ confirmedAt: NOW - 30 * HOUR, destinationBalanceBefore: undefined });
+    expect(bridgeBadgeStatusOf(old, NOW)).toBe('burnConfirmed');
   });
 
   it('never reads Payout delayed before the burn confirmed', () => {

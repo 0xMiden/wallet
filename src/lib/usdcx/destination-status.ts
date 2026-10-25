@@ -101,13 +101,17 @@ export const USDCX_PAYOUT_DELAYED_MS = 7_200_000;
 /**
  * Confirmed, unpaid and past the delay. The clock starts when the burn first read confirmed; a row confirmed before
  * that was recorded counts from `settledAtMs`, the row's own settle time. A row the old balance rule confirmed is paid.
+ * Only a row the scan can settle is ever late: a restored row is never polled and one without a saved snapshot has no
+ * block to scan from, so both stay at Burn confirmed.
  */
 export function isUsdcxPayoutDelayed(
   burn: IUsdcxBurn | undefined,
   settledAtMs: number | undefined,
-  now = Date.now()
+  now = Date.now(),
+  restoredFromBackup = false
 ): boolean {
-  if (burn?.phase !== 'confirmed' || isUsdcxPayoutConfirmed(burn)) return false;
+  if (restoredFromBackup || burn?.phase !== 'confirmed' || !burn.destinationBalanceBefore) return false;
+  if (isUsdcxPayoutConfirmed(burn)) return false;
   const since = burn.confirmedAt ?? settledAtMs;
   return since !== undefined && now - since >= USDCX_PAYOUT_DELAYED_MS;
 }

@@ -400,6 +400,19 @@ describe('isUsdcxPayoutDelayed', () => {
     expect(isUsdcxPayoutDelayed(burnOf(row()), NOW - USDCX_PAYOUT_DELAYED_MS + 1, NOW)).toBe(false);
   });
 
+  it('is false for a restored row, which the scan never settles', () => {
+    const old = NOW - 3 * USDCX_PAYOUT_DELAYED_MS;
+    expect(isUsdcxPayoutDelayed(burnOf(row({ confirmedAt: old })), old, NOW, true)).toBe(false);
+    expect(isUsdcxPayoutDelayed(burnOf(row({ confirmedAt: old })), old, NOW, false)).toBe(true);
+  });
+
+  it('is false for a row without a saved snapshot, which the scan cannot settle', () => {
+    const old = NOW - 3 * USDCX_PAYOUT_DELAYED_MS;
+    expect(isUsdcxPayoutDelayed(burnOf(row({ confirmedAt: old, destinationBalanceBefore: undefined })), old, NOW)).toBe(
+      false
+    );
+  });
+
   it('is false with no clock to count from', () => {
     expect(isUsdcxPayoutDelayed(burnOf(row()), undefined, NOW)).toBe(false);
   });
