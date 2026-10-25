@@ -334,10 +334,7 @@ describe('the linear() predicate other motion sites ask', () => {
 });
 
 it('states the WebKit rAF cap as lifted by AppViewController', () => {
-  const files = [
-    '../../lib/mobile/high-refresh-rate.ts',
-    '../../lib/animation/spring-easing.ts'
-  ];
+  const files = ['../../lib/mobile/high-refresh-rate.ts', '../../lib/animation/spring-easing.ts'];
   const required = ['PreferPageRenderingUpdatesNear60FPSEnabled', 'AppViewController', '#1864'];
   const forbidden = [
     'capped at 60Hz by WebKit regardless',
