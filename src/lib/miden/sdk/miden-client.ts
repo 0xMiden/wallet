@@ -1059,6 +1059,8 @@ export interface WasmClientLockOptions {
   watchdogMs?: number;
   /** Names this hold in the eviction record — see `LockHolder.label`. */
   label?: string;
+  /** Runs synchronously when the hold is evicted, before its lock operation rejects. */
+  onEvicted?: () => void;
 }
 
 /**
@@ -1127,7 +1129,15 @@ export async function withWasmClientLock<T>(
     // unhandled rejection would re-enter `onRealmRejection` and evict the
     // innocent successor. Park a no-op handler so the abandonment is silent.
     running.catch(() => {});
-    return await Promise.race([running, holder.aborted]);
+    const aborted = holder.aborted.catch(error => {
+      try {
+        options?.onEvicted?.();
+      } catch (callbackError) {
+        console.error('[miden-client] lock eviction callback failed:', callbackError);
+      }
+      throw error;
+    });
+    return await Promise.race([running, aborted]);
   } catch (err) {
     // A trap that rejects the callback instead of abandoning it reaches no realm
     // listener, so the lock retires it through its own holder, still the owner here

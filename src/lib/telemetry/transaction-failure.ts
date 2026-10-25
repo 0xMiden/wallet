@@ -342,6 +342,12 @@ export const STARTUP_SELECTIONS = ['missing_start', 'before_session', 'future_st
 /** How long before the sweep the row entered its stored stage. */
 export const STORED_STAGE_AGES = ['under_1m', 'under_10m', 'under_1h', 'under_1d', 'over_1d'] as const;
 
+export const QUEUE_AGE_BUCKETS = ['30m_to_1h', '1h_to_6h', '6h_to_24h', 'over_24h', 'unavailable'] as const;
+
+export type QueueAgeBucket = (typeof QUEUE_AGE_BUCKETS)[number];
+
+export const SUBMIT_CROSSINGS = ['crossed', 'not_crossed', 'unavailable'] as const;
+
 export const SUBMIT_RECORDS = ['submit_recorded', 'no_submit_recorded'] as const;
 
 export interface StartupSnapshot {
@@ -374,6 +380,8 @@ export interface TransactionFailure {
   /** Read only with the `never_committed` reason. */
   neverCommittedRule?: NeverCommittedRule;
   error?: unknown;
+  /** The failure that preceded an expired `never_committed` verdict; only its fixed identity is reported. */
+  priorError?: unknown;
   delegateTransaction?: boolean;
   outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
@@ -384,6 +392,10 @@ export interface TransactionFailure {
   startup?: StartupSnapshot;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
+  /** Age bucket for a row that expired while queued; the timestamp and exact age are never reported. */
+  queueAge?: QueueAgeBucket;
+  /** Whether this attempt's committed evidence shows that it reached the submit call. */
+  submitCrossing?: (typeof SUBMIT_CROSSINGS)[number];
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
   submitLegMs?: number;
   /** Blocks the transaction waited from its execution to its submit, at the estimated block time. */
@@ -726,9 +738,14 @@ function submitOutcomeIdentity(
   hiddenDuringSubmit: boolean | undefined,
   submitLegMs: number | undefined
 ): string {
-  const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
+  const refusal = submitRequestFailure(error);
+  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal?.endpoint) ?? 'other';
+  const matched = grpcStatusOf(refusal?.kind)?.[0];
   const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
-  return `${coined('submit_outcome_unknown')}; grpc ${status}; ${submitContextIdentity(hiddenDuringSubmit, submitLegMs)}`;
+  return `${coined('submit_outcome_unknown')}; endpoint ${endpoint}; grpc ${status}; ${submitContextIdentity(
+    hiddenDuringSubmit,
+    submitLegMs
+  )}`;
 }
 
 function proofWaitBucket(
@@ -822,6 +839,8 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...REAPED_ATTEMPT_ORIGINS,
   ...STARTUP_SELECTIONS,
   ...STORED_STAGE_AGES,
+  ...QUEUE_AGE_BUCKETS,
+  ...SUBMIT_CROSSINGS,
   ...SUBMIT_RECORDS,
   'none',
   'unrecorded',
@@ -938,15 +957,29 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
             `; submit ${diagnostic<string>(failure.startup?.submit, SUBMIT_RECORDS, 'unavailable')}`
           ].join('')
         : '';
+    const queueAge =
+      reason === 'queued_expired' && failure.queueAge !== undefined
+        ? `; queue age ${diagnostic<string>(failure.queueAge, QUEUE_AGE_BUCKETS, 'unavailable')}`
+        : '';
+    const submitCrossing =
+      failure.submitCrossing === undefined
+        ? ''
+        : `; submit crossing ${diagnostic<string>(failure.submitCrossing, SUBMIT_CROSSINGS, 'unavailable')}`;
     const identity =
       reason === undefined
         ? failureIdentity(failure)
         : reason === 'never_committed' && failure.neverCommittedRule !== undefined
-          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}`
+          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}` +
+            (failure.neverCommittedRule !== 'expired' || failure.priorError === undefined
+              ? ''
+              : `; prior ${failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError })}`) +
+            (failure.neverCommittedRule === 'expired'
+              ? `; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
+              : '')
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${submitCrossing}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

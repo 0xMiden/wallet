@@ -56,6 +56,16 @@ export type BackgroundAge = (typeof BACKGROUND_AGES)[number];
 export const PAGE_NAVIGATIONS = ['navigate', 'reload', 'back_forward', 'prerender', 'unknown'] as const;
 export type PageNavigation = (typeof PAGE_NAVIGATIONS)[number];
 
+export const CONSUME_VERDICTS = [
+  'landed-local',
+  'landed-external',
+  'invalid',
+  'processing',
+  'not-landed',
+  'unknown'
+] as const;
+export type ConsumeVerdict = (typeof CONSUME_VERDICTS)[number];
+
 /**
  * The step a Guardian proposal's preparation was in when it failed, from the service lookup through the signing stage
  * to the submit crossing that hands the co-signed request to the transaction pipeline.
@@ -138,6 +148,7 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   confirmationRegistry?: ConfirmationRegistryState;
   backgroundAge?: BackgroundAge;
   pageNavigation?: PageNavigation;
+  consumeVerdict?: ConsumeVerdict;
   portReconnected?: boolean;
   reownNativeOrigin?: ReownNativeOrigin;
   reownWalletResponseCode?: ReownWalletResponseCode;
@@ -253,6 +264,7 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
       pageNavigation: suppliedNavigation,
+      consumeVerdict: suppliedConsumeVerdict,
       portReconnected,
       storageOwner: suppliedOwner,
       storageOperation: suppliedStorageOperation,
@@ -286,6 +298,8 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     Object.assign(safe, readConfirmationCode(suppliedCode));
     const pageNavigation = PAGE_NAVIGATIONS.find(value => value === suppliedNavigation);
     if (pageNavigation !== undefined) safe.pageNavigation = pageNavigation;
+    const consumeVerdict = CONSUME_VERDICTS.find(value => value === suppliedConsumeVerdict);
+    if (consumeVerdict !== undefined) safe.consumeVerdict = consumeVerdict;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);

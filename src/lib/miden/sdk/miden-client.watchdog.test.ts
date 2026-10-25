@@ -80,6 +80,26 @@ describe('wasm lock watchdog', () => {
     await second;
   });
 
+  it('notifies the holder owner before an eviction rejects its lock operation', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const onEvicted = jest.fn();
+    const options = { watchdogMs: WASM_LOCK_MIN_WATCHDOG_MS, onEvicted };
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}), options);
+    const wedgedRejects = expectRejection(wedged, {
+      name: 'WasmClientPoisonedError',
+      reason: 'watchdog'
+    });
+
+    try {
+      await jest.advanceTimersByTimeAsync(WASM_LOCK_MIN_WATCHDOG_MS);
+      await wedgedRejects;
+
+      expect(onEvicted).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('a paused hold is relaxed, not unwatched: it survives the normal ceiling and is evicted at the paused one', async () => {
     // Stopping the clock outright made the backstop optional exactly where a
     // trap is most likely, and on the realms whose traps the listener cannot see
