@@ -70,7 +70,7 @@ function ethereumMainnet(): L2BridgeInSource {
       chain: mainnet,
       domain: 0,
       usdc,
-      tokenMessengerWithFees: '0x71F54f818671Cd0d7Ea140Da213E5c8B5c92A408'
+      tokenMessengerWithFees: '0x71f54f818671cd0d7ea140da213e5c8b5c92a408'
     }
   };
 }
