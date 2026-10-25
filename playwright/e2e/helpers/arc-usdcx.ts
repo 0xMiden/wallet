@@ -88,6 +88,7 @@ const GATEWAY_MINTER_ABI = parseAbi([
 const PAYOUT_POLL_MS = 5_000;
 const HEAD_LAG_BUDGET_MS = 60_000;
 const RECEIPT_TIMEOUT_MS = 120_000;
+const ETHEREUM_MAINNET_RECEIPT_TIMEOUT_MS = 600_000;
 const RECEIPT_POLL_MS = 1_000;
 /**
  * A deposit leg's call is asked again at most this often, 2, 4 and 8 s apart, after a transient error or, when it is
@@ -928,8 +929,8 @@ export async function sendSigned(
 }
 
 /**
- * Polls `hash`'s receipt from `endpoints[0]` for RECEIPT_TIMEOUT_MS. A transient error counts as no receipt yet and
- * moves the poll to the next endpoint; a revert, or any other error, fails at once.
+ * Polls `hash`'s receipt for up to ten minutes on Ethereum mainnet, two minutes elsewhere. A transient error counts
+ * as no receipt yet and moves the poll to the next endpoint; a revert, or any other error, fails at once.
  * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
  */
 export async function waitForReceipt(
@@ -937,9 +938,10 @@ export async function waitForReceipt(
   deps: ArcReadDeps,
   hash: Hash
 ): Promise<TransactionReceipt> {
-  const { label } = chainOf(deps);
+  const { chainId, label } = chainOf(deps);
+  const timeoutMs = chainId === 1 ? ETHEREUM_MAINNET_RECEIPT_TIMEOUT_MS : RECEIPT_TIMEOUT_MS;
   const clock = deps.clock ?? realArcClock;
-  const deadline = clock.now() + RECEIPT_TIMEOUT_MS;
+  const deadline = clock.now() + timeoutMs;
   let index = 0;
   let lastTransient = 'none';
   for (;;) {
@@ -964,7 +966,7 @@ export async function waitForReceipt(
     }
     if (clock.now() >= deadline) {
       throw new Error(
-        `${label} transaction ${hash} has no receipt after ${RECEIPT_TIMEOUT_MS} ms (last transient error: ${lastTransient})`
+        `${label} transaction ${hash} has no receipt after ${timeoutMs} ms (last transient error: ${lastTransient})`
       );
     }
     await clock.sleep(RECEIPT_POLL_MS);
