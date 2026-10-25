@@ -2501,6 +2501,9 @@ describe('latest foreground intent across sessions', () => {
     emitMorphForSession('origin', 'settled', 'expanded');
     await settle();
 
+    expect(statusOf('origin')).toBe('parked');
+    expect(parked()).toContain('origin');
+    expect(lastVisibility('origin')).toBe(false);
     expect(control().session?.id).toBe('second');
     expect(statusOf('second')).toBe('active');
     expect(parked()).not.toContain('second');
@@ -2534,6 +2537,9 @@ describe('latest foreground intent across sessions', () => {
     emitMorphForSession('origin', 'settled', 'collapsed');
     await settle();
 
+    expect(statusOf('origin')).toBe('parked');
+    expect(parked()).toContain('origin');
+    expect(lastVisibility('origin')).toBe(false);
     expect(control().session?.id).toBe('second');
     expect(statusOf('second')).toBe('active');
     expect(parked()).not.toContain('second');
@@ -2580,6 +2586,9 @@ describe('latest foreground intent across sessions', () => {
     emitMorphForSession('origin', 'settled', 'collapsed');
     await settle();
 
+    expect(statusOf('origin')).toBe('parked');
+    expect(parked()).toContain('origin');
+    expect(lastVisibility('origin')).toBe(false);
     expect(control().session?.id).toBe('second');
     expect(statusOf('second')).toBe('active');
     expect(parked()).not.toContain('second');
