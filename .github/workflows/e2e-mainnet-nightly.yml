@@ -14,7 +14,11 @@ jobs:
           node-version: 22
       - uses: ./.github/actions/yarn-install
       - name: Test mounted registry and quote delivery without funded actions
-        run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/miden/swap/use-swap-tokens.override.test.tsx src/screens/swap-flow/SwapManager.test.tsx --json --outputFile=swap-reactivity-proof.json
+        run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/miden/swap src/screens/swap-flow --json --outputFile=swap-reactivity-proof.json
+      - name: Type check
+        run: yarn ts
+      - name: Lint changed swap files
+        run: yarn eslint src/lib/miden/swap/tokens.ts src/lib/miden/swap/use-swap-tokens.ts src/lib/miden/swap/use-swap-tokens.test.ts src/lib/miden/swap/use-swap-tokens.override.test.tsx src/screens/swap-flow/SwapManager.tsx src/screens/swap-flow/SwapManager.test.tsx
       - uses: actions/upload-artifact@v4
         if: always()
         with:
