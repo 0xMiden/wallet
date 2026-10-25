@@ -573,4 +573,6 @@ Evidence: expected-red 40229470185 failed both intended reset-order assertions. 
 - [x] Prove amount-anchor and quote-drift regression red in isolated CI (40231995182: three intended failures).
 - [x] Make each scenario choose one typed amount and verify the other before signing.
 - [x] Preserve no-price refusal; supply a valid price when exercising balance and zero-amount gates.
-- [ ] Verify focused CI, types, lint and formatting; hand off for normal review and full Swap rerun.
+- [x] Verify focused CI, types, lint and formatting; hand off for normal review and full Swap rerun.
+
+Expected-red 40231995182 failed all three intended helper assertions. Green 40232273778 passed 262 tests in four suites, TypeScript, named ESLint and Prettier. The candidate changes only harness inputs and fixture expectations to match #1823 exact-receive semantics; production financial guards are unchanged. Normal review, integration and full Swap E2E remain with the release coordinator.
