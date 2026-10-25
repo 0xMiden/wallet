@@ -54,10 +54,14 @@ button:disabled,
 @import 'vaul/style.css';
 
 /* Every sheet opens and closes on the tab-bar springs, so arriving at one feels like switching
- * nav tabs: bouncy in with a single overshoot, snappy out. vaul runs the open/close as a CSS
- * `animation` and the drag-release snap-back as an INLINE `transition`, so the springs arrive as
- * `linear()` curves in custom properties that `lib/ui/drawer.tsx` sets on both the sheet and its
- * backdrop (`lib/animation/sheet.ts`); the declared fallbacks are vaul's own stock curve.
+ * nav tabs: bouncy in with a single overshoot, snappy out. A bottom sheet's open/close runs the
+ * `@keyframes miden-sheet-open/close` that `lib/ui/drawer.tsx` installs (`lib/animation/sheet.ts`),
+ * sampled from the spring with `linear` timing between stops. Measured on an iPhone 17 Pro Max
+ * (#1841): WebKit runs a `linear()` timing function on the main thread at 60 Hz, but the same
+ * spring as sampled keyframes on the compositor at 120 Hz. vaul's drag-release snap-back is an
+ * INLINE `transition` and the backdrop fade a plain animation, so those still take the `linear()`
+ * curves from the custom properties `drawer.tsx` sets on both the sheet and its backdrop; the
+ * declared fallbacks are vaul's own stock curve.
  *
  * The snap-back rule clamps `transition-duration`/`transition-timing-function` with `!important`
  * (an inline style outranks a plain rule) but deliberately leaves `transition-property` alone:
@@ -69,8 +73,9 @@ button:disabled,
  * sheet may clip itself (`overflow-hidden` on DrawerContent would cut the skirt off).
  *
  * vaul inserts its own stylesheet at runtime, AFTER this one, so a tie in specificity goes to vaul:
- * each selector here carries one attribute more than the vaul rule it overrides
- * (`[data-vaul-drawer]`, `[data-vaul-overlay][data-vaul-snap-points=false]`). */
+ * each selector here carries one attribute more than the vaul rule it overrides (`[data-vaul-drawer]`,
+ * `[data-vaul-overlay][data-vaul-snap-points=false]`, and for the keyframes the four-attribute
+ * `[data-vaul-drawer][data-vaul-snap-points=false][data-vaul-drawer-direction=bottom][data-state=...]`). */
 [data-vaul-drawer][data-vaul-drawer-direction],
 [data-vaul-overlay][data-vaul-snap-points][data-state] {
   animation-duration: var(--sheet-open-duration, 0.5s);
@@ -83,6 +88,16 @@ button:disabled,
 [data-vaul-overlay][data-vaul-snap-points][data-state='closed'] {
   animation-duration: var(--sheet-close-duration, 0.5s);
   animation-timing-function: var(--sheet-close-easing, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+[data-vaul-drawer][data-vaul-snap-points='false'][data-vaul-drawer-direction='bottom'][data-slot='drawer-content'][data-state='open'] {
+  animation-name: miden-sheet-open;
+  animation-timing-function: linear;
+}
+
+[data-vaul-drawer][data-vaul-snap-points='false'][data-vaul-drawer-direction='bottom'][data-slot='drawer-content'][data-state='closed'] {
+  animation-name: miden-sheet-close;
+  animation-timing-function: linear;
 }
 
 /* vaul animates the sheet and its backdrop three ways, and reduced motion has
