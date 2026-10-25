@@ -121,17 +121,18 @@ describe('the harness node height read', () => {
 });
 
 describe('macOS height-query trust roots', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
   const certFile = process.env.SSL_CERT_FILE;
   const certDir = process.env.SSL_CERT_DIR;
 
   beforeEach(() => {
-    jest.replaceProperty(process, 'platform', 'darwin');
+    Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' });
     delete process.env.SSL_CERT_FILE;
     delete process.env.SSL_CERT_DIR;
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    Object.defineProperty(process, 'platform', platform);
     if (certFile === undefined) delete process.env.SSL_CERT_FILE;
     else process.env.SSL_CERT_FILE = certFile;
     if (certDir === undefined) delete process.env.SSL_CERT_DIR;
