@@ -561,6 +561,6 @@ Service validation: 145 Node tests passed with zero skips, all five targeted mut
 # Release Guardian forgot-password canonicalization
 
 - [x] Inspect main workflow history, failed trace and actual stale-state rejection.
-- [ ] Prove reset-before-canonical regression red in isolated CI.
-- [ ] Gate destructive reset on the existing Guardian settlement ledger.
+- [x] Prove reset-before-canonical regression red in isolated CI (40229470185: both intended assertions fail).
+- [x] Gate destructive reset on the existing Guardian settlement ledger.
 - [ ] Verify focused CI, types and lint; hand off for normal review.
