@@ -270,6 +270,7 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   }
 }));
 
+let mockRealSwapRegistry = false;
 let mockDefaultPairOverride: SwapPair | undefined;
 // The solver's pairs, by faucet id; undefined means every two tokens of the registry are a pair.
 let mockSolverPairs: Array<[string, string]> | undefined;
@@ -285,11 +286,20 @@ jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: () => undefined,
   normalizedFaucetId:
     jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
-  getSwapTokens: () => mockGetSwapTokens(),
-  getSwapPartners: (faucetId: string) => mockSwapPartners(faucetId),
-  isSwapPair: (faucetId: string, other: string) => mockSwapPartners(faucetId).some(token => token.faucetId === other),
+  getSwapTokens: () => mockRealSwapRegistry
+    ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapTokens()
+    : mockGetSwapTokens(),
+  subscribeSwapTokens: (listener: () => void) => jest.requireActual('lib/miden/swap/tokens').subscribeSwapTokens(listener),
+  getSwapTokensVersion: () => jest.requireActual('lib/miden/swap/tokens').getSwapTokensVersion(),
+  getSwapPartners: (faucetId: string) => mockRealSwapRegistry
+    ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapPartners(faucetId)
+    : mockSwapPartners(faucetId),
+  isSwapPair: (faucetId: string, other: string) => mockRealSwapRegistry
+    ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').isSwapPair(faucetId, other)
+    : mockSwapPartners(faucetId).some(token => token.faucetId === other),
   // The form opens on the document's first two tokens; mirror that over the mocked registry.
   getDefaultSwapPair: () => {
+    if (mockRealSwapRegistry) return jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getDefaultSwapPair();
     if (mockDefaultPairOverride !== undefined) return mockDefaultPairOverride;
     const [offer, request] = mockGetSwapTokens();
     return offer && request ? { offer, request } : null;
@@ -298,8 +308,12 @@ jest.mock('lib/miden/swap/tokens', () => ({
 
 // The gate reads the registry and the bridge config through these; the registry mock above decides the pair.
 jest.mock('lib/miden/swap/use-swap-tokens', () => ({
-  useSwapTokens: () => mockGetSwapTokens(),
-  swapAvailability: () => (mockGetSwapTokens().length >= 2 ? { state: 'available' } : { state: 'loading' })
+  useSwapTokens: () => mockRealSwapRegistry
+    ? jest.requireActual<typeof import('lib/miden/swap/use-swap-tokens')>('lib/miden/swap/use-swap-tokens').useSwapTokens()
+    : mockGetSwapTokens(),
+  swapAvailability: (snapshot: unknown) => mockRealSwapRegistry
+    ? jest.requireActual('lib/miden/swap/use-swap-tokens').swapAvailability(snapshot)
+    : (mockGetSwapTokens().length >= 2 ? { state: 'available' } : { state: 'loading' })
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({
@@ -459,6 +473,8 @@ const quoteAt = (
 });
 
 beforeEach(() => {
+  mockRealSwapRegistry = false;
+  jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens')._setSwapTokensForTest(undefined);
   jest.clearAllMocks();
   mockVaultPreflight.mockReset().mockResolvedValue(undefined);
   _resetNormalizedFaucetIdsForTest();
@@ -590,6 +606,43 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('SwapFlow / SwapManager', () => {
+  it('opens an already-mounted unavailable form when real registry override tokens arrive', async () => {
+    mockRealSwapRegistry = true;
+    const registry = jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens');
+    registry._setSwapTokensForTest([]);
+    renderFlow();
+    await act(async () => undefined);
+    expect(screen.getByTestId('swap-unavailable-notice')).toBeInTheDocument();
+
+    act(() => registry._setSwapTokensForTest([mockTokenA, mockTokenB]));
+
+    expect(screen.queryByTestId('swap-unavailable-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+    expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+  });
+
+  it('propagates a fulfilled real quote hook into the manager receive amount', async () => {
+    jest.useFakeTimers();
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockFormatBigInt.mockImplementation(formatBigInt);
+    mockQuoteSwap.mockImplementation(async (_offer, offeredAmount, _request, options) => ({
+      ...quoteAt('1', offeredAmount * 9995n / 10000n, { fillStatus: 'full', reason: null }),
+      offeredAmount,
+      slippageBps: options.slippageBps,
+      fetchedAt: Date.now()
+    }));
+    renderFlow();
+    setOffer('10');
+
+    await act(async () => jest.advanceTimersByTime(500));
+
+    expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9.995');
+    expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+  });
+
   it('renders both flow steps with the default token pair and the auto-derived quote', () => {
     renderFlow();
 
