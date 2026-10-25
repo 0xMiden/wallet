@@ -269,8 +269,8 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();
   await page.getByTestId('send-token-selector').nth(1).click();
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
-  const payInput = page.getByTestId('send-amount-input').first();
-  const receiveInput = page.getByTestId('send-amount-input').nth(1);
+  const payInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
+  const receiveInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
   if (opts.amountAnchor === 'pay') await payInput.fill(opts.payAmount);
   else await receiveInput.fill(opts.receiveAmount);
   await expect(payInput).toHaveValue(opts.payAmount);

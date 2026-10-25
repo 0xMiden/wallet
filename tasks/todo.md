@@ -576,3 +576,10 @@ Evidence: expected-red 40229470185 failed both intended reset-order assertions. 
 - [x] Verify focused CI, types, lint and formatting; hand off for normal review and full Swap rerun.
 
 Expected-red 40231995182 failed all three intended helper assertions. Green 40232273778 passed 262 tests in four suites, TypeScript, named ESLint and Prettier. The candidate changes only harness inputs and fixture expectations to match #1823 exact-receive semantics; production financial guards are unchanged. Normal review, integration and full Swap E2E remain with the release coordinator.
+
+# Release Swap guard loading-side follow-up
+
+- [x] Identify the exact failed boundary in full run 40232658245 and its trace.
+- [x] Prove absent-pay-input regression red in CI (40239138581: intended wrong-field value failure, 262 other tests passed).
+- [x] Bind amount edits and assertions to their existing pay/receive side containers.
+- [ ] Verify focused green CI and hand off for normal review and full Swap integration.
