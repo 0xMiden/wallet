@@ -412,31 +412,28 @@ listed against it are the PREVIOUS commit's.
 - Transaction states (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3) / Unconfirmed(4). Unconfirmed waits for the node's verdict on an unknown submit outcome, then becomes Completed or Failed (#1081).
 - Frontend receives sanitized state via `toFront()`; sensitive data (vault, keys) stays backend-only.
 
-## USDCx destination confirmation: accepted temporary limits
+## USDCx destination confirmation
 
-The user approved balance-based destination confirmation on 2026-10-09. Keep
-`Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
-the recipient's USDC balance is at least the balance saved before submission plus
-the expected payout. Circle deducts its fee from the payout, so the expected payout
-is the sent amount minus the destination's fee allowance (`minimumUsdcxPayout` in
-`lib/usdcx/constant.ts`, approved 2026-10-11; 0.1 USDC, and 1.5 USDC on Ethereum). The Send flow
-refuses a burn that does not exceed that allowance, and an older one it takes whole stays at
-`Burn confirmed`. Replace the allowance when an API
-reports the fee of one burn. Use the six-decimal ERC-20 USDC balance on the destination chain.
-RPC failures must leave the row open for another check. Old rows without a saved
-balance must stay at `Burn confirmed`.
+Keep `Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` only on
+Circle's exact payout mint: a GatewayMinter `AttestationUsed` log on the destination
+chain whose transaction input carries the burn note id, for the row's token and
+recipient, from the minter and depositor the Arc xReserve reports, after the block
+saved before submission, with a value from 1 up to the sent amount. Received is that
+value and the Circle fee is the sent amount minus it. Scan at most 5 chunks of 10,000
+blocks per check; an RPC failure leaves the row and its cursor where they were.
 
-This rule does not prove that a specific bridge payout arrived. Unrelated incoming
-transfers or concurrent withdrawals to the same address can cause false confirmation.
-Spending, gas costs on Arc, payout fees above the allowance, or missed balance changes can delay or prevent
-confirmation. These cases are accepted for now. Reviewer agents must treat them as
-known limits of the requested design, not as new blocking defects. Do not add event
-proof, transfer allocation, or fee accounting unless the user requests that work.
+A confirmed row not paid 2 hours after confirmation reads `Payout delayed`, for rows
+the wallet can scan only (not restored, snapshot saved). The review shows one line,
+`Circle fee`: deducted from the payout, varies with network fees. The allowances
+(`lib/usdcx/constant.ts`; 0.1 USDC, 1.5 USDC on Ethereum) are only the Send flow's
+refusal guard: it refuses a burn that does not exceed them. Rows confirmed earlier by
+the balance rule stay `Confirmed`. Restored rows and rows without a snapshot stay at
+`Burn confirmed`.
 
-History details can show one matching USDC transfer found through RPC. This link is
-also a best-effort match, not proof tied to the burn note. The lookup runs only when
-the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
-ending at the balance confirmation block, with a 10-second timeout and no retries.
-Match the token, the recipient, and an amount from the expected payout up to the sent amount; omit the link if no unique match is
-found or the RPC fails. Do not scan the full chain or make the link a condition for
-balance confirmation. A wider historical search needs a separate cost decision.
+The history link is the recorded mint. Only those legacy rows use the old best-effort
+transfer search (one `eth_getLogs` over at most 2,000 blocks, 10-second timeout, no
+retries, only when the details are open); omit its link unless one match is unique.
+
+Accepted limits: a fee above the attester's operator ceiling leaves a burn unpaid and
+it reads `Payout delayed`; pruned RPC history can leave an old row unscanned; Circle
+can be slow. Reviewer agents must treat these as known limits, not blocking defects.
