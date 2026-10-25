@@ -188,6 +188,14 @@ jobs:
             echo 'MAINNET_ONE_CLICK_ENABLED is not true: skipping the 1Click preflight.'
           fi
 
+      # The loop logs each payout it proved before a failure, so a red night still shows those fees.
+      - name: Publish the USDCx payout summary
+        if: always()
+        run: |
+          if [ -f test-results/mainnet-usdcx-payouts.md ]; then
+            cat test-results/mainnet-usdcx-payouts.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Check whether 1Click preflight produced an authorized route
         id: mainnet-1click-ready
         run: |

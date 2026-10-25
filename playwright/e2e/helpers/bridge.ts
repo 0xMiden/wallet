@@ -319,6 +319,8 @@ export interface UsdcxBurnRow {
   destinationBalanceConfirmed?: UsdcxBalanceSnapshotRow;
   /** The payout mint whose transaction carries the burn note id: the wallet's own destination confirmation. */
   payout?: UsdcxPayoutRow;
+  /** The last payout-chain block the wallet's scan for that mint covered. */
+  payoutScannedBlock?: string;
   attemptCount?: number;
   lastAttemptBlockNum?: number;
 }
@@ -486,6 +488,7 @@ function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
     destinationBalanceBefore: balanceSnapshotOf(objectField(source, 'destinationBalanceBefore')),
     destinationBalanceConfirmed: balanceSnapshotOf(objectField(source, 'destinationBalanceConfirmed')),
     payout: payoutOf(objectField(source, 'payout')),
+    payoutScannedBlock: stringField(source, 'payoutScannedBlock'),
     attemptCount: numberField(source, 'attemptCount'),
     lastAttemptBlockNum: numberField(source, 'lastAttemptBlockNum')
   };

@@ -139,6 +139,17 @@ describe('bridgedSendRowOf', () => {
     expect(paid({ transactionHash: payout.transactionHash, value: payout.value })).toBeUndefined();
   });
 
+  it("parses the block a row's payout scan reached", () => {
+    const scanned = bridgedSendRowOf({
+      ...projected,
+      extraInputs: {
+        ...projected.extraInputs,
+        usdcxBurn: { ...projected.extraInputs.usdcxBurn, payoutScannedBlock: '66531900' }
+      }
+    });
+    expect(scanned.extraInputs?.usdcxBurn?.payoutScannedBlock).toBe('66531900');
+  });
+
   it('drops a usdcxBurn that lacks its note id, domain or phase rather than half-typing it', () => {
     const row = bridgedSendRowOf({ ...projected, extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: '0x96' } } });
     expect(row.extraInputs?.usdcxBurn).toBeUndefined();

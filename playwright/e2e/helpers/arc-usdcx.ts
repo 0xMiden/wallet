@@ -81,7 +81,7 @@ export const XRESERVE_HARNESS_ABI = parseAbi([
   'error ZeroValue()'
 ]);
 
-const GATEWAY_MINTER_ABI = parseAbi([
+export const GATEWAY_MINTER_ABI = parseAbi([
   'event AttestationUsed(address indexed token, address indexed recipient, bytes32 indexed transferSpecHash, uint32 sourceDomain, bytes32 sourceDepositor, bytes32 sourceSigner, uint256 value)'
 ]);
 

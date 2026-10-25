@@ -79,6 +79,19 @@ describe('mainnet nightly workflow', () => {
     expect(agglayer).toContain('agglayer-night.md >> "$GITHUB_STEP_SUMMARY"');
   });
 
+  it('publishes the USDCx payout summary', () => {
+    const main = jobText('mainnet-nightly');
+    const loops = main.indexOf('yarn playwright test mainnet-bridge-loop.spec.ts');
+    const step = main.indexOf('      - name: Publish the USDCx payout summary\n');
+    expect(loops).toBeGreaterThanOrEqual(0);
+    expect(step).toBeGreaterThan(loops);
+    const body = main.slice(step, main.indexOf('\n      - name:', step + 1));
+    // always(): a night whose payout wait fails still reports the fees of the burns Circle paid.
+    expect(body).toMatch(/\n {8}if: always\(\)\n/);
+    expect(body).toContain('if [ -f test-results/mainnet-usdcx-payouts.md ]; then');
+    expect(body).toContain('cat test-results/mainnet-usdcx-payouts.md >> "$GITHUB_STEP_SUMMARY"');
+  });
+
   it('fails the AggLayer job when the Ethereum key is empty', () => {
     const agglayer = jobText('mainnet-agglayer');
     const guard = agglayer.indexOf('E2E_MAINNET_EVM_KEY is empty');
