@@ -54,10 +54,11 @@ function mint(overrides: Partial<FakeLog> & { value?: bigint } = {}): FakeLog {
 let inputs: Record<string, string>;
 let head: bigint;
 let logsByStart: Map<bigint, FakeLog[] | Error>;
+const getBlockNumber = jest.fn();
 const getLogs = jest.fn();
 const getTransaction = jest.fn();
 const client: PayoutReadClient = {
-  getBlockNumber: jest.fn(async () => head),
+  getBlockNumber,
   getLogs,
   getTransaction,
   readContract: jest.fn()
@@ -80,6 +81,7 @@ beforeEach(() => {
   inputs = { [txHash(1)]: `0xdeadbeef${NOTE_ID.slice(2).toUpperCase()}` };
   head = 11_999_999n;
   logsByStart = new Map([[11_992_000n, [mint()]]]);
+  getBlockNumber.mockReset().mockImplementation(async () => head);
   getTransaction
     .mockReset()
     .mockImplementation(async ({ hash }: { hash: string }) => ({ input: inputs[hash] ?? '0x' }));
@@ -150,6 +152,33 @@ it('keeps the cursor at the last chunk that answered when a later chunk throws',
   expect(getLogs).toHaveBeenCalledTimes(3);
   logsByStart = new Map([[11_992_000n, new Error('rate limited')]]);
   await expect(scan()).resolves.toEqual({});
+});
+
+it('keeps the cursor at the previous chunk when getTransaction throws while a chunk is checked', async () => {
+  head = 12_500_000n;
+  logsByStart = new Map([[12_002_000n, [mint({ blockNumber: 12_005_000n })]]]);
+  getTransaction.mockRejectedValueOnce(new Error('timeout'));
+  await expect(scan()).resolves.toEqual({ scannedTo: 12_001_999n });
+  logsByStart = new Map([[11_992_000n, [mint()]]]);
+  getTransaction.mockRejectedValueOnce(new Error('timeout'));
+  await expect(scan()).resolves.toEqual({});
+});
+
+// The harness takes a payout only when it is the one AttestationUsed log, so a batched mint is not split here either.
+it('skips a mint transaction carrying two payouts to the recipient', async () => {
+  logsByStart.set(11_992_000n, [mint(), mint({ logIndex: 1, value: 1_000_000n })]);
+  await expect(scan()).resolves.toEqual({ scannedTo: 11_999_999n });
+  expect(getTransaction).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['an empty', ''],
+  ['a bare 0x', '0x'],
+  ['a non-hex', 'note-1']
+])('reads nothing for %s burn note id', async (_name, burnNoteId) => {
+  await expect(scan({ burnNoteId })).resolves.toEqual({});
+  expect(getBlockNumber).not.toHaveBeenCalled();
+  expect(getLogs).not.toHaveBeenCalled();
 });
 
 it('reads nothing when the head is below fromBlock', async () => {

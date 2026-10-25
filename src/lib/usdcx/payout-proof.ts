@@ -116,11 +116,13 @@ export async function scanUsdcxPayout({
   source,
   client = readClient(chainId)
 }: PayoutScanArgs): Promise<{ payout?: UsdcxPayout; scannedTo?: bigint }> {
+  const noteId = burnNoteId.replace(/^0x/i, '').toLowerCase();
+  // Every calldata contains the empty string, so a row without a hex note id could match any mint.
+  if (!/^[0-9a-f]+$/.test(noteId)) return {};
   const latest = await client.getBlockNumber({ cacheTime: 0 });
   if (latest < fromBlock) return {};
   const last = fromBlock + BigInt(USDCX_PAYOUT_CHUNKS_PER_CHECK) * USDCX_PAYOUT_LOG_CHUNK - 1n;
   const end = latest < last ? latest : last;
-  const noteId = burnNoteId.replace(/^0x/i, '').toLowerCase();
   const holder = getAddress(recipient);
   let scannedTo: bigint | undefined;
   for (let start = fromBlock; start <= end; start += USDCX_PAYOUT_LOG_CHUNK) {
@@ -134,13 +136,26 @@ export async function scanUsdcxPayout({
         toBlock: stop,
         strict: true
       });
-      const ordered = [...logs].sort((a, b) =>
-        a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1
-      );
+      const ordered = [...logs]
+        .filter(
+          log =>
+            !log.removed &&
+            log.args.sourceDomain === source.sourceDomain &&
+            log.args.sourceDepositor.toLowerCase() === source.depositor
+        )
+        .sort((a, b) =>
+          a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1
+        );
+      // A transaction's logs share its block, so one chunk holds them all.
+      const payoutsPerTransaction = new Map<string, number>();
       for (const log of ordered) {
-        const { sourceDomain, sourceDepositor, value } = log.args;
-        if (log.removed || sourceDomain !== source.sourceDomain) continue;
-        if (sourceDepositor.toLowerCase() !== source.depositor || value <= 0n || value > amount) continue;
+        payoutsPerTransaction.set(log.transactionHash, (payoutsPerTransaction.get(log.transactionHash) ?? 0) + 1);
+      }
+      for (const log of ordered) {
+        const { value } = log.args;
+        if (value <= 0n || value > amount) continue;
+        // Which of two payouts in one mint is this burn's cannot be told apart, so a batched mint is left unpaid.
+        if (payoutsPerTransaction.get(log.transactionHash) !== 1) continue;
         const transaction = await client.getTransaction({ hash: log.transactionHash });
         if (!transaction.input.toLowerCase().includes(noteId)) continue;
         return {
