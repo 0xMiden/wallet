@@ -183,9 +183,24 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: jest.fn()
 }));
 
+const mockMobileBackHandlers = new Set<() => boolean | void>();
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: () => undefined
+  useMobileBackHandler: (handler: () => boolean | void, deps: React.DependencyList) => {
+    const { useEffect } = jest.requireActual<typeof import('react')>('react');
+    useEffect(() => {
+      mockMobileBackHandlers.add(handler);
+      return () => {
+        mockMobileBackHandlers.delete(handler);
+      };
+      // Match the production hook: re-register when the caller’s declared dependencies change.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, deps);
+  }
 }));
+const pressMobileBack = () => {
+  for (const handler of [...mockMobileBackHandlers].reverse()) if (handler() === true) return true;
+  return false;
+};
 
 // The fee read hits the chain; here the wallet estimates, as it does when the read fails.
 jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
@@ -454,12 +469,13 @@ const settle = () =>
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
+const mockCloseDeposit = jest.fn();
 const depositScreen = (evmAddress = '0x1111111111111111111111111111111111111111') => (
   <EvmBridgeDepositScreen
     evmAddress={evmAddress}
     midenAccount={midenAccount as never}
     onConnectAnother={jest.fn()}
-    onClose={jest.fn()}
+    onClose={mockCloseDeposit}
   />
 );
 
@@ -2098,6 +2114,134 @@ describe('user-visible USDCx deposit producers', () => {
     expect(await screen.findByText('bridgeDepositProcessing')).toBeInTheDocument();
     jest.useFakeTimers();
   };
+
+  it.each([false, true])(
+    'blocks all dismissal through source signing and restores it on success (executor: %s)',
+    async executor => {
+      let finish: () => void = () => undefined;
+      const pending = new Promise<`0x${string}`>(resolve => {
+        finish = () => resolve(`0x${'2'.repeat(64)}`);
+      });
+      const complete = async (id: string, update: typeof updateBridgedReceivePhase): Promise<`0x${string}`> => {
+        await pending;
+        await update(id, 'delivering');
+        return `0x${'2'.repeat(64)}`;
+      };
+      if (executor)
+        jest
+          .mocked(runUsdcxExecutorDeposit)
+          .mockImplementationOnce((id, _amount, _recipient, deps) => complete(id, deps.updatePhase));
+      else
+        jest
+          .mocked(runUsdcxDeposit)
+          .mockImplementationOnce((id, _amount, _recipient, deps) => complete(id, deps.updatePhase));
+      await realUsdcxReview(executor);
+      await startAndObserve();
+      expect(screen.queryByTestId('flow-close')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'hide' })).not.toBeInTheDocument();
+      await act(async () => {
+        expect(pressMobileBack()).toBe(true);
+      });
+      expect(mockCloseDeposit).not.toHaveBeenCalled();
+      expect(screen.getByText('bridgeDepositProcessing')).toBeInTheDocument();
+      await act(async () => {
+        finish();
+      });
+      await flushBridgePromises();
+      expect(screen.getByText('bridgeDepositSubmitted')).toBeInTheDocument();
+      await act(async () => {
+        pressMobileBack();
+      });
+      expect(mockCloseDeposit).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole('button', { name: 'done' }));
+      expect(mockCloseDeposit).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each(['User rejected request', 'Request cancelled', 'RPC unavailable'])(
+    'releases dismissal after %s and locks a new attempt again',
+    async message => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let refuse: (error: Error) => void = () => undefined;
+        jest.mocked(runUsdcxDeposit).mockReturnValueOnce(
+          new Promise((_resolve, reject) => {
+            refuse = reject;
+          })
+        );
+        await realUsdcxReview();
+        await startAndObserve();
+        expect(screen.queryByRole('button', { name: 'hide' })).not.toBeInTheDocument();
+        await act(async () => {
+          pressMobileBack();
+        });
+        expect(mockCloseDeposit).toHaveBeenCalledTimes(attempt * 2);
+        await act(async () => {
+          refuse(new Error(message));
+        });
+        await flushBridgePromises();
+        expect(screen.getByText('bridgeDepositFailed')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'done' }));
+        await act(async () => {
+          pressMobileBack();
+        });
+        expect(mockCloseDeposit).toHaveBeenCalledTimes((attempt + 1) * 2);
+        cleanup();
+        mockLiveBridgeRow = undefined;
+        jest.useRealTimers();
+      }
+    }
+  );
+
+  it('releases dismissal when persisting a terminal error fails', async () => {
+    let refuse: (error: Error) => void = () => undefined;
+    jest.mocked(runUsdcxDeposit).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        refuse = reject;
+      })
+    );
+    await realUsdcxReview();
+    await startAndObserve();
+    jest.mocked(updateBridgedReceivePhase).mockRejectedValueOnce(new Error('Synthetic write failure'));
+    await act(async () => {
+      refuse(new Error('User rejected request'));
+    });
+    await flushBridgePromises();
+    // The stored row is still submitting, but the local signing attempt is over. Never trap the user on a failed save.
+    expect(screen.getByText('bridgeDepositProcessing')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'hide' }));
+    await act(async () => {
+      pressMobileBack();
+    });
+    expect(mockCloseDeposit).toHaveBeenCalledTimes(2);
+  });
+
+  it('prevents backing out while creating the row and releases the review after creation fails', async () => {
+    let refuse: (error: Error) => void = () => undefined;
+    jest.mocked(initiateBridgedReceiveTransaction).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        refuse = reject;
+      })
+    );
+    await realUsdcxReview();
+    fireEvent.click(screen.getByTestId('bridge-deposit-review-confirm'));
+    await settle();
+    expect(screen.queryByTestId('page-back')).not.toBeInTheDocument();
+    await act(async () => {
+      pressMobileBack();
+    });
+    expect(screen.getByTestId('bridge-deposit-review-confirm')).toBeInTheDocument();
+    expect(mockCloseDeposit).not.toHaveBeenCalled();
+    await act(async () => {
+      refuse(new Error('Synthetic storage failure'));
+    });
+    await flushBridgePromises();
+    expect(screen.getByTestId('page-back')).toBeInTheDocument();
+    await act(async () => {
+      pressMobileBack();
+    });
+    await settle();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
+  });
 
   it.each([
     [
