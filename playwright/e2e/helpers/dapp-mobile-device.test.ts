@@ -125,6 +125,7 @@ describe('the iOS device', () => {
     const run: IdbRun = async (udid, args) => {
       calls.push([udid, ...args]);
       return JSON.stringify([
+        { type: 'Heading', AXLabel: 'Test dApp', frame: { x: 16, y: 120, width: 120, height: 24 } },
         { type: 'WebView', frame: { x: 0, y: 100, width: 390, height: 700 } },
         { type: 'TextField', AXLabel: 'dApp input', frame: { x: 20, y: 200, width: 350, height: 44 } },
         { type: 'Keyboard', frame: { x: 0, y: 580, width: 390, height: 300 } }
@@ -150,12 +151,13 @@ describe('the iOS device', () => {
     await device.dismissKeyboard('A');
 
     expect(calls).toEqual([
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
       ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '195', '222'],
       ['sim-a', 'ui', 'text', 'typed value', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'key', '4', '--udid', 'sim-a']
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '76', '132']
     ]);
   });
 
@@ -244,13 +246,14 @@ describe('Android native keyboard layout', () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      if (args.includes('uiautomator')) {
+      if (args.includes('cat')) {
         return '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][440,880]">' +
           '<node class="android.widget.EditText" content-desc="dApp input" focused="true" ' +
           'bounds="[20,200][420,244]" /></node><node package="com.android.inputmethod.latin" ' +
           'class="android.widget.FrameLayout" resource-id="com.android.inputmethod.latin:id/keyboard_view" ' +
           'bounds="[0,580][440,880]" /></hierarchy>';
       }
+      if (args.includes('uiautomator')) return 'UI hierchary dumped to: /data/local/tmp/miden-wallet-hierarchy.xml';
       if (args.includes('dumpsys')) return 'mInputShown=true';
       return '';
     };
@@ -266,13 +269,19 @@ describe('Android native keyboard layout', () => {
     await device.dismissKeyboard('B');
 
     expect(calls).toEqual([
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'tap', '220', '222'],
       ['emulator-b', 'shell', 'input', 'text', "'typed%svalue'"],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'keyevent', '4']
     ]);
   });
@@ -321,34 +330,35 @@ describe('Android native keyboard layout', () => {
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('dApp input');
   });
 
-  it('taps the Android field from the second hierarchy when the first has no frame', async () => {
+  it('does not tap when only the dump stdout contains the field', async () => {
     const calls: string[][] = [];
     let reads = 0;
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      if (!args.includes('uiautomator')) return '';
+      const field =
+        '<hierarchy><node class="android.widget.EditText" content-desc="dApp input" ' +
+        'bounds="[20,200][420,244]" /></hierarchy>';
+      if (args.includes('uiautomator')) return field;
+      if (!args.includes('cat')) return '';
       reads += 1;
       return reads === 1
-        ? '<hierarchy />'
-        : '<hierarchy><node class="android.widget.EditText" content-desc="dApp input" bounds="[20,200][420,244]" /></hierarchy>';
+        ? 'UI hierchary dumped to: /data/local/tmp/miden-wallet-hierarchy.xml'
+        : field;
     };
 
-    await androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input');
-
-    expect(calls).toEqual([
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
-      ['emulator-a', 'shell', 'input', 'tap', '220', '222']
-    ]);
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('nodes=0');
+    expect(calls.filter(call => call.includes('cat'))).toHaveLength(1);
+    expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 
   it('records the missed Android hierarchy and window focus', async () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      return args.includes('uiautomator')
-        ? '<hierarchy><node class="android.widget.EditText" content-desc="another input" bounds="[20,200][420,244]" /></hierarchy>'
-        : 'mCurrentFocus=Window{test com.miden.bread/.MainActivity}';
+      if (args.includes('cat')) {
+        return '<hierarchy><node class="android.widget.EditText" content-desc="another input" bounds="[20,200][420,244]" /></hierarchy>';
+      }
+      return args.includes('window') ? 'mCurrentFocus=Window{test com.miden.bread/.MainActivity}' : '';
     };
 
     await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(
@@ -389,7 +399,7 @@ describe('Android native keyboard layout', () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
-      if (args.includes('uiautomator')) {
+      if (args.includes('cat')) {
         return (
           '<hierarchy><node class="android.webkit.WebView" bounds="[0,100][1080,2400]">' +
           '<node class="android.widget.EditText" content-desc="dApp input" focused="true" bounds="[20,200][1020,244]" /></node></hierarchy>'
@@ -405,17 +415,21 @@ describe('Android native keyboard layout', () => {
       fieldFrame: { x: 20, y: 200, width: 1000, height: 44 }
     });
     expect(calls).toEqual([
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/dev/tty'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'input_method'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
     ]);
   });
 });
 
 describe('iOS native keyboard field lookup', () => {
-  it('taps the iOS field from the second tree when the first has no frame', async () => {
+  it('does not retry the host Application tree', async () => {
     const calls: string[][] = [];
     let reads = 0;
     const run: IdbRun = async (udid, args) => {
@@ -423,19 +437,17 @@ describe('iOS native keyboard field lookup', () => {
       if (!args.includes('describe-all')) return '';
       reads += 1;
       return reads === 1
-        ? '[]'
+        ? JSON.stringify([{ type: 'Application', AXLabel: 'Bread', frame: { x: 0, y: 0, width: 402, height: 874 } }])
         : JSON.stringify([
             { type: 'TextField', AXLabel: 'dApp input', frame: { x: 20, y: 200, width: 350, height: 44 } }
           ]);
     };
     const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
 
-    await device.tapAccessibilityLabel('A', 'dApp input');
+    await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/nodes=1.*Bread.*bounds=0,0,402,874/);
 
     expect(calls).toEqual([
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a'],
-      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', '195', '222']
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge']
     ]);
   });
 
@@ -449,5 +461,51 @@ describe('iOS native keyboard field lookup', () => {
 
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/iOS accessibility label not found.*nodes=/);
     expect(calls.some(call => call.includes('tap'))).toBe(false);
+  });
+});
+
+describe('iOS native keyboard dismissal', () => {
+  it.each([
+    { type: 'Heading', frame: { x: 16, y: 120, width: 120, height: 24 }, x: '76', y: '132' },
+    { type: 'StaticText', frame: { x: 16, y: 128, width: 120, height: 20 }, x: '76', y: '138' }
+  ])('taps the in-webview Test dApp $type and sends no key', async ({ type, frame, x, y }) => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([
+        { type, AXLabel: 'Test dApp', frame },
+        { type: 'WebView', frame: { x: 0, y: 100, width: 390, height: 700 } },
+        { type: 'Keyboard', frame: { x: 0, y: 580, width: 390, height: 300 } },
+        { type: 'TextField', AXLabel: 'Keyboard input', frame: { x: 20, y: 200, width: 350, height: 44 } },
+        { type: 'TextArea', AXLabel: 'Keyboard notes', frame: { x: 20, y: 260, width: 350, height: 88 } },
+        { type: 'Button', AXLabel: 'Connect', frame: { x: 20, y: 400, width: 80, height: 32 } }
+      ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await device.dismissKeyboard('A');
+
+    expect(calls).toEqual([
+      ['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge'],
+      ['sim-a', 'ui', 'tap', '--udid', 'sim-a', x, y]
+    ]);
+  });
+
+  it('sends no key or tap when no Test dApp heading is safe', async () => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([
+        { type: 'WebView', frame: { x: 0, y: 100, width: 390, height: 700 } },
+        { type: 'Keyboard', frame: { x: 0, y: 580, width: 390, height: 300 } },
+        { type: 'Button', AXLabel: 'Test dApp', frame: { x: 16, y: 140, width: 88, height: 32 } },
+        { type: 'Heading', AXLabel: 'Test dApp', frame: { x: 16, y: 0, width: 120, height: 20 } },
+        { type: 'Heading', AXLabel: 'Test dApp', frame: { x: 16, y: 600, width: 120, height: 24 } }
+      ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.dismissKeyboard('A')).rejects.toThrow('iOS keyboard dismiss found no safe Test dApp heading');
+    expect(calls).toEqual([['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge']]);
   });
 });
