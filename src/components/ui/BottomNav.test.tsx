@@ -293,6 +293,23 @@ describe('BottomNav — motion', () => {
     });
   });
 
+  it('leaves a sliding bubble alone when only the items change, as an unread flip does', () => {
+    const { container, rerender } = renderNav({ activeId: 'home' });
+    const bubble = bubbleOf(container)!;
+    rerender(<BottomNav items={items} activeId="settings" onChange={jest.fn()} />);
+    const [slide] = playedOn(bubble);
+    bubble.style.transform = 'matrix(1, 0, 0, 1, -40, 0)';
+    bubbleShift = -40;
+    const flipped = items.map(item => (item.id === 'activity' ? { ...item, unread: { label: 'Unread' } } : item));
+
+    rerender(<BottomNav items={flipped} activeId="settings" onChange={jest.fn()} />);
+
+    expect(playedOn(bubble)).toEqual([slide]);
+    expect(slide!.cancel).not.toHaveBeenCalled();
+    expect(playedOn(bubble.parentElement)).toHaveLength(0);
+    expect(bubble.parentElement!.style.left).toBe(`${2 * TAB_STEP + 4}px`);
+  });
+
   it('catches a running slide where it is drawn and goes on from there', () => {
     const { container, rerender } = renderNav({ activeId: 'home' });
     const bubble = bubbleOf(container)!;

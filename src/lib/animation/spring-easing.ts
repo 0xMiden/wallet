@@ -1,23 +1,23 @@
 /**
- * Converts a spring preset from `springs.ts` into a `linear()` easing that the
- * compositor can run on its own.
+ * Turns a spring preset from `springs.ts` into a fixed-duration curve that CSS or the Web
+ * Animations API can play without framer stepping it.
  *
  * Framer Motion computes springs on the main thread: it steps the physics every
  * `requestAnimationFrame` and writes the result to an element's inline style.
- * That is the right default — it is interruptible, composable, and driven by the
- * same clock as the rest of the app. It also means the animation can only be as
- * smooth as the main thread is idle, and inside `WKWebView` it can only ever be
- * as fast as `requestAnimationFrame`, which Apple caps at 60Hz regardless of the
+ * That is the right default - it is interruptible, composable, and driven by the
+ * same clock as the rest of the app. Inside `WKWebView` it can only ever be as
+ * fast as `requestAnimationFrame`, which Apple caps at 60Hz regardless of the
  * display (WebKit bug 294338).
  *
- * A Web Animations API animation over `transform` alone escapes both limits: it
- * is handed to the compositor, so it neither blocks on main-thread work nor
- * samples at the `rAF` rate. The cost is that it has to be described up front as
- * a fixed duration plus an easing curve, which a spring is not. So we solve the
- * spring analytically, sample it, and hand the samples over as `linear()`.
+ * Measured on an iPhone 17 Pro Max (iOS 26.5, #1841), WebKit runs a `linear()`
+ * timing function at 60Hz too, like rAF. Keyframes sampled from the spring with
+ * linear segments between them (`springKeyframeStops`), and `cubic-bezier`
+ * timing, run at 120Hz on the compositor. So a spring that has to run at the
+ * display's rate is solved analytically and handed over as sampled keyframes;
+ * `springToLinearEasing` remains for callers that need a single timing function.
  *
- * Use this only where those two properties are worth losing framer's
- * interruptibility — a gesture release that must not hitch is the motivating
+ * Use this only where those properties are worth losing framer's
+ * interruptibility - a gesture release that must not hitch is the motivating
  * case. Everything else should keep using `useMotion` / `useSprings`.
  */
 
