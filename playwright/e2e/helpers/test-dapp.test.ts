@@ -409,7 +409,7 @@ describe('decline replies that close their confirmation popup', () => {
   ) {
     const popupEvents = new EventEmitter();
     const contextEvents = new EventEmitter();
-    let closed = false;
+    let closed = options.closedBeforeClick ?? false;
     let connected = true;
     let settle: (value: unknown) => void = () => undefined;
     const pending = new Promise(resolve => {
@@ -456,6 +456,7 @@ describe('decline replies that close their confirmation popup', () => {
     ['an accepted reply', { answer: { ok: true, value: 'accepted' } }],
     ['a different refusal', { answer: { ok: false, error: { name: 'OtherError', message: 'WRONG_ANSWER' } } }],
     ['a popup crash', { answer: denied, crash: true }],
+    ['an already closed popup', { answer: denied, closedBeforeClick: true }],
     ['a closed browser context', { answer: denied, contextClose: true }]
   ] as const)('does not hide TargetClosed after %s', async (_name, options) => {
     const { dapp, pending } = scenario(options);
@@ -495,14 +496,21 @@ describe('decline replies that close their confirmation popup', () => {
   });
 
   it('still times out when a successful decline click has no answer', async () => {
-    const { dapp, pending } = scenario({ clickSucceeds: true });
-    await expect(
-      answerPrompt(
-        dapp,
-        () => pending,
-        { kind: 'transaction', decision: 'decline', origin: dapp.origin },
-        contextFor(deadlineIn(25, 'R1'))
-      )
-    ).rejects.toThrow(/transaction answer|deadline|budget/i);
+    jest.useFakeTimers();
+    try {
+      const { dapp, pending } = scenario({ clickSucceeds: true });
+      const assertion = expect(
+        answerPrompt(
+          dapp,
+          () => pending,
+          { kind: 'transaction', decision: 'decline', origin: dapp.origin },
+          contextFor(deadlineIn(1_000, 'R1'))
+        )
+      ).rejects.toThrow(/transaction answer|deadline|budget/i);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await assertion;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
