@@ -566,3 +566,11 @@ Service validation: 145 Node tests passed with zero skips, all five targeted mut
 - [x] Verify focused CI, types and lint; hand off for normal review.
 
 Evidence: expected-red 40229470185 failed both intended reset-order assertions. Green 40230016357 passed 106 tests in three suites, TypeScript, named ESLint and formatting. Product recovery checks are unchanged; the test now waits for its funded Guardian backup to canonicalize before destructive reset. Normal review and funded release validation remain with the release coordinator.
+
+# Release Swap amount-anchor fixtures
+
+- [x] Inspect same-workflow main history, traces, screenshots and exact final quote amounts.
+- [x] Prove amount-anchor and quote-drift regression red in isolated CI (40231995182: three intended failures).
+- [x] Make each scenario choose one typed amount and verify the other before signing.
+- [x] Preserve no-price refusal; supply a valid price when exercising balance and zero-amount gates.
+- [ ] Verify focused CI, types, lint and formatting; hand off for normal review and full Swap rerun.
