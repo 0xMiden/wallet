@@ -60,8 +60,8 @@ function diagnosticMatches(value: unknown): string[] {
   return typeof value === 'string' ? DIAGNOSTIC_LABELS.filter(label => value.trim() === label) : [];
 }
 let keyCapabilityRecorded = false;
-function diagnosticKeyCapability(nodes: Record<string, unknown>[], stage: string): void {
-  if (keyCapabilityRecorded || !stage.startsWith('before-native-typing')) return;
+function diagnosticKeyCapability(nodes: Record<string, unknown>[], stage: string, force = false): void {
+  if (!force && (keyCapabilityRecorded || !stage.startsWith('before-native-typing'))) return;
   const keyboard = nodes.find(node => node.type === 'Keyboard');
   const frame = keyboard ? iosFrame(keyboard.frame) : null;
   const viewportNode = nodes.find(node => node.type === 'WebView');
@@ -113,6 +113,8 @@ function diagnosticKeyCapability(nodes: Record<string, unknown>[], stage: string
           index,
           label: safeLabel,
           unknownLabel: safeLabel === null,
+          rawLabelIsLiteralSpace: node.AXLabel === ' ',
+          literalSpaceKeys: ['AXLabel', 'label', 'title'].filter(key => node[key] === ' '),
           type: node.type,
           role: node.role,
           traits: node.traits,
@@ -622,6 +624,7 @@ export function iosDevice(
   let diagnosticRead = 0;
   let diagnosticStage = 'before-native-typing';
   let preferencesRead = false;
+  let numbersProbeAttempted = false;
   const treeFor = async (udid: string): Promise<string> => {
     if (!preferencesRead) {
       preferencesRead = true;
@@ -629,6 +632,77 @@ export function iosDevice(
     }
     const tree = await run(udid, ['ui', 'describe-all', '--udid', udid, '--api', 'axbridge']);
     if (diagnosticRead < 12) diagnosticIos(tree, `${diagnosticStage}-${diagnosticRead++}`);
+    if (!numbersProbeAttempted && diagnosticStage === 'before-native-typing') {
+      const nodes = iosNodes(tree);
+      const keyboardNode = nodes.find(node => node.type === 'Keyboard');
+      const keyboard = keyboardNode ? iosFrame(keyboardNode.frame) : null;
+      const viewportNode = nodes.find(node => node.type === 'WebView');
+      const viewport = viewportNode ? iosFrame(viewportNode.frame) : null;
+      const editing = nodes.filter(
+        node =>
+          iosLabel(node) === 'Keyboard input' &&
+          Array.isArray(node.traits) &&
+          node.traits.includes('TextEntry') &&
+          node.traits.includes('IsEditing')
+      );
+      if (
+        keyboard &&
+        viewport &&
+        keyboard.width > 0 &&
+        keyboard.height > 0 &&
+        editing.length === 1 &&
+        keyboard.y >= viewport.y &&
+        keyboard.y + keyboard.height <= viewport.y + viewport.height
+      ) {
+        numbersProbeAttempted = true;
+        const candidates = nodes
+          .filter(
+            node =>
+              iosLabel(node) === 'numbers' &&
+              (node.type === 'Key' || node.role === 'Key') &&
+              Array.isArray(node.traits) &&
+              node.traits.includes('KeyboardKey')
+          )
+          .flatMap(node => {
+            const frame = iosFrame(node.frame);
+            return frame &&
+              frame.width > 0 &&
+              frame.height > 0 &&
+              frame.x >= keyboard.x &&
+              frame.y >= keyboard.y &&
+              frame.x + frame.width <= keyboard.x + keyboard.width &&
+              frame.y + frame.height <= keyboard.y + keyboard.height
+              ? [frame]
+              : [];
+          });
+        if (candidates.length === 1 && candidates[0]) {
+          const { x, y } = point(candidates[0]);
+          try {
+            await run(udid, ['ui', 'tap', '--udid', udid, String(x), String(y)]);
+            const numericTree = await run(udid, ['ui', 'describe-all', '--udid', udid, '--api', 'axbridge']);
+            diagnosticKeyCapability(iosNodes(numericTree), 'numbers-layout', true);
+            console.log(
+              'NATIVE_KEY_MODE_DIAGNOSTIC ' +
+                JSON.stringify({ action: 'exact-native-numbers-key', status: 'observed', candidateCount: 1 })
+            );
+          } catch {
+            console.log(
+              'NATIVE_KEY_MODE_DIAGNOSTIC ' +
+                JSON.stringify({ action: 'exact-native-numbers-key', status: 'unavailable', candidateCount: 1 })
+            );
+          }
+        } else {
+          console.log(
+            'NATIVE_KEY_MODE_DIAGNOSTIC ' +
+              JSON.stringify({
+                action: 'exact-native-numbers-key',
+                status: 'not-unique',
+                candidateCount: candidates.length
+              })
+          );
+        }
+      }
+    }
     return tree;
   };
   return {
