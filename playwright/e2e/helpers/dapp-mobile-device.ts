@@ -274,6 +274,14 @@ function androidMissedSummary(hierarchy: string): string {
   );
 }
 
+function androidUnreadyWebViewShell(hierarchy: string): boolean {
+  const nodes = androidNodes(hierarchy);
+  return (
+    nodes.some(node => /webview/i.test(node.class ?? '')) &&
+    !nodes.some(node => /edittext|textfield/i.test(node.class ?? ''))
+  );
+}
+
 function iosMissedSummary(tree: string): string {
   return missedTreeSummary(
     iosNodes(tree).map(node => {
@@ -386,10 +394,13 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
     surface: 'android',
     tapAccessibilityLabel: async (device, label) => {
       const serial = serialFor(device);
-      const found = await readLabeledField(
-        () => hierarchyFor(serial),
-        tree => parseAndroidKeyboardLayout(tree, '', label).fieldFrame
-      );
+      const frameOf = (tree: string): NativeRect | null => parseAndroidKeyboardLayout(tree, '', label).fieldFrame;
+      const first = await readLabeledField(() => hierarchyFor(serial), frameOf);
+      // A WebView with no text field is still connecting; one fresh dump is the bound.
+      const found =
+        first.frame === null && androidUnreadyWebViewShell(first.tree)
+          ? await readLabeledField(() => hierarchyFor(serial), frameOf)
+          : first;
       if (found.frame) {
         const { x, y } = point(found.frame);
         await run(serial, ['shell', 'input', 'tap', String(x), String(y)]);
