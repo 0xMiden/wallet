@@ -563,4 +563,6 @@ Service validation: 145 Node tests passed with zero skips, all five targeted mut
 - [x] Inspect main workflow history, failed trace and actual stale-state rejection.
 - [x] Prove reset-before-canonical regression red in isolated CI (40229470185: both intended assertions fail).
 - [x] Gate destructive reset on the existing Guardian settlement ledger.
-- [ ] Verify focused CI, types and lint; hand off for normal review.
+- [x] Verify focused CI, types and lint; hand off for normal review.
+
+Evidence: expected-red 40229470185 failed both intended reset-order assertions. Green 40230016357 passed 106 tests in three suites, TypeScript, named ESLint and formatting. Product recovery checks are unchanged; the test now waits for its funded Guardian backup to canonicalize before destructive reset. Normal review and funded release validation remain with the release coordinator.
