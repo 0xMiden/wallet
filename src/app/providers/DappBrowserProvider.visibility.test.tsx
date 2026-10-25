@@ -2810,6 +2810,9 @@ describe('latest foreground intent across sessions', () => {
     expect(control().session?.id).toBe('second');
 
     expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded' });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
     expect(control().motion).toBeNull();
 
     await act(async () => {
@@ -2862,6 +2865,9 @@ describe('latest foreground intent across sessions', () => {
     await waitFor(() => expect(control().session?.id).toBe('second'));
 
     expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded' });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
     expect(control().motion).toBeNull();
 
     await act(async () => {
