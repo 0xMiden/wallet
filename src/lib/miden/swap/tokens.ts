@@ -54,6 +54,18 @@ export interface SwapToken {
 }
 
 let _swapTokensOverride: SwapToken[] | undefined;
+let swapTokensVersion = 0;
+const swapTokenListeners = new Set<() => void>();
+
+export const getSwapTokensVersion = (): number => swapTokensVersion;
+
+/** Subscribe to override changes even when the bridge-config snapshot stays the same. */
+export const subscribeSwapTokens = (listener: () => void): (() => void) => {
+  swapTokenListeners.add(listener);
+  return () => {
+    swapTokenListeners.delete(listener);
+  };
+};
 
 /** The marks `components/TokenLogo` ships. */
 const TOKEN_MARKS: readonly string[] = ['MIDEN', 'ETH', 'USDC', 'BTC'];
@@ -173,6 +185,8 @@ export const getDefaultSwapPair = (): SwapPair | null => {
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
 export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
   _swapTokensOverride = tokens;
+  swapTokensVersion++;
+  for (const listener of swapTokenListeners) listener();
 };
 
 /** The registry token for a faucet in any spelling of its id (a persisted row's bech32, the solver's hex). */
