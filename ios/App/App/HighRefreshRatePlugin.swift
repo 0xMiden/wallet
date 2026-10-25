@@ -13,21 +13,21 @@ private let logger = OSLog(subsystem: "com.miden.wallet", category: "HighRefresh
 /// - `CADisableMinimumFrameDurationOnPhone` (already set in Info.plist) lifts the
 ///   ProMotion cap for native UIKit / Core Animation. It does nothing for the web
 ///   view's own compositor.
-/// - `requestAnimationFrame` inside WKWebView is capped at 60Hz by WebKit by
-///   design, on every iOS version to date (WebKit bug 294338). No entitlement,
-///   flag, or API changes that. So anything animated from JavaScript — which is
-///   how Framer Motion works — cannot exceed 60Hz no matter what this plugin does.
+/// - `requestAnimationFrame` inside WKWebView is capped at 60Hz by WebKit's
+///   `PreferPageRenderingUpdatesNear60FPSEnabled` preference (WebKit bug 294338),
+///   which has no public setting. `AppViewController` turns it off through SPI
+///   (#1864); nothing this plugin does changes it.
 ///
-/// What is left is the web view's compositor. Only animations that live there — a
-/// Web Animations API transform, a CSS animation — could benefit.
+/// What this plugin targets is the web view's compositor: animations that live
+/// there, a Web Animations API transform or a CSS animation.
 ///
 /// Measured on an iPhone 17 Pro (iOS 26.5): a display link that asks for the
 /// maximum gets ~120fps, while a default one gets 60.3fps, and a boost being
 /// active does not change what the default link is served. So this raises the rate
 /// for its own link and demonstrably not for anything else. Whether it reaches
-/// WebKit's compositor is unproven and, with the tools available, unprovable —
-/// `rAF` is capped at 60Hz so it cannot observe anything faster, and a native
-/// display link measures a different subsystem.
+/// WebKit's compositor is unproven: this was measured while `rAF` was capped at
+/// 60Hz, so it could not observe anything faster, and a native display link
+/// measures a different subsystem.
 ///
 /// Kept as instrumentation on that basis: `measure` and `info` answered the
 /// question that JavaScript could not. Treat `boost` as unproven.
@@ -98,8 +98,8 @@ public class HighRefreshRatePlugin: CAPPlugin, CAPBridgedPlugin {
     /// Reports the refresh rate the app is actually being served, measured from a
     /// display link.
     ///
-    /// This exists because the rate cannot be measured from JavaScript: `rAF` is
-    /// itself capped at 60Hz, so it can never observe anything faster than itself.
+    /// This exists because the rate could not be measured from JavaScript while
+    /// `rAF` was capped at 60Hz, before #1864.
     ///
     /// Caveat worth stating plainly — this measures Core Animation's callback rate
     /// for the app, not the web view compositor's commit rate. A result of 120
