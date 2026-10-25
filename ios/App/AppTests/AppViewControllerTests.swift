@@ -1,7 +1,7 @@
 import XCTest
 import WebKit
 import Capacitor
-import InappbrowserPlugin
+@testable import InappbrowserPlugin
 @testable import App
 
 final class AppViewControllerTests: XCTestCase {

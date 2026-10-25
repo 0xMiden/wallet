@@ -726,7 +726,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
         // Enable JavaScript to run automatically (needed for preShowScript and Firebase polyfill)
         webConfiguration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        WebKitFeature.disable(WebKitFeature.preferNear60FPS, in: webConfiguration.preferences)
+        WebKitFeature.disablePreferNear60FPS(in: webConfiguration.preferences)
 
         // Enhanced configuration for Google Pay support (only when enabled)
         if enableGooglePaySupport {

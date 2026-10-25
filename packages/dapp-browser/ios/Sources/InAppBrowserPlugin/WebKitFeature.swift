@@ -7,9 +7,9 @@ import os.log
 public enum WebKitFeature {
     /// On by default, it holds `requestAnimationFrame`, and so every animation JavaScript drives, at 60 fps on a
     /// 120 Hz display (#1864).
-    public static let preferNear60FPS = "PreferPageRenderingUpdatesNear60FPSEnabled"
+    static let preferNear60FPS = "PreferPageRenderingUpdatesNear60FPSEnabled"
 
-    public enum Outcome: Equatable {
+    enum Outcome: Equatable {
         case disabled
         /// This WebKit has no feature list or no feature setter.
         case unsupported
@@ -22,7 +22,7 @@ public enum WebKitFeature {
     /// Leaves the preferences untouched unless WebKit offers both the feature list and the setter and lists `key`.
     /// `featureSource` is the object asked for `_features`; tests pass one without it.
     @discardableResult
-    public static func disable(
+    static func disable(
         _ key: String,
         in preferences: WKPreferences,
         featureSource: AnyObject = WKPreferences.self
@@ -53,5 +53,9 @@ public enum WebKitFeature {
         let setEnabled = unsafeBitCast(preferences.method(for: setEnabledSelector), to: SetEnabled.self)
         setEnabled(preferences, setEnabledSelector, false, feature)
         return .disabled
+    }
+
+    public static func disablePreferNear60FPS(in preferences: WKPreferences) {
+        disable(preferNear60FPS, in: preferences)
     }
 }

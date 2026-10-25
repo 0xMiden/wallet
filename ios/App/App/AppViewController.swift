@@ -15,7 +15,7 @@ class AppViewController: CAPBridgeViewController {
 
     override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
         let configuration = super.webViewConfiguration(for: instanceConfiguration)
-        WebKitFeature.disable(WebKitFeature.preferNear60FPS, in: configuration.preferences)
+        WebKitFeature.disablePreferNear60FPS(in: configuration.preferences)
         return configuration
     }
 

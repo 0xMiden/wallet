@@ -296,3 +296,30 @@ it('states the WebKit rAF cap as lifted by AppViewController', () => {
     .map(file => path.relative(path.join(__dirname, '../../..'), file));
   expect(offenders).toEqual([]);
 });
+
+it('exports only disablePreferNear60FPS from WebKitFeature', () => {
+  const root = path.join(__dirname, '../../..');
+  const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
+  const feature = read('packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WebKitFeature.swift');
+  const publicLines = feature
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('public '));
+  expect(publicLines).toEqual([
+    'public enum WebKitFeature {',
+    'public static func disablePreferNear60FPS(in preferences: WKPreferences) {'
+  ]);
+  expect(feature.includes('func disable(')).toBe(true);
+  expect(feature.includes('featureSource: AnyObject = WKPreferences.self')).toBe(true);
+  for (const file of [
+    'ios/App/App/AppViewController.swift',
+    'packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift'
+  ]) {
+    const source = read(file);
+    expect([file, source.includes('WebKitFeature.disablePreferNear60FPS(in:')]).toEqual([file, true]);
+    expect([file, source.includes('WebKitFeature.disable(')]).toEqual([file, false]);
+  }
+  expect(read('ios/App/AppTests/AppViewControllerTests.swift').includes('@testable import InappbrowserPlugin')).toBe(
+    true
+  );
+});
