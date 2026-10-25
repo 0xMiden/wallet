@@ -19,10 +19,10 @@ on:
       runner:
         description: Runner for the main job; a scheduled run uses the default.
         type: choice
-        default: warp-ubuntu-latest-x64-8x
+        default: ubuntu-latest
         options:
-          - warp-ubuntu-latest-x64-8x
           - ubuntu-latest
+          - warp-ubuntu-latest-x64-8x
 
 permissions:
   contents: read
@@ -36,7 +36,7 @@ concurrency:
 jobs:
   mainnet-nightly:
     name: Chrome mainnet round trip
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'warp-ubuntu-latest-x64-8x' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 225 || 180 }}
     outputs:
       started: ${{ steps.started.outputs.started }}

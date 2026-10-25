@@ -48,12 +48,12 @@ describe('mainnet nightly workflow', () => {
     return lines.slice(at, end === -1 ? undefined : end).join('\n');
   };
 
-  it('runs the main job on the dispatched runner, and on the paid one for the schedule', () => {
+  it('runs the main job on the dispatched runner, and on the free one for the schedule', () => {
     expect(text).toMatch(
-      /workflow_dispatch:\n {4}inputs:\n {6}runner:\n(?: {8}.*\n)*? {8}default: warp-ubuntu-latest-x64-8x\n {8}options:\n {10}- warp-ubuntu-latest-x64-8x\n {10}- ubuntu-latest\n/
+      /workflow_dispatch:\n {4}inputs:\n {6}runner:\n(?: {8}.*\n)*? {8}default: ubuntu-latest\n {8}options:\n {10}- ubuntu-latest\n {10}- warp-ubuntu-latest-x64-8x\n/
     );
     expect(jobText('mainnet-nightly')).toContain(
-      "    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'warp-ubuntu-latest-x64-8x' }}"
+      "    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}"
     );
   });
 
