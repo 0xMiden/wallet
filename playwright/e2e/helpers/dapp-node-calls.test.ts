@@ -119,3 +119,57 @@ describe('the harness node height read', () => {
     await expect(waitForNodeHeight('http://stub', 5, 5_000, stubSdk('return { blockNum: () => 7 };'))).resolves.toBe(7);
   });
 });
+
+describe('macOS height-query trust roots', () => {
+  const certFile = process.env.SSL_CERT_FILE;
+  const certDir = process.env.SSL_CERT_DIR;
+
+  beforeEach(() => {
+    jest.replaceProperty(process, 'platform', 'darwin');
+    delete process.env.SSL_CERT_FILE;
+    delete process.env.SSL_CERT_DIR;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (certFile === undefined) delete process.env.SSL_CERT_FILE;
+    else process.env.SSL_CERT_FILE = certFile;
+    if (certDir === undefined) delete process.env.SSL_CERT_DIR;
+    else process.env.SSL_CERT_DIR = certDir;
+  });
+
+  it('provides parseable public roots to the child and removes the temporary bundle afterwards', async () => {
+    const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'height-cert-marker-')), 'path');
+    const root = stubSdk(`
+      const fs = await import('node:fs');
+      const { X509Certificate } = await import('node:crypto');
+      const file = process.env.SSL_CERT_FILE;
+      if (!file) throw new Error('no native certs found');
+      new X509Certificate(fs.readFileSync(file));
+      fs.writeFileSync(${JSON.stringify(marker)}, file);
+      return { blockNum: () => 7 };
+    `);
+    try {
+      await expect(waitForNodeHeight('http://stub', 5, 5_000, root)).resolves.toBe(7);
+      expect(fs.existsSync(fs.readFileSync(marker, 'utf8'))).toBe(false);
+      expect(process.env.SSL_CERT_FILE).toBeUndefined();
+    } finally {
+      fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['SSL_CERT_FILE', 'SSL_CERT_DIR'])('preserves an explicit %s configuration', async variable => {
+    process.env[variable] = '/explicit/trust';
+    const root = stubSdk(`
+      if (process.env[${JSON.stringify(variable)}] !== '/explicit/trust') throw new Error('trust override lost');
+      if (${JSON.stringify(variable)} === 'SSL_CERT_DIR' && process.env.SSL_CERT_FILE) throw new Error('file added');
+      return { blockNum: () => 7 };
+    `);
+    try {
+      await expect(waitForNodeHeight('http://stub', 5, 5_000, root)).resolves.toBe(7);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
