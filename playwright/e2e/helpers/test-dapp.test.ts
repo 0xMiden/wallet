@@ -506,16 +506,19 @@ describe('decline replies that close their confirmation popup', () => {
     jest.useFakeTimers();
     try {
       const { dapp, pending } = scenario({ clickSucceeds: true });
-      const assertion = expect(
-        answerPrompt(
-          dapp,
-          () => pending,
-          { kind: 'transaction', decision: 'decline', origin: dapp.origin },
-          contextFor(deadlineIn(1_000, 'R1'))
-        )
-      ).rejects.toThrow(/transaction answer|deadline|budget/i);
+      const outcome = answerPrompt(
+        dapp,
+        () => pending,
+        { kind: 'transaction', decision: 'decline', origin: dapp.origin },
+        contextFor(deadlineIn(1_000, 'R1'))
+      ).then(
+        value => ({ value }),
+        error => ({ error })
+      );
       await jest.advanceTimersByTimeAsync(1_000);
-      await assertion;
+      await expect(outcome).resolves.toEqual({
+        error: expect.objectContaining({ message: expect.stringMatching(/transaction answer|deadline|budget/i) })
+      });
     } finally {
       jest.useRealTimers();
     }
