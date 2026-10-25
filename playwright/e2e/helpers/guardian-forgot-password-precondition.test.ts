@@ -8,7 +8,10 @@ const mockTest = Object.assign(
   { describe: (_name: string, callback: () => void) => callback(), setTimeout: () => {} }
 );
 
-jest.mock('../fixtures/two-wallets', () => ({ test: mockTest, expect: (value: unknown) => expect(value) }));
+jest.mock('../fixtures/two-wallets', () => ({
+  test: mockTest,
+  expect: (value: unknown) => ({ toBe: (expected: unknown) => expect(value).toBe(expected) })
+}));
 jest.mock('../config/environments', () => ({ getEnvironmentConfig: () => ({ guardianUrl: 'https://guardian.test' }) }));
 jest.mock('./balance-truth', () => ({
   waitForPendingNoteTotal: async () => {},
