@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][ci] Manual store publishing builds signed production artifacts from an exact published release, requires telemetry configuration, and verifies app identity, network and artifact provenance before store submission.
 - [CHANGE][ci] The mainnet nightly's AggLayer loop runs in its own job on ubuntu-latest after the main job, failed or not, waits up to 120 minutes for its exit and settles once anyone has claimed it, verifying the claim on Ethereum and claiming the exit itself only if it stays unclaimed for five minutes after it is ready; the job summary records the night's timings, and a dispatch can run the main job on ubuntu-latest (#1826).
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).

@@ -1,0 +1,441 @@
+name: Build Signed Store Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Published stable release tag (vX.Y.Z)'
+        required: true
+        type: string
+      source_sha:
+        description: 'Approved 40-hex source commit; must equal the published tag'
+        required: true
+        type: string
+      platform:
+        description: 'Explicit store artifact selection'
+        required: true
+        type: choice
+        default: chrome
+        options:
+          - chrome
+          - ios
+          - android
+          - all
+      network:
+        description: 'Exact release network; Devnet is Chrome-only'
+        required: true
+        type: choice
+        default: testnet
+        options:
+          - testnet
+          - mainnet
+          - devnet
+      build_number:
+        description: 'Explicit native build suffix from 1 through 999 (required for mobile)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-artifacts-${{ inputs.release_tag }}-${{ inputs.platform }}-${{ inputs.network }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  SOURCE_SHA: ${{ inputs.source_sha }}
+  PLATFORM: ${{ inputs.platform }}
+  NETWORK: ${{ inputs.network }}
+  BUILD_NUMBER: ${{ inputs.build_number }}
+  MODE_ENV: production
+  NODE_ENV: production
+
+jobs:
+  prepare:
+    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      source_sha: ${{ steps.validate.outputs.source_sha }}
+      build_chrome: ${{ steps.validate.outputs.build_chrome }}
+      build_ios: ${{ steps.validate.outputs.build_ios }}
+      build_android: ${{ steps.validate.outputs.build_android }}
+      eligibility_url: ${{ steps.eligibility.outputs.endpoint }}
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate explicit build request
+        run: |
+          node automation/scripts/store-publishing/create-receipt.mjs validate-request \
+            --release-tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" \
+            --platform "$PLATFORM" --network "$NETWORK" --build-number "$BUILD_NUMBER"
+      - name: Read published release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/wallet-release.json"
+      - name: Checkout approved release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify published tag and source identity
+        id: validate
+        env:
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
+          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+        run: |
+          git -C source fetch --depth=1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_SHA=$(git -C source rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+          CHECKED_OUT_SHA=$(git -C source rev-parse HEAD)
+          node automation/scripts/store-publishing/create-receipt.mjs validate-source \
+            --release-tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" \
+            --platform "$PLATFORM" --network "$NETWORK" --build-number "$BUILD_NUMBER" \
+            --release-file "$RUNNER_TEMP/wallet-release.json" --tag-sha "$TAG_SHA" \
+            --checkout-sha "$CHECKED_OUT_SHA" --package-file source/package.json \
+            --manifest-file source/public/manifest.json
+      - name: Check exact source eligibility endpoint for every target origin
+        id: eligibility
+        working-directory: source
+        env:
+          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
+          FEATURE_ELIGIBILITY_NETWORKS: ${{ format('["{0}"]', inputs.network) }}
+          REQUESTED_ORIGINS: ${{ steps.validate.outputs.eligibility_origins }}
+        run: |
+          node <<'NODE'
+          const { writeFileSync } = require('node:fs');
+          const origins = JSON.parse(process.env.REQUESTED_ORIGINS);
+          if (!Array.isArray(origins) || origins.length === 0) throw new Error('Missing verified target origins');
+          writeFileSync(process.env.RUNNER_TEMP + '/wallet-required-origins.txt', origins.join('\n') + '\n');
+          NODE
+          while IFS= read -r wallet_origin; do
+            FEATURE_ELIGIBILITY_ALLOWED_ORIGINS=$(node -e 'console.log(JSON.stringify([process.argv[1]]))' "$wallet_origin") \
+              node services/feature-eligibility/check-deployment.mjs
+          done < "$RUNNER_TEMP/wallet-required-origins.txt"
+
+  chrome:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.build_chrome == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      MIDEN_NETWORK: ${{ inputs.network }}
+      APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+      APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Checkout approved release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify production configuration
+        run: node automation/scripts/store-publishing/create-receipt.mjs production-settings
+      - name: Install approved frozen dependencies
+        working-directory: source
+        run: yarn install --frozen-lockfile --production=false
+      - name: Build production Chrome package
+        working-directory: source
+        run: |
+          yarn build:chrome 2>&1 | tee "$RUNNER_TEMP/chrome-build.log"
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/chrome-build.log"; then
+            echo 'Chrome build log contains errors' >&2; exit 1
+          fi
+          test -s dist/chrome_unpacked/manifest.json
+          node ../automation/scripts/store-publishing/create-receipt.mjs provenance \
+            --platform chrome --version "$VERSION" --network "$NETWORK" --source-sha "$SOURCE_SHA" \
+            --output dist/chrome_unpacked/wallet-release.json
+          TARGET_BROWSER=chrome yarn zip
+          test -s dist/chrome.zip
+      - name: Package and verify Chrome artifact receipt
+        run: |
+          mkdir release-output
+          ARTIFACT="release-output/BreadWallet-$VERSION-$NETWORK-Chrome.zip"
+          cp source/dist/chrome.zip "$ARTIFACT"
+          python3 automation/scripts/store-publishing/inspect-artifact.py chrome "$ARTIFACT" > "$RUNNER_TEMP/chrome-inspection.json"
+          node automation/scripts/store-publishing/create-receipt.mjs receipt \
+            --platform chrome --version "$VERSION" --network "$NETWORK" --source-sha "$SOURCE_SHA" \
+            --artifact "$ARTIFACT" --inspection "$RUNNER_TEMP/chrome-inspection.json" --output "$ARTIFACT.receipt.json"
+      - name: Upload verified Chrome artifact and receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: BreadWallet-${{ needs.prepare.outputs.version }}-${{ inputs.network }}-Chrome-Store
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  android:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.build_android == 'true' }}
+    runs-on: ubuntu-latest
+    environment: wallet-store-signing
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      MIDEN_NETWORK: ${{ inputs.network }}
+      APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+      APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Checkout approved release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify production configuration
+        run: node automation/scripts/store-publishing/create-receipt.mjs production-settings
+      - name: Install approved frozen dependencies
+        working-directory: source
+        run: yarn install --frozen-lockfile --production=false
+      - name: Build production mobile web app
+        working-directory: source
+        run: |
+          yarn build:mobile 2>&1 | tee "$RUNNER_TEMP/android-web-build.log"
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/android-web-build.log"; then
+            echo 'Android web build log contains errors' >&2; exit 1
+          fi
+          test -s dist/mobile/index.html
+          node ../automation/scripts/store-publishing/create-receipt.mjs provenance \
+            --platform android --version "$VERSION" --network "$NETWORK" --source-sha "$SOURCE_SHA" \
+            --build-number "$BUILD_NUMBER" --output dist/mobile/wallet-release.json
+          npx cap sync android
+      - name: Prepare existing Android upload identity
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          node automation/scripts/store-publishing/create-receipt.mjs android-signing \
+            --android-dir source/android --key-file "$RUNNER_TEMP/wallet-upload.keystore"
+      - name: Build signed production Android bundle
+        working-directory: source/android
+        run: |
+          ./gradlew --no-daemon --max-workers=2 bundleRelease -PandroidBuildNumber="$BUILD_NUMBER" 2>&1 | tee "$RUNNER_TEMP/android-native-build.log"
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/android-native-build.log"; then
+            echo 'Android native build log contains errors' >&2; exit 1
+          fi
+          test -s app/build/outputs/bundle/release/app-release.aab
+          LC_ALL=C jarsigner -verify app/build/outputs/bundle/release/app-release.aab > "$RUNNER_TEMP/android-signature.log" 2>&1
+          grep -q 'jar verified\.' "$RUNNER_TEMP/android-signature.log"
+      - name: Remove Android signing material
+        if: ${{ always() }}
+        run: rm -f source/android/keystore.properties "$RUNNER_TEMP/wallet-upload.keystore"
+      - name: Package and verify Android artifact receipt
+        run: |
+          mkdir release-output
+          ARTIFACT="release-output/BreadWallet-$VERSION-$NETWORK-Android-$BUILD_NUMBER.aab"
+          cp source/android/app/build/outputs/bundle/release/app-release.aab "$ARTIFACT"
+          python3 automation/scripts/store-publishing/inspect-artifact.py android "$ARTIFACT" > "$RUNNER_TEMP/android-inspection.json"
+          node automation/scripts/store-publishing/create-receipt.mjs receipt \
+            --platform android --version "$VERSION" --network "$NETWORK" --source-sha "$SOURCE_SHA" --build-number "$BUILD_NUMBER" \
+            --artifact "$ARTIFACT" --inspection "$RUNNER_TEMP/android-inspection.json" --output "$ARTIFACT.receipt.json"
+      - name: Upload verified signed Android artifact and receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: BreadWallet-${{ needs.prepare.outputs.version }}-${{ inputs.network }}-Android-${{ inputs.build_number }}-Store
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  ios:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.build_ios == 'true' }}
+    runs-on: macos-26
+    environment: wallet-store-signing
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      MIDEN_NETWORK: ${{ inputs.network }}
+      APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+      APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Checkout approved release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify production configuration
+        run: node automation/scripts/store-publishing/create-receipt.mjs production-settings
+      - name: Install approved frozen dependencies
+        working-directory: source
+        run: yarn install --frozen-lockfile --production=false
+      - name: Build production mobile web app
+        working-directory: source
+        run: |
+          yarn build:mobile 2>&1 | tee "$RUNNER_TEMP/ios-web-build.log"
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-web-build.log"; then
+            echo 'iOS web build log contains errors' >&2; exit 1
+          fi
+          test -s dist/mobile/index.html
+          node ../automation/scripts/store-publishing/create-receipt.mjs provenance \
+            --platform ios --version "$VERSION" --network "$NETWORK" --source-sha "$SOURCE_SHA" \
+            --build-number "$BUILD_NUMBER" --output dist/mobile/wallet-release.json
+          npx cap sync ios
+      - name: Import existing Apple Distribution identity into a temporary keychain
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APP_STORE_CONNECT_KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          umask 077
+          export KEYCHAIN_PATH="$RUNNER_TEMP/wallet-store-signing.keychain-db"
+          node automation/scripts/store-publishing/create-receipt.mjs apple-signing-files --directory "$RUNNER_TEMP/wallet-store-signing"
+          security list-keychains -d user > "$RUNNER_TEMP/wallet-store-signing/original-keychains.txt"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/wallet-store-signing/distribution.p12" -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          python3 <<'PY'
+          import os, shlex, subprocess
+          from pathlib import Path
+          original = shlex.split(Path(os.environ['RUNNER_TEMP'], 'wallet-store-signing/original-keychains.txt').read_text())
+          subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', os.environ['KEYCHAIN_PATH'], *original], check=True)
+          PY
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" > "$RUNNER_TEMP/wallet-store-signing/identities.txt"
+          grep 'Apple Distribution:' "$RUNNER_TEMP/wallet-store-signing/identities.txt" | grep -q '(LHU7B7J5WL)'
+      - name: Archive and export a signed device IPA without store upload
+        working-directory: source
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/wallet-store-signing/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -jobs 2 -archivePath "$RUNNER_TEMP/Wallet.xcarchive" \
+            -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
+            CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=LHU7B7J5WL \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/wallet-store-signing.keychain-db" \
+            2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-archive.log"; then
+            echo 'iOS archive log contains errors' >&2; exit 1
+          fi
+          test -s "$RUNNER_TEMP/Wallet.xcarchive/Info.plist"
+          python3 <<'PY'
+          import os, plistlib
+          from pathlib import Path
+          options = {'method': 'app-store-connect', 'destination': 'export', 'teamID': 'LHU7B7J5WL',
+                     'signingStyle': 'automatic', 'manageAppVersionAndBuildNumber': False}
+          with Path(os.environ['RUNNER_TEMP'], 'wallet-store-export.plist').open('wb') as target:
+              plistlib.dump(options, target)
+          PY
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Wallet.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/wallet-store-export.plist" -exportPath "$RUNNER_TEMP/wallet-ipa" \
+            -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
+            2>&1 | tee "$RUNNER_TEMP/ios-export.log"
+          if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-export.log"; then
+            echo 'iOS export log contains errors' >&2; exit 1
+          fi
+      - name: Remove Apple signing material and restore keychain search list
+        if: ${{ always() }}
+        run: |
+          cleanup_status=0
+          if [[ -f "$RUNNER_TEMP/wallet-store-signing/original-keychains.txt" ]]; then
+            python3 <<'PY' || cleanup_status=$?
+          import os, shlex, subprocess
+          from pathlib import Path
+          original = shlex.split(Path(os.environ['RUNNER_TEMP'], 'wallet-store-signing/original-keychains.txt').read_text())
+          subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *original], check=True)
+          PY
+          fi
+          if [[ -f "$RUNNER_TEMP/wallet-store-signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/wallet-store-signing.keychain-db" || cleanup_status=$?
+          fi
+          rm -rf "$RUNNER_TEMP/wallet-store-signing"
+          rm -f "$RUNNER_TEMP/wallet-store-export.plist"
+          exit "$cleanup_status"
+      - name: Package and verify signed iOS artifact receipt
+        run: |
+          mkdir release-output
+          ARTIFACT="release-output/BreadWallet-$VERSION-$NETWORK-iOS-$BUILD_NUMBER.ipa"
+          export ARTIFACT
+          python3 <<'PY'
+          import os, shutil
+          from pathlib import Path
+          packages = list(Path(os.environ['RUNNER_TEMP'], 'wallet-ipa').glob('*.ipa'))
+          if len(packages) != 1 or packages[0].stat().st_size == 0:
+              raise SystemExit('Expected exactly one nonempty signed IPA')
+          shutil.copyfile(packages[0], os.environ['ARTIFACT'])
+          PY
+          python3 automation/scripts/store-publishing/inspect-artifact.py ios "$ARTIFACT" > "$RUNNER_TEMP/ios-inspection.json"
+          node automation/scripts/store-publishing/create-receipt.mjs receipt \
+            --platform ios --version "$VERSION" --network "$NETWORK" --source-sha "$SOURCE_SHA" --build-number "$BUILD_NUMBER" \
+            --artifact "$ARTIFACT" --inspection "$RUNNER_TEMP/ios-inspection.json" --output "$ARTIFACT.receipt.json"
+      - name: Upload verified signed iOS artifact and receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: BreadWallet-${{ needs.prepare.outputs.version }}-${{ inputs.network }}-iOS-${{ inputs.build_number }}-Store
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 30
