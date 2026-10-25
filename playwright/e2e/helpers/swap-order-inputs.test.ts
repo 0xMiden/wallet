@@ -30,7 +30,7 @@ jest.mock('./feature-eligibility', () => ({}));
 jest.mock('./history', () => ({}));
 jest.mock('../config/environments', () => ({ IS_LOCALNET: true }));
 
-function wallet() {
+function wallet(payLoading = false) {
   const fills: string[] = [];
   const submitted: Array<{ pay: string; receive: string }> = [];
   let pay = '';
@@ -39,6 +39,7 @@ function wallet() {
   const amount = (side: number) => ({
     fill: async (value: string) => {
       fills.push(side === 0 ? 'pay' : 'receive');
+      payLoading = false;
       if (side === 0) {
         pay = value;
         receive = '9.995';
@@ -63,7 +64,11 @@ function wallet() {
     evaluate: async () => (reads++ === 0 ? [] : ['123']),
     waitForURL: async () => {},
     getByTestId: (id: string) => {
-      if (id === 'send-amount-input') return { first: () => amount(0), nth: (side: number) => amount(side) };
+      if (id === 'send-amount-input') {
+        return { first: () => amount(payLoading ? 1 : 0), nth: (side: number) => amount(side) };
+      }
+      if (id === 'swap-pay-side') return { getByTestId: () => amount(0) };
+      if (id === 'swap-receive-side') return { getByTestId: () => amount(1) };
       if (id === 'swap-submit')
         return {
           click: async () => {
@@ -115,4 +120,18 @@ it('refuses to sign when the quoted opposite amount disagrees with the scenario'
   };
   await expect(createSwapOrder(w.maker, options)).rejects.toThrow();
   expect(w.submitted).toEqual([]);
+});
+
+it('keeps a pay edit on its side when the pay input is temporarily replaced by a loading skeleton', async () => {
+  const w = wallet(true);
+  const options = {
+    offerSymbol: 'A',
+    requestSymbol: 'B',
+    amountAnchor: 'pay' as const,
+    payAmount: '10',
+    receiveAmount: '9.995'
+  };
+  await expect(createSwapOrder(w.maker, options)).resolves.toBe('123');
+  expect(w.fills).toEqual(['pay']);
+  expect(w.submitted).toEqual([{ pay: '10', receive: '9.995' }]);
 });
