@@ -15,7 +15,7 @@ export interface UsdcxPayoutTarget {
  * Circle's fee on a USDCx burn's payout. No Circle API quotes the fee of one burn and it moves with network fees
  * (Circle took 2.5635 USDC from a Sepolia payout), so the row promises no bound on it or on what the recipient gets.
  */
-export const UsdcxPayoutRows: React.FC<UsdcxPayoutTarget> = ({ chainId }) => {
+export const UsdcxPayoutRows: React.FC<Pick<UsdcxPayoutTarget, 'chainId'>> = ({ chainId }) => {
   const { t } = useTranslation();
   if (!usdcxDestinations().has(chainId)) return null;
 
