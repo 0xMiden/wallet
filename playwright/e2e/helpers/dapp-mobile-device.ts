@@ -59,8 +59,77 @@ const DIAGNOSTIC_LABELS = ['Keyboard input', 'Keyboard notes', 'Test dApp', 'Don
 function diagnosticMatches(value: unknown): string[] {
   return typeof value === 'string' ? DIAGNOSTIC_LABELS.filter(label => value.trim() === label) : [];
 }
+let keyCapabilityRecorded = false;
+function diagnosticKeyCapability(nodes: Record<string, unknown>[], stage: string): void {
+  if (keyCapabilityRecorded || !stage.startsWith('before-native-typing')) return;
+  const keyboard = nodes.find(node => node.type === 'Keyboard');
+  const frame = keyboard ? iosFrame(keyboard.frame) : null;
+  const viewportNode = nodes.find(node => node.type === 'WebView');
+  const viewport = viewportNode ? iosFrame(viewportNode.frame) : null;
+  if (!frame || !viewport || frame.y < viewport.y || frame.y + frame.height > viewport.y + viewport.height) return;
+  const knownActions = [
+    'shift',
+    'space',
+    'return',
+    'numbers',
+    'letters',
+    'more',
+    'delete',
+    'backspace',
+    'next keyboard',
+    'emoji',
+    'done',
+    'next',
+    'go',
+    'search',
+    'send',
+    'continue',
+    '123',
+    'ABC',
+    '#+='
+  ];
+  const keys = nodes
+    .flatMap((node, index) => {
+      const nodeFrame = iosFrame(node.frame);
+      if (
+        !nodeFrame ||
+        nodeFrame.width <= 0 ||
+        nodeFrame.height <= 0 ||
+        nodeFrame.x < frame.x ||
+        nodeFrame.y < frame.y ||
+        nodeFrame.x + nodeFrame.width > frame.x + frame.width ||
+        nodeFrame.y + nodeFrame.height > frame.y + frame.height
+      )
+        return [];
+      const label = iosLabel(node);
+      const safeLabel =
+        /^[A-Za-z0-9]$/.test(label) || knownActions.includes(label.toLowerCase()) || knownActions.includes(label)
+          ? label
+          : null;
+      if (!/key|button/i.test(String(node.type ?? '')) && safeLabel === null) return [];
+      if (node.type === 'Keyboard' || node.type === 'UIKeyboardImpl' || node.type === 'UIKeyboardLayoutStar') return [];
+      return [
+        {
+          index,
+          label: safeLabel,
+          unknownLabel: safeLabel === null,
+          type: node.type,
+          role: node.role,
+          traits: node.traits,
+          frame: nodeFrame,
+          keys: Object.keys(node).sort()
+        }
+      ];
+    })
+    .slice(0, 64);
+  keyCapabilityRecorded = true;
+  console.log(
+    'NATIVE_KEY_CAPABILITY_DIAGNOSTIC ' + JSON.stringify({ stage, keyboard: frame, viewport, count: keys.length, keys })
+  );
+}
 function diagnosticIos(tree: string, stage: string): void {
   const nodes = iosNodes(tree);
+  diagnosticKeyCapability(nodes, stage);
   const selected = nodes
     .flatMap((node, index) => {
       const matches = diagnosticMatches(iosLabel(node));
