@@ -60,7 +60,13 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>) {
       layoutTop = nextTop;
       const delta = drawnAt - nextTop;
       if (reduceMotion || el.closest('[inert]')) return;
-      const slide = springKeyframes(springs.standard, delta, 0, value => ({ transform: `translateY(${value}px)` }));
+      const slide = springKeyframes(
+        springs.standard,
+        delta,
+        0,
+        value => ({ transform: `translateY(${value}px)` }),
+        'px'
+      );
       if (!slide) return;
       running = el.animate(slide.keyframes, { duration: slide.duration, easing: 'linear' });
       // Start on this frame's timeline. Left unset, the animation waits for the

@@ -58,14 +58,14 @@ const scale = (value: number): Keyframe => ({ transform: `scale(${value})` });
 
 describe('springKeyframes', () => {
   it('runs from the start value at offset 0 to the end value at offset 1', () => {
-    const sampled = springKeyframes(springs.tabSwitch, 80, 0, translateX)!;
+    const sampled = springKeyframes(springs.tabSwitch, 80, 0, translateX, 'px')!;
 
     expect(sampled.keyframes[0]).toEqual({ transform: 'translateX(80px)', offset: 0 });
     expect(sampled.keyframes.at(-1)).toEqual({ transform: 'translateX(0px)', offset: 1 });
   });
 
   it('places each keyframe at its stop, on the spring the solver samples, overshoot included', () => {
-    const sampled = springKeyframes(springs.tabSwitch, 80, 0, translateX)!;
+    const sampled = springKeyframes(springs.tabSwitch, 80, 0, translateX, 'px')!;
     const stops = springKeyframeStops(springs.tabSwitch, { distance: 80 })!;
 
     expect(sampled.duration).toBe(stops.duration);
@@ -75,30 +75,32 @@ describe('springKeyframes', () => {
   });
 
   it('animates a scale, which moves less than the 0.5 a pixel move needs to be worth animating', () => {
-    const sampled = springKeyframes(springs.snappy, 1, 0.92, scale)!;
+    const sampled = springKeyframes(springs.snappy, 1, 0.92, scale, 'scale')!;
 
     expect(sampled).not.toBeNull();
+    expect(sampled.duration).toBe(springKeyframeStops(springs.snappy, { distance: 8 })!.duration);
     expect(sampled.keyframes[0]).toEqual({ transform: 'scale(1)', offset: 0 });
     expect(sampled.keyframes.at(-1)).toEqual({ transform: 'scale(0.92)', offset: 1 });
   });
 
   it('is null when there is nothing to animate', () => {
-    expect(springKeyframes(springs.tabSwitch, 12, 12, translateX)).toBeNull();
-    expect(springKeyframes({ duration: 0.001 }, 80, 0, translateX)).toBeNull();
+    expect(springKeyframes(springs.tabSwitch, 12, 12, translateX, 'px')).toBeNull();
+    expect(springKeyframes({ duration: 0.001 }, 80, 0, translateX, 'px')).toBeNull();
   });
 
-  it('keeps the same keyframes when a fifth argument is passed', () => {
-    const withVelocity: (
+  it('solves a pixel move under 5 in pixels', () => {
+    const solved: (
       transition: Parameters<typeof springKeyframes>[0],
       from: Parameters<typeof springKeyframes>[1],
       to: Parameters<typeof springKeyframes>[2],
       frame: Parameters<typeof springKeyframes>[3],
-      velocity: number
+      unit: 'px' | 'scale'
     ) => ReturnType<typeof springKeyframes> = springKeyframes;
 
-    expect(withVelocity(springs.tabSwitch, 80, 0, translateX, 1200)).toEqual(
-      springKeyframes(springs.tabSwitch, 80, 0, translateX)
+    expect(solved(springs.standard, 2, 0, translateX, 'px')?.duration).toBe(
+      springKeyframeStops(springs.standard, { distance: 2 })!.duration
     );
+    expect(solved(springs.standard, 0.4, 0, translateX, 'px')).toBeNull();
   });
 });
 
@@ -106,7 +108,7 @@ describe('playSpring', () => {
   it('plays the keyframes linearly between stops, filling nothing', () => {
     const el = document.createElement('div');
 
-    const animation = playSpring(el, springs.tabSwitch, 80, 0, translateX);
+    const animation = playSpring(el, springs.tabSwitch, 80, 0, translateX, 'px');
 
     expect(animation).not.toBeNull();
     expect(played).toHaveLength(1);
@@ -118,11 +120,27 @@ describe('playSpring', () => {
     });
   });
 
+  it('plays a pixel move under 5 in pixels', () => {
+    const el = document.createElement('div');
+    const playedSpring: (
+      element: Parameters<typeof playSpring>[0],
+      transition: Parameters<typeof playSpring>[1],
+      from: Parameters<typeof playSpring>[2],
+      to: Parameters<typeof playSpring>[3],
+      frame: Parameters<typeof playSpring>[4],
+      unit: 'px' | 'scale'
+    ) => ReturnType<typeof playSpring> = playSpring;
+
+    playedSpring(el, springs.standard, 2, 0, translateX, 'px');
+
+    expect(played[0]!.options.duration).toBe(springKeyframeStops(springs.standard, { distance: 2 })!.duration);
+  });
+
   it('cancels the animation it last started on the element', () => {
     const el = document.createElement('div');
 
-    playSpring(el, springs.tabSwitch, 80, 0, translateX);
-    playSpring(el, springs.tabSwitch, 40, 0, translateX);
+    playSpring(el, springs.tabSwitch, 80, 0, translateX, 'px');
+    playSpring(el, springs.tabSwitch, 40, 0, translateX, 'px');
 
     expect(played).toHaveLength(2);
     expect(played[0]!.cancel).toHaveBeenCalledTimes(1);
@@ -132,16 +150,16 @@ describe('playSpring', () => {
   it('leaves the element at the end value, so it rests there once the animation ends', () => {
     const el = document.createElement('div');
 
-    playSpring(el, springs.snappy, 1, 0.92, scale);
+    playSpring(el, springs.snappy, 1, 0.92, scale, 'scale');
 
     expect(el.style.transform).toBe('scale(0.92)');
   });
 
   it('with nothing to animate: cancels the last animation, sets the end value and plays nothing', () => {
     const el = document.createElement('div');
-    playSpring(el, springs.tabSwitch, 80, 0, translateX);
+    playSpring(el, springs.tabSwitch, 80, 0, translateX, 'px');
 
-    expect(playSpring(el, springs.tabSwitch, 0, 0, translateX)).toBeNull();
+    expect(playSpring(el, springs.tabSwitch, 0, 0, translateX, 'px')).toBeNull();
 
     expect(played).toHaveLength(1);
     expect(played[0]!.cancel).toHaveBeenCalledTimes(1);
@@ -150,7 +168,7 @@ describe('playSpring', () => {
 
   it('cancelSpring stops what playSpring last started on the element', () => {
     const el = document.createElement('div');
-    playSpring(el, springs.tabSwitch, 80, 0, translateX);
+    playSpring(el, springs.tabSwitch, 80, 0, translateX, 'px');
 
     cancelSpring(el);
 

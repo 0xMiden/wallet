@@ -285,7 +285,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
       height
     };
     const { travel, frame } = slideFrame(first, last);
-    playSpring(el, tabBarMotion.highlight, travel, 0, frame);
+    playSpring(el, tabBarMotion.highlight, travel, 0, frame, 'px');
   }, [activeId, itemsKey, reduceMotion]);
 
   useEffect(() => {

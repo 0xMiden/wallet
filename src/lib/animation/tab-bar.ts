@@ -123,8 +123,8 @@ export function useTabIconPop(active: boolean, swap = false): TabIconPop {
 /** The rise and the settle as one keyframe list, each curve's offsets scaled by its share of the time. */
 function iconPopKeyframes(): SpringKeyframes | null {
   const { iconPopScale, iconPopUp, iconPopSettle } = tabBarMotion;
-  const up = springKeyframes(iconPopUp, 1, iconPopScale, scaleKeyframe);
-  const settle = springKeyframes(iconPopSettle, iconPopScale, 1, scaleKeyframe);
+  const up = springKeyframes(iconPopUp, 1, iconPopScale, scaleKeyframe, 'scale');
+  const settle = springKeyframes(iconPopSettle, iconPopScale, 1, scaleKeyframe, 'scale');
   if (!up || !settle) return null;
   const duration = up.duration + settle.duration;
   const within = (start: number, span: number) => (keyframe: Keyframe) => ({

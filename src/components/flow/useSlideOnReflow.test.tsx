@@ -145,7 +145,7 @@ it('runs the slide as sampled keyframes of the shared standard spring', () => {
   top = 500;
   act(() => reflow());
 
-  const sampled = springKeyframes(springs.standard, 200, 0, v => ({ transform: `translateY(${v}px)` }));
+  const sampled = springKeyframes(springs.standard, 200, 0, v => ({ transform: `translateY(${v}px)` }), 'px');
   expect(keyframes().length).toBeGreaterThan(2);
   expect(keyframes()).toEqual(sampled?.keyframes);
   expect(options()).toEqual({ duration: sampled?.duration, easing: 'linear' });

@@ -24,24 +24,23 @@ export interface SpringKeyframes {
   duration: number;
 }
 
-// framer settles a value that moves less than 5 (a scale, an opacity) to within 0.005 rather than
-// 0.5. The solver's thresholds are in pixels, so such a value is solved in hundredths.
-const GRANULAR_DELTA = 5;
-const GRANULAR_UNIT = 100;
-
 /**
  * `transition` from `from` to `to` as keyframes, one per sampled stop: `frame` turns each value
- * (`from + (to - from) * progress`, overshoot included) into a keyframe. Null when the spring is too
- * short to animate (no distance, or not a spring at all).
+ * (`from + (to - from) * progress`, overshoot included) into a keyframe. `unit` is `'px'` for that
+ * distance as given, or `'scale'` to solve it in hundredths (a press, an icon pop). Null when the
+ * spring is too short to animate (no distance, or not a spring at all).
  */
 export function springKeyframes(
   transition: Transition,
   from: number,
   to: number,
-  frame: (value: number) => Keyframe
+  frame: (value: number) => Keyframe,
+  unit: 'px' | 'scale'
 ): SpringKeyframes | null {
-  const unit = Math.abs(to - from) < GRANULAR_DELTA ? GRANULAR_UNIT : 1;
-  const sampled = springKeyframeStops(transition, { distance: (from - to) * unit, velocity: 0 });
+  const sampled = springKeyframeStops(transition, {
+    distance: unit === 'scale' ? (from - to) * 100 : from - to,
+    velocity: 0
+  });
   if (!sampled) return null;
   return {
     duration: sampled.duration,
@@ -100,9 +99,10 @@ export function playSpring(
   transition: Transition,
   from: number,
   to: number,
-  frame: (value: number) => Keyframe
+  frame: (value: number) => Keyframe,
+  unit: 'px' | 'scale'
 ): Animation | null {
-  const sampled = springKeyframes(transition, from, to, frame);
+  const sampled = springKeyframes(transition, from, to, frame, unit);
   return playKeyframes(el, sampled?.keyframes ?? null, sampled?.duration ?? 0, frame(to));
 }
 
@@ -156,7 +156,7 @@ export function useCompositorPress(
   return useMemo(() => {
     const scaleTo = (target: number) => {
       const el = ref.current;
-      if (el) playSpring(el, transition, currentScale(el), target, scaleKeyframe);
+      if (el) playSpring(el, transition, currentScale(el), target, scaleKeyframe, 'scale');
     };
     const release = () => {
       if (!pressed.current) return;
