@@ -2508,10 +2508,23 @@ public class BreadPresentationControllerTest {
         ReflectionHelpers.setField(dialog, "snapshotter", held);
         dialog.takeSnapshotData(0.5f, 0.7f, ignored -> {});
         assertEquals(1, held.pending.size());
-        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
-        page.layout(0, 0, root.getWidth(), root.getHeight());
+        int resizes = ReflectionHelpers.<Integer>getField(controller, "resizeEpoch");
+        resizePage(page, root.getWidth() + 40, root.getHeight());
+        resizePage(page, root.getWidth(), root.getHeight());
+        assertTrue("the page was resized", ReflectionHelpers.<Integer>getField(controller, "resizeEpoch") > resizes);
         held.release();
         assertFalse("a capture from before a resize is not the proxy", controller.state.proxyUsable());
+    }
+
+    // The hierarchy can lay the real page out at a zero size between frames, so drive the layout listener directly.
+    private void resizePage(View page, int width, int height) {
+        Object info = ReflectionHelpers.getField(page, "mListenerInfo");
+        assertNotNull("the controller listens for page layout", info);
+        List<View.OnLayoutChangeListener> listeners = ReflectionHelpers.getField(info, "mOnLayoutChangeListeners");
+        assertFalse("the controller listens for page layout", listeners == null || listeners.isEmpty());
+        for (View.OnLayoutChangeListener listener : new ArrayList<>(listeners)) {
+            listener.onLayoutChange(page, 0, 0, width, height, 0, 0, 0, 0);
+        }
     }
 
     @Test @Config(shadows = PaintWebView.class)
@@ -2535,7 +2548,8 @@ public class BreadPresentationControllerTest {
         reveal();
         park(card());
         assertTrue(controller.state.proxyUsable());
-        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
+        resizePage(page, root.getWidth(), root.getHeight());
+        resizePage(page, root.getWidth() + 40, root.getHeight());
         assertFalse("proxy holds a frame of the old size", controller.state.proxyUsable());
     }
 
