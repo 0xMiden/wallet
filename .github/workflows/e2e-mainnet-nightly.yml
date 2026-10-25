@@ -1,4 +1,4 @@
-name: Mainnet receipt diagnosis
+name: Sepolia payout diagnosis
 on:
   workflow_dispatch:
 permissions:
@@ -6,32 +6,13 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Inspect approval receipt and nonce without sending
-        uses: actions/github-script@v7
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          script: |
-            const hash = '0x7fb4be3332bc17e32669be57a6d6af88da19cdc7737aaa3e2a0fcafa8354c59d';
-            for (const url of ['https://ethereum.publicnode.com', 'https://eth.drpc.org', 'https://eth.llamarpc.com']) {
-              async function rpc(method, params) {
-                const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}), signal:AbortSignal.timeout(10000)});
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const data = await response.json();
-                if (data.error) throw new Error(JSON.stringify(data.error));
-                return data.result;
-              }
-              try {
-                const [receipt, tx, block] = await Promise.all([rpc('eth_getTransactionReceipt',[hash]),rpc('eth_getTransactionByHash',[hash]),rpc('eth_getBlockByNumber',['latest',false])]);
-                const result = {url,receipt:receipt && {status:receipt.status,blockNumber:receipt.blockNumber},transaction:tx && {blockNumber:tx.blockNumber,nonce:tx.nonce,maxFeePerGas:tx.maxFeePerGas,maxPriorityFeePerGas:tx.maxPriorityFeePerGas},latestBlock:{number:block.number,timestamp:block.timestamp,baseFeePerGas:block.baseFeePerGas}};
-                if (tx) result.senderNonce = {latest:await rpc('eth_getTransactionCount',[tx.from,'latest']),pending:await rpc('eth_getTransactionCount',[tx.from,'pending'])};
-                if (receipt) result.minedTimestamp = (await rpc('eth_getBlockByNumber',[receipt.blockNumber,false])).timestamp;
-                if (tx && tx.input.startsWith('0x095ea7b3') && tx.input.length === 138) {
-                  const owner = tx.from.slice(2).padStart(64,'0');
-                  const spender = tx.input.slice(10,74);
-                  const allowance = await rpc('eth_call',[{to:tx.to,data:'0xdd62ed3e'+owner+spender},'latest']);
-                  result.approval = {signedUnits:BigInt('0x'+tx.input.slice(74)).toString(),currentAllowanceUnits:BigInt(allowance).toString()};
-                }
-                console.log(JSON.stringify(result));
-              } catch (error) {console.log(JSON.stringify({url,error:String(error)}));}
-            }
+          node-version: 22
+      - name: Install read-only RPC client
+        run: npm install --prefix "$RUNNER_TEMP/receipt-client" --ignore-scripts --no-audit --no-fund viem@2.57.10
+      - name: Verify correlated mint and actual fee without sending
+        run: NODE_PATH="$RUNNER_TEMP/receipt-client/node_modules" node scripts/ci/release-sepolia-diagnostic/inspect.cjs scripts/ci/release-sepolia-diagnostic/inputs.json

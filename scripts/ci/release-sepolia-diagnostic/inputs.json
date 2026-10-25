@@ -1,0 +1,19 @@
+{
+  "chainId": 11155111,
+  "endpoints": [
+    "https://ethereum-sepolia-rpc.publicnode.com",
+    "https://rpc.sepolia.org"
+  ],
+  "recipient": "0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81",
+  "token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  "minter": "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B",
+  "topic": "0xbb312ce0cc311b2cb0746e09ccd2f91fdb9e2ac755d2f11c65300eb0d0fffd63",
+  "fromBlock": 11992336,
+  "toBlock": 11992339,
+  "balanceBefore": "71050347",
+  "balanceAfter": "73486847",
+  "burnUnits": "5000000",
+  "burnNoteId": "0x89988399136e02d9e0d1617f55de403f6294f099406716a0ca083edd0b27cae7",
+  "burnTransaction": "0x8f6d8710efcac4444b6aa8d844344e880b2974398cf16c5f7120cacb31df378c",
+  "savedFeeAllowance": "1500000"
+}
