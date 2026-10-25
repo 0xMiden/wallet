@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import * as chromeOperations from './chrome.mjs';
+
 let cli = {};
 try {
   cli = await import('./cli.mjs');
@@ -110,6 +112,11 @@ function context(platform = 'chrome', overrides = {}) {
       calls.push(['persist', ...args]);
     },
     loadAttestation: async () => structuredClone(attestation),
+    loadChromeUpload: async () => undefined,
+    persistChromeUpload: async (...args) => {
+      calls.push(['chromeUpload', ...args]);
+    },
+    nowSeconds: () => 1700000010,
     persistAttestation: async (...args) => {
       calls.push(['attestation', ...args]);
     },
@@ -601,4 +608,252 @@ test('release policy rejects unsupported values and actions before authenticatio
     );
     assert.equal(c.calls.length, 0);
   }
+});
+
+test('Chrome accepted asynchronous upload persists source-bound pending state for the next run', async () => {
+  const c = context();
+  c.deps.loadChromeUpload = async () => undefined;
+  c.deps.persistChromeUpload = async (...value) => c.calls.push(['chromeUpload', ...value]);
+  c.deps.operations.chrome.upload = async (client, options) => {
+    assert.equal(typeof options.persistUploadSession, 'function');
+    await options.persistUploadSession({ state: 'accepted-async', acceptedAt: 1700000000 });
+    return { uploadState: 'IN_PROGRESS' };
+  };
+  await run(['chrome', 'upload', ...common, '--confirm', '1.17.7', ...artifactArgs], c.deps);
+  const pending = c.calls.find(call => call[0] === 'chromeUpload')?.[2];
+  assert.equal(pending.sourceSha, sha);
+  assert.equal(pending.sha256, hash);
+  assert.equal(pending.network, 'testnet');
+  assert.equal(pending.identity, item);
+  assert.equal(pending.publisherId, 'publisher');
+  assert.equal(pending.uploaded, undefined);
+  assert.equal(pending.state, 'accepted-async');
+  assert.equal(
+    c.calls.some(call => call[0] === 'attestation'),
+    false
+  );
+});
+
+test('Chrome submission restores only exact source-bound accepted asynchronous state', async () => {
+  const c = context();
+  c.deps.loadAttestation = async () => undefined;
+  c.deps.loadChromeUpload = async () => ({
+    ...c.attestation,
+    uploaded: undefined,
+    state: 'accepted-async',
+    acceptedAt: 1700000000
+  });
+  c.deps.persistChromeUpload = async () => {};
+  c.deps.operations.chrome.submit = async (client, options) => {
+    assert.equal(options.uploadSession.state, 'accepted-async');
+    assert.equal(options.uploadSession.sha256, hash);
+    return { state: 'PENDING_REVIEW' };
+  };
+  await run(['chrome', 'submit', ...common, '--confirm', '1.17.7', ...artifactArgs], c.deps);
+  for (const extra of [
+    { sha256: 'f'.repeat(64) },
+    { sourceSha: 'f'.repeat(40) },
+    { identity: 'eeghndabgeicdpkbcohgglidpfpiafnb' },
+    { publisherId: 'other' }
+  ]) {
+    c.deps.loadChromeUpload = async () => ({
+      ...c.attestation,
+      uploaded: undefined,
+      state: 'accepted-async',
+      acceptedAt: 1700000000,
+      ...extra
+    });
+    await assert.rejects(
+      run(['chrome', 'submit', ...common, '--confirm', '1.17.7', ...artifactArgs], c.deps),
+      /upload|pending|session/
+    );
+  }
+});
+
+test('real Chrome async lifecycle persists pending evidence, resumes without media and verifies review revision', async () => {
+  const c = context();
+  const name = `publishers/publisher/items/${item}`;
+  const response = extra => ({
+    name,
+    itemId: item,
+    publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [{ crxVersion: '1.17.6' }] },
+    ...extra
+  });
+  const queue = [
+    response(),
+    { name, itemId: item, uploadState: 'IN_PROGRESS' },
+    response({ lastAsyncUploadState: 'SUCCEEDED' }),
+    { name, itemId: item, state: 'PENDING_REVIEW' },
+    response({
+      submittedItemRevisionStatus: { state: 'PENDING_REVIEW', distributionChannels: [{ crxVersion: '1.17.7' }] }
+    })
+  ];
+  const methods = [];
+  c.client.request = async (method, path) => {
+    methods.push([method, path]);
+    assert.ok(queue.length);
+    return queue.shift();
+  };
+  let journal;
+  let attestation;
+  c.deps.loadAttestation = async () => attestation;
+  c.deps.loadChromeUpload = async () => journal;
+  c.deps.persistChromeUpload = async (path, value) => {
+    journal = structuredClone(value);
+  };
+  c.deps.persistAttestation = async (path, value) => {
+    attestation = structuredClone(value);
+  };
+  c.deps.operations.chrome = chromeOperations;
+  c.deps.wait = async () => {};
+  assert.equal(
+    (await run(['chrome', 'upload', ...common, '--confirm', '1.17.7', ...artifactArgs], c.deps)).uploadState,
+    'IN_PROGRESS'
+  );
+  assert.equal(journal.state, 'accepted-async');
+  assert.equal(attestation, undefined);
+  const result = await run(['chrome', 'submit', ...common, '--confirm', '1.17.7', ...artifactArgs], c.deps);
+  assert.equal(result.submittedRevisionVerified, true);
+  assert.equal(journal.state, 'submitted');
+  assert.equal(attestation.sha256, hash);
+  assert.equal(attestation.completionEvidence, 'accepted-async-journal');
+  assert.equal(methods.filter(([, path]) => path.includes('/upload/')).length, 1);
+  assert.equal(methods.filter(([, path]) => path.endsWith(':publish')).length, 1);
+});
+
+test('persistent Chrome state rolls a published terminal journal into the next exact release without reusing old attestation', async () => {
+  const c = context();
+  let journal = {
+    ...c.attestation,
+    uploaded: undefined,
+    state: 'submitted',
+    acceptedAt: 1690000000,
+    completedAt: 1690000005
+  };
+  const original = structuredClone(journal);
+  const nextBytes = new Uint8Array([4, 5, 6]);
+  const nextHash = createHash('sha256').update(nextBytes).digest('hex');
+  c.receipt.version = '1.17.8';
+  c.receipt.sourceSha = '2'.repeat(40);
+  c.receipt.sha256 = nextHash;
+  c.metadata.version = '1.17.8';
+  c.metadata.provenance = { ...provenance, version: '1.17.8', sourceSha: '2'.repeat(40) };
+  c.deps.readArtifact = async () => nextBytes;
+  c.deps.loadAttestation = async () => undefined;
+  c.deps.loadChromeUpload = async () => journal;
+  c.deps.persistChromeUpload = async (path, value) => {
+    journal = structuredClone(value);
+  };
+  let archive;
+  c.deps.archiveChromeUpload = async (path, value) => {
+    archive = structuredClone(value);
+  };
+  c.deps.operations.chrome = chromeOperations;
+  const name = `publishers/publisher/items/${item}`;
+  const queue = [
+    {
+      name,
+      itemId: item,
+      publishedItemRevisionStatus: {
+        state: 'PUBLISHED',
+        distributionChannels: [{ crxVersion: '1.17.7', deployPercentage: 100 }]
+      }
+    },
+    { name, itemId: item, uploadState: 'SUCCEEDED', crxVersion: '1.17.8' }
+  ];
+  c.client.request = async method => {
+    if (method === 'POST') assert.deepEqual(archive, original);
+    return queue.shift();
+  };
+  await run(
+    [
+      'chrome',
+      'upload',
+      '--version',
+      '1.17.8',
+      '--source-sha',
+      '2'.repeat(40),
+      '--network',
+      'testnet',
+      '--confirm',
+      '1.17.8',
+      ...artifactArgs
+    ],
+    c.deps
+  );
+  assert.equal(journal.version, '1.17.8');
+  assert.equal(journal.sha256, nextHash);
+  assert.equal(journal.acceptedAt, undefined);
+  assert.equal(journal.state, 'completed-sync');
+  const attestation = c.calls.find(call => call[0] === 'attestation')[2];
+  assert.equal(attestation.version, '1.17.8');
+  assert.equal(attestation.sha256, nextHash);
+});
+
+test('Chrome rollover preserves an exclusive owner-private archive and refuses a conflicting archive without POST', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'wallet-rollover-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const c = context();
+  const prior = {
+    ...c.attestation,
+    uploaded: undefined,
+    state: 'submitted',
+    acceptedAt: 1690000000,
+    completedAt: 1690000005,
+    retainedEvidence: 'complete prior record'
+  };
+  const journalPath = join(directory, `chrome-${item}-upload.json`);
+  const archivePath = join(directory, `chrome-${item}-1.17.7-${hash}-submitted.json`);
+  await writeFile(journalPath, JSON.stringify(prior), { mode: 0o600 });
+  c.receipt.version = '1.17.8';
+  c.metadata.version = '1.17.8';
+  c.metadata.provenance = { ...provenance, version: '1.17.8' };
+  c.deps.readConfig = async () => ({ ...config, stateDir: directory });
+  c.deps.loadAttestation = async () => undefined;
+  c.deps.loadChromeUpload = undefined;
+  c.deps.persistChromeUpload = undefined;
+  c.deps.archiveChromeUpload = undefined;
+  c.deps.withMutationLock = undefined;
+  c.deps.operations.chrome = chromeOperations;
+  const name = `publishers/publisher/items/${item}`;
+  const current = {
+    name,
+    itemId: item,
+    publishedItemRevisionStatus: {
+      state: 'PUBLISHED',
+      distributionChannels: [{ crxVersion: '1.17.7', deployPercentage: 100 }]
+    }
+  };
+  let posts = 0;
+  c.client.request = async method => {
+    if (method === 'POST') {
+      posts++;
+      return { name, itemId: item, uploadState: 'SUCCEEDED', crxVersion: '1.17.8' };
+    }
+    return current;
+  };
+  const args = [
+    'chrome',
+    'upload',
+    '--version',
+    '1.17.8',
+    '--source-sha',
+    sha,
+    '--network',
+    'testnet',
+    '--confirm',
+    '1.17.8',
+    ...artifactArgs
+  ];
+  await run(args, c.deps);
+  assert.deepEqual(JSON.parse(await readFile(archivePath)), JSON.parse(JSON.stringify(prior)));
+  assert.equal((await stat(archivePath)).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(await readFile(journalPath)).version, '1.17.8');
+  assert.equal(posts, 1);
+  await writeFile(journalPath, JSON.stringify(prior));
+  await writeFile(archivePath, 'conflicting archive');
+  posts = 0;
+  await assert.rejects(run(args, c.deps), /archive/i);
+  assert.equal(posts, 0);
+  assert.equal(JSON.parse(await readFile(journalPath)).version, '1.17.7');
 });

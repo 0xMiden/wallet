@@ -451,3 +451,157 @@ test('mocked workflow execution preserves release status and strips arbitrary pr
   assert.equal(result.publishedItemRevisionStatus.distributionChannels[0].crxVersion, '1.17.6');
   assert.doesNotMatch(JSON.stringify(result), /secret|provider.log/);
 });
+
+test('Chrome state restore binds a pending asynchronous journal to the exact producer without fabricating upload proof', () => {
+  const plan = validatePublishRequest({ ...input, action: 'submit', stateRunId: '80' });
+  const journal = {
+    schemaVersion: 1,
+    platform: 'chrome',
+    identity: receipt().identity,
+    storeId: receipt().identity,
+    publisherId: 'publisher',
+    version: plan.version,
+    network: plan.network,
+    sourceSha: sha,
+    sha256: hash,
+    state: 'accepted-async',
+    acceptedAt: 1700000000
+  };
+  const name = `chrome-${journal.identity}-upload.json`;
+  const previous = snapshot(plan);
+  previous.files = { [name]: bytes(journal) };
+  previous.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+  previous.manifest.outcome = 'failure';
+  const context = {
+    run: run('state', { conclusion: 'failure' }),
+    receipt: receipt(),
+    publisherId: 'publisher',
+    nowSeconds: 1700000010
+  };
+  const restored = validateStateSnapshot(plan, previous, context);
+  assert.equal(restored[name].state, 'accepted-async');
+  assert.equal(restored[name].uploaded, undefined);
+  for (const extra of [
+    { sha256: 'f'.repeat(64) },
+    { publisherId: 'other' },
+    { acceptedAt: 1700000100 },
+    { acceptedAt: 1699900000 }
+  ]) {
+    const invalid = { ...journal, ...extra };
+    const data = bytes(invalid);
+    assert.throws(() =>
+      validateStateSnapshot(
+        plan,
+        {
+          ...previous,
+          files: { [name]: data },
+          manifest: { ...previous.manifest, files: [{ name, sha256: digest(data) }] }
+        },
+        context
+      )
+    );
+  }
+  assert.throws(() => validateStateSnapshot(plan, snapshot(plan), context), /journal|pending|failed/i);
+});
+
+test('failed workflow exports the exact pending Chrome journal without uploader logs or credentials', async t => {
+  const { env, root, packaged } = await workspace(t);
+  await main('prepare', env);
+  const name = `chrome-${receipt().identity}-upload.json`;
+  const journal = {
+    schemaVersion: 1,
+    platform: 'chrome',
+    identity: receipt().identity,
+    storeId: receipt().identity,
+    publisherId: 'publisher',
+    version: '1.17.7',
+    network: 'testnet',
+    sourceSha: sha,
+    sha256: digest(packaged),
+    state: 'accepted-async',
+    acceptedAt: Math.floor(Date.now() / 1000),
+    privateProviderOutput: 'must-not-export'
+  };
+  await writeFile(join(root, 'state', name), bytes(journal));
+  await main('export', { ...env, OPERATION_OUTCOME: 'failure' });
+  const exported = JSON.parse(await readFile(join(root, 'export', name)));
+  assert.equal(exported.state, 'accepted-async');
+  assert.equal(exported.sha256, digest(packaged));
+  assert.equal(exported.uploaded, undefined);
+  assert.equal(exported.privateProviderOutput, undefined);
+  const manifest = JSON.parse(await readFile(join(root, 'export', 'manifest.json')));
+  assert.equal(manifest.outcome, 'failure');
+  assert.deepEqual(manifest.files, [{ name, sha256: digest(await readFile(join(root, 'export', name))) }]);
+});
+
+test('new Chrome upload may restore only a prior terminal journal and never its old upload attestation', () => {
+  const priorPlan = validatePublishRequest({ ...input, action: 'release', stateRunId: '80' });
+  const previous = snapshot(priorPlan);
+  const journal = {
+    schemaVersion: 1,
+    platform: 'chrome',
+    identity: receipt().identity,
+    storeId: receipt().identity,
+    publisherId: 'publisher',
+    version: '1.17.7',
+    network: 'testnet',
+    sourceSha: sha,
+    sha256: hash,
+    state: 'submitted',
+    acceptedAt: 1690000000,
+    completedAt: 1690000005
+  };
+  const name = `chrome-${journal.identity}-upload.json`;
+  previous.files[name] = bytes(journal);
+  previous.manifest.files.push({ name, sha256: digest(previous.files[name]) });
+  const plan = validatePublishRequest({ ...input, releaseTag: 'v1.17.8', sourceSha: 'd'.repeat(40), stateRunId: '80' });
+  const context = {
+    run: run('state'),
+    receipt: receipt({ version: '1.17.8', sourceSha: plan.sourceSha, sha256: 'e'.repeat(64) }),
+    publisherId: 'publisher',
+    nowSeconds: 1700000010
+  };
+  const restored = validateStateSnapshot(plan, previous, context);
+  assert.deepEqual(Object.keys(restored), [name]);
+  assert.equal(restored[name].version, '1.17.7');
+  for (const state of ['request-started', 'accepted-async', 'submission-requested']) {
+    const data = bytes({ ...journal, state });
+    const bad = {
+      ...previous,
+      files: { ...previous.files, [name]: data },
+      manifest: {
+        ...previous.manifest,
+        files: previous.manifest.files.map(file => (file.name === name ? { name, sha256: digest(data) } : file))
+      }
+    };
+    assert.throws(() => validateStateSnapshot(plan, bad, context));
+  }
+});
+
+test('workflow state selection accepts exactly the explicit prior Chrome run artifact before rollover validation', async t => {
+  const { directory, env } = await workspace(t);
+  env.RELEASE_TAG = 'v1.17.8';
+  env.SOURCE_SHA = 'd'.repeat(40);
+  env.STATE_RUN_ID = '80';
+  env.STATE_RUN_FILE = join(directory, 'state-run.json');
+  env.STATE_ARTIFACTS_FILE = join(directory, 'state-artifacts.json');
+  env.GITHUB_OUTPUT = join(directory, 'outputs');
+  const artifact = {
+    id: 123,
+    name: 'WalletStoreState-chrome-1.17.7-testnet-80-1',
+    expired: false,
+    workflow_run: { id: 80 }
+  };
+  await writeFile(env.STATE_RUN_FILE, bytes(run('state')));
+  await writeFile(env.STATE_ARTIFACTS_FILE, bytes({ total_count: 1, artifacts: [artifact] }));
+  await main('state-run', env);
+  assert.match(await readFile(env.GITHUB_OUTPUT, 'utf8'), /artifact_id=123/);
+  await writeFile(
+    env.STATE_ARTIFACTS_FILE,
+    bytes({
+      total_count: 2,
+      artifacts: [artifact, { ...artifact, id: 124, name: 'WalletStoreState-chrome-1.17.6-testnet-80-1' }]
+    })
+  );
+  await assert.rejects(main('state-run', env), /Exactly one/);
+});

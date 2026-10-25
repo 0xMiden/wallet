@@ -198,3 +198,20 @@ test('workflow keeps automation and source checkouts pinned and signing out of a
   assert.equal((source.match(/if-no-files-found: error/g) ?? []).length, 3);
   assert.equal((source.match(/path: release-output\//g) ?? []).length, 3);
 });
+
+test('current artifact producer explicitly refuses mainnet until source eligibility support is verified', async () => {
+  const { validateBuildRequest } = await implementation();
+  for (const platform of ['chrome', 'ios', 'android', 'all']) {
+    assert.throws(() => validateBuildRequest({ ...request, network: 'mainnet', platform, buildNumber: '19' }), /mainnet.*not supported.*eligibility/i);
+  }
+});
+
+test('manual build choices expose only verified testnet and Chrome Devnet networks', () => {
+  const source = readFileSync(new URL('../../.github/workflows/build-store-artifacts.yml', import.meta.url), 'utf8');
+  const choices = source.match(/      network:\n([\s\S]*?)      build_number:/)?.[1];
+  assert.ok(choices);
+  assert.match(choices, /default: testnet/);
+  assert.match(choices, /- testnet/);
+  assert.match(choices, /- devnet/);
+  assert.doesNotMatch(choices, /- mainnet/);
+});

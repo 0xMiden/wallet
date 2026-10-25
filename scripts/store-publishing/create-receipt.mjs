@@ -17,7 +17,8 @@ export function validateBuildRequest({ releaseTag, sourceSha, platform, network,
   if (typeof releaseTag !== 'string' || !stableTag.test(releaseTag)) throw new Error('A stable vX.Y.Z release tag is required');
   if (typeof sourceSha !== 'string' || !/^[a-f0-9]{40}$/i.test(sourceSha)) throw new Error('An explicit 40-hex source SHA is required');
   if (!['chrome', 'ios', 'android', 'all'].includes(platform)) throw new Error('Invalid build platform');
-  if (!['testnet', 'mainnet', 'devnet'].includes(network)) throw new Error('Invalid build network');
+  if (network === 'mainnet') throw new Error('Mainnet artifact builds are not supported until source eligibility support is verified');
+  if (!['testnet', 'devnet'].includes(network)) throw new Error('Invalid build network');
   const platforms = platform === 'all' ? ['chrome', 'ios', 'android'] : [platform];
   if (network === 'devnet' && platform !== 'chrome') throw new Error('Devnet artifacts may target only Chrome');
   const normalizedBuild = buildNumber === '' || buildNumber === undefined ? undefined : buildNumber;

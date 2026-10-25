@@ -144,7 +144,12 @@ test('failed and unrecognized uploads do not produce a successful result or a re
 });
 
 test('submit reuploads the selected artifact to prove the unsubmitted draft version', async () => {
-  const client = transport(snapshot(), uploaded(), published('PENDING_REVIEW'));
+  const client = transport(
+    snapshot(),
+    uploaded(),
+    published('PENDING_REVIEW'),
+    snapshot({ submittedItemRevisionStatus: revision('PENDING_REVIEW', options.version) })
+  );
   const result = await submit(client, options);
   assert.equal(result.state, 'PENDING_REVIEW');
   assert.equal(result.version, options.version);
@@ -153,7 +158,8 @@ test('submit reuploads the selected artifact to prove the unsubmitted draft vers
     [
       ['GET', `/v2/${name}:fetchStatus`],
       ['POST', `/upload/v2/${name}:upload`],
-      ['POST', `/v2/${name}:publish`]
+      ['POST', `/v2/${name}:publish`],
+      ['GET', `/v2/${name}:fetchStatus`]
     ]
   );
   assert.deepEqual(client.calls[2][2], {
@@ -170,7 +176,8 @@ test('submit refuses an unproved draft even when an async upload has succeeded',
 test('submit never publishes after an asynchronous or wrong-version upload', async () => {
   for (const extra of [{ uploadState: 'IN_PROGRESS', crxVersion: undefined }, { crxVersion: '1.17.8' }]) {
     const client = transport(snapshot(), uploaded(extra));
-    await assert.rejects(submit(client, options), /upload|version/);
+    if (extra.uploadState === 'IN_PROGRESS') assert.equal((await submit(client, options)).uploadState, 'IN_PROGRESS');
+    else await assert.rejects(submit(client, options), /upload|version/);
     assert.equal(client.calls.length, 2);
   }
 });
@@ -267,4 +274,273 @@ test('release does not report success when the server unexpectedly requests revi
   );
   await assert.rejects(release(client, options), /unexpected state/);
   assert.equal(client.calls.length, 2);
+});
+
+const session = (extra = {}) => ({
+  schemaVersion: 1,
+  platform: 'chrome',
+  identity: itemId,
+  storeId: itemId,
+  publisherId,
+  version: options.version,
+  sourceSha: 'a'.repeat(40),
+  network: 'testnet',
+  sha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+  state: 'accepted-async',
+  acceptedAt: 1700000000,
+  ...extra
+});
+const resumeOptions = (extra = {}) => ({
+  ...options,
+  uploadSession: session(),
+  nowSeconds: () => 1700000010,
+  persistUploadSession: async () => {},
+  wait: async () => {},
+  ...extra
+});
+
+test('accepted async upload resumes the exact journal without sending ZIP media again', async () => {
+  const client = transport(snapshot({ lastAsyncUploadState: 'SUCCEEDED' }));
+  const states = [];
+  const result = await upload(client, resumeOptions({ persistUploadSession: async value => states.push(value) }));
+  assert.equal(result.uploadState, 'SUCCEEDED');
+  assert.equal(result.completionEvidence, 'accepted-async-journal');
+  assert.equal(result.crxVersion, undefined);
+  assert.equal(states.at(-1).state, 'completed-async');
+  assert.deepEqual(
+    client.calls.map(call => call[0]),
+    ['GET']
+  );
+});
+
+test('pending async submission publishes once and verifies the exact submitted revision', async () => {
+  const client = transport(
+    snapshot({ lastAsyncUploadState: 'SUCCEEDED' }),
+    published('PENDING_REVIEW'),
+    snapshot({ submittedItemRevisionStatus: revision('PENDING_REVIEW', options.version) })
+  );
+  const states = [];
+  const result = await submit(client, resumeOptions({ persistUploadSession: async value => states.push(value) }));
+  assert.equal(result.state, 'PENDING_REVIEW');
+  assert.equal(states.at(-1).state, 'submitted');
+  assert.equal(client.calls.filter(([method]) => method === 'POST').length, 1);
+  assert.ok(client.calls.every(([, path]) => !path.includes('/upload/')));
+});
+
+test('uncertain, expired, future, mismatched or failed async sessions never send another POST', async () => {
+  for (const extra of [
+    { state: 'request-started' },
+    { acceptedAt: 1699900000 },
+    { acceptedAt: 1700000100 },
+    { sha256: 'f'.repeat(64) },
+    { publisherId: 'other' },
+    { version: '1.17.8' }
+  ]) {
+    const client = transport(snapshot({ lastAsyncUploadState: 'SUCCEEDED' }));
+    await assert.rejects(
+      submit(client, resumeOptions({ uploadSession: session(extra) })),
+      /upload|session|version|journal/i
+    );
+    assert.ok(client.calls.every(([method]) => method === 'GET'));
+  }
+  for (const lastAsyncUploadState of ['FAILED', 'NOT_FOUND', undefined]) {
+    const client = transport(snapshot({ lastAsyncUploadState }));
+    await assert.rejects(submit(client, resumeOptions()), /upload|async|status/i);
+    assert.ok(client.calls.every(([method]) => method === 'GET'));
+  }
+});
+
+test('submission revision conflict after accepted publish is not attested or retried', async () => {
+  const client = transport(
+    snapshot({ lastAsyncUploadState: 'SUCCEEDED' }),
+    published('PENDING_REVIEW'),
+    snapshot({ submittedItemRevisionStatus: revision('PENDING_REVIEW', '1.17.8') })
+  );
+  const states = [];
+  await assert.rejects(
+    submit(client, resumeOptions({ persistUploadSession: async value => states.push(value) })),
+    /version|revision/i
+  );
+  assert.equal(states.at(-1).state, 'submission-requested');
+  assert.equal(client.calls.filter(([method]) => method === 'POST').length, 1);
+});
+
+test('upload journals the request before its only media POST and preserves uncertainty on transport error', async () => {
+  const states = [];
+  const client = transport(snapshot(), new Error('transport outcome unknown'));
+  const request = client.request;
+  client.request = async (...args) => {
+    if (args[0] === 'POST') assert.equal(states.at(-1).state, 'request-started');
+    return request(...args);
+  };
+  await assert.rejects(
+    upload(client, {
+      ...options,
+      nowSeconds: () => 1700000010,
+      persistUploadSession: async value => states.push(value)
+    }),
+    /transport/
+  );
+  assert.deepEqual(
+    states.map(value => value.state),
+    ['request-started']
+  );
+  assert.equal(client.calls.filter(call => call[0] === 'POST').length, 1);
+});
+
+test('async polling is bounded and pending state does not trigger publishing or reupload', async () => {
+  const client = transport(...Array.from({ length: 6 }, () => snapshot({ lastAsyncUploadState: 'IN_PROGRESS' })));
+  let waits = 0;
+  const result = await submit(
+    client,
+    resumeOptions({
+      wait: async () => {
+        waits++;
+      }
+    })
+  );
+  assert.equal(result.uploadState, 'IN_PROGRESS');
+  assert.equal(waits, 5);
+  assert.equal(client.calls.length, 6);
+  assert.ok(client.calls.every(call => call[0] === 'GET'));
+});
+
+test('uncertain upload cannot adopt an existing revision and uncertain publish never repeats the POST', async () => {
+  const active = snapshot({ submittedItemRevisionStatus: revision('PENDING_REVIEW', options.version) });
+  const uncertain = transport(active);
+  await assert.rejects(
+    submit(uncertain, resumeOptions({ uploadSession: session({ state: 'request-started' }) })),
+    /uncertain|upload/i
+  );
+  assert.equal(uncertain.calls.filter(call => call[0] === 'POST').length, 0);
+  const pending = session({ state: 'submission-requested', completedAt: 1700000005 });
+  const absent = transport(snapshot());
+  await assert.rejects(submit(absent, resumeOptions({ uploadSession: pending })), /uncertain|submission/i);
+  assert.equal(absent.calls.filter(call => call[0] === 'POST').length, 0);
+  const confirmed = transport(active);
+  assert.equal((await submit(confirmed, resumeOptions({ uploadSession: pending }))).alreadySubmitted, true);
+  assert.equal(confirmed.calls.filter(call => call[0] === 'POST').length, 0);
+});
+
+test('terminal prior upload journal rolls over only after exact prior publication and durable archive', async () => {
+  const prior = session({ state: 'submitted', acceptedAt: 1690000000, completedAt: 1690000005 });
+  const next = { ...options, version: '1.17.8', uploadSession: prior, nowSeconds: () => 1700000010 };
+  const effects = [];
+  const client = transport(
+    snapshot({
+      publishedItemRevisionStatus: {
+        state: 'PUBLISHED',
+        distributionChannels: [{ crxVersion: '1.17.7', deployPercentage: 100 }]
+      }
+    }),
+    uploaded({ crxVersion: '1.17.8' })
+  );
+  const request = client.request;
+  client.request = async (...args) => {
+    if (args[0] === 'POST')
+      assert.deepEqual(
+        effects.map(value => value[0]),
+        ['archive', 'request-started']
+      );
+    return request(...args);
+  };
+  const result = await upload(client, {
+    ...next,
+    archiveUploadSession: async value => effects.push(['archive', value]),
+    persistUploadSession: async value => effects.push([value.state, value])
+  });
+  assert.equal(result.crxVersion, '1.17.8');
+  assert.deepEqual(effects[0][1], prior);
+  assert.equal(client.calls.filter(call => call[0] === 'POST').length, 1);
+});
+
+test('rollover refuses pending or uncertain journals, nonnewer versions, conflicts and failed archival', async () => {
+  const prior = session({ state: 'submitted', completedAt: 1700000005 });
+  for (const extra of [
+    { state: 'accepted-async' },
+    { state: 'request-started' },
+    { state: 'submission-requested' },
+    { state: 'completed-async' }
+  ]) {
+    const client = transport(snapshot({ publishedItemRevisionStatus: revision('PUBLISHED', '1.17.7') }));
+    await assert.rejects(
+      upload(
+        client,
+        resumeOptions({
+          version: '1.17.8',
+          uploadSession: { ...prior, ...extra },
+          archiveUploadSession: async () => {}
+        })
+      ),
+      /journal|session|terminal|upload/i
+    );
+    assert.ok(client.calls.every(call => call[0] === 'GET'));
+  }
+  for (const current of [
+    snapshot(),
+    snapshot({ publishedItemRevisionStatus: revision('PUBLISHED', '1.17.7', '1.17.6') }),
+    snapshot({
+      publishedItemRevisionStatus: revision('PUBLISHED', '1.17.7'),
+      submittedItemRevisionStatus: revision('PENDING_REVIEW', '1.17.8')
+    }),
+    snapshot({ publishedItemRevisionStatus: revision('PUBLISHED', '1.17.7'), warned: true })
+  ]) {
+    const client = transport(current);
+    await assert.rejects(
+      upload(client, resumeOptions({ version: '1.17.8', uploadSession: prior, archiveUploadSession: async () => {} }))
+    );
+    assert.ok(client.calls.every(call => call[0] === 'GET'));
+  }
+  for (const deployPercentage of [0, undefined]) {
+    let archives = 0;
+    const channel = { crxVersion: '1.17.7', ...(deployPercentage === undefined ? {} : { deployPercentage }) };
+    const client = transport(
+      snapshot({ publishedItemRevisionStatus: { state: 'PUBLISHED', distributionChannels: [channel] } }),
+      uploaded({ crxVersion: '1.17.8' })
+    );
+    await assert.rejects(
+      upload(
+        client,
+        resumeOptions({
+          version: '1.17.8',
+          uploadSession: prior,
+          archiveUploadSession: async () => {
+            archives++;
+          }
+        })
+      ),
+      /partial|rollout|channel/i
+    );
+    assert.equal(archives, 0);
+    assert.ok(client.calls.every(call => call[0] === 'GET'));
+  }
+  const archived = transport(
+    snapshot({
+      publishedItemRevisionStatus: {
+        state: 'PUBLISHED',
+        distributionChannels: [{ crxVersion: '1.17.7', deployPercentage: 100 }]
+      }
+    })
+  );
+  await assert.rejects(
+    upload(
+      archived,
+      resumeOptions({
+        version: '1.17.8',
+        uploadSession: prior,
+        archiveUploadSession: async () => {
+          throw new Error('archive write failed');
+        }
+      })
+    ),
+    /archive/i
+  );
+  assert.ok(archived.calls.every(call => call[0] === 'GET'));
+  await assert.rejects(
+    upload(
+      transport(),
+      resumeOptions({ version: '1.17.6', uploadSession: prior, archiveUploadSession: async () => {} })
+    ),
+    /newer|version/
+  );
 });

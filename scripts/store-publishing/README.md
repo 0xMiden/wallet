@@ -11,7 +11,7 @@ Build, upload, submit for review, and release an exact stable version from an ap
 | iOS      | testnet or mainnet | App `6789341854`, bundle `com.miden.bread`      |
 | Android  | testnet or mainnet | Package `com.miden.wallet`                      |
 
-Chrome mainnet has no approved mapping. Mobile devnet publishing is refused. The CLI enforces these targets and accepts no app identity override.
+The current artifact builder supports native testnet builds and Chrome testnet/devnet builds. It refuses mainnet artifacts until the exact source's eligibility support is verified. The mobile CLI targets below can accept a future mainnet artifact only after that build guard is satisfied. Chrome mainnet has no approved mapping. Mobile devnet publishing is refused. The CLI enforces these targets and accepts no app identity override.
 
 ## Build and preserve evidence
 
@@ -62,9 +62,9 @@ The default config is `~/.config/wallet-publishing/config.json`. Use `--config` 
 
 Apple uses the App Manager publishing key. Chrome uses the explicitly authorized Chrome Web Store OAuth scope. Android CI uses GitHub OIDC Workload Identity Federation and a short-lived `WALLET_PLAY_ACCESS_TOKEN` for the authorized publisher service account. The organization blocks service-account JSON key creation; preserve that policy.
 
-The state directory stores verified upload attestations and `android-edit.json`. Submit and release require the matching prior upload's identity, version, build or code, source SHA, network and hash. Existing store builds cannot be adopted merely because their version matches. Chrome submit rechecks and uploads the same ZIP and can establish its attestation.
+The state directory stores verified upload attestations, per-item Chrome upload journals and `android-edit.json`. Submit and release require the matching prior upload's identity, version, build or code, source SHA, network and hash. Existing store builds cannot be adopted merely because their version matches. Chrome submit rechecks the same ZIP and resumes its journaled upload. A legacy attestation without a journal starts one new journaled upload before submission.
 
-Preserve the exact nonsecret attestation JSON and Android edit JSON between workflow runs. Do not archive config, credentials, keys, `.mutation.lock`, or private `ios-upload-*.log` files. Restore state only from the corresponding trusted publishing run. A store-accepted operation followed by a local state-save failure needs store inspection before another action; do not blindly retry.
+Preserve the exact nonsecret attestation JSON, Chrome upload journal and Android edit JSON between workflow runs. Do not archive config, credentials, keys, `.mutation.lock`, or private `ios-upload-*.log` files. Restore state only from the corresponding trusted publishing run. A store-accepted operation followed by a local state-save failure needs store inspection before another action; do not blindly retry.
 
 ## Publishing workflow
 
@@ -77,7 +77,7 @@ gh workflow run publish-stores.yml --repo 0xMiden/wallet --ref main \
   -f producer_run_id="$PRODUCER_RUN_ID" -f acknowledgement=none
 ```
 
-For `submit` or `release`, also supply `-f state_run_id="$PREVIOUS_PUBLISH_RUN_ID"` from the matching successful publishing run. Keep the same producer, version, network and source. The workflow validates and restores only the matching `WalletStoreState-<platform>-<version>-<network>-<runId>-<runAttempt>` artifact.
+For `submit` or `release`, also supply `-f state_run_id="$PREVIOUS_PUBLISH_RUN_ID"` from the matching publishing run. A failed run is accepted only when its state artifact contains a validated, exact-producer Chrome upload journal; an unrelated failure cannot establish upload proof. Keep the same producer, version, network and source. The workflow validates and restores only the matching `WalletStoreState-<platform>-<version>-<network>-<runId>-<runAttempt>` artifact.
 
 Android upload also requires restored state from its `begin-edit` run and an explicit `edit_id`. Android submit requires that same edit ID and `acknowledgement=submit-pending-play-changes`; `begin-edit` requires `acknowledgement=create-new-play-edit`. Other actions use `acknowledgement=none`. Status, iOS prepare and Android begin-edit do not require a producer run. Native mutations except iOS prepare require `build_number`, the same raw suffix from 1 through 999 supplied to the producer. The planner derives Android's version code and checks it against the receipt.
 
@@ -116,7 +116,15 @@ node scripts/store-publishing/cli.mjs chrome release \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" --confirm "$VERSION"
 ```
 
-Wait for upload processing before submission. Submission requests review with deferred publication. Release requires the exact approved staged version; status must confirm the requested version is published before declaring completion.
+An `IN_PROGRESS` upload saves its exact publisher/item, version, source SHA, network and artifact hash in `chrome-<itemId>-upload.json`. Resume with the same ZIP and receipt using `upload` or `submit`; for the workflow, supply that run's `state_run_id`. Resume polls at most six times with five-second gaps, and sends no new media POST. If processing remains pending, preserve the newest state and resume again. An async completion is labeled `accepted-async-journal`; it never claims the API returned a draft version or hash.
+
+A later Chrome version can reuse the same state directory. Only a prior `submitted` journal can roll over, after a fresh status read proves that exact prior version is published on every channel with no active submission, policy warning or partial rollout. The next version must be strictly newer. The complete old journal is archived privately before the new request journal atomically replaces it; an archive or journal-write failure sends no media POST. Old attestations never prove the new artifact. A prior terminal journal may be older than 24 hours because publication is checked live. In the workflow, an optional `state_run_id` may identify the prior version's terminal state for this check; a fresh runner without prior state can start a new upload. If rollover fails before a new request starts, reuse the original prior state artifact.
+
+Keep exclusive ownership of the item from the first upload until submission is verified: use the same private state directory or the latest workflow state artifact, and do not upload through the console, another client or another run without restoring that journal. The CLI lock and workflow concurrency serialize this publishing path. The Chrome API cannot detect another writer or correlate an async status with an operation ID, so this ownership is required for journal continuity.
+
+Async status is available only for 24 hours. A missing, failed, expired, future-dated or conflicting status stops without another upload. The journal is written before the media POST; if its response is lost, `request-started` remains uncertain and requires store inspection and explicit recovery rather than retrying the upload. Likewise, an uncertain review request is never repeated automatically. Preserve the state artifact even when the workflow fails, and inspect the item before making further changes.
+
+Submission requests review with deferred publication and verifies the submitted revision's exact version through `fetchStatus` before reporting success. Release requires the exact approved staged version; status must confirm the requested version is published before declaring completion.
 
 ### iOS
 

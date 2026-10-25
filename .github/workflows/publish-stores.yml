@@ -31,7 +31,7 @@ on:
         required: false
         type: string
       state_run_id:
-        description: Previous publish-stores.yml state run (submit/release/Android upload)
+        description: Previous state run (submit/release/Android upload/Chrome resume)
         required: false
         type: string
       build_number:
@@ -78,17 +78,21 @@ jobs:
       EDIT_ID: ${{ inputs.edit_id }}
       ACKNOWLEDGEMENT: ${{ inputs.acknowledgement }}
       AUTOMATION_SHA: ${{ github.workflow_sha }}
-      PRODUCER_DIR: ${{ runner.temp }}/wallet-store-producer
-      PRIOR_STATE_DIR: ${{ runner.temp }}/wallet-store-prior-state
-      PRODUCER_RUN_FILE: ${{ runner.temp }}/wallet-store-producer-run.json
-      PRODUCER_ARTIFACTS_FILE: ${{ runner.temp }}/wallet-store-producer-artifacts.json
-      STATE_RUN_FILE: ${{ runner.temp }}/wallet-store-state-run.json
-      STATE_ARTIFACTS_FILE: ${{ runner.temp }}/wallet-store-state-artifacts.json
-      RELEASE_FILE: ${{ runner.temp }}/wallet-store-release.json
-      TAG_COMMIT_FILE: ${{ runner.temp }}/wallet-store-tag-commit.json
       SOURCE_DIR: source
       CHROME_WEB_STORE_PUBLISHER_ID: ${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}
     steps:
+      - name: Initialize temporary evidence paths
+        run: |
+          {
+            echo "PRODUCER_DIR=$RUNNER_TEMP/wallet-store-producer"
+            echo "PRIOR_STATE_DIR=$RUNNER_TEMP/wallet-store-prior-state"
+            echo "PRODUCER_RUN_FILE=$RUNNER_TEMP/wallet-store-producer-run.json"
+            echo "PRODUCER_ARTIFACTS_FILE=$RUNNER_TEMP/wallet-store-producer-artifacts.json"
+            echo "STATE_RUN_FILE=$RUNNER_TEMP/wallet-store-state-run.json"
+            echo "STATE_ARTIFACTS_FILE=$RUNNER_TEMP/wallet-store-state-artifacts.json"
+            echo "RELEASE_FILE=$RUNNER_TEMP/wallet-store-release.json"
+            echo "TAG_COMMIT_FILE=$RUNNER_TEMP/wallet-store-tag-commit.json"
+          } >> "$GITHUB_ENV"
       - name: Check out trusted publishing automation
         uses: actions/checkout@v4
         with:
@@ -113,7 +117,8 @@ jobs:
         run: |
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease > "$RELEASE_FILE"
           gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" > "$TAG_COMMIT_FILE"
-          export CHECKOUT_SHA="$(git -C source rev-parse HEAD)"
+          CHECKOUT_SHA=$(git -C source rev-parse HEAD)
+          export CHECKOUT_SHA
           node automation/scripts/store-publishing/publish-plan.mjs source
       - name: Verify exact successful artifact producer
         if: steps.plan.outputs.needs_producer == 'true'

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, rename, rm, unlink, writeFile } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -373,6 +373,24 @@ async function persistJson(path, value) {
   }
 }
 
+async function archiveChromeUpload(path, value) {
+  await privateDirectory(dirname(path));
+  const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n');
+  let file;
+  try {
+    file = await open(path, 'wx', 0o600);
+    await file.writeFile(bytes);
+    await file.sync();
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw new Error('Unable to archive prior Chrome upload journal');
+    const previous = await regularFile(path, { privateFile: true, limit: 1024 * 1024 });
+    if (!bytes.equals(previous))
+      throw new Error('An existing Chrome journal archive differs; no rollover was performed');
+  } finally {
+    await file?.close();
+  }
+}
+
 async function withMutationLock(path, operation) {
   await privateDirectory(path);
   const lockPath = join(path, '.mutation.lock');
@@ -521,6 +539,33 @@ export async function run(argv, dependencies = {}) {
   const plan = planFor(args, config);
   const artifact = plan.needsArtifact ? await verifyArtifact(plan, args, dependencies) : undefined;
   const path = plan.mutation && !['begin-edit', 'prepare'].includes(plan.action) ? recordPath(plan) : undefined;
+  let uploadSession;
+  let rollover = false;
+  const chromeSessionPath =
+    plan.platform === 'chrome' && artifact ? join(plan.stateDir, `chrome-${plan.identity}-upload.json`) : undefined;
+  const validateSession = value =>
+    chrome.validateUploadSession(
+      value,
+      {
+        ...plan.options,
+        artifact: artifact.bytes,
+        sourceSha: plan.sourceSha,
+        network: plan.network
+      },
+      (dependencies.nowSeconds ?? (() => Math.floor(Date.now() / 1000)))()
+    );
+  const restoreSession = async () => {
+    if (!chromeSessionPath) return;
+    uploadSession = await (dependencies.loadChromeUpload ?? loadAttestation)(chromeSessionPath);
+    rollover = Boolean(uploadSession && uploadSession.version !== plan.version && plan.action === 'upload');
+    if (rollover)
+      chrome.validateRolloverSession(
+        uploadSession,
+        { ...plan.options, network: plan.network },
+        (dependencies.nowSeconds ?? (() => Math.floor(Date.now() / 1000)))()
+      );
+    else if (uploadSession) validateSession(uploadSession);
+  };
   const verifyPreviousUpload = async () => {
     if (!path) return;
     const existing = await (dependencies.loadAttestation ?? loadAttestation)(path);
@@ -528,6 +573,7 @@ export async function run(argv, dependencies = {}) {
     else if (!artifact) verifyAttestation(plan, existing);
   };
   if (args.dryRun) {
+    await restoreSession();
     await verifyPreviousUpload();
     return {
       dryRun: true,
@@ -539,12 +585,14 @@ export async function run(argv, dependencies = {}) {
       sourceSha: plan.sourceSha,
       ...(artifact ? { sha256: artifact.evidence.sha256 } : {}),
       requiresConfirmation: plan.mutation ? plan.version : false,
+      ...(rollover ? { requiresRolloverVerification: true } : {}),
       ...(plan.action === 'begin-edit'
         ? { warning: 'Creating this edit invalidates a previous edit owned by the same principal' }
         : {})
     };
   }
   const operation = async () => {
+    await restoreSession();
     await verifyPreviousUpload();
     const client = await authenticatedClient(plan, artifact, dependencies);
     if (plan.action === 'begin-edit') {
@@ -584,12 +632,45 @@ export async function run(argv, dependencies = {}) {
     if (typeof handler !== 'function') throw new Error('The selected publishing operation is unavailable');
     const options = {
       ...plan.options,
-      ...(artifact ? { artifact: plan.platform === 'ios' ? expand(args.artifact) : artifact.bytes } : {})
+      ...(artifact ? { artifact: plan.platform === 'ios' ? expand(args.artifact) : artifact.bytes } : {}),
+      ...(chromeSessionPath
+        ? {
+            uploadSession,
+            sourceSha: plan.sourceSha,
+            network: plan.network,
+            ...(dependencies.nowSeconds ? { nowSeconds: dependencies.nowSeconds } : {}),
+            ...(dependencies.wait ? { wait: dependencies.wait } : {}),
+            archiveUploadSession: async prior => {
+              const archivePath = join(
+                plan.stateDir,
+                `chrome-${plan.identity}-${prior.version}-${prior.sha256}-submitted.json`
+              );
+              await (dependencies.archiveChromeUpload ?? archiveChromeUpload)(archivePath, prior);
+              uploadSession = undefined;
+            },
+            persistUploadSession: async patch => {
+              const next = { ...artifact.evidence, ...uploadSession, ...patch };
+              validateSession(next);
+              try {
+                await (dependencies.persistChromeUpload ?? persistJson)(chromeSessionPath, next);
+              } catch {
+                throw new Error(
+                  'Chrome upload or submission journal could not be saved; do not retry a store mutation before recovery'
+                );
+              }
+              uploadSession = next;
+            }
+          }
+        : {})
     };
     const result = await handler(client, options);
     if (artifact && result?.uploadState !== 'IN_PROGRESS') {
       try {
-        await (dependencies.persistAttestation ?? persistJson)(path, { ...artifact.evidence, uploaded: true });
+        await (dependencies.persistAttestation ?? persistJson)(path, {
+          ...artifact.evidence,
+          uploaded: true,
+          ...(result?.completionEvidence ? { completionEvidence: result.completionEvidence } : {})
+        });
       } catch {
         throw new Error(
           'The store operation was accepted, but its upload attestation could not be saved; preserve the verified receipt and inspect store state before any retry'

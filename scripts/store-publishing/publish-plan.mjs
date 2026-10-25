@@ -4,6 +4,7 @@ import { appendFile, mkdir, open, readdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { validateRolloverSession, validateUploadSession } from './chrome.mjs';
 import { androidVersionCode, verifyReleaseSource } from './create-receipt.mjs';
 
 const repository = '0xMiden/wallet';
@@ -17,6 +18,7 @@ const identity = plan =>
 const storeId = plan => (plan.platform === 'ios' ? '6789341854' : identity(plan));
 const recordName = plan =>
   `${plan.platform}-${storeId(plan)}-${plan.version}-${plan.platform === 'ios' ? plan.buildNumber : (plan.versionCode ?? 'package')}.json`;
+const journalName = plan => `chrome-${identity(plan)}-upload.json`;
 const stateName = (plan, runId, attempt) =>
   `WalletStoreState-${plan.platform}-${plan.version}-${plan.network}-${runId}-${attempt}`;
 
@@ -175,6 +177,23 @@ function validateEdit(plan, edit, nowSeconds) {
     throw new Error('Prior Play edit must match the caller-owned unexpired edit');
 }
 
+function validateChromeJournal(plan, journal, receipt, publisherId, nowSeconds, allowExpired = false) {
+  if (plan.platform !== 'chrome' || !publisherId) throw new Error('Chrome pending journal has no matching publisher');
+  validateUploadSession(
+    journal,
+    {
+      itemId: identity(plan),
+      publisherId,
+      version: plan.version,
+      network: plan.network,
+      sourceSha: plan.sourceSha,
+      sha256: receipt?.sha256 ?? journal?.sha256
+    },
+    nowSeconds,
+    { allowExpired }
+  );
+}
+
 function cleanRecord(record, edit = false) {
   const fields = edit
     ? ['packageName', 'editId', 'version', 'network', 'sourceSha', 'expiryTimeSeconds']
@@ -191,7 +210,13 @@ function cleanRecord(record, edit = false) {
         'buildNumber',
         'versionCode',
         'editId',
-        'publisherId'
+        'publisherId',
+        'state',
+        'startedAt',
+        'acceptedAt',
+        'completedAt',
+        'crxVersion',
+        'completionEvidence'
       ];
   return Object.fromEntries(fields.filter(key => record[key] !== undefined).map(key => [key, record[key]]));
 }
@@ -203,6 +228,25 @@ export function validateStateSnapshot(
 ) {
   verifyWorkflowRun(run, { runId: plan.stateRunId, kind: 'state' });
   const manifest = snapshot?.manifest;
+  const rollover = plan.platform === 'chrome' && plan.action === 'upload' && manifest?.intent?.version !== plan.version;
+  const evidencePlan = rollover
+    ? validatePublishRequest({
+        ...plan,
+        ...manifest?.intent,
+        action: 'upload',
+        stateRunId: '',
+        buildNumber: '',
+        editId: '',
+        acknowledgement: 'none'
+      })
+    : plan;
+  if (
+    rollover &&
+    (evidencePlan.platform !== plan.platform ||
+      evidencePlan.network !== plan.network ||
+      manifest.intent.version !== evidencePlan.version)
+  )
+    throw new Error('Prior Chrome journal intent does not match this store target');
   if (
     !manifest ||
     manifest.schemaVersion !== 1 ||
@@ -214,12 +258,16 @@ export function validateStateSnapshot(
     !['success', 'failure'].includes(manifest.outcome) ||
     !Array.isArray(manifest.files) ||
     ['platform', 'releaseTag', 'version', 'network', 'sourceSha', 'buildNumber'].some(
-      key => manifest.intent?.[key] !== plan[key]
+      key => manifest.intent?.[key] !== evidencePlan[key]
     )
   )
     throw new Error('Publication state manifest is not bound to this run and release');
   const records = {};
-  const allowed = [recordName(plan), ...(plan.platform === 'android' ? ['android-edit.json'] : [])];
+  const allowed = [
+    recordName(evidencePlan),
+    ...(plan.platform === 'android' ? ['android-edit.json'] : []),
+    ...(plan.platform === 'chrome' ? [journalName(plan)] : [])
+  ];
   if (!snapshot.files || Object.keys(snapshot.files).length !== manifest.files.length)
     throw new Error('State inventory mismatch');
   for (const file of manifest.files) {
@@ -237,9 +285,30 @@ export function validateStateSnapshot(
       throw new Error('Invalid publication state JSON');
     }
   }
-  const attestation = records[recordName(plan)];
-  if (attestation) validateAttestation(plan, attestation, receipt, publisherId);
-  if (['submit', 'release'].includes(plan.action) && !attestation)
+  const journal = plan.platform === 'chrome' ? records[journalName(plan)] : undefined;
+  if (rollover && !journal) throw new Error('A prior terminal Chrome journal is required for rollover');
+  const evidenceReceipt = rollover ? { sha256: journal?.sha256 } : receipt;
+  if (journal)
+    validateChromeJournal(
+      evidencePlan,
+      journal,
+      evidenceReceipt,
+      publisherId,
+      nowSeconds,
+      rollover || plan.action === 'release'
+    );
+  if (rollover)
+    validateRolloverSession(
+      journal,
+      { itemId: identity(plan), publisherId, version: plan.version, network: plan.network },
+      nowSeconds
+    );
+  if (run.conclusion === 'failure' && !journal)
+    throw new Error('A failed state run requires a validated Chrome pending journal');
+  const attestation = records[recordName(evidencePlan)];
+  if (attestation) validateAttestation(evidencePlan, attestation, evidenceReceipt, publisherId);
+  if (rollover) return { [journalName(plan)]: journal };
+  if (['submit', 'release'].includes(plan.action) && !attestation && !(plan.action === 'submit' && journal))
     throw new Error('Prior upload attestation is required');
   if (plan.platform === 'android' && ['upload', 'submit'].includes(plan.action))
     validateEdit(plan, records['android-edit.json'], nowSeconds);
@@ -341,7 +410,9 @@ function safeResult(result) {
     'buildAudienceType',
     'buildId',
     'deployPercentage',
-    'releaseLifecycleState'
+    'releaseLifecycleState',
+    'completionEvidence',
+    'submittedRevisionVerified'
   ];
   if (Array.isArray(result)) return result.map(value => (typeof value === 'object' ? safeResult(value) : value));
   const clean = Object.fromEntries(
@@ -402,11 +473,17 @@ export async function main(command, env = process.env, dependencies = {}) {
       runId: producer ? plan.producerRunId : plan.stateRunId,
       kind: producer ? 'producer' : 'state'
     });
-    const selected = selectRunArtifact(
-      await readJson(producer ? env.PRODUCER_ARTIFACTS_FILE : env.STATE_ARTIFACTS_FILE),
-      run.id,
-      producer ? artifact.name : stateName(plan, run.id, run.run_attempt)
-    );
+    const inventory = await readJson(producer ? env.PRODUCER_ARTIFACTS_FILE : env.STATE_ARTIFACTS_FILE);
+    let expectedName = producer ? artifact.name : stateName(plan, run.id, run.run_attempt);
+    if (!producer && plan.platform === 'chrome' && plan.action === 'upload') {
+      const pattern = new RegExp(
+        `^WalletStoreState-chrome-(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-${plan.network}-${run.id}-${run.run_attempt}$`
+      );
+      const candidates = inventory.artifacts?.filter(value => pattern.test(value.name)) ?? [];
+      if (candidates.length !== 1) throw new Error('Exactly one prior Chrome publication state artifact is required');
+      expectedName = candidates[0].name;
+    }
+    const selected = selectRunArtifact(inventory, run.id, expectedName);
     await output({ artifact_id: selected.id }, env);
   } else if (command === 'prepare') {
     let receipt;
@@ -496,7 +573,11 @@ export async function main(command, env = process.env, dependencies = {}) {
   } else if (command === 'export') {
     const { receipt } = await readJson(path.intent);
     const files = [];
-    for (const name of [recordName(plan), ...(plan.platform === 'android' ? ['android-edit.json'] : [])]) {
+    for (const name of [
+      recordName(plan),
+      ...(plan.platform === 'android' ? ['android-edit.json'] : []),
+      ...(plan.platform === 'chrome' ? [journalName(plan)] : [])
+    ]) {
       let bytes;
       try {
         bytes = await readBytes(resolve(path.state, name));
@@ -505,7 +586,34 @@ export async function main(command, env = process.env, dependencies = {}) {
         throw error;
       }
       const value = JSON.parse(bytes.toString('utf8'));
+      if (
+        plan.platform === 'chrome' &&
+        plan.action === 'upload' &&
+        name === journalName(plan) &&
+        value.version !== plan.version
+      ) {
+        validateRolloverSession(
+          value,
+          {
+            itemId: identity(plan),
+            publisherId: env.CHROME_WEB_STORE_PUBLISHER_ID,
+            version: plan.version,
+            network: plan.network
+          },
+          Math.floor(Date.now() / 1000)
+        );
+        continue;
+      }
       if (name === 'android-edit.json') validateEdit(plan, value, 0);
+      else if (name === journalName(plan) && plan.platform === 'chrome')
+        validateChromeJournal(
+          plan,
+          value,
+          receipt,
+          env.CHROME_WEB_STORE_PUBLISHER_ID,
+          Math.floor(Date.now() / 1000),
+          true
+        );
       else validateAttestation(plan, value, receipt, env.CHROME_WEB_STORE_PUBLISHER_ID);
       const cleanBytes = Buffer.from(`${JSON.stringify(cleanRecord(value, name === 'android-edit.json'), null, 2)}\n`);
       await privateWrite(resolve(path.export, name), cleanBytes);

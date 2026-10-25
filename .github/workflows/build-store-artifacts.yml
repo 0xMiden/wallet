@@ -28,7 +28,6 @@ on:
         default: testnet
         options:
           - testnet
-          - mainnet
           - devnet
       build_number:
         description: 'Explicit native build suffix from 1 through 999 (required for mobile)'
