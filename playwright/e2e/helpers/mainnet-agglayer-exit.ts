@@ -153,7 +153,8 @@ export function exitStep(
   now: number,
   graceMs = SELF_CLAIM_GRACE_MS
 ): ExitStep {
-  if (exit === undefined) return { kind: 'wait' };
+  // An unread lap (a failed indexer read) says nothing new, so the ready clock carries over.
+  if (exit === undefined) return { kind: 'wait', readySince };
   if (isAgglayerDepositClaimed(exit)) {
     const { claimTxHash } = agglayerClaimedFields(exit);
     // Claimed without a hash: there is nothing to verify on Ethereum yet, and nothing left to claim.

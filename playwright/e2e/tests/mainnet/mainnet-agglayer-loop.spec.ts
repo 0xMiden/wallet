@@ -206,7 +206,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
       record({ exitDepositCnt: exit.deposit_cnt, exitMidenBlock: exit.block_num, exitSeenAt: iso() });
     }
     const step = exitStep(exit, readySince, Date.now());
-    claimedUnhashed = exit !== undefined && isAgglayerDepositClaimed(exit) && step.kind === 'wait';
+    if (exit) claimedUnhashed = isAgglayerDepositClaimed(exit) && step.kind === 'wait';
     if (step.kind !== 'settled' && step.readySince !== undefined && readySince === undefined) {
       record({ readyAt: iso(step.readySince) });
     }
