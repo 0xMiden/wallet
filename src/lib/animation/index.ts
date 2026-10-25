@@ -31,6 +31,7 @@ export {
   resolveTabBarMotion,
   useTabBarMotion,
   useTabIconPop,
+  useCompositorTabIconPop,
   type TabBarMotion,
   type TabIconPop,
   type TabIconPopPhase
@@ -45,3 +46,13 @@ export {
 export { copyMotion, COPY_FEEDBACK_MS, type CopyMotion, type CopySwapMotion } from './copy';
 export { installSheetKeyframes, sheetKeyframesCss, sheetMotion, sheetMotionVars, type SheetCurve } from './sheet';
 export { pagerMotion, pagerTapDurationMs } from './pager';
+export {
+  cancelSpring,
+  currentScale,
+  currentTranslate,
+  playSpring,
+  springKeyframes,
+  useCompositorPress,
+  type CompositorPressHandlers,
+  type SpringKeyframes
+} from './compositor';

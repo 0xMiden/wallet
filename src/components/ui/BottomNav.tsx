@@ -1,11 +1,18 @@
-import React, { FC, ReactNode } from 'react';
+import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
-import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { UnreadDot } from 'components/ui/UnreadDot';
-import { usePreset, useTabBarMotion, useTabIconPop } from 'lib/animation';
+import {
+  cancelSpring,
+  CompositorPressHandlers,
+  playSpring,
+  tabBarMotion,
+  useCompositorPress,
+  useCompositorTabIconPop,
+  usePreset
+} from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
 export interface BottomNavItem {
@@ -62,93 +69,238 @@ const BAR_GLASS_CLASS_NAME = [
 
 const BAR_CLASS_NAME = cn('relative flex items-center justify-center rounded-full p-1', BAR_GLASS_CLASS_NAME);
 
+/** The bubble sits this far inside its tab: 56 x 40 in a 64 x 48 tab. */
+const BUBBLE_INSET_PX = 4;
+/** On-screen and layout sizes differ by rounding; a smaller difference is no resize. */
+const SIZE_TOLERANCE_PX = 1;
+
+/** The bubble's press handlers, which the active tab drives: the bubble lives outside every tab. */
+interface BubblePress {
+  press: () => void;
+  release: () => void;
+}
+
 interface BottomNavTabProps {
   item: BottomNavItem;
   active: boolean;
   onSelect: (id: string) => void;
+  bubble: BubblePress;
+  registerTab: (id: string, el: HTMLButtonElement | null) => void;
 }
 
 /**
- * One tab: a 64 x 48 hit area around the 56 x 40 highlight, with a 24px icon that pops when the tab
- * becomes active. `HighlightItem` (asChild) clones this button, adds the sliding highlight and wraps
- * the icon, so the whole tab — highlight included — dips when pressed.
+ * One tab: a 64 x 48 hit area over the bubble, with a 24px icon that pops when the tab becomes
+ * active. A pressed tab dips, and the bubble dips with it while the tab is the active one.
  */
-const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
-  const motionTokens = useTabBarMotion();
-  const pop = useTabIconPop(active);
+const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, registerTab }) => {
+  const reduceMotion = useReducedMotion();
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const iconRef = useRef<HTMLSpanElement>(null);
+  const press = useCompositorPress(buttonRef, {
+    scale: tabBarMotion.pressScale,
+    transition: tabBarMotion.press,
+    enabled: !reduceMotion
+  });
+  useCompositorTabIconPop(iconRef, active);
   const pulse = usePreset('pulse');
   const icon = active && item.iconActive ? item.iconActive : item.icon;
   // The button's own `aria-label` wins over anything inside it, so the dot's text has to be
   // composed in here rather than left to sit in the content.
   const label = item.unread ? `${item.label}, ${item.unread.label}` : item.label;
 
+  const ref = useCallback(
+    (el: HTMLButtonElement | null) => {
+      buttonRef.current = el;
+      registerTab(item.id, el);
+    },
+    [item.id, registerTab]
+  );
+  const handlers = useMemo((): CompositorPressHandlers => {
+    // Released from every tab, not only the active one: the tab can stop being active mid-press.
+    const release = (own: () => void) => () => {
+      own();
+      bubble.release();
+    };
+    return {
+      onPointerDown: () => {
+        press.onPointerDown();
+        if (active) bubble.press();
+      },
+      onPointerUp: release(press.onPointerUp),
+      onPointerCancel: release(press.onPointerCancel),
+      onPointerLeave: release(press.onPointerLeave)
+    };
+  }, [active, bubble, press]);
+
   return (
-    <HighlightItem value={item.id} asChild as="span" className="flex items-center justify-center">
-      <motion.button
-        type="button"
-        aria-current={active ? 'page' : undefined}
-        aria-label={label}
-        onClick={() => onSelect(item.id)}
-        {...motionTokens.press}
-        transition={motionTokens.highlight}
-        className={cn(
-          'group flex h-12 w-16 items-center justify-center rounded-full p-1 transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
-          active ? 'text-accent-primary' : 'text-muted'
-        )}
-      >
+    <button
+      ref={ref}
+      type="button"
+      aria-current={active ? 'page' : undefined}
+      aria-label={label}
+      onClick={() => onSelect(item.id)}
+      {...handlers}
+      className={cn(
+        'relative flex h-12 w-16 items-center justify-center rounded-full p-1 transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
+        active ? 'text-accent-primary' : 'text-muted'
+      )}
+    >
+      <span ref={iconRef} className="relative flex size-6 items-center justify-center [&>svg]:size-6">
+        {/* The icon itself breathes while the tab is unread, the pulse Brian asked for, at a
+            third of a pixel, and gone entirely under reduced motion (`presets.pulse`). It
+            stops because the element stops being rendered with `unread`, not because a flag
+            was flipped: nothing is left looping behind a hidden badge. */}
         <motion.span
-          data-pop={pop.phase}
-          animate={pop.animate}
-          transition={pop.transition}
-          onAnimationComplete={pop.onAnimationComplete}
-          className="relative flex size-6 items-center justify-center [&>svg]:size-6"
+          className="flex size-6 items-center justify-center [&>svg]:size-6"
+          animate={item.unread ? pulse.animate : undefined}
+          transition={item.unread ? pulse.transition : undefined}
         >
-          {/* The icon itself breathes while the tab is unread — the pulse Brian asked for, at a
-              third of a pixel, and gone entirely under reduced motion (`presets.pulse`). It
-              stops because the element stops being rendered with `unread`, not because a flag
-              was flipped: nothing is left looping behind a hidden badge. */}
-          <motion.span
-            className="flex size-6 items-center justify-center [&>svg]:size-6"
-            animate={item.unread ? pulse.animate : undefined}
-            transition={item.unread ? pulse.transition : undefined}
-          >
-            {icon}
-          </motion.span>
-          <UnreadDot
-            unread={Boolean(item.unread)}
-            placement="badge"
-            label={item.unread?.label ?? ''}
-            data-testid="bottom-nav-unread"
-          />
+          {icon}
         </motion.span>
-      </motion.button>
-    </HighlightItem>
+        <UnreadDot
+          unread={Boolean(item.unread)}
+          placement="badge"
+          label={item.unread?.label ?? ''}
+          data-testid="bottom-nav-unread"
+        />
+      </span>
+    </button>
   );
 };
 
+/**
+ * The bubble's slide from `first` (where it was drawn) to its new place `last`: the distance to solve
+ * the spring over, and the frame for a value of that distance still to go (0 at rest, below 0 past it).
+ */
+function slideFrame(first: DOMRect, last: { x: number; y: number; width: number; height: number }) {
+  const dx = first.left + first.width / 2 - (last.x + last.width / 2);
+  const dy = first.top + first.height / 2 - (last.y + last.height / 2);
+  const resized =
+    Math.abs(first.width - last.width) > SIZE_TOLERANCE_PX || Math.abs(first.height - last.height) > SIZE_TOLERANCE_PX;
+  const sx = first.width / last.width - 1;
+  const sy = first.height / last.height - 1;
+  // Solved over the farthest any edge travels, so the spring settles in pixels.
+  const travel = Math.max(
+    Math.hypot(dx, dy),
+    resized ? Math.max(Math.abs(first.width - last.width), Math.abs(first.height - last.height)) : 0
+  );
+  const frame = (value: number): Keyframe => {
+    if (value === 0) return { transform: 'none' };
+    const r = value / travel;
+    const scale = resized ? ` scale(${1 + sx * r}, ${1 + sy * r})` : '';
+    return { transform: `translate(${dx * r}px, ${dy * r}px)${scale}` };
+  };
+  return { travel, frame };
+}
+
 export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, className }) => {
-  const motionTokens = useTabBarMotion();
+  const reduceMotion = useReducedMotion();
+  const tabs = useRef(new Map<string, HTMLButtonElement>());
+  // The slot is placed at the active tab and dips with it; the bubble inside it slides. Two
+  // elements, because a dip played on the sliding element would cancel the slide.
+  const slotRef = useRef<HTMLSpanElement>(null);
+  const bubbleRef = useRef<HTMLSpanElement>(null);
+  // The tab the bubble is drawn at, null while hidden: only a move from one tab to another slides.
+  const shownAt = useRef<string | null>(null);
+  const itemsKey = items.map(item => item.id).join('\n');
+
+  const registerTab = useCallback((id: string, el: HTMLButtonElement | null) => {
+    if (el) tabs.current.set(id, el);
+    else tabs.current.delete(id);
+  }, []);
+
+  const slotPress = useCompositorPress(slotRef, {
+    scale: tabBarMotion.pressScale,
+    transition: tabBarMotion.press,
+    enabled: !reduceMotion
+  });
+  const bubble = useMemo(
+    (): BubblePress => ({
+      // The pressed shadow: `raisedBubbleClassName`'s group-active needs the bubble inside the pressed tab.
+      press: () => {
+        slotPress.onPointerDown();
+        bubbleRef.current?.setAttribute('data-pressed', '');
+      },
+      release: () => {
+        slotPress.onPointerUp();
+        bubbleRef.current?.removeAttribute('data-pressed');
+      }
+    }),
+    [slotPress]
+  );
+
+  useLayoutEffect(() => {
+    const slot = slotRef.current;
+    const el = bubbleRef.current;
+    if (!slot || !el) return;
+    const tab = tabs.current.get(activeId);
+    if (!tab) {
+      slot.hidden = true;
+      shownAt.current = null;
+      cancelSpring(el);
+      return;
+    }
+
+    // Read before moving, so a slide still running is caught where it is drawn.
+    const slides = shownAt.current !== null && shownAt.current !== activeId && !reduceMotion;
+    const first = slides ? el.getBoundingClientRect() : null;
+    const width = tab.offsetWidth - 2 * BUBBLE_INSET_PX;
+    const height = tab.offsetHeight - 2 * BUBBLE_INSET_PX;
+    slot.hidden = false;
+    slot.style.left = `${tab.offsetLeft + BUBBLE_INSET_PX}px`;
+    slot.style.top = `${tab.offsetTop + BUBBLE_INSET_PX}px`;
+    slot.style.width = `${width}px`;
+    slot.style.height = `${height}px`;
+    shownAt.current = activeId;
+    if (!first) {
+      cancelSpring(el);
+      return;
+    }
+
+    // The tab's centre, not its box: a tab just released is still scaling back from its dip.
+    const target = tab.getBoundingClientRect();
+    const last = {
+      x: target.left + target.width / 2 - width / 2,
+      y: target.top + target.height / 2 - height / 2,
+      width,
+      height
+    };
+    const { travel, frame } = slideFrame(first, last);
+    playSpring(el, tabBarMotion.highlight, travel, 0, frame);
+  }, [activeId, itemsKey, reduceMotion]);
+
+  useEffect(() => {
+    const el = bubbleRef.current;
+    return () => {
+      if (el) cancelSpring(el);
+    };
+  }, []);
 
   return (
     <nav className={cn(BAR_CLASS_NAME, className)}>
-      <div className="flex items-center justify-center gap-1">
-        {/* One highlight shared by every tab slides to the active one. Controlled and click-free:
-            the owner decides whether a tap navigates (and buzzes), and `activeId` follows. */}
-        <Highlight
-          controlledItems
-          value={activeId}
-          click={false}
-          exitDelay={0}
-          transition={motionTokens.highlight}
-          className={cn('inset-1', raisedBubbleClassName)}
-        >
-          {items.map(item => (
-            // Re-taps on the active tab are forwarded too: the owner decides whether they navigate
-            // (e.g. Home on /send returns to Overview) and owns the haptic, so no-op taps stay silent.
-            <BottomNavTab key={item.id} item={item} active={item.id === activeId} onSelect={onChange} />
-          ))}
-        </Highlight>
+      <div className="relative flex items-center justify-center gap-1">
+        {/* One bubble for every tab, placed at the active one and sliding over when `activeId`
+            changes. Click-free: the owner decides whether a tap navigates (and buzzes). */}
+        <span ref={slotRef} aria-hidden className="pointer-events-none absolute">
+          <span
+            ref={bubbleRef}
+            data-slot="motion-highlight"
+            className={cn('absolute inset-0', raisedBubbleClassName, 'data-[pressed]:shadow-raised-pressed')}
+          />
+        </span>
+        {items.map(item => (
+          // Re-taps on the active tab are forwarded too: the owner decides whether they navigate
+          // (e.g. Home on /send returns to Overview) and owns the haptic, so no-op taps stay silent.
+          <BottomNavTab
+            key={item.id}
+            item={item}
+            active={item.id === activeId}
+            onSelect={onChange}
+            bubble={bubble}
+            registerTab={registerTab}
+          />
+        ))}
       </div>
     </nav>
   );
