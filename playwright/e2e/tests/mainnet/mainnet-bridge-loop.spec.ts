@@ -11,6 +11,7 @@ import {
   bridgeLoops,
   LOOP_USDC,
   midenFeeReserve,
+  usdcxLoopsOrFail,
   usdcxShortfall,
   type UsdcxLoop
 } from '../../helpers/mainnet-bridge-plan';
@@ -58,9 +59,7 @@ test('loops the minimum on every mainnet USDCx route', async ({ walletA }) => {
   const signer = mainnetEvmKey();
   const evm = privateKeyToAccount(signer);
   const doc = await loadMainnetDocument();
-  const loops = bridgeLoops(Object.values(doc.supportedEvmChains)).filter(
-    (loop): loop is UsdcxLoop => loop.kind === 'usdcx'
-  );
+  const loops = usdcxLoopsOrFail(bridgeLoops(Object.values(doc.supportedEvmChains)));
   const { address, accountId } = await openPlainAccount(walletA);
   const problems: string[] = [];
   // Four USDCx burns, plus the four claims of what they minted.
