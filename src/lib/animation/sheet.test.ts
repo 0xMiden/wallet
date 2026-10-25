@@ -167,6 +167,7 @@ describe('sheet keyframes', () => {
     const install: (doc?: Document) => void = installSheetKeyframes;
     install(other);
 
+    expect(document.getElementById('miden-sheet-keyframes')?.textContent).toBe(sheetKeyframesCss());
     expect(other.getElementById('miden-sheet-keyframes')).toBeNull();
     document.getElementById('miden-sheet-keyframes')?.remove();
   });
