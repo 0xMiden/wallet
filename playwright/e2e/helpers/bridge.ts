@@ -780,7 +780,6 @@ export function burnSubmitFailure(payoutChain: PayoutChain, reviewError: string,
 }
 
 /** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
-/** The value of the `DetailRow` labelled `label`. */
 export function detailRowValue(page: Page, label: string) {
   if (label.includes('"')) throw new Error(`detailRowValue: label ${label} cannot be quoted in XPath`);
   return page.locator(`xpath=//div[span[normalize-space(.)="${label}"]]/div`);
