@@ -3411,7 +3411,7 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "Gdy zmiana zostanie potwierdzona w łańcuchu bloków, nowy Guardian zatwierdza każdą transakcję, a stary Guardian nie może już zatwierdzać transakcji na Twoim koncie.",
+    "message": "Gdy zmiana zostanie potwierdzona w łańcuchu bloków, nowy Guardian odnotowuje każdą transakcję, a stary Guardian nie może już odnotowywać transakcji na Twoim koncie.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {

@@ -3411,7 +3411,7 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "Как только смена подтверждается в цепочке, ваш новый Guardian подтверждает каждую транзакцию, а ваш прежний Guardian больше не может подтверждать транзакции по вашему счету.",
+    "message": "После подтверждения смены в блокчейне ваш новый Guardian принимает к сведению каждую транзакцию, а прежний Guardian больше не может принимать к сведению транзакции по вашему счету.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
@@ -3423,7 +3423,7 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "С этого момента ваш новый Guardian подтверждает каждую транзакцию — ваш прежний Guardian больше не может подтверждать транзакции по вашему счету.",
+    "message": "С этого момента ваш новый Guardian принимает к сведению каждую транзакцию - ваш прежний Guardian больше не может принимать к сведению транзакции по вашему счету.",
     "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
@@ -3439,11 +3439,11 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "Ваш новый Guardian подтверждает",
+    "message": "Ваш новый Guardian принимает к сведению транзакции",
     "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "Новый Guardian подтверждает после подтверждения",
+    "message": "После подтверждения смены новый Guardian принимает к сведению транзакции",
     "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {

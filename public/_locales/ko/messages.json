@@ -3411,7 +3411,7 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "체인상에서 전환이 확인되면, 새로운 가디언(Guardian)이 모든 거래를 승인하게 되며, 기존 가디언은 더 이상 해당 계정의 거래를 승인할 수 없습니다.",
+    "message": "체인상에서 전환이 확인되면 새로운 Guardian이 모든 거래의 수신을 확인하며, 기존 Guardian은 더 이상 귀하의 계정 거래의 수신을 확인할 수 없습니다.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
@@ -3423,7 +3423,7 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "새로운 Guardian은 지금부터 모든 거래를 승인하며, 기존 Guardian은 더 이상 귀하의 계정에 대한 거래를 승인할 수 없습니다.",
+    "message": "새로운 Guardian은 지금부터 모든 거래의 수신을 확인하며, 기존 Guardian은 더 이상 귀하의 계정 거래의 수신을 확인할 수 없습니다.",
     "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {

@@ -2979,7 +2979,7 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Підтверджує кожну транзакцію — ані ваш пристрій, ані Guardian не можуть самостійно переміщувати кошти. Допомагає відновити ваш обліковий запис у разі втрати пристрою.",
+    "message": "Засвідчує отримання кожної транзакції - ані ваш пристрій, ані Guardian не можуть самостійно переміщувати кошти. Допомагає відновити ваш обліковий запис у разі втрати пристрою.",
     "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
@@ -3411,7 +3411,7 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "Як тільки зміна підтверджується в ланцюгу, ваш новий Guardian підтверджує кожну транзакцію, а ваш старий Guardian більше не може підтверджувати транзакції для вашого рахунку.",
+    "message": "Після підтвердження зміни в ланцюгу ваш новий Guardian засвідчує отримання кожної транзакції, а ваш колишній Guardian більше не може засвідчувати отримання транзакцій для вашого рахунку.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
@@ -3423,7 +3423,7 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Відтепер ваш новий Guardian підтверджує кожну транзакцію — ваш колишній Guardian більше не може підтверджувати транзакції для вашого рахунку.",
+    "message": "Відтепер ваш новий Guardian засвідчує отримання кожної транзакції - ваш колишній Guardian більше не може засвідчувати отримання транзакцій для вашого рахунку.",
     "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
@@ -3439,11 +3439,11 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "Ваш новий Guardian підтверджує",
+    "message": "Ваш новий Guardian засвідчує отримання транзакцій",
     "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "Новий Guardian підтверджує після затвердження",
+    "message": "Після підтвердження зміни новий Guardian засвідчує отримання транзакцій",
     "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {

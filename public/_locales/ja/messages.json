@@ -3439,11 +3439,11 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "新しいGuardianは以下を承認します",
+    "message": "新しいGuardianは以下を確認します",
     "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "新しいGuardianは、確認され次第承認されます",
+    "message": "新しいGuardianは、切り替えの確定後に取引を確認します",
     "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
