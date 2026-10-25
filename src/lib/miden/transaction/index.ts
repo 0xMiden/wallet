@@ -2371,11 +2371,13 @@ const runGuardianPipeline = async (
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
   _chainAnchorB64?: string,
   oneClickDeadline?: string,
-  oneClickRequired = false
+  oneClickRequired = false,
+  onSubmitCallReached?: () => void,
+  onLockEvicted?: () => void
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
-  return withWasmClientLock(async hold => {
+  const runPipeline = async (hold: WasmLockHold) => {
     const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
     // build's genesis fetch goes to the same node everything else here is waiting
@@ -2508,6 +2510,7 @@ const runGuardianPipeline = async (
     });
     assertStillHoldingLock(hold, 'before submit');
     if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
+    onSubmitCallReached?.();
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
     // does, so a failed local apply is retried in this hold while that is safe, and one that
@@ -2519,7 +2522,8 @@ const runGuardianPipeline = async (
       holdIsCurrent: () => getCurrentWasmLockHold() === hold
     });
     return executedTx.result;
-  });
+  };
+  return withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
 };
 
 // Route a value-moving guardian leaf offscreen only when the offscreen client is
@@ -4061,7 +4065,11 @@ const generateGuardianTransaction = async (
   // recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
-  let submitCrossed = false;
+  let inlineSubmittingStageStarted = false;
+  let inlineLockEvicted = false;
+  let submitStageRecorded = false;
+  let inlineSubmitCallReached = false;
+  let markPreSubmitAfterStageWrite = false;
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
@@ -4070,8 +4078,16 @@ const generateGuardianTransaction = async (
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
+    if (stage === 'submitting') inlineSubmittingStageStarted = true;
     await stampStage(stage, detail);
-    if (stage === 'submitting') submitCrossed = true;
+    if (stage === 'submitting') {
+      submitStageRecorded = true;
+      // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
+      // that has not landed yet, so retire it again after the awaited stage stamp creates it.
+      if (markPreSubmitAfterStageWrite && transaction.attemptId !== undefined) {
+        await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
+      }
+    }
   };
   // An offscreen attempt whose gate never answered yes never called submit, whatever ended it, a kill included, so
   // its candidate is abandoned instead of held for the Guardian's grace (#1644).
@@ -4200,7 +4216,13 @@ const generateGuardianTransaction = async (
         stampAttemptStage,
         chainAnchorB64,
         oneClickDeadline,
-        oneClickRequired
+        oneClickRequired,
+        () => {
+          inlineSubmitCallReached = true;
+        },
+        () => {
+          inlineLockEvicted = true;
+        }
       );
     }
   } catch (error) {
@@ -4222,7 +4244,10 @@ const generateGuardianTransaction = async (
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
     // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
     const gateShut = offscreenDispatched && !submitGate.opened();
-    if ((hasErrorBeforeSubmit(error) || gateShut) && transaction.attemptId !== undefined) {
+    const inlineSubmitNotReached =
+      !offscreenDispatched && !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted);
+    if ((hasErrorBeforeSubmit(error) || gateShut || inlineSubmitNotReached) && transaction.attemptId !== undefined) {
+      if (inlineSubmitNotReached) markPreSubmitAfterStageWrite = true;
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
     // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
@@ -4237,8 +4262,9 @@ const generateGuardianTransaction = async (
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
       !gateShut &&
+      !inlineSubmitNotReached &&
       (isKilledPipeline(error) ||
-        (submitCrossed && !hasErrorBeforeSubmit(error)) ||
+        (submitStageRecorded && !hasErrorBeforeSubmit(error)) ||
         (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
@@ -4250,11 +4276,12 @@ const generateGuardianTransaction = async (
         await recordKeptCandidate(transaction.id, attemptContextOf(transaction, proposalResult.nonce), source);
       }
     }
-    if (isPoisonedPipeline(error)) {
+    if (isPoisonedPipeline(error) && !inlineSubmitNotReached) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
-      // chain may be about to consume — let the next cycle's 409
-      // pending-conflict path reconcile instead (issue #775).
+      // chain may be about to consume. Let the next cycle's 409 pending-conflict
+      // path reconcile instead (issue #775). An inline leaf that never called
+      // submit is the exception: its candidate can be abandoned safely below.
       throw error;
     }
     // The landed shape proves the submit resolved (#1233): the node has the write, so this
@@ -4323,7 +4350,11 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (gateShut || (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed)) {
+        if (
+          gateShut ||
+          inlineSubmitNotReached ||
+          (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)
+        ) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }
