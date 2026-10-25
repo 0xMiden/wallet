@@ -30,6 +30,7 @@
 - [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
 ### Fixes
 
+- [FIX][mobile] Minimizing a dApp to its peek card and opening it again moves the live page on one native spring, at 120 Hz on ProMotion, interruptible mid-flight with its velocity kept, from every entry point including the Bread button over a fullscreen dApp (#1817).
 - [FIX][all] Encryption-key lookup timeouts before submission no longer show ambiguous submission-unanswered feedback.
 - [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
 - [FIX][all] Crash reports keep the trace id they share with the swap diagnostic records sent before them, so a failure can be read beside those records in Sentry; the privacy policy now states that the records are kept for 30 days (#1660).

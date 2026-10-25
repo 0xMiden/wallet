@@ -43,6 +43,7 @@ const mockSetRect: jest.Mock = jest.fn(() => Promise.resolve());
 const mockExecuteScript: jest.Mock = jest.fn(() => Promise.resolve());
 const mockInstanceClose: jest.Mock = jest.fn(() => Promise.resolve());
 const mockNativeClose = jest.fn(async (_options: unknown) => {});
+const mockMorph: jest.Mock = jest.fn(async () => ({ accepted: false }));
 
 function makeInstance(id: string) {
   return {
@@ -50,6 +51,7 @@ function makeInstance(id: string) {
     setVisible: (...args: unknown[]) => mockSetVisible(id, ...args),
     setRect: (...args: unknown[]) => mockSetRect(id, ...args),
     executeScript: (...args: unknown[]) => mockExecuteScript(id, ...args),
+    morph: (...args: unknown[]) => mockMorph(id, ...args),
     close: () => mockInstanceClose(id)
   };
 }
@@ -477,7 +479,8 @@ describe('park / restore lifecycle', () => {
     );
 
     let parking: Promise<void> = Promise.resolve();
-    act(() => {
+    // Async: the park asks native for the morph first, and starts the snapshot once that is refused.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
     // DappActive re-measures the slot on timers after it mounts, so a minimize right after opening can land one
@@ -501,6 +504,82 @@ describe('park / restore lifecycle', () => {
     act(() => hook.result.current.setSlotRect(SLOT_RECT));
     await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', true));
     expect(hook.result.current.session?.id).toBe('dapp-a');
+  });
+});
+
+describe('bridge traffic', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const LANDSCAPE = { x: 0, y: 0, width: 667, height: 375 };
+  const flush = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  const hides = (id: string) =>
+    mockSetVisible.mock.calls.filter(([callId, visible]) => callId === id && !visible).length;
+  const injections = (id: string) =>
+    mockExecuteScript.mock.calls.filter(([callId, code]) => callId === id && code === 'INJECTED;').length;
+
+  async function openTwo() {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    act(() => hook.result.current.open(makeSession('dapp-b')));
+    await flush();
+    return hook;
+  }
+
+  it('keeps the same slotRect object for an equal rect', () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    const first = hook.result.current.slotRect;
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    expect(hook.result.current.slotRect).toBe(first);
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    expect(hook.result.current.slotRect).toEqual(LANDSCAPE);
+  });
+
+  it('does not re-send hides to other instances when the slot rect value repeats', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('does not re-send hides to other instances when the slot rect changes', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('injects the bridge once per foreground change, not per rect change', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+    await act(async () => loaded?.({ id: 'dapp-a' }));
+    mockExecuteScript.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    expect(injections('dapp-a')).toBe(0);
+
+    await act(async () => hook.result.current.park('dapp-a'));
+    await act(async () => hook.result.current.restore('dapp-a'));
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+    expect(injections('dapp-a')).toBe(1);
   });
 });
 
@@ -959,6 +1038,26 @@ describe('E2E screen-key publishing', () => {
     expect(probe.hasPendingConfirmation('probe')).toBe(false);
   });
 
+  it('publishes the motion while one runs', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+    const probe = () => Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')?.value.motion;
+    expect(probe()).toBeNull();
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+
+    act(() => void hook.result.current.park('dapp-a'));
+    await flush();
+
+    expect(probe()).toEqual({
+      id: 'dapp-a',
+      target: 'collapsed',
+      started: false,
+      acknowledging: false,
+      progress: 1,
+      tracking: false
+    });
+  });
+
   it('stays on the bare route while the dApp is still loading', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     act(() => hook.result.current.open(makeSession('dapp-a')));
@@ -1211,8 +1310,22 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.setSlotRect(LANDSCAPE));
       await settle();
 
-      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 1]);
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 0]);
       expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+    });
+
+    it('on the bridge injection of a warm restore', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+      await act(async () => loaded?.({ id: 'dapp-a' }));
+      await act(async () => hook.result.current.park('dapp-a'));
+      failNative();
+
+      await act(async () => hook.result.current.restore('dapp-a'));
+      await settle();
+
+      expect(warned('executeScript')).toBe(1);
     });
 
     it('when the switcher opens', async () => {
@@ -1445,9 +1558,11 @@ describe('native presentation lifecycle', () => {
     });
     await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
     let parking: Promise<void> | undefined;
-    act(() => {
+    // Async, so the refused morph hands over to the legacy park and its snapshot starts before the close.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
+    expect(finishSnapshot).toBeDefined();
     await act(async () => {
       await listenerFor('closeEvent')({
         id: 'dapp-a',
@@ -1514,7 +1629,7 @@ describe('native presentation lifecycle', () => {
           finish = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1568,7 +1683,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1621,7 +1736,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });

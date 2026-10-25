@@ -11,6 +11,21 @@ import { BrowserScreen } from './BrowserScreen';
 let mockMode: 'active' | 'launcher' = 'active';
 let mockExtension = false;
 let mockPolicyPending = false;
+type Motion = {
+  id: string;
+  target: 'collapsed' | 'expanded';
+  morphId?: string;
+  started?: boolean;
+  acknowledging?: boolean;
+  tracking?: boolean;
+  progress?: number;
+  velocity?: number;
+  eventSeq?: number;
+};
+let mockMotion: Motion | null = null;
+const mockStopCompanions = jest.fn();
+const mockStartCompanions = jest.fn((..._args: unknown[]) => mockStopCompanions);
+let mockSession: { id: string } | null = { id: 's1' };
 const mockLauncherCommit = jest.fn();
 
 jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
@@ -22,7 +37,9 @@ jest.mock('app/providers/DappBrowserProvider', () => ({
       mode: mockMode,
       open: jest.fn(),
       policyPending: mockPolicyPending,
-      reportLauncherCommit: mockLauncherCommit
+      reportLauncherCommit: mockLauncherCommit,
+      motion: mockMotion,
+      session: mockSession
     };
   }
 }));
@@ -33,9 +50,13 @@ jest.mock('lib/dapp-browser', () => ({
   recordRecentDapp: jest.fn()
 }));
 jest.mock('lib/platform', () => ({ isDesktop: () => false, isExtension: () => mockExtension }));
+jest.mock('./morph-companions', () => ({ startMorphCompanions: (...args: unknown[]) => mockStartCompanions(...args) }));
 jest.mock('./DappActive', () => {
   const ReactActual = jest.requireActual<typeof React>('react');
-  return { DappActive: () => ReactActual.createElement('div', { 'data-testid': 'dapp-active' }) };
+  return {
+    DappActive: ({ capsuleRef }: { capsuleRef?: React.Ref<HTMLDivElement> }) =>
+      ReactActual.createElement('div', { 'data-testid': 'dapp-active', ref: capsuleRef })
+  };
 });
 jest.mock('./DappLauncher', () => {
   const ReactActual = jest.requireActual<typeof React>('react');
@@ -66,13 +87,26 @@ const view = (onScreen: boolean) => (
   </PageActiveContext.Provider>
 );
 
+// jsdom has no Web Animations; the screen asks the companions' elements for theirs when a finger holds the page.
+const hasGetAnimations = 'getAnimations' in HTMLElement.prototype;
+
 beforeEach(() => {
+  if (!hasGetAnimations)
+    Object.defineProperty(HTMLElement.prototype, 'getAnimations', { configurable: true, value: () => [] });
   mockMode = 'active';
   mockPolicyPending = false;
+  mockMotion = null;
+  mockSession = { id: 's1' };
+  mockStartCompanions.mockClear();
+  mockStopCompanions.mockClear();
   mockLauncherCommit.mockClear();
   mockExtension = false;
   (recordRecentDapp as jest.Mock).mockReset();
   (openUrlInNewTab as jest.Mock).mockReset();
+});
+
+afterEach(() => {
+  if (!hasGetAnimations) Reflect.deleteProperty(HTMLElement.prototype, 'getAnimations');
 });
 
 // Recents is a list of dApps the user chose. A web search the launcher produced opens like any page
@@ -181,4 +215,151 @@ it('retains the launcher during policy discovery without reporting a close desti
   expect(screen.getByTestId('dapp-active')).toBe(active);
   expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
   expect(launcher).not.toBeVisible();
+});
+
+describe('while the foreground page morphs', () => {
+  const launcherBox = () => screen.getByTestId('dapp-launcher').parentElement!;
+
+  it('renders the launcher inert behind the page while a motion runs', () => {
+    mockMotion = { id: 's1', target: 'collapsed', started: true };
+    render(view(true));
+
+    expect(launcherBox()).toBeVisible();
+    expect(launcherBox()).toHaveClass('absolute', 'inset-0');
+    expect(launcherBox()).toHaveAttribute('aria-hidden', 'true');
+    expect(launcherBox().inert).toBe(true);
+    expect(screen.getByTestId('dapp-active')).toBeInTheDocument();
+  });
+
+  it('hides the launcher once an expand settles', () => {
+    mockMotion = { id: 's1', target: 'expanded' };
+    const { rerender } = render(view(true));
+    expect(launcherBox()).toBeVisible();
+
+    mockMotion = null;
+    rerender(view(true));
+
+    expect(launcherBox()).not.toBeVisible();
+  });
+
+  it('makes the launcher focusable again only after the collapse commits', () => {
+    mockMotion = { id: 's1', target: 'collapsed' };
+    const { rerender } = render(view(true));
+    expect(launcherBox().inert).toBe(true);
+
+    mockMode = 'launcher';
+    mockSession = null;
+    rerender(view(true));
+
+    expect(launcherBox().inert).toBe(false);
+    expect(launcherBox()).not.toHaveClass('absolute');
+    expect(screen.queryByTestId('dapp-active')).toBeNull();
+  });
+
+  it('keeps the launcher hidden behind a page that is not the one moving', () => {
+    mockMotion = { id: 'other', target: 'expanded' };
+    render(view(true));
+
+    expect(launcherBox()).not.toBeVisible();
+  });
+});
+
+describe('morph companions', () => {
+  const event = (extra: Partial<Motion>): Motion => ({
+    id: 's1',
+    target: 'collapsed',
+    morphId: 'm1',
+    started: true,
+    acknowledging: false,
+    tracking: false,
+    progress: 0.9,
+    velocity: -2,
+    eventSeq: 1,
+    ...extra
+  });
+
+  it('runs on every started and retargeted event and stops when the motion ends', () => {
+    mockMotion = event({ started: false, eventSeq: 0 });
+    const { rerender } = render(view(true));
+    expect(mockStartCompanions).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dapp-launcher').parentElement).toHaveStyle({ opacity: '0' });
+
+    mockMotion = event({});
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenLastCalledWith(
+      { capsule: screen.getByTestId('dapp-active'), launcher: screen.getByTestId('dapp-launcher').parentElement },
+      mockMotion,
+      false
+    );
+    mockMotion = event({ target: 'expanded', eventSeq: 2 });
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenCalledTimes(2);
+
+    mockMotion = null;
+    rerender(view(true));
+    expect(mockStopCompanions).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the release while a finger holds the page', () => {
+    mockMotion = event({ tracking: true });
+    render(view(true));
+
+    expect(mockStartCompanions).not.toHaveBeenCalled();
+  });
+
+  const holdAnimations = () => {
+    const pause = { capsule: jest.fn(), launcher: jest.fn() };
+    const hold = (element: HTMLElement, fn: jest.Mock) =>
+      Object.defineProperty(element, 'getAnimations', { configurable: true, value: () => [{ pause: fn }] });
+    hold(screen.getByTestId('dapp-active'), pause.capsule);
+    hold(screen.getByTestId('dapp-launcher').parentElement!, pause.launcher);
+    return pause;
+  };
+
+  it('freezes the companions where they are when a finger grabs the page', () => {
+    mockMotion = event({});
+    const { rerender } = render(view(true));
+    expect(mockStartCompanions).toHaveBeenCalledTimes(1);
+    const pause = holdAnimations();
+
+    mockMotion = event({ tracking: true, eventSeq: 2, velocity: 0 });
+    rerender(view(true));
+    expect(pause.capsule).toHaveBeenCalledTimes(1);
+    expect(pause.launcher).toHaveBeenCalledTimes(1);
+    expect(mockStartCompanions).toHaveBeenCalledTimes(1);
+    expect(mockStopCompanions).not.toHaveBeenCalled();
+
+    mockMotion = event({ tracking: true, eventSeq: 3, velocity: 0, progress: 0.8 });
+    rerender(view(true));
+    expect(pause.capsule).toHaveBeenCalledTimes(2);
+    expect(pause.launcher).toHaveBeenCalledTimes(2);
+    expect(mockStartCompanions).toHaveBeenCalledTimes(1);
+
+    mockMotion = event({ tracking: false, eventSeq: 4, target: 'expanded', progress: 0.4, velocity: 1.5 });
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenCalledTimes(2);
+    expect(mockStartCompanions).toHaveBeenLastCalledWith(expect.anything(), mockMotion, false);
+    expect(mockStopCompanions).not.toHaveBeenCalled();
+  });
+
+  it('cancels a held set when the motion ends or the screen unmounts', () => {
+    mockMotion = event({});
+    const first = render(view(true));
+    holdAnimations();
+    mockMotion = event({ tracking: true, eventSeq: 2, velocity: 0 });
+    first.rerender(view(true));
+    mockMotion = null;
+    first.rerender(view(true));
+    expect(mockStopCompanions).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    mockStopCompanions.mockClear();
+    mockMotion = event({});
+    const second = render(view(true));
+    holdAnimations();
+    mockMotion = event({ tracking: true, eventSeq: 2, velocity: 0 });
+    second.rerender(view(true));
+    second.unmount();
+    expect(mockStopCompanions).toHaveBeenCalledTimes(1);
+  });
 });
