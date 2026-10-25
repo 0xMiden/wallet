@@ -49,7 +49,6 @@ import {
   type PayoutChain
 } from './usdcx-constants';
 import { assertNoGuardianOpInFlight, burnFailureMessage } from './usdcx-guardian';
-import { recordPayoutFee } from './usdcx-payout-summary';
 import {
   accountHex,
   bareId,
@@ -60,6 +59,7 @@ import {
   nullifier,
   type BurnEvidence
 } from './usdcx-miden';
+import { recordPayoutFee } from './usdcx-payout-summary';
 import {
   anyOf,
   boundedTerm,
