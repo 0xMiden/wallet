@@ -1,3 +1,5 @@
+import type { StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
+
 import { captureCrash } from './crash';
 import { annotateCrash } from './crash-diagnostics';
 import {
@@ -31,7 +33,11 @@ function isUserErrorSurface(value: unknown): value is UserErrorSurface {
   return USER_ERROR_SURFACES.some(surface => surface === value);
 }
 
-export function reportUserVisibleError(id: UserErrorId, surface: UserErrorSurface): void {
+export function reportUserVisibleError(
+  id: UserErrorId,
+  surface: UserErrorSurface,
+  diagnostics?: StartupEligibilityDiagnostics
+): void {
   try {
     if (!isUserErrorId(id) || !isUserErrorSurface(surface)) return;
     const now = performance.now();
@@ -45,7 +51,11 @@ export function reportUserVisibleError(id: UserErrorId, surface: UserErrorSurfac
     report.name = 'WalletUserVisibleError';
     // A reporter stack identifies this call site, not the failure, and can contain private paths.
     report.stack = undefined;
-    annotateCrash(report, { userErrorId: id, userErrorSurface: surface });
+    annotateCrash(report, {
+      ...(id === 'walletAccessUnavailableBody' && surface === 'startup' ? diagnostics : {}),
+      userErrorId: id,
+      userErrorSurface: surface
+    });
     lastSentByPair.set(pair, now);
     sentAt.push(now);
     captureCrash(report, 'manual', { initializeIfNeeded: true, level: 'warning', closedNames: CLOSED_NAMES });

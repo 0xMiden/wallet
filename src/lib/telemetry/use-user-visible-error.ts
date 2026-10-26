@@ -2,13 +2,15 @@ import { useEffect, useRef } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { usePromptSlideActive } from 'components/ui/prompt-slide-active';
+import type { StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
 
 import { reportUserVisibleError, UserErrorId, UserErrorSurface } from './user-visible-error';
 
 export function useUserVisibleError(
   id: UserErrorId | null | undefined,
   surface: UserErrorSurface,
-  occurrence?: object
+  occurrence?: object,
+  diagnostics?: StartupEligibilityDiagnostics
 ): void {
   const pageActive = usePageActive();
   const slideActive = usePromptSlideActive();
@@ -23,8 +25,9 @@ export function useUserVisibleError(
     if (!id || !active || current.reported) return undefined;
     const timer = setTimeout(() => {
       current.reported = true;
-      reportUserVisibleError(id, surface);
+      if (diagnostics) reportUserVisibleError(id, surface, diagnostics);
+      else reportUserVisibleError(id, surface);
     }, 1000);
     return () => clearTimeout(timer);
-  }, [id, surface, occurrence, active]);
+  }, [id, surface, occurrence, active, diagnostics]);
 }
