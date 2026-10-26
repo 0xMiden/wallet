@@ -1,0 +1,182 @@
+{
+  "base": "1d365abb2e54d78bda1a0035219c873f11780aad",
+  "patch": "/tmp/task4c1-coherent-green-v4.patch",
+  "sha256": "1f19e3621717686ea520c4d1c494f27b296f1eeb2f0860c92ef4965276b8e704",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/back/actions.test.ts",
+      "sha256": "1018c64371b2781d453eee29bdf354471b1e0bfe06328354ab484d11dfe48559"
+    },
+    {
+      "path": "src/lib/miden/back/actions.ts",
+      "sha256": "03198a7e922270ff61a883ed002fd370a096f5d66bd18aa36e915c3d5bcd0465"
+    },
+    {
+      "path": "src/lib/miden/back/vault.test.ts",
+      "sha256": "bfb35bd5fd88c31f009241733199985638c1c305be261ea0073b6f5495239acf"
+    },
+    {
+      "path": "src/lib/miden/back/vault.ts",
+      "sha256": "5f1742c2e0876ee4790c032299ac7f1aabeaedce73bc6c5340bde263de07e009"
+    },
+    {
+      "path": "src/lib/miden/recovery/canonical-reads.test.ts",
+      "sha256": "57d673b8f0ce25356c133757e1a430b926f559fc2366cd86c2189cb935c32aab"
+    },
+    {
+      "path": "src/lib/miden/recovery/canonical-reads.ts",
+      "sha256": "b9e9eb62075deb6fe1f404cf88a6085a64984d237328a0ec427b7a4a62f2fbf3"
+    },
+    {
+      "path": "src/lib/miden/recovery/financial.test.ts",
+      "sha256": "09cf16a3b479a4f3098d6f692a1d855a7e75b62fd52712883c7bcfd3498aa5b6"
+    },
+    {
+      "path": "src/lib/miden/recovery/financial.ts",
+      "sha256": "ff1c4ffd33aa7ea48b3e4ececff27d0010028a2c418f3a0e17ec836515991356"
+    },
+    {
+      "path": "src/lib/miden/recovery/journal.test.ts",
+      "sha256": "cee1f98cc33541679fa98f3c73e996a1182191f935b7e85b8f01ec1b2df9810c"
+    },
+    {
+      "path": "src/lib/miden/recovery/journal.ts",
+      "sha256": "3bd75f08eea89fd99e31b693a64c430651e21ff73e5fe6ee164dde5f8d125359"
+    },
+    {
+      "path": "src/lib/miden/recovery/nullifier-scan.ts",
+      "sha256": "984676399b6ef548c2235d5430083b169cd6ba30b6a3a4568aa28dbd45bc68ce"
+    },
+    {
+      "path": "src/lib/miden/recovery/read-turn.ts",
+      "sha256": "3df10c13e37683dd1faca32a077e94288dfa9875866c8424b91bc9d3487de28c"
+    },
+    {
+      "path": "src/lib/miden/recovery/reconcile.test.ts",
+      "sha256": "1debfcfdddf81d729af6c5cf02266579908e56b059ed2c1a85343be25aa1b1c5"
+    },
+    {
+      "path": "src/lib/miden/recovery/reconcile.ts",
+      "sha256": "e0a31d1b9e568c45f4145f1fad68dc7c375138171f8a96792868cc0361c2b1fb"
+    },
+    {
+      "path": "src/lib/miden/recovery/restore.test.ts",
+      "sha256": "058eb2808d6dc8ee8f06c2d6b4164023c0369da7eca9cc09e6b6b6d4927b941c"
+    },
+    {
+      "path": "src/lib/miden/recovery/restore.ts",
+      "sha256": "8b8bafea091d324f1ac4cdcbeaf981599292f8c7c81931dec18ee39342ce476e"
+    },
+    {
+      "path": "src/lib/miden/recovery/retirement.test.ts",
+      "sha256": "5c044885d49988267b6942388da758fac147239b6e4446d6316c44a0373159b8"
+    },
+    {
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "sha256": "477a20981bc4f83bb8cc851ed7252f0a2dddde5ec1a94c4f2576faa73950facd"
+    },
+    {
+      "path": "src/lib/miden/recovery/retry-transition.test.ts",
+      "sha256": "d7827a57d80457b4892e3cfd0a9eec3068ace5f67273ffbe722c6804ba2c911f"
+    },
+    {
+      "path": "src/lib/miden/recovery/retry-transition.ts",
+      "sha256": "f0d638fc075e58560cb201f38048c0b21111b6fe97e6ec3276a25e555c2d4d76"
+    },
+    {
+      "path": "src/lib/miden/recovery/types.ts",
+      "sha256": "c23e74c36b10417774462be62df67e323b7843d4ca133fdafe11c12d6265f081"
+    },
+    {
+      "path": "src/lib/miden/recovery/validation.ts",
+      "sha256": "bcda51fda069e548ecbcaba4a32976f10689bd23c90f9749894720dca0fd1105"
+    },
+    {
+      "path": "src/lib/miden/transaction/retry.recovery.test.ts",
+      "sha256": "5a5246a2a5a51aef49288c0cdee13b61a6268cd37f65f0b071e9b4a817ad4272"
+    },
+    {
+      "path": "src/lib/miden/transaction/retry.ts",
+      "sha256": "c525cc95f94fe8ed261ed874e3d5fe9ededfbb29a5a7524075c7b538c6ff40ff"
+    },
+    {
+      "path": "src/lib/shared/types.ts",
+      "sha256": "edf6c625722de3d2abf4b4b93488478d9aaf498a8878c6d7445433452302f76d"
+    }
+  ],
+  "commands": [
+    "yarn jest --runTestsByPath src/lib/miden/recovery/access.test.ts src/lib/miden/recovery/account-restore.test.ts src/lib/miden/recovery/canonical-reads.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/continuity.test.ts src/lib/miden/recovery/financial-writer.test.ts src/lib/miden/recovery/financial.test.ts src/lib/miden/recovery/guardian-state.test.ts --maxWorkers=2 --json --outputFile=task4c1-green-1.json",
+    "yarn jest --runTestsByPath src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/reconcile.test.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/retry-transition.test.ts src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/transaction/retry.earn.test.ts --maxWorkers=2 --json --outputFile=task4c1-green-2.json",
+    "yarn jest --runTestsByPath src/lib/miden/transaction/retry.landed.test.ts src/lib/miden/transaction/retry.recovery.test.ts src/lib/miden/transaction/retry.test.ts src/lib/miden/transaction/retry.unconfirmed.test.ts src/lib/miden/transaction/reconcile-judge.test.ts src/lib/miden/transaction/reconcile-reads.test.ts src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts --maxWorkers=2 --json --outputFile=task4c1-green-3.json",
+    "yarn jest --runTestsByPath src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts src/lib/miden/back/actions.test.ts src/lib/intercom/in-process-request-handler.test.ts --maxWorkers=2 --json --outputFile=task4c1-green-4.json",
+    "yarn tsc --noEmit",
+    "yarn eslint src/lib/miden/back/actions.test.ts src/lib/miden/back/actions.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/recovery/canonical-reads.test.ts src/lib/miden/recovery/canonical-reads.ts src/lib/miden/recovery/financial.test.ts src/lib/miden/recovery/financial.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/nullifier-scan.ts src/lib/miden/recovery/read-turn.ts src/lib/miden/recovery/reconcile.test.ts src/lib/miden/recovery/reconcile.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/restore.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/retirement.ts src/lib/miden/recovery/retry-transition.test.ts src/lib/miden/recovery/retry-transition.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/transaction/retry.recovery.test.ts src/lib/miden/transaction/retry.ts src/lib/shared/types.ts --max-warnings=0"
+  ],
+  "testFiles": [
+    "src/lib/miden/recovery/access.test.ts",
+    "src/lib/miden/recovery/account-restore.test.ts",
+    "src/lib/miden/recovery/canonical-reads.test.ts",
+    "src/lib/miden/recovery/capture.test.ts",
+    "src/lib/miden/recovery/continuity.test.ts",
+    "src/lib/miden/recovery/financial-writer.test.ts",
+    "src/lib/miden/recovery/financial.test.ts",
+    "src/lib/miden/recovery/guardian-state.test.ts",
+    "src/lib/miden/recovery/journal.test.ts",
+    "src/lib/miden/recovery/reconcile.test.ts",
+    "src/lib/miden/recovery/restore.test.ts",
+    "src/lib/miden/recovery/retirement.test.ts",
+    "src/lib/miden/recovery/retry-transition.test.ts",
+    "src/lib/miden/recovery/sdk-restore.test.ts",
+    "src/lib/miden/recovery/sdk-snapshot.test.ts",
+    "src/lib/miden/transaction/retry.earn.test.ts",
+    "src/lib/miden/transaction/retry.landed.test.ts",
+    "src/lib/miden/transaction/retry.recovery.test.ts",
+    "src/lib/miden/transaction/retry.test.ts",
+    "src/lib/miden/transaction/retry.unconfirmed.test.ts",
+    "src/lib/miden/transaction/reconcile-judge.test.ts",
+    "src/lib/miden/transaction/reconcile-reads.test.ts",
+    "src/lib/miden/transaction/reconcile-unconfirmed.delivery.test.ts",
+    "src/lib/miden/transaction/reconcile-unconfirmed.pass.test.ts",
+    "src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts",
+    "src/lib/miden/back/actions.test.ts",
+    "src/lib/intercom/in-process-request-handler.test.ts"
+  ],
+  "purpose": "Complete27affectedfiles plus types/lint0, exactonlystage-declinecorrection vs9ca; unchangedfullVault evidence from40418939981 requires terminalpass",
+  "local": {
+    "completeShard3": "300/300, zero filtered/runtime, /tmp/task4c1-v4-shard3.json, session74888",
+    "types": "PASS23.85s /tmp/task4c1-v4-types.log, session53195",
+    "lint": "Changed retry.ts PASS0 errors/0warnings, /tmp/task4c1-v4-lint.log, session46532. Other24 paths byte-identical to v3 CI lint0."
+  },
+  "redProofs": [
+    {
+      "run": 40414165656,
+      "cases": 21
+    },
+    {
+      "run": 40415755911,
+      "cases": 3
+    },
+    {
+      "run": 40418263835,
+      "cases": 2
+    },
+    {
+      "run": 40418264095,
+      "cases": 5
+    }
+  ],
+  "reusedEvidence": {
+    "run": 40418939981,
+    "source": "9ca28b75672fdfc9e4dac1a088761bc8ca40e8a4",
+    "scope": "Complete Vault only, pending terminal confirmation",
+    "identityProof": "/tmp/task4c1-v4-delta-vs-9ca.json",
+    "unchangedSourcePaths": 24,
+    "changedSource": "retry.ts only, two-branch stage/evidence correction"
+  },
+  "identity": {
+    "source": "9ca28b75672fdfc9e4dac1a088761bc8ca40e8a4",
+    "path": "src/lib/miden/transaction/retry.ts",
+    "beforeHash": "9c0b830d56a17004a89d1fb2570dde99d91a04253f85db059c3ac4081f3a26f3",
+    "afterHash": "c525cc95f94fe8ed261ed874e3d5fe9ededfbb29a5a7524075c7b538c6ff40ff"
+  }
+}
