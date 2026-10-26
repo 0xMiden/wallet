@@ -19,7 +19,7 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
 import { CONFIRM_ACTIONS } from './confirm-actions';
-import { acknowledgeNetworkNotice } from './network-notice';
+import { openImportTypeScreen } from './onboarding-entry';
 import { passImportConfirmation } from './onboarding-confirmation';
 import { dismissTelemetryConsent } from './telemetry-consent';
 
@@ -161,12 +161,7 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
 export async function completeSeedImportOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
   await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
-  await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
-  await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
-  // The network notice (#875) precedes the import flow.
-  await acknowledgeNetworkNotice(page, ACTION_TIMEOUT);
-  // Import now asks WHICH credential first; this helper drives the seed-phrase one.
-  await page.getByTestId('import-select-type').waitFor({ timeout: timeoutMs });
+  await openImportTypeScreen(page, timeoutMs, ACTION_TIMEOUT);
   await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 
