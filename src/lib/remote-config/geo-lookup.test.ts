@@ -157,7 +157,9 @@ describe('lookupFeatureEligibility', () => {
     ['another network', { ...answer, network: 'mainnet' }, 'version_mismatch'],
     ['an older policy', { ...answer, version: 12 }, 'version_mismatch'],
     ['a newer policy', { ...answer, version: 14 }, 'version_mismatch'],
-    ['a string policy', { ...answer, version: '13' }, 'version_mismatch'],
+    ['a string policy', { ...answer, version: '13' }, 'bad_body'],
+    ['an empty object', {}, 'bad_body'],
+    ['another network with a bad decision', { ...answer, network: 'mainnet', allowed: { wallet: 'yes' } }, 'bad_body'],
     ['a missing wallet decision', { ...answer, allowed: { earn: true, swap: false } }, 'bad_body'],
     ['a nonboolean wallet decision', { ...answer, allowed: { wallet: 'yes', earn: true, swap: false } }, 'bad_body'],
     ['a missing Earn decision', { ...answer, allowed: { wallet: true, swap: true } }, 'bad_body'],
@@ -216,6 +218,35 @@ describe('lookupFeatureEligibility', () => {
   ])('reports %s before any response', async (_name, error, reason) => {
     const fetchImpl = jest.fn().mockRejectedValue(error);
     await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({ state: 'failed', reason });
+  });
+
+  it.each([
+    ['a dropped connection', new TypeError('network error'), 'network'],
+    ['an aborted read', new DOMException('x', 'AbortError'), 'timeout']
+  ])('reports %s while reading the body of a 200', async (_name, error, reason) => {
+    let requestSignal: AbortSignal | undefined;
+    const fetchImpl = jest.fn(async (_url: string, init: RequestInit): Promise<JsonResponse> => {
+      requestSignal = init.signal ?? undefined;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw error;
+        }
+      };
+    });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({ state: 'failed', reason });
+    expect(requestSignal?.reason?.name).not.toBe('TimeoutError');
+  });
+
+  it('answers a failed lookup when the realm has no fetch', async () => {
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    Reflect.deleteProperty(globalThis, 'fetch');
+    try {
+      await expect(lookupFeatureEligibility('testnet', 13)).resolves.toEqual({ state: 'failed', reason: 'network' });
+    } finally {
+      if (saved) Object.defineProperty(globalThis, 'fetch', saved);
+    }
   });
 
   it('fails closed on network and body errors with no immediate paid-service retries', async () => {

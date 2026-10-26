@@ -7,11 +7,11 @@ import type { EligibilityAnswer } from './geo';
 const failed = (reason: EligibilityFailure): EligibilityAnswer => ({ state: 'failed', reason });
 
 function readEligibility(body: unknown, network: string, version: number): EligibilityAnswer {
-  if (!isRecord(body)) return failed('bad_body');
-  if (body.network !== network || body.version !== version) return failed('version_mismatch');
-  if (!isRecord(body.allowed)) return failed('bad_body');
+  if (!isRecord(body) || !isRecord(body.allowed)) return failed('bad_body');
+  if (typeof body.network !== 'string' || typeof body.version !== 'number') return failed('bad_body');
   const { wallet, earn, swap } = body.allowed;
   if (typeof wallet !== 'boolean' || typeof earn !== 'boolean' || typeof swap !== 'boolean') return failed('bad_body');
+  if (body.network !== network || body.version !== version) return failed('version_mismatch');
   return { state: 'ready', network, version, allowed: { wallet, earn, swap } };
 }
 
@@ -65,7 +65,8 @@ function timedOut(error: unknown, signal: AbortSignal | undefined): boolean {
 function failureReason(error: unknown, seen: { response?: JsonResponse; signal?: AbortSignal }): EligibilityFailure {
   if (seen.response && !seen.response.ok) return statusClass(seen.response.status);
   if (timedOut(error, seen.signal)) return 'timeout';
-  return seen.response ? 'bad_body' : 'network';
+  // A body stream fails with a TypeError when the connection drops after the headers.
+  return seen.response && !(error instanceof TypeError) ? 'bad_body' : 'network';
 }
 
 /** The server owns paid-service credentials and returns only decisions for the accepted policy. */
@@ -78,10 +79,10 @@ export async function lookupFeatureEligibility(
   if (openForDevelopment) return openForDevelopment;
   const url = eligibilityUrl(network);
   if (!url) return failed('not_configured');
-  const fetchImpl = options.fetchImpl ?? fetch;
   // The bounded read reports every failure as a thrown error; what arrived tells them apart.
   const seen: { response?: JsonResponse; signal?: AbortSignal } = {};
   try {
+    const fetchImpl = options.fetchImpl ?? fetch;
     const body = await fetchBoundedJson(
       async (requestUrl, init) => {
         seen.signal = init.signal;
