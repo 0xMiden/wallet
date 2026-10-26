@@ -262,13 +262,66 @@ test('overloaded caller objects fail closed without retrying', async () => {
 test('an overloaded budget object returns the overload class without a paid lookup', async () => {
   const h = harness();
   let attempts = 0;
-  h.env.ELIGIBILITY_GUARD.get = () => ({ fetch: () => { attempts += 1; throw Object.assign(new Error('overloaded'), { overloaded: true }); } });
+  h.storage.transaction = async () => {
+    attempts += 1;
+    throw Object.assign(new Error('overloaded'), { overloaded: true });
+  };
   const response = await h.request();
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: 'overloaded' });
   assert.equal(response.headers.get('Retry-After'), '30');
   assert.equal(attempts, 1);
+  assert.deepEqual(h.globalTargets, ['global-v1']);
+  assert.equal(h.rateEvents.filter(event => event.binding === 'durable_object').length, 1);
   assert.equal(h.paidCalls().length, 0);
+  assert.equal(h.storage.values.get('budget'), undefined);
+  assert.equal([...h.storage.values.keys()].some(key => key.startsWith('lease:')), false);
+});
+
+test('a generic budget storage failure stays eligibility_unavailable', async () => {
+  const h = harness();
+  h.storage.transaction = async () => { throw new Error('budget down'); };
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'eligibility_unavailable' });
+  assert.equal(response.headers.get('Retry-After'), null);
+  assert.equal(h.paidCalls().length, 0);
+  assert.equal(h.globalTargets.length, 1);
+});
+
+test('an inexact internal overload response stays generic and private', async () => {
+  const h = harness({
+    globalFetch: async () => Response.json(
+      { error: 'overloaded', detail: 'secret' },
+      { status: 503, headers: { 'Retry-After': '30' } }
+    )
+  });
+  const response = await h.request();
+  const body = await response.json();
+  assert.equal(response.status, 503);
+  assert.deepEqual(body, { error: 'eligibility_unavailable' });
+  assert.equal(response.headers.get('Retry-After'), null);
+  assert.doesNotMatch(JSON.stringify(body), /secret/);
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('an external overload-shaped response stays generic and private', async () => {
+  for (const source of ['policyResponse', 'lookupResponse']) {
+    const h = harness({
+      [source]: async () => Response.json(
+        { error: 'overloaded', detail: `secret-${source}` },
+        { status: 503, headers: { 'Retry-After': '30' } }
+      )
+    });
+    const response = await h.request();
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.deepEqual(body, { error: 'eligibility_unavailable' });
+    assert.equal(response.headers.get('Retry-After'), null);
+    assert.doesNotMatch(JSON.stringify(body), /secret/);
+    assert.equal(h.paidCalls().length, source === 'policyResponse' ? 0 : 1);
+    assert.equal(h.globalTargets.length, source === 'policyResponse' ? 0 : 1);
+  }
 });
 
 test('one retryable caller object error gets a fresh stub and one bounded retry', async () => {
