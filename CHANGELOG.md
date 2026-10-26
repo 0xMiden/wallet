@@ -27,6 +27,7 @@
 - [FIX][e2e] iOS and Android dApp browser tests use native taps and typing to verify the software keyboard stays visible and leaves the test field accessible.
 - [FIX][mobile] Rapid dApp switching keeps the latest selection in front when older snapshot, visibility or morph work finishes (#1844).
 - [FIX][e2e] The mobile dApp journey's recipient-claim unit test keeps its runner on the fake clock, so the quiesce join no longer fails intermittently in CI.
+- [CHANGE][all] The Spanish translation was revised: 421 strings now use the reviewed wording (cartera, Guardian, swap and bridge terms, spacing in placeholders, the Bread brand name) instead of the machine translation (#819).
 
 ## 1.17.7 (2026-10-25)
 
