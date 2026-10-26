@@ -44,7 +44,27 @@ const apiReasons = new Set([
   'CHANGES_ALREADY_IN_REVIEW',
   'ONLY_ONE_COMPLETED_RELEASE'
 ]);
+const appleCodes = new Set([
+  'ENTITY_ERROR',
+  'ENTITY_ERROR.ATTRIBUTE.REQUIRED',
+  'ENTITY_ERROR.ATTRIBUTE.INVALID',
+  'ENTITY_ERROR.RELATIONSHIP.INVALID',
+  'ENTITY_ERROR.RELATIONSHIP.REQUIRED',
+  'STATE_ERROR',
+  'STATE_ERROR.INVALID',
+  'PARAMETER_ERROR.INVALID',
+  'FORBIDDEN_ERROR',
+  'NOT_FOUND',
+  'UNAUTHORIZED',
+  'RATE_LIMIT_EXCEEDED'
+]);
 const failureStages = new Set([
+  'apple-submit-preflight',
+  'apple-release-notes-update',
+  'apple-build-link',
+  'apple-review-create',
+  'apple-review-item-create',
+  'apple-review-submit',
   'store-operation',
   'play-submit-track-read',
   'play-submit-track-update',
@@ -60,6 +80,9 @@ export function safeStoreFailure(error) {
     stage: failureStages.has(error?.stage) ? error.stage : 'store-operation',
     ...(Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599
       ? { httpStatus: error.status }
+      : {}),
+    ...(Array.isArray(error?.appleCodes)
+      ? { appleCodes: [...new Set(error.appleCodes.filter(code => appleCodes.has(code)))] }
       : {}),
     ...(apiStatuses.has(error?.apiStatus) ? { apiStatus: error.apiStatus } : {}),
     ...(Array.isArray(error?.apiReasons)
@@ -82,7 +105,10 @@ async function apiFailure(response, label) {
       if (length > 8192) return error;
       chunks.push(value);
     }
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.error;
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const body = parsed?.error;
+    if (Array.isArray(parsed?.errors))
+      error.appleCodes = [...new Set(parsed.errors.map(item => item?.code).filter(code => appleCodes.has(code)))];
     if (apiStatuses.has(body?.status)) error.apiStatus = body.status;
     const reasons = [
       ...(Array.isArray(body?.errors) ? body.errors.map(item => item?.reason) : []),

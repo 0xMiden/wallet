@@ -35,6 +35,7 @@ const values = new Map(
     'version-code',
     'edit-id',
     'release-policy',
+    'release-notes',
     'confirm'
   ].map(name => [name, name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())])
 );
@@ -69,7 +70,8 @@ export function parseArgs(argv) {
     if (flags.has(name)) result[flags.get(name)] = true;
     else if (values.has(name)) {
       const value = rest[++index];
-      if (!value || value.startsWith('--')) throw new Error('A publishing option is missing its value');
+      if (value === undefined || (!value && name !== 'release-notes') || value.startsWith('--'))
+        throw new Error('A publishing option is missing its value');
       result[values.get(name)] = value;
     } else throw new Error('Unknown publishing option; store identities can only come from private configuration');
   }
@@ -79,6 +81,9 @@ export function parseArgs(argv) {
 function planFor(args, config) {
   const { platform, action } = args;
   const mutation = action !== 'status';
+  const releaseNotes = apple.validateReleaseNotes(args.releaseNotes);
+  if (releaseNotes !== undefined && (platform !== 'ios' || action !== 'submit'))
+    throw new Error('Release notes are only supported for iOS submit');
   if ((action === 'begin-edit' && platform !== 'android') || (action === 'prepare' && platform !== 'ios')) {
     throw new Error('The selected platform does not support that publishing action');
   }
@@ -135,7 +140,10 @@ function planFor(args, config) {
     identity = section.bundleId;
     storeId = section.appId;
     Object.assign(options, { appId: section.appId, bundleId: identity });
-    if (action === 'submit') options.releasePolicy = args.releasePolicy ?? 'preserve-existing';
+    if (action === 'submit') {
+      options.releasePolicy = args.releasePolicy ?? 'after-approval';
+      options.releaseNotes = releaseNotes ?? apple.DEFAULT_RELEASE_NOTES;
+    }
     if ((mutation && action !== 'prepare') || args.buildNumber !== undefined) {
       if (!/^\d+(?:\.\d+){0,2}$/.test(args.buildNumber ?? ''))
         throw new Error('An explicit Apple build number is required');
