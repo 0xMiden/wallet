@@ -296,3 +296,33 @@ test('bounds and retries a never-settling result-undelivered event POST', async 
   ]);
   expect(undeliveredSignals.map(signal => signal?.aborted)).toEqual([true, false]);
 });
+
+test('__state reports accessible text values, focused field, and the visual viewport', async () => {
+  document.body.innerHTML =
+    '<input id="keyboard-input" aria-label="Keyboard input" value="typed input">' +
+    '<textarea id="keyboard-textarea" aria-label="Keyboard notes">typed notes</textarea>';
+  Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
+  Object.defineProperty(window, 'innerHeight', { value: 844, configurable: true });
+  Object.defineProperty(window, 'visualViewport', {
+    value: { width: 390, height: 470, offsetTop: 0 },
+    configurable: true
+  });
+  document.querySelector<HTMLInputElement>('#keyboard-input')?.focus();
+  pollAnswers = [command('page-state', '__state')];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(100);
+  expect(resultsPosted()).toEqual([
+    expect.objectContaining({
+      id: 'page-state',
+      ok: true,
+      value: expect.objectContaining({
+        form: {
+          activeField: 'Keyboard input',
+          inputValue: 'typed input',
+          textareaValue: 'typed notes'
+        },
+        viewport: { width: 390, height: 844, visualWidth: 390, visualHeight: 470, visualOffsetTop: 0 }
+      })
+    })
+  ]);
+});
