@@ -684,3 +684,13 @@ test('edit inspection execute/export retains exact bounded numeric version codes
   assert.deepEqual(manifest.result, result);
   assert.doesNotMatch(JSON.stringify(result), /secret-token/);
 });
+
+test('release notes are optional exact text for iOS submit only', () => {
+  const request = { ...input, platform: 'ios', action: 'submit', producerRunId: '42', stateRunId: '80', buildNumber: '19' };
+  assert.equal(validatePublishRequest({ ...request, releaseNotes: '' }).releaseNotes, undefined);
+  const releaseNotes = 'Recovery improvements.\nBug fixes.';
+  assert.equal(validatePublishRequest({ ...request, releaseNotes }).releaseNotes, releaseNotes);
+  for (const change of [{ platform: 'chrome', buildNumber: '' }, { action: 'upload' }, { releaseNotes: ' ' }, { releaseNotes: 'x'.repeat(4001) }, { releaseNotes: 'a\0b' }]) {
+    assert.throws(() => validatePublishRequest({ ...request, releaseNotes, ...change }), /release notes/i);
+  }
+});
