@@ -276,17 +276,29 @@ test('iOS submission forwards exact optional release notes without adding them t
   input.targets['ios-testnet'].releaseNotes = notes;
   const intents = coordinator.validateReleasePlan(input, { stage: 'submit' });
   assert.equal(intents.find(value => value.targetId === 'ios-testnet').inputs.release_notes, notes);
-  assert.equal(intents.filter(value => value.targetId !== 'ios-testnet').some(value => 'release_notes' in value.inputs), false);
+  assert.equal(
+    intents.filter(value => value.targetId !== 'ios-testnet').some(value => 'release_notes' in value.inputs),
+    false
+  );
 });
 
 test('empty optional iOS submit notes use the exact default and Unicode length uses code points', () => {
   const input = plan();
   input.targets['ios-testnet'].releaseNotes = '';
-  assert.equal(coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes, 'Various Fixes & Improvements');
+  assert.equal(
+    coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes,
+    'Various Fixes & Improvements'
+  );
   input.targets['ios-testnet'].releaseNotes = '😀'.repeat(4000);
-  assert.equal(coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes, input.targets['ios-testnet'].releaseNotes);
+  assert.equal(
+    coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes,
+    input.targets['ios-testnet'].releaseNotes
+  );
   input.targets['ios-testnet'].releaseNotes += '😀';
-  assert.throws(() => coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' }), /release|notes|4000/i);
+  assert.throws(
+    () => coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' }),
+    /release|notes|4000/i
+  );
 });
 
 test('release notes are rejected outside iOS submit and invalid content prevents every child dispatch', async () => {
@@ -295,21 +307,33 @@ test('release notes are rejected outside iOS submit and invalid content prevents
     input.targets['ios-testnet'].releaseNotes = invalid;
     const h = harness();
     await assert.rejects(coordinator.executeReleaseStage(input, { stage: 'submit', ...h.deps }), /release|notes/i);
-    assert.equal(h.calls.some(([name]) => name === 'dispatch'), false);
+    assert.equal(
+      h.calls.some(([name]) => name === 'dispatch'),
+      false
+    );
   }
-  for (const [target, stage] of [['android-testnet', 'submit'], ['chrome-devnet', 'submit'], ['ios-testnet', 'upload'], ['ios-testnet', 'build']]) {
+  for (const [target, stage] of [
+    ['android-testnet', 'submit'],
+    ['chrome-devnet', 'submit'],
+    ['ios-testnet', 'upload'],
+    ['ios-testnet', 'build']
+  ]) {
     const input = plan();
     input.targets[target].releaseNotes = 'Only iOS submission may carry this text.';
     assert.throws(() => coordinator.validateReleasePlan(input, { stage, target }), /release|notes|iOS|submit/i);
   }
 });
 
-
 test('omitted iOS submit notes receive the shared default without leaking it to other targets or stages', () => {
   const intents = coordinator.validateReleasePlan(plan(), { stage: 'submit' });
-  assert.equal(intents.find(value => value.targetId === 'ios-testnet').inputs.release_notes, 'Various Fixes & Improvements');
-  for (const intent of intents.filter(value => value.targetId !== 'ios-testnet')) assert.equal('release_notes' in intent.inputs, false);
+  assert.equal(
+    intents.find(value => value.targetId === 'ios-testnet').inputs.release_notes,
+    'Various Fixes & Improvements'
+  );
+  for (const intent of intents.filter(value => value.targetId !== 'ios-testnet'))
+    assert.equal('release_notes' in intent.inputs, false);
   for (const stage of ['build', 'status', 'upload']) {
-    for (const intent of coordinator.validateReleasePlan(plan(), { stage })) assert.equal('release_notes' in intent.inputs, false);
+    for (const intent of coordinator.validateReleasePlan(plan(), { stage }))
+      assert.equal('release_notes' in intent.inputs, false);
   }
 });
