@@ -393,9 +393,10 @@ test('Android phone image byte limit follows the verified console 8MiB ceiling',
   await assert.rejects(loadScreenshotManifest(f.options), /maximum.*byte|byte.*limit/i);
 });
 
-test('the shipped manifest is eligible and the large iPhone group is the five approved designs', async () => {
+test('the shipped manifest binds its files and the large iPhone group is the five approved designs', async () => {
   const root = new URL('../../', import.meta.url).pathname;
-  const manifest = await validateScreenshotManifest({ root });
+  // Hash and size binding only: decoding needs sharp, which CI installs after this suite runs.
+  const manifest = await loadScreenshotManifest({ root, asOf: '2026-10-26' });
   const group = set => set.platform === 'ios' && set.displayType === 'APP_IPHONE_67';
   assert.equal(manifest.sets.find(group).images.length, 5);
   assert.equal(
