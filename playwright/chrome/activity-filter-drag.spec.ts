@@ -191,8 +191,9 @@ test('vertical wheel scrolling passes through the row to its page', async ({ ext
     feed.append(spacer);
   });
   await row.hover();
+  await expect.poll(() => row.evaluate(e => e.parentElement?.scrollTop ?? 0)).toBe(0);
   await page.mouse.wheel(0, 160);
-  await expect.poll(() => row.evaluate(e => e.parentElement?.scrollTop ?? 0)).toBeGreaterThan(0);
+  await expect.poll(() => row.evaluate(e => e.parentElement?.scrollTop ?? 0)).toBe(160);
   await expect.poll(() => row.evaluate(e => e.scrollLeft)).toBe(0);
   await expect(row.getByRole('radio', { checked: true })).toHaveText('All');
   await page.close();
