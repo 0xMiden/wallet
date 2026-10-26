@@ -1,0 +1,45 @@
+name: Issue1948 transport diagnostic
+on:
+  push:
+    branches:
+      - 'ci/1948-transport-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo a57fb0e376aa707ec4c75903368b49f321e25ec5 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = a57fb0e376aa707ec4c75903368b49f321e25ec5
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Exact three-suite WIP diagnostic
+        run: |
+          set -o pipefail
+          yarn jest src/offscreen/main.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/back/miden-client-proxy.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Assert executed tests
+        if: always()
+        run: |
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('proof/results.json'));console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(x.numPassedTests+x.numFailedTests<1||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: transport-diagnostic-v1
+          path: proof/
