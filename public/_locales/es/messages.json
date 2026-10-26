@@ -253,7 +253,7 @@
     "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
-    "message": "$count$ Transacciones restauradas. No se han podido leer algunas fuentes de Guardian. La recuperación se volverá a intentar la próxima vez que desbloquees la cartera.",
+    "message": "Se han restaurado $count$ transacciones. No se han podido leer algunas fuentes de Guardian. La recuperación se volverá a intentar la próxima vez que desbloquees la cartera.",
     "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
     "placeholders": {
       "count": {
@@ -1609,7 +1609,7 @@
     "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
-    "message": "Guardian Los cambios y la sustitución de claves requieren la clave de recuperación, que no se encuentra en este dispositivo.",
+    "message": "Los cambios de Guardian y la sustitución de claves requieren la clave de recuperación, que no se encuentra en este dispositivo.",
     "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
   },
   "revealPrivateKey": {
@@ -3691,7 +3691,7 @@
     "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Tu clave diaria se puede rotar desde Ajustes → Rotar clave diaria, por lo que revelarla supone un riesgo menor que revelar tu frase de recuperación; sin embargo, cualquiera que la tenga podrá firmar transacciones hasta que la rote.",
+    "message": "Tu clave diaria se puede rotar desde Ajustes → Rotar la clave diaria, por lo que revelarla supone un riesgo menor que revelar tu frase de recuperación; sin embargo, cualquiera que la tenga podrá firmar transacciones hasta que la rote.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
@@ -3732,7 +3732,7 @@
     }
   },
   "encryptedWalletFileGuardianDesc": {
-    "message": "El archivo contiene tu frase de recuperación y el estado de la cuenta que, de otro modo, tu operador de Guardian mantendría por ti, de modo que cualquiera que tenga el archivo y su contraseña pueda leer ambos. No contiene ninguna clave de uso diario: tras la restauración, la cartera la sustituye a través de tu operador de Guardian, o bien puedes utilizar un par de claves de uso diario guardado (Ajustes → Claves → Revelar clave privada). El archivo es una instantánea: después de enviar o recibir, guarda uno nuevo, ya que un archivo más antiguo no puede restaurar lo que haya ocurrido después de su creación.",
+    "message": "El archivo contiene tu frase de recuperación y el estado de la cuenta que, de otro modo, tu operador de Guardian mantendría por ti, de modo que cualquiera que tenga el archivo y su contraseña pueda leer ambos. No contiene ninguna clave de uso diario: tras la restauración, la cartera la sustituye a través de tu operador de Guardian, o bien puedes utilizar un par de claves de uso diario guardado (Ajustes → Claves → Mostrar clave privada). El archivo es una instantánea: después de enviar o recibir, guarda uno nuevo, ya que un archivo más antiguo no puede restaurar lo que haya ocurrido después de su creación.",
     "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
   },
   "hotKeyRotationImportBusy": {
@@ -3753,7 +3753,7 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Ajustes» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
+    "message": "Las cuentas Guardian importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Ajustes» → «Claves» → «Mostrar clave privada» con esa cuenta seleccionada.",
     "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
@@ -3922,7 +3922,7 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Esto permite que el sitio web tenga acceso continuo a los datos de tu cuenta sin necesidad de volver a solicitarlo. Puedes revocar este acceso en cualquier momento en Ajustes → DApps autorizadas.",
+    "message": "Esto permite que el sitio web tenga acceso continuo a los datos de tu cuenta sin necesidad de volver a solicitarlo. Puedes revocar este acceso en cualquier momento en Ajustes → dApps autorizadas.",
     "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
@@ -4542,7 +4542,7 @@
     "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
-    "message": "$count$ No se pudieron importar automáticamente.",
+    "message": "$count$ no se pudieron importar automáticamente.",
     "englishSource": "$count$ couldn't be imported automatically.",
     "placeholders": {
       "count": {
@@ -4868,11 +4868,11 @@
     }
   },
   "dappImportNoteRequest": {
-    "message": "Esta aplicación quiere importar una clave privada note a tu monedero",
+    "message": "Esta aplicación quiere importar una nota privada a tu cartera",
     "englishSource": "This app wants to import a private note into your wallet"
   },
   "dappPrivateDataRequest": {
-    "message": "Esta aplicación solicita acceso a los datos de tu monedero privado.",
+    "message": "Esta aplicación solicita acceso a los datos privados de tu cartera.",
     "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
