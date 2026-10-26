@@ -142,6 +142,34 @@ export const TransactionNoteFlow: React.FC<{ flow: NoteFlow; account?: string }>
           <span className="text-sm text-muted">{t('noOutputNotes')}</span>
         </Card>
       )}
+      <section className="mt-4" aria-label={t('storageChanged')} data-testid="tx-storage-details">
+        <h4 className="mb-2 font-semibold text-ink">{t('storageChanged')}</h4>
+        {flow.storageChanges === undefined ? (
+          <p className="text-sm text-muted">{t('storageDetailsUnavailable')}</p>
+        ) : flow.storageChanges.length === 0 ? (
+          <p className="text-sm text-muted">{t('noStorageChanges')}</p>
+        ) : (
+          <ol className="flex flex-col gap-2">
+            {flow.storageChanges.map((slot, index) => (
+              <Card asChild padding="tile" key={`${slot.kind}-${slot.slotName}-${index}`}>
+                <li className="min-w-0">
+                  <div className="font-semibold text-ink break-all">{slot.slotName}</div>
+                  <div className="text-xs text-muted">
+                    {t(slot.kind === 'map' ? 'storageMapSlot' : 'storageValueSlot')} ·{' '}
+                    {t(`storageOperation${slot.operation}`)}
+                    {slot.entryCount !== undefined && slot.operation !== 'remove' && (
+                      <>
+                        {' '}
+                        · {t('storageEntriesChanged')}: {slot.entryCount}
+                      </>
+                    )}
+                  </div>
+                </li>
+              </Card>
+            ))}
+          </ol>
+        )}
+      </section>
     </section>
   );
 };

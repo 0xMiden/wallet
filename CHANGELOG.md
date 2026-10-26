@@ -6,7 +6,7 @@
 
 ### Changes
 
-- [CHANGE][all] Transaction confirmations show the available input and output notes as an account flow, with verified note types, fee notes and explicit gaps for partial note data (#1936).
+- [CHANGE][all] Transaction confirmations show the available input and output notes as an account flow, with verified note types, fee notes, named storage-slot changes and explicit gaps for partial note data (#1936).
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 

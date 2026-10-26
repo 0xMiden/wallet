@@ -596,7 +596,7 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 
 ## Review
 
-- SDK 0.17.1 provides full input notes and output IDs, metadata and optional assets. Output scripts exist only for full output notes. Known script roots can label P2ID, P2IDE and PSWAP; partial output semantics and storage slot meaning need richer SDK data.
+- SDK 0.17.1 provides full input notes and output IDs, metadata and optional assets. Output scripts exist only for full output notes. Known script roots can label P2ID, P2IDE and PSWAP; partial output semantics need richer SDK data. The storage patch exposes named slots, operations and changed map entry counts, but application-specific slot meaning needs an account schema.
 - The extension confirmation and shared mobile/desktop modal now use the same note-flow DTO. The mobile/desktop request takes it from the existing dry run, without repeating execution.
-- Local preflight: 167 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
+- Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
 - Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.

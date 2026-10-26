@@ -56,6 +56,7 @@ it('shows multiple inputs, unknown scripts and unlisted input details without cl
   expect(screen.getByText('additionalInputDetailsUnavailable')).toBeInTheDocument();
   expect(screen.queryByText('noInputNotes')).not.toBeInTheDocument();
   expect(screen.getByText('noOutputNotes')).toBeInTheDocument();
+  expect(screen.getByText('storageDetailsUnavailable')).toBeInTheDocument();
 });
 
 it('keeps a long note identifier readable without clipping its value', () => {
@@ -68,6 +69,27 @@ it('keeps a long note identifier readable without clipping its value', () => {
   const identifier = screen.getByTitle(id);
   expect(identifier).toHaveTextContent(id);
   expect(identifier).toHaveClass('break-all');
+});
+
+it('shows named storage operations and entry counts without raw values', () => {
+  render(
+    <TransactionNoteFlow
+      flow={{
+        inputCount: 0,
+        inputs: [],
+        outputs: [],
+        storageChanges: [
+          { slotName: 'counter', kind: 'value', operation: 'update' },
+          { slotName: 'balances', kind: 'map', operation: 'create', entryCount: 2 }
+        ]
+      }}
+    />
+  );
+  const storage = screen.getByTestId('tx-storage-details');
+  expect(storage).toHaveTextContent('counter');
+  expect(storage).toHaveTextContent('balances');
+  expect(storage).toHaveTextContent('2');
+  expect(storage).not.toHaveTextContent('private-key');
 });
 
 it('does not show an old asset label while a different note asset resolves', async () => {

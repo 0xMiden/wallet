@@ -1,6 +1,7 @@
 import {
   NoteScript,
   NoteType,
+  StoragePatchOperation,
   TransactionResult,
   TransactionSummary,
   type ExecutedTransaction,
@@ -32,6 +33,14 @@ export interface NoteFlow {
   inputCount: number;
   inputs: NoteDetail[];
   outputs: NoteDetail[];
+  storageChanges?: StorageChange[];
+}
+
+export interface StorageChange {
+  slotName: string;
+  kind: 'value' | 'map';
+  operation: 'create' | 'update' | 'remove' | 'unknown';
+  entryCount?: number;
 }
 
 function attempt<T>(read: () => T): T | undefined {
@@ -71,6 +80,43 @@ function describe(id: string | undefined, full: Note | undefined, content: Note 
   return { id, ...kindOf(full), visibility, sender, assets, nfts };
 }
 
+function storageOperation(operation: StoragePatchOperation): StorageChange['operation'] {
+  switch (operation) {
+    case StoragePatchOperation.Create:
+      return 'create';
+    case StoragePatchOperation.Update:
+      return 'update';
+    case StoragePatchOperation.Remove:
+      return 'remove';
+    default:
+      return 'unknown';
+  }
+}
+
+function storageChangesOf(transaction: TransactionSummary | ExecutedTransaction): StorageChange[] | undefined {
+  const patch = attempt(() =>
+    'accountDelta' in transaction ? transaction.accountDelta().storage() : transaction.accountPatch().storage()
+  );
+  if (!patch) return undefined;
+  if (attempt(() => patch.isEmpty()) === true) return [];
+  const values = attempt(() => patch.valueSlots());
+  const maps = attempt(() => patch.mapSlots());
+  if (!values || !maps) return undefined;
+  return attempt(() => [
+    ...values.map(slot => ({
+      slotName: slot.slotName,
+      kind: 'value' as const,
+      operation: storageOperation(slot.operation)
+    })),
+    ...maps.map(slot => ({
+      slotName: slot.slotName,
+      kind: 'map' as const,
+      operation: storageOperation(slot.operation),
+      entryCount: attempt(() => slot.entries().length)
+    }))
+  ]);
+}
+
 export function noteFlowFromTransaction(transaction: TransactionSummary | ExecutedTransaction): NoteFlow {
   const inputNotes = transaction.inputNotes();
   const inputs = inputNotes.notes().map(input => {
@@ -88,6 +134,7 @@ export function noteFlowFromTransaction(transaction: TransactionSummary | Execut
   return {
     inputCount: inputNotes.numNotes(),
     inputs,
+    storageChanges: storageChangesOf(transaction),
     outputs: [...userNotes.map(toDetail), ...(feeNote ? [{ ...toDetail(feeNote), kind: 'fee' as const }] : [])]
   };
 }
