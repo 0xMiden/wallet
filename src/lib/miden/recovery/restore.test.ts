@@ -1,6 +1,6 @@
-import { restoreWalletRecoveryRows } from './restore';
+import { restoreWalletRecoveryRows, restoreWalletRecoveryGeneration } from './restore';
 import type { RecoveryJournalSnapshot } from './types';
-import { ITransactionStatus } from '../db/types';
+import { ITransactionStatus, type ITransaction } from '../db/types';
 import * as Repo from '../repo';
 import {
   getStorageHealth,
@@ -55,6 +55,41 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  await Repo.db.open();
+});
+
+it('reconstructs the erased disposable wallet schema and original logical generation with scoped readback', async () => {
+  const snapshot = source();
+  await Repo.db.delete();
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  try {
+  await withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, async capability => {
+    await expect(restoreWalletRecoveryGeneration(snapshot, capability)).resolves.toBeUndefined();
+    await restoreWalletRecoveryRows(snapshot, capability);
+    const reopened = await Repo.openWalletRecoveryStore(capability);
+    try {
+      expect(await reopened.table('metadata').get('generation')).toEqual({ id: 'generation', generation: 'wallet', origin: 'authorized' });
+      expect(await reopened.table('transactions').get('tx-a')).toMatchObject({ status: ITransactionStatus.Unconfirmed, restoredFromJournal: true });
+      expect(await reopened.table('spendingLimits').get('account-a')).toMatchObject({ limit: '10' });
+    } finally {
+      reopened.close();
+    }
+  });
+  expect(getStorageHealth().status).toBe('unavailable');
+  await expect(Repo.db.open()).rejects.toThrow('StorageUnavailableError');
+  } finally {
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    await Repo.db.open();
+  }
+});
+
+it('refuses to replace a surviving different authorized wallet generation', async () => {
+  await Repo.metadata.put({ id: 'generation', generation: 'other-wallet', origin: 'authorized' });
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await expect(withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+    restoreWalletRecoveryGeneration(source(), capability)
+  )).rejects.toThrow();
+  expect(await Repo.metadata.get('generation')).toMatchObject({ generation: 'other-wallet' });
 });
 
 it('restores policy and the original debit while every submitted row stays inert and unconfirmed', async () => {
@@ -93,4 +128,42 @@ it('refuses writes after the recovery capability expires', async () => {
   const capability = await withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, async value => value);
   await expect(restoreWalletRecoveryRows(source(), capability)).rejects.toThrow('StorageUnavailableError');
   expect(await Repo.transactions.count()).toBe(0);
+});
+
+it.each(['timestamp', 'amount', 'authorization'])('preserves a surviving native debit with a different %s', async field => {
+  const snapshot = source();
+  const debit = snapshot.entries.find(entry => entry.kind === 'debit');
+  if (debit?.kind !== 'debit') throw new Error('Missing debit fixture');
+  const row: ITransaction = {
+    id: 'tx-a', accountId: 'account-a', type: 'send', status: ITransactionStatus.Failed,
+    initiatedAt: field === 'timestamp' ? debit.initiatedAt + 100 : debit.initiatedAt,
+    spentUsd: field === 'amount' ? 11n : debit.spentUsd,
+    spendingLimitAuthorizationId: field === 'authorization' ? 'new-grant' : debit.authorizationId,
+    displayIcon: 'FAILED'
+  };
+  await Repo.transactions.put(row);
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await expect(withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+    restoreWalletRecoveryRows(snapshot, capability)
+  )).rejects.toThrow('Storage continuity unavailable');
+  expect(await Repo.transactions.get('tx-a')).toMatchObject(row);
+  expect(await Repo.recoveryDebits.get('tx-a')).toBeUndefined();
+});
+
+it('replays matching native debit evidence without changing its original future charge', async () => {
+  const snapshot = source();
+  const debit = snapshot.entries.find(entry => entry.kind === 'debit');
+  if (debit?.kind !== 'debit') throw new Error('Missing debit fixture');
+  await Repo.transactions.put({
+    id: 'tx-a', accountId: 'account-a', type: 'send', status: ITransactionStatus.Failed,
+    initiatedAt: debit.initiatedAt, spentUsd: debit.spentUsd,
+    spendingLimitAuthorizationId: debit.authorizationId, displayIcon: 'FAILED'
+  });
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, async capability => {
+    await restoreWalletRecoveryRows(snapshot, capability);
+    await restoreWalletRecoveryRows(snapshot, capability);
+  });
+  expect(await Repo.recoveryDebits.get('tx-a')).toEqual(debit);
+  expect(await Repo.transactions.get('tx-a')).toMatchObject({ initiatedAt: debit.initiatedAt, spentUsd: debit.spentUsd, restoredFromJournal: true });
 });

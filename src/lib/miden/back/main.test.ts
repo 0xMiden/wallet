@@ -201,6 +201,7 @@ jest.mock('lib/miden/back/actions', () => ({
   getSpendingLimit: jest.fn(),
   saveSpendingLimit: jest.fn(),
   checkpointFinancialRecovery: jest.fn().mockResolvedValue(undefined),
+  recoverWalletStorage: jest.fn().mockResolvedValue(true),
   assessOutgoingSpendingLimit: jest.fn(),
   getStrictAuthenticationProtectors: jest.fn(),
   verifyStrictActionAuthentication: jest.fn(),
@@ -402,6 +403,11 @@ describe('main.start', () => {
 });
 
 describe('processRequest', () => {
+  it('routes explicit storage reconstruction with the captured incident epoch', async () => {
+    const request = { type: WalletMessageType.StorageRecoveryRequest, operation: 'rebuild', expectedEpoch: 17 };
+    await expect(dispatch(request)).resolves.toEqual({ type: WalletMessageType.StorageRecoveryResponse, recovered: true });
+    expect(Actions.recoverWalletStorage).toHaveBeenCalledWith('rebuild', 17);
+  });
   it('SyncRequest → SyncResponse and triggers doSync', async () => {
     const res = await dispatch({ type: WalletMessageType.SyncRequest });
     expect(res.type).toBe(WalletMessageType.SyncResponse);
