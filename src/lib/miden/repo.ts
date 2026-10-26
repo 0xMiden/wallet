@@ -29,6 +29,7 @@ import {
 export enum Table {
   Transactions = 'transactions',
   SpendingLimits = 'spendingLimits',
+  RecoveryDebits = 'recoveryDebits',
   Metadata = 'metadata'
 }
 
@@ -280,6 +281,17 @@ function defineSchema(target: Dexie): void {
     .upgrade(async tx => {
       await tx.table(Table.Metadata).put({ id: 'generation', generation: crypto.randomUUID(), origin: 'migrated' });
     });
+  target.version(3.3).stores({
+    [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, '[badgeNetwork+status+type]', 'recoveryDebitAt'),
+    [Table.RecoveryDebits]: 'id, accountId, initiatedAt, authorizationId'
+  }).upgrade(async tx => {
+    await tx.table<ITransaction, string>(Table.Transactions).toCollection().modify(row => {
+      const stamp = recoveryDebitTimestamp(row);
+      if (stamp === row.recoveryDebitAt) return false;
+      row.recoveryDebitAt = stamp;
+      return undefined;
+    });
+  });
   target.on('populate', async tx => {
     await tx.table(Table.Metadata).put({ id: 'generation', generation: crypto.randomUUID(), origin: 'fresh' });
   });
@@ -305,12 +317,23 @@ function defineSchema(target: Dexie): void {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
             }
+            if (req.type === 'add' || req.type === 'put') {
+              const rows: readonly ITransaction[] = req.values;
+              return table.mutate({ ...req, values: rows.map(row => ({ ...row, recoveryDebitAt: recoveryDebitTimestamp(row) })) });
+            }
             return table.mutate(req);
           }
         };
       }
     })
   });
+}
+
+function recoveryDebitTimestamp(row: ITransaction): number | undefined {
+  if (row.restoredFromBackup || !['send', 'swap', 'bridged-send', 'earn-deposit', 'execute'].includes(row.type) ||
+    (row.spentUsd === undefined && row.spendingLimitAuthorizationId === undefined)) return undefined;
+  if (!isPlaceableInitiatedAt(row.initiatedAt)) throw new Error('Invalid recovery debit timestamp');
+  return row.initiatedAt;
 }
 
 // The one construction path, so the production db and `createSchemaFor`'s replay cannot differ.
@@ -456,6 +479,7 @@ export const db = buildTridentDb('TridentMain');
 export const metadata = db.table<import('./recovery/continuity').WalletStoreGeneration, string>(Table.Metadata);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+export const recoveryDebits = db.table<import('./recovery/types').RecoveryDebitEntry, string>(Table.RecoveryDebits);
 
 /** One row of an ordered `completedAt` or `initiatedAt` cursor, plus the step that advances it. */
 export interface HistoryIndexCursor {
@@ -718,6 +742,7 @@ export async function importDb(dump: string): Promise<void> {
         ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
+      delete imported.restoredFromJournal;
       return neutralizeUnfinishedTransaction(imported);
     });
 
@@ -734,8 +759,9 @@ export async function importDb(dump: string): Promise<void> {
     // schema either way.
     const { clearGuardianHistoryCheckpoints } = await import('./guardian/history-storage');
     await clearGuardianHistoryCheckpoints();
-    await db.transaction('rw', transactions, async () => {
+    await db.transaction('rw', transactions, recoveryDebits, async () => {
       await transactions.clear();
+      await recoveryDebits.clear();
       await transactions.bulkAdd(transactionsToImport);
     });
   }

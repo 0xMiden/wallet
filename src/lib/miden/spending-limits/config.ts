@@ -1,3 +1,5 @@
+import { checkpointFinancialChange, verifyFinancialRecovery, withFinancialRecoveryLock } from '../recovery/financial-writer';
+import { assertStorageHealthy, getStorageHealth } from '../storage-health';
 import { v4 as uuid } from 'uuid';
 
 import { spendingLimits, db } from '../repo';
@@ -46,7 +48,7 @@ export const readSpendingLimit = async (accountId: string): Promise<SpendingLimi
   return row === undefined ? undefined : parsePersistedSpendingLimit(row);
 };
 
-export const saveSpendingLimit = async (
+const prepareSpendingLimit = async (
   draft: SpendingLimitDraft,
   options: SaveSpendingLimitOptions
 ): Promise<SpendingLimitConfiguration | undefined> => {
@@ -68,7 +70,6 @@ export const saveSpendingLimit = async (
       throw new SpendingLimitStrictAuthenticationRequiredError();
     }
     if (parsedDraft.limit === undefined) {
-      await spendingLimits.delete(accountId);
       return undefined;
     }
 
@@ -80,7 +81,24 @@ export const saveSpendingLimit = async (
       createdAt: current?.createdAt ?? now,
       updatedAt: now
     };
-    await spendingLimits.put(toPersistedSpendingLimit(next));
     return next;
   });
 };
+
+
+export const saveSpendingLimit = async (draft: SpendingLimitDraft, options: SaveSpendingLimitOptions): Promise<SpendingLimitConfiguration | undefined> =>
+  withFinancialRecoveryLock(async () => {
+    const epoch = getStorageHealth().epoch;
+    const accountId = canonicalSpendingLimitIdentity(draft.accountId);
+    await verifyFinancialRecovery(accountId);
+    const next = await prepareSpendingLimit(draft, options);
+    await checkpointFinancialChange({ kind: 'policy', id: accountId, accountId, configuration: next === undefined ? null : toPersistedSpendingLimit(next) });
+    await db.transaction('rw', spendingLimits, async () => {
+      assertStorageHealthy(epoch);
+      const current = await spendingLimits.get(accountId);
+      if (current?.revision !== options.observedRevision) throw new SpendingLimitConfigurationConflictError();
+      if (next === undefined) await spendingLimits.delete(accountId);
+      else await spendingLimits.put(toPersistedSpendingLimit(next));
+    });
+    return next;
+  });

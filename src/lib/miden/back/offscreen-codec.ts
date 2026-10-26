@@ -263,6 +263,7 @@ export interface OffscreenSignRequest {
 /** offscreen → SW submit gate request. See {@link OFFSCREEN_SUBMIT_GATE}. `evidence` is the submit evidence the
  * 'submitting' stamp carries (#1081), untrusted on arrival like the stamp's. */
 export interface OffscreenSubmitGateRequest {
+  recovery?: unknown;
   target: typeof SW_TARGET;
   type: typeof OFFSCREEN_SUBMIT_GATE;
   op_id: string;

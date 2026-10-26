@@ -76,17 +76,21 @@ export class RecoveryJournal {
         this.onFailure(error);
       }
     }
-    // A lower verified generation remains useful for export, but cannot authorize mutation.
+    // A damaged pointer cannot choose between the slots. Keep the newest authenticated copy for recovery only.
+    const candidates: { snapshot: RecoveryJournalSnapshot; slot: number; degraded: true }[] = [];
     for (let index = 0; index < SLOT_KEYS.length; index++) {
       if (index === slot || values[SLOT_KEYS[index]!] === undefined) continue;
       try {
         const snapshot = await this.decrypt(values[SLOT_KEYS[index]!]);
         if (sequence >= 0 && snapshot.sequence >= sequence) continue;
-        this.onFailure(new Error('Recovery journal active generation unavailable'));
-        return { snapshot, slot: index, degraded: true };
+        candidates.push({ snapshot, slot: index, degraded: true });
       } catch {
         /* Try the other independent slot. */
       }
+    }
+    if (candidates.length > 0) {
+      this.onFailure(new Error('Recovery journal active generation unavailable'));
+      return candidates.sort((left, right) => right.snapshot.sequence - left.snapshot.sequence)[0]!;
     }
     throw new Error('Recovery journal unavailable');
   }

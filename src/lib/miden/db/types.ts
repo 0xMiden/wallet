@@ -117,6 +117,7 @@ export type SubmitEvidenceFields = Pick<
  * realm (see `setTransactionStage`), and the submit evidence the 'submitting' stamp brings.
  */
 export interface StageDetail {
+  readonly recovery?: import('../recovery/types').RecoveryCapture;
   readonly reliable?: boolean;
   readonly evidence?: SubmitEvidenceFields;
 }
@@ -921,6 +922,8 @@ export interface ITransaction {
    * `Failed`; this flag is what keeps them there.
    */
   restoredFromBackup?: boolean;
+  restoredFromJournal?: boolean;
+  recoveryDebitAt?: number;
   resultBytes?: Uint8Array;
   /**
    * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
