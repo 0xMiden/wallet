@@ -28,12 +28,12 @@ The standalone Worker reads no wallet inputs or caller IPs, fetches no external 
 
 The three-day artifact `eligibility-probe-<run-id>-<attempt>` contains only `manifest.json`, if a valid manifest exists, and a closed `result.json`. The manifest contains the schema, exact run/attempt/source identity, deterministic script name, namespace identifiers, limits, deployment state and source/config/owner hashes. It contains no account, credential, bearer or URL. Raw provider output, configs and secret files are never artifacts. Local credential-bearing files use mode 0600 inside a mode 0700 directory and are unlinked in the controller/evidence cleanup paths.
 
-| Evidence | Meaning |
-| --- | --- |
-| `support: supported` | Both caller and colo returned actual limited responses, and cleanup proved removal or absence. |
-| `support: unknown` | No capability conclusion. Auth, quota, network, malformed readback, runtime failure or missing refusal stays unknown. |
-| `cleanup: blocked` | The exact resource may remain. This blocks completion even if refusal behavior was observed. |
-| `cleanup: absent` or `removed` | Authenticated exact-script readback proved absence. |
+| Evidence                       | Meaning                                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `support: supported`           | Both caller and colo returned actual limited responses, and cleanup proved removal or absence.                        |
+| `support: unknown`             | No capability conclusion. Auth, quota, network, malformed readback, runtime failure or missing refusal stays unknown. |
+| `cleanup: blocked`             | The exact resource may remain. This blocks completion even if refusal behavior was observed.                          |
+| `cleanup: absent` or `removed` | Authenticated exact-script readback proved absence.                                                                   |
 
 Counts and the caller/colo verdicts are separate observations. The controller never automatically emits `unsupported`. Any later unsupported classification requires independent verification that sanitized structured provider status/code corresponds to an explicit binding or plan rejection. It never follows from a generic deployment error. No fallback architecture is selected by this tool.
 

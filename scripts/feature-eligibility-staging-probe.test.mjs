@@ -685,12 +685,16 @@ for (const args of [
     assert.equal(result.cleanup, 'blocked');
   });
 
-const probeWorkflow = () => readFileSync(new URL('../.github/workflows/probe-feature-eligibility.yml', import.meta.url), 'utf8');
+const probeWorkflow = () =>
+  readFileSync(new URL('../.github/workflows/probe-feature-eligibility.yml', import.meta.url), 'utf8');
 const section = (text, start, end) => text.split(start)[1]?.split(end)[0] ?? '';
 
 test('manual staging workflow gates its credential job to trusted repository main dispatch only', () => {
   const workflow = probeWorkflow();
-  assert.deepEqual([...section(workflow, '\non:\n', '\npermissions:').matchAll(/^  ([a-z_]+):/gm)].map(match => match[1]), ['workflow_dispatch']);
+  assert.deepEqual(
+    [...section(workflow, '\non:\n', '\npermissions:').matchAll(/^  ([a-z_]+):/gm)].map(match => match[1]),
+    ['workflow_dispatch']
+  );
   assert.match(workflow, /github\.repository == '0xMiden\/wallet'/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
@@ -705,13 +709,26 @@ test('manual staging workflow gates its credential job to trusted repository mai
 test('staging workflow exposes only fixed operation and prior-run coordinates with read permissions', () => {
   const workflow = probeWorkflow();
   const inputs = section(workflow, '    inputs:\n', '\npermissions:');
-  assert.deepEqual([...inputs.matchAll(/^      ([a-z_]+):/gm)].map(match => match[1]), ['operation', 'cleanup_run_id', 'cleanup_attempt']);
+  assert.deepEqual(
+    [...inputs.matchAll(/^      ([a-z_]+):/gm)].map(match => match[1]),
+    ['operation', 'cleanup_run_id', 'cleanup_attempt']
+  );
   assert.match(inputs, /options: \[probe, cleanup\]/);
   assert.equal(section(workflow, '\npermissions:\n', '\nconcurrency:'), '  contents: read\n  actions: read\n');
   assert.match(workflow, /group: feature-eligibility-staging-probe/);
   assert.match(workflow, /cancel-in-progress: false/);
-  assert.doesNotMatch(workflow, /MAXMIND|CALLER_HASH_SECRET|wrangler\.jsonc|deploy-feature-eligibility|release-wallet|wallet-config/);
-  assert.deepEqual([...workflow.matchAll(/secrets\.([A-Z_]+)/g)].map(match => match[1]).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_TOKEN']);
+  assert.doesNotMatch(
+    workflow,
+    /MAXMIND|CALLER_HASH_SECRET|wrangler\.jsonc|deploy-feature-eligibility|release-wallet|wallet-config/
+  );
+  assert.deepEqual([...workflow.matchAll(/secrets\.([A-Z_]+)/g)].map(match => match[1]).sort(), [
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_API_TOKEN',
+    'CLOUDFLARE_API_TOKEN',
+    'CLOUDFLARE_API_TOKEN'
+  ]);
 });
 
 test('staging workflow always attempts current cleanup and publishes only sanitized short-lived evidence', () => {
@@ -723,7 +740,10 @@ test('staging workflow always attempts current cleanup and publishes only saniti
   const upload = section(workflow, '      - name: Retain sanitized evidence\n', '      - name:');
   assert.match(upload, /if: always\(\)/);
   assert.match(upload, /retention-days: 3/);
-  assert.match(upload, /path: \|\n            \$\{\{ runner\.temp \}\}\/probe-evidence\/manifest\.json\n            \$\{\{ runner\.temp \}\}\/probe-evidence\/result\.json/);
+  assert.match(
+    upload,
+    /path: \|\n            \$\{\{ runner\.temp \}\}\/probe-evidence\/manifest\.json\n            \$\{\{ runner\.temp \}\}\/probe-evidence\/result\.json/
+  );
   assert.doesNotMatch(upload, /\*|config|stdout|stderr|secrets/);
   assert.match(workflow, /artifact-ids: \$\{\{ steps\.recovery\.outputs\.artifact_id \}\}/);
   assert.match(workflow, /run-id: \$\{\{ inputs\.cleanup_run_id \}\}/);
