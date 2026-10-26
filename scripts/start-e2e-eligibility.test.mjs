@@ -39,3 +39,18 @@ test('invalid or injected network names cannot reach the fixture command', () =>
   assert.throws(() => fixtureEnvironment({ E2E_NETWORK: 'constructor' }));
   assert.throws(() => fixtureEnvironment({ E2E_NETWORK: 'testnet\nOTHER=value' }));
 });
+
+test('an explicit mock launch transition serves both the starting and destination policy', () => {
+  assert.deepEqual(fixtureEnvironment({ E2E_FIXTURE_NETWORKS: 'testnet,mainnet' }).args, [
+    '--port',
+    '8551',
+    '--networks',
+    'testnet,mainnet'
+  ]);
+});
+
+test('explicit fixture networks remain closed, unique and include the starting network', () => {
+  for (const networks of ['mainnet', 'testnet,testnet', 'testnet,constructor', 'testnet\nOTHER=value']) {
+    assert.throws(() => fixtureEnvironment({ E2E_FIXTURE_NETWORKS: networks }));
+  }
+});

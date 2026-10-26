@@ -511,6 +511,94 @@ test('failed exact recovery ownership check survives sanitizer and final retaine
   }
 });
 
+test('authoritative script-level refusal survives exact recovery sanitizer and final retained evidence', async () => {
+  const f = fixture();
+  const prepared = await prepareRecovery({ runId: '10001', runAttempt: '2' }, f.effects);
+  const calls = [];
+  const outcome = await cleanupRecovery(prepared, manifest(), {
+    context: current,
+    environment: { CLOUDFLARE_ACCOUNT_ID: 'account-private-canary' },
+    providerAPI: async path => {
+      calls.push(path);
+      if (path === '/account')
+        return Response.json({ success: true, errors: [], result: { id: 'account-private-canary' } });
+      const m = manifest();
+      if (path.endsWith('/settings'))
+        return Response.json({
+          success: true,
+          errors: [],
+          result: {
+            compatibility_date: '2026-01-01',
+            compatibility_flags: [],
+            logpush: false,
+            tail_consumers: [],
+            bindings: [
+              { name: 'PROBE_SOURCE', type: 'plain_text', text: m.identity.sourceSha },
+              { name: 'PROBE_CONFIG_SHA', type: 'plain_text', text: m.configSha256 },
+              { name: 'PROBE_OWNER', type: 'plain_text', text: m.ownerMarker },
+              { name: 'PROBE_BEARER', type: 'secret_text' },
+              { name: 'PROBE_HASH_SECRET', type: 'secret_text' },
+              {
+                name: 'CALLER_PROBE',
+                type: 'ratelimit',
+                namespace_id: m.callerNamespaceId,
+                simple: { limit: 4, period: 60 }
+              },
+              {
+                name: 'COLO_PROBE',
+                type: 'ratelimit',
+                namespace_id: m.coloNamespaceId,
+                simple: { limit: 4, period: 10 }
+              }
+            ]
+          }
+        });
+      assert.ok(path.endsWith('/script-settings'));
+      return Response.json({
+        success: true,
+        errors: [],
+        result: { observability: { enabled: false, logs: { enabled: false, invocation_logs: false } } }
+      });
+    }
+  });
+  assert.deepEqual(outcome, {
+    cleanup: 'blocked',
+    reason: 'ownership_mismatch',
+    ownershipCheck: { gate: 'script_observability_traces', form: 'missing' }
+  });
+  assert.deepEqual(calls, [
+    '/account',
+    '/workers/scripts/miden-elig-probe-10001-2/settings',
+    '/workers/scripts/miden-elig-probe-10001-2/script-settings'
+  ]);
+  const root = await mkdtemp(join(tmpdir(), 'probe-failed-recovery-'));
+  try {
+    await writeFile(join(root, 'probe-recovery.json'), JSON.stringify(prepared));
+    await mkdir(join(root, 'probe-recovered'));
+    await writeFile(join(root, 'probe-recovered/manifest.json'), JSON.stringify(manifest()));
+    await writeFile(join(root, 'probe-result.json'), JSON.stringify({ ...result(), ...outcome }));
+    const saved = await main(['evidence'], {
+      RUNNER_TEMP: root,
+      PROBE_OPERATION: 'cleanup',
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName
+    });
+    assert.deepEqual(saved.ownershipCheck, outcome.ownershipCheck);
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/manifest.json'))), manifest());
+    const wire = await readFile(join(root, 'probe-evidence/result.json'), 'utf8');
+    assert.deepEqual(JSON.parse(wire), saved);
+    assert.doesNotMatch(wire, /account-private-canary|private-canary|workerBase64/);
+    assert.equal((await stat(join(root, 'probe-evidence/result.json'))).mode & 0o777, 0o600);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('blocked always-cleanup check survives consolidation without changing original verification preflight', async () => {
   const root = await mkdtemp(join(tmpdir(), 'probe-first-gate-'));
   const bound = contextIdentityForTest(current);

@@ -975,7 +975,7 @@
   "noteDetailsUnavailable": "Noteの内容は利用できません",
   "noteSender": "作成者：",
   "noteScriptRoot": "スクリプトのルート",
-  "noNoteAssets": "上場資産なし",
+  "noNoteAssets": "記載された資産なし",
   "amountUnknown": "金額の単位は不明",
   "baseUnits": "基本単位",
   "rawTransactionData": "生の取引データ",
