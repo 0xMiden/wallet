@@ -1,4 +1,4 @@
-import { MORPH_TIMING, springTimeToReach, springToLinearEasing, springs } from 'lib/animation';
+import { MORPH_TIMING, springKeyframeStops, springTimeToReach, springs } from 'lib/animation';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 
 import { startMorphCompanions } from './morph-companions';
@@ -96,16 +96,21 @@ it('expand fades the capsule in from progress 0.6 and keeps it inert until its s
   expect(capsule.style.pointerEvents).toBe('');
 });
 
+function launcherFrame(shown: number): Frame {
+  const scale = MORPH_TIMING.launcherScaleFrom + (1 - MORPH_TIMING.launcherScaleFrom) * shown;
+  return { opacity: shown, transform: `scale(${Math.round(scale * 10000) / 10000})` };
+}
+
 it('launcher follows the spring from scale 0.97', () => {
   startMorphCompanions({ capsule, launcher }, { target: 'collapsed', progress: 1, velocity: 0 }, false);
 
   const [follow] = of(launcher);
-  expect(follow?.keyframes).toEqual([
-    { opacity: 0, transform: `scale(${MORPH_TIMING.launcherScaleFrom})` },
-    { opacity: 1, transform: 'scale(1)' }
-  ]);
-  const spring = springToLinearEasing(springs.morphCollapse, { distance: -1000, velocity: 0 })!;
-  expect(follow?.options).toMatchObject({ duration: spring.duration, easing: spring.easing, fill: 'both' });
+  const spring = springKeyframeStops(springs.morphCollapse, { distance: -1000, velocity: 0 })!;
+  expect(follow?.keyframes).toHaveLength(spring.stops.length);
+  expect(follow?.keyframes).toEqual(
+    spring.stops.map(({ offset, progress }) => ({ ...launcherFrame(progress), offset }))
+  );
+  expect(follow?.options).toMatchObject({ duration: spring.duration, easing: 'linear', fill: 'both' });
 });
 
 it('reduced motion animates opacity only', () => {
@@ -128,10 +133,19 @@ it('a retarget restarts from the current value with the event velocity', () => {
 
   expect(previous.every(entry => entry.cancel.mock.calls.length === 1)).toBe(true);
   const [follow] = of(launcher).slice(1);
-  expect(follow?.keyframes[0]).toEqual({ opacity: 0.6, transform: 'scale(0.988)' });
-  expect(follow?.options.easing).toBe(
-    springToLinearEasing(springs.morphExpand, { distance: 600, velocity: -3000 })!.easing
+  const spring = springKeyframeStops(springs.morphExpand, { distance: 600, velocity: -3000 })!;
+  const shown = 0.6;
+  const shownTo = 0;
+  expect(follow?.keyframes).toHaveLength(spring.stops.length);
+  expect(follow?.keyframes).toEqual(
+    spring.stops.map(({ offset, progress }) => ({
+      ...launcherFrame(shown + (shownTo - shown) * progress),
+      offset
+    }))
   );
+  expect(follow?.keyframes[0]).toEqual({ opacity: 0.6, transform: 'scale(0.988)', offset: 0 });
+  expect(spring.stops[10]?.progress).toBe(0.490258172809677);
+  expect(follow?.options).toMatchObject({ duration: spring.duration, easing: 'linear', fill: 'both' });
   expect(of(capsule)[1]?.keyframes[0]).toEqual({ opacity: 0.25, transform: 'translateY(-6px)' });
   first();
   expect(of(launcher)[1]?.cancel).not.toHaveBeenCalled();

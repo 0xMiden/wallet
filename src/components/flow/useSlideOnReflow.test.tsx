@@ -1,10 +1,13 @@
 import React, { useRef } from 'react';
 
 import { act, render } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
-import { durations, easings, springToLinearEasing, springs } from 'lib/animation';
+import { springKeyframes, springs } from 'lib/animation';
 
-type Hook = typeof import('./useSlideOnReflow').useSlideOnReflow;
+import { useSlideOnReflow } from './useSlideOnReflow';
+
 type Engine = 'linear' | 'no-linear' | 'no-supports';
 
 const originalCSS = window.CSS;
@@ -32,19 +35,15 @@ const setEngine = (engine: Engine) => {
  */
 const load = (engine: Engine) => {
   const supports = setEngine(engine);
-  let hook!: Hook;
   let predicate!: () => boolean;
   jest.isolateModules(() => {
     jest.doMock('react', () => React);
-    hook = require('./useSlideOnReflow').useSlideOnReflow;
     predicate = require('lib/animation').supportsLinearEasing;
   });
   jest.dontMock('react');
-  return { hook, predicate, supports };
+  return { predicate, supports };
 };
 
-// jsdom has no CSS.supports; the default suite runs as an engine that parses linear().
-const useSlideOnReflow = load('linear').hook;
 afterAll(() => {
   Object.defineProperty(window, 'CSS', { value: originalCSS, configurable: true, writable: true });
 });
@@ -106,7 +105,19 @@ const Harness = () => {
   );
 };
 
-const keyframes = () => animateMock.mock.calls.at(-1)?.[0];
+const InertHarness = ({ inert }: { inert: boolean }) => {
+  const footer = useRef<HTMLDivElement>(null);
+  useSlideOnReflow(footer);
+  return (
+    <div {...(inert ? { inert: '' } : {})}>
+      <div>
+        <div ref={footer}>cta</div>
+      </div>
+    </div>
+  );
+};
+
+const keyframes = (): Keyframe[] => animateMock.mock.calls.at(-1)?.[0];
 const options = () => animateMock.mock.calls.at(-1)?.[1];
 
 it('slides up from where it was drawn when the keyboard pushes it up', () => {
@@ -114,7 +125,8 @@ it('slides up from where it was drawn when the keyboard pushes it up', () => {
   top = 500;
   act(() => reflow());
 
-  expect(keyframes()).toEqual([{ transform: 'translateY(200px)' }, { transform: 'translateY(0)' }]);
+  expect(keyframes()[0]).toMatchObject({ transform: 'translateY(200px)', offset: 0 });
+  expect(keyframes().at(-1)).toMatchObject({ transform: 'translateY(0px)', offset: 1 });
 });
 
 it('slides down when the keyboard closes', () => {
@@ -123,20 +135,32 @@ it('slides down when the keyboard closes', () => {
   top = 700;
   act(() => reflow());
 
-  expect(keyframes()).toEqual([{ transform: 'translateY(-200px)' }, { transform: 'translateY(0)' }]);
+  expect(keyframes()[0]).toMatchObject({ transform: 'translateY(-200px)' });
+  expect(keyframes().at(-1)).toMatchObject({ transform: 'translateY(0px)' });
 });
 
-// The slide is one of the app's springs, solved into a `linear()` curve so the compositor can run
-// it above WKWebView's 60Hz rAF cap. `standard` is all but critically damped on purpose: a CTA
-// riding the keyboard up must not overshoot past the keyboard's edge.
-it('runs the slide on the shared standard spring, as a compositor curve', () => {
+// The slide is one of the app's springs, sampled into keyframes so every engine runs it at the
+// display's rate (WebKit runs a linear() easing at 60Hz). `standard` is all but critically damped on
+// purpose: a CTA riding the keyboard up must not overshoot past the keyboard's edge.
+it('runs the slide as sampled keyframes of the shared standard spring', () => {
   render(<Harness />);
   top = 500;
   act(() => reflow());
 
-  const solved = springToLinearEasing(springs.standard, { distance: 200 });
-  expect(options()).toEqual({ duration: solved?.duration, easing: solved?.easing });
-  expect(options().easing).toMatch(/^linear\(/);
+  const sampled = springKeyframes(springs.standard, 200, 0, v => ({ transform: `translateY(${v}px)` }), 'px');
+  expect(keyframes().length).toBeGreaterThan(2);
+  expect(keyframes()).toEqual(sampled?.keyframes);
+  expect(options()).toEqual({ duration: sampled?.duration, easing: 'linear' });
+});
+
+it('slides without asking whether the engine parses linear()', () => {
+  const supports = setEngine('no-linear');
+  render(<Harness />);
+  top = 500;
+  act(() => reflow());
+
+  expect(supports.calls).toEqual([]);
+  expect(options().easing).toBe('linear');
 });
 
 it('starts the slide on the frame the layout moved', () => {
@@ -177,7 +201,81 @@ it('continues from mid-flight when a move interrupts a slide', () => {
   act(() => reflow());
 
   // Drawn at 500 + 100 = 600; new spot 700, so it starts 100px above it.
-  expect(keyframes()).toEqual([{ transform: 'translateY(-100px)' }, { transform: 'translateY(0)' }]);
+  expect(keyframes()[0]).toMatchObject({ transform: 'translateY(-100px)' });
+  expect(keyframes().at(-1)).toMatchObject({ transform: 'translateY(0px)' });
+});
+
+// A hidden tab pane, a covered page layer and an off-screen home pane carry `inert`. A slide there
+// is never seen, yet the trace showed it holding the display at 60Hz through a push.
+describe('out of sight', () => {
+  it('animates nothing inside an inert ancestor', () => {
+    render(<InertHarness inert />);
+    top = 500;
+    act(() => reflow());
+
+    expect(animateMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels a slide still running when the page goes out of sight', () => {
+    const cancel = jest.fn();
+    animateMock.mockImplementation(() => ({ cancel, onfinish: null }));
+    const { rerender } = render(<InertHarness inert={false} />);
+    top = 500;
+    act(() => reflow());
+    rerender(<InertHarness inert />);
+    top = 400;
+    act(() => reflow());
+
+    expect(animateMock).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a running slide when an ancestor becomes inert before the next reflow', async () => {
+    const cancel = jest.fn();
+    animateMock.mockImplementation(() => ({ cancel, onfinish: null }));
+    const { rerender } = render(<InertHarness inert={false} />);
+    top = 500;
+    act(() => reflow());
+    rerender(<InertHarness inert />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(animateMock).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    rerender(<InertHarness inert={false} />);
+    top = 450;
+    act(() => reflow());
+
+    expect(keyframes()[0]).toMatchObject({ transform: 'translateY(50px)' });
+  });
+
+  it('stops watching for inert once unmounted', () => {
+    const observe = jest.spyOn(MutationObserver.prototype, 'observe');
+    const disconnect = jest.spyOn(MutationObserver.prototype, 'disconnect');
+    const { unmount } = render(<InertHarness inert={false} />);
+    const watching = observe.mock.calls.findIndex(([, init]) => init?.attributeFilter?.includes('inert'));
+    expect(watching).toBeGreaterThanOrEqual(0);
+    unmount();
+
+    expect(disconnect.mock.contexts).toContain(observe.mock.contexts[watching]);
+    observe.mockRestore();
+    disconnect.mockRestore();
+  });
+
+  it('starts from the top it recorded while hidden once the ancestor loses inert', () => {
+    const { rerender } = render(<InertHarness inert />);
+    top = 500;
+    act(() => reflow());
+    rerender(<InertHarness inert={false} />);
+    top = 450;
+    act(() => reflow());
+
+    // Drawn at the recorded 500, new spot 450. A stale 700 would start 250px below it.
+    expect(animateMock).toHaveBeenCalledTimes(1);
+    expect(keyframes()[0]).toMatchObject({ transform: 'translateY(50px)' });
+  });
 });
 
 it('snaps without animating under reduced motion', () => {
@@ -219,26 +317,8 @@ it("observes the element's border box, so a padding-only move reaches the slide"
   expect(mockObserved).toContainEqual({ target: getByText('cta'), box: 'border-box' });
 });
 
-// WebKit parses linear() only from Safari 17.2 and Element.animate throws on an easing it cannot
-// parse, so an older engine keeps the cubic-bezier slide.
-describe('on an engine without linear() easing', () => {
+describe('the linear() predicate other motion sites ask', () => {
   afterEach(() => setEngine('linear'));
-
-  const slideWith = (hook: Hook) => {
-    const IsolatedHarness = () => {
-      const footer = useRef<HTMLDivElement>(null);
-      hook(footer);
-      return (
-        <div>
-          <div ref={footer}>cta</div>
-        </div>
-      );
-    };
-    render(<IsolatedHarness />);
-    top = 500;
-    act(() => reflow());
-    return options();
-  };
 
   const asked = [['transition-timing-function', 'linear(0, 1)']];
   it.each([
@@ -251,15 +331,56 @@ describe('on an engine without linear() easing', () => {
     expect(predicate()).toBe(expected);
     expect(supports.calls).toEqual(calls);
   });
+});
 
-  it('slides on the linear() spring where the engine parses it', () => {
-    expect(slideWith(load('linear').hook).easing).toMatch(/^linear\(/);
-  });
+it('states the WebKit rAF cap as lifted by AppViewController', () => {
+  const files = ['../../lib/mobile/high-refresh-rate.ts', '../../lib/animation/spring-easing.ts'];
+  const required = ['PreferPageRenderingUpdatesNear60FPSEnabled', 'AppViewController', '#1864'];
+  const forbidden = [
+    'capped at 60Hz by WebKit regardless',
+    'is itself capped at 60Hz',
+    'Apple caps at 60Hz',
+    'caps at 60Hz',
+    '60Hz rAF cap'
+  ];
+  const offenders = files
+    .map(file => path.join(__dirname, file))
+    .filter(file => {
+      const comments = fs
+        .readFileSync(file, 'utf8')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('*') || line.startsWith('//'))
+        .join(' ');
+      return required.some(token => !comments.includes(token)) || forbidden.some(text => comments.includes(text));
+    })
+    .map(file => path.relative(path.join(__dirname, '../../..'), file));
+  expect(offenders).toEqual([]);
+});
 
-  it.each(['no-linear', 'no-supports'] as const)('slides on the cubic-bezier curve instead (%s)', engine => {
-    expect(slideWith(load(engine).hook)).toEqual({
-      duration: durations.slow * 1000,
-      easing: `cubic-bezier(${easings.easeOutCubic.join(',')})`
-    });
-  });
+it('exports only disablePreferNear60FPS from WebKitFeature', () => {
+  const root = path.join(__dirname, '../../..');
+  const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
+  const feature = read('packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WebKitFeature.swift');
+  const publicLines = feature
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('public '));
+  expect(publicLines).toEqual([
+    'public enum WebKitFeature {',
+    'public static func disablePreferNear60FPS(in preferences: WKPreferences) {'
+  ]);
+  expect(feature.includes('func disable(')).toBe(true);
+  expect(feature.includes('featureSource: AnyObject = WKPreferences.self')).toBe(true);
+  for (const file of [
+    'ios/App/App/AppViewController.swift',
+    'packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift'
+  ]) {
+    const source = read(file);
+    expect([file, source.includes('WebKitFeature.disablePreferNear60FPS(in:')]).toEqual([file, true]);
+    expect([file, source.includes('WebKitFeature.disable(')]).toEqual([file, false]);
+  }
+  expect(read('ios/App/AppTests/AppViewControllerTests.swift').includes('@testable import InappbrowserPlugin')).toBe(
+    true
+  );
 });

@@ -46,9 +46,9 @@ test.describe('swap: guardian maker full fill', () => {
   test.describe.configure({ mode: 'serial' });
 
   const OFFER_BASE = '1000000000'; // 10 SWPA
-  const REQUEST_BASE = '900000000'; // 9 SWPB
+  const REQUEST_BASE = '999500000'; // floor(10 SWPA * price 1 * 0.9995) at 8dp
 
-  test('guardian A offers 10 SWPA for 9 SWPB, B fills fully; both sides settle', async ({
+  test('guardian A offers 10 SWPA for 9.995 SWPB, B fills fully; both sides settle', async ({
     walletA,
     walletB,
     midenCli,
@@ -72,8 +72,9 @@ test.describe('swap: guardian maker full fill', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
+      amountAnchor: 'pay',
       payAmount: '10',
-      receiveAmount: '9'
+      receiveAmount: '9.995'
     });
     expect(orderId, 'guardian maker order id').not.toBe('');
 

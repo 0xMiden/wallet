@@ -113,7 +113,8 @@ const GuardianSettings: FC = () => {
       {/* The provider's logo on the same brand tile the guardian picker's cards draw, at hero size,
           then its name once and the status pill. */}
       <div className="flex flex-col items-center pt-1">
-        <Hero visual={<GuardianLogoTile guardianId={option?.id} size="hero" />} name={guardianName} />
+        {/* -mb-2 halves Hero's 16px between the tile and the name on this page, pulling the name and pill up. */}
+        <Hero visual={<GuardianLogoTile guardianId={option?.id} size="hero" className="-mb-2" />} name={guardianName} />
         {statusPill}
       </div>
 

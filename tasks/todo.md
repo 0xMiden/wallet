@@ -557,3 +557,29 @@ Service validation: 145 Node tests passed with zero skips, all five targeted mut
 - Deferred P2 test-proof gap under the session rule: the mixed-status cursor fixture does not model displaced-row backfill.
 
 # Follow-up to #1790: describe wallet-file contents accurately
+
+# Release Guardian forgot-password canonicalization
+
+- [x] Inspect main workflow history, failed trace and actual stale-state rejection.
+- [x] Prove reset-before-canonical regression red in isolated CI (40229470185: both intended assertions fail).
+- [x] Gate destructive reset on the existing Guardian settlement ledger.
+- [x] Verify focused CI, types and lint; hand off for normal review.
+
+Evidence: expected-red 40229470185 failed both intended reset-order assertions. Green 40230016357 passed 106 tests in three suites, TypeScript, named ESLint and formatting. Product recovery checks are unchanged; the test now waits for its funded Guardian backup to canonicalize before destructive reset. Normal review and funded release validation remain with the release coordinator.
+
+# Release Swap amount-anchor fixtures
+
+- [x] Inspect same-workflow main history, traces, screenshots and exact final quote amounts.
+- [x] Prove amount-anchor and quote-drift regression red in isolated CI (40231995182: three intended failures).
+- [x] Make each scenario choose one typed amount and verify the other before signing.
+- [x] Preserve no-price refusal; supply a valid price when exercising balance and zero-amount gates.
+- [x] Verify focused CI, types, lint and formatting; hand off for normal review and full Swap rerun.
+
+Expected-red 40231995182 failed all three intended helper assertions. Green 40232273778 passed 262 tests in four suites, TypeScript, named ESLint and Prettier. The candidate changes only harness inputs and fixture expectations to match #1823 exact-receive semantics; production financial guards are unchanged. Normal review, integration and full Swap E2E remain with the release coordinator.
+
+# Release Swap guard loading-side follow-up
+
+- [x] Identify the exact failed boundary in full run 40232658245 and its trace.
+- [x] Prove absent-pay-input regression red in CI (40239138581: intended wrong-field value failure, 262 other tests passed).
+- [x] Bind amount edits and assertions to their existing pay/receive side containers.
+- [ ] Verify focused green CI and hand off for normal review and full Swap integration.

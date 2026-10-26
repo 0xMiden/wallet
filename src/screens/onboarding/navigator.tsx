@@ -445,7 +445,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   ]);
 
   // A step moves like a pushed page (the `page` preset): going forward it slides in from the right
-  // over the step it replaces, which parks at `pageSlideParallax` under the `pageSlideDim` dim; going
+  // over the step it replaces, which parks at `pageSlideCovered` under the `pageSlideDim` dim; going
   // back the step on top slides out to the right and uncovers the one beneath. Only mobile animates
   // (the extension swaps at once, as its pages do), and reduced motion is instant everywhere.
   const pagePreset = usePreset('page');

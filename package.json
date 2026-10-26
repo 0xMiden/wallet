@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.17.6",
+  "version": "1.17.7",
   "private": true,
   "engines": {
     "node": ">=22.0.0"

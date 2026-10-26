@@ -135,8 +135,7 @@ describe('USDCX_ROUTE_JS', () => {
       expect(view).toEqual({
         pressed,
         cardText: expect.stringContaining('usdcxMidenFees|USDCx'),
-        fee: 'usdcxPayoutFeeUpTo|0.1',
-        net: 'usdcxPayoutAtLeast|0.900001',
+        fee: 'usdcxPayoutFeeVaries',
         notice: 'usdcxWithdrawalNotice'
       });
     }

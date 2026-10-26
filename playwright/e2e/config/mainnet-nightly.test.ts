@@ -34,8 +34,8 @@ describe('mainnet nightly workflow', () => {
     const live = text.split('\n').filter(line => !line.trim().startsWith('#') && line.includes('cron:'));
     expect(live).toEqual(["    - cron: '30 5 * * *'"]);
     expect(text).toContain('workflow_dispatch:');
-    // A dispatch tests the ref it names; the scheduled run's ref is main.
-    expect(text).toContain('ref: ${{ github.ref }}');
+    // Each run checks out its dispatched commit, even if its branch moves while queued.
+    expect(text).toContain('ref: ${{ github.sha }}');
     expect(text).toContain('cancel-in-progress: false');
   });
 
@@ -77,6 +77,19 @@ describe('mainnet nightly workflow', () => {
     expect(agglayer).toContain('E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}');
     expect(agglayer).toMatch(/- name: Publish the AggLayer summary\n {8}if: always\(\)\n/);
     expect(agglayer).toContain('agglayer-night.md >> "$GITHUB_STEP_SUMMARY"');
+  });
+
+  it('publishes the USDCx payout summary', () => {
+    const main = jobText('mainnet-nightly');
+    const loops = main.indexOf('yarn playwright test mainnet-bridge-loop.spec.ts');
+    const step = main.indexOf('      - name: Publish the USDCx payout summary\n');
+    expect(loops).toBeGreaterThanOrEqual(0);
+    expect(step).toBeGreaterThan(loops);
+    const body = main.slice(step, main.indexOf('\n      - name:', step + 1));
+    // always(): a night whose payout wait fails still reports the fees of the burns Circle paid.
+    expect(body).toMatch(/\n {8}if: always\(\)\n/);
+    expect(body).toContain('if [ -f test-results/mainnet-usdcx-payouts.md ]; then');
+    expect(body).toContain('cat test-results/mainnet-usdcx-payouts.md >> "$GITHUB_STEP_SUMMARY"');
   });
 
   it('fails the AggLayer job when the Ethereum key is empty', () => {

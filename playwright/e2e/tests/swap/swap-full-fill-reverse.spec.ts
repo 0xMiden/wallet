@@ -11,17 +11,17 @@ import {
 /**
  * Scenario 3.2 — full fill, maker B → taker A (the reverse direction of 3.1).
  *
- * Proves the maker/taker flow is symmetric: B is the maker (offers 10 SWPB for
+ * Proves the maker/taker flow is symmetric: B is the maker (offers 9.00450226 SWPB for
  * 9 SWPA) and A is the taker (fills the full 9 SWPA). Same complete-settlement
  * assertions as 3.1 with the roles swapped.
  */
 test.describe('swap: full fill B→A', () => {
   test.describe.configure({ mode: 'serial' });
 
-  const OFFER_BASE = '1000000000'; // 10 SWPB (B offers)
+  const OFFER_BASE = '900450226'; // ceil(9 * 1e8 / (price 1 * 0.9995))
   const REQUEST_BASE = '900000000'; // 9 SWPA (B requests)
 
-  test('B offers 10 SWPB for 9 SWPA, A fills fully; both sides settle', async ({
+  test('B offers 9.00450226 SWPB for 9 SWPA, A fills fully; both sides settle', async ({
     walletA,
     walletB,
     midenCli,
@@ -42,7 +42,8 @@ test.describe('swap: full fill B→A', () => {
     const orderId = await createSwapOrder(walletB, {
       offerSymbol: 'SWPB',
       requestSymbol: 'SWPA',
-      payAmount: '10',
+      amountAnchor: 'receive',
+      payAmount: '9.00450226',
       receiveAmount: '9'
     });
     expect(orderId, 'maker order id').not.toBe('');
