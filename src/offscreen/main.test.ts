@@ -41,6 +41,11 @@ export {};
 // every call to jest.fns on the `__off` control object so per-test behaviour
 // (resolve / reject / return values) is fully controllable.
 
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(async () => true)
+}));
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   cacheScope: () => 'offscreen-rpc|devnet',
   captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
@@ -66,6 +71,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
     },
     NetworkId: { testnet: () => 'testnet' },
+    InputNoteState: { ConsumedAuthenticatedLocal: 'local-auth', ConsumedUnauthenticatedLocal: 'local-unauth' },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -3906,6 +3912,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
+  it('guardianPipeline sends only closed observations from the exact executed request on rejection', async () => {
+    await loadModule();
+    const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
+    G.__off.guardianExecuteRequest.mockRejectedValueOnce(original);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'execution-diagnostic-op',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1, 2, 3, 4])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({
+      ok: false,
+      op_id: 'execution-diagnostic-op',
+      errorTransactionExecution: {
+        executionRoute: 'guardian_signed_request',
+        authObservation: 'observed',
+        authArgPresence: 'absent',
+        authLayout: 'absent',
+        commitmentMatch: 'unavailable',
+        accountAuthCode: 'unavailable'
+      }
+    });
+    expect(G.__off.deserializeTxRequest).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianExecuteRequest.mock.calls[0]?.[1]).toBe(G.__off.deserializeTxRequest.mock.results[0]?.value);
+    expect(G.__off.guardianSubmitted).toBe(false);
+  });
+
   it('guardianPipeline: deserializes the co-signed request, proves in the prove worker, submits the proof and applies', async () => {
     await loadModule();
     const sendResponse = jest.fn();
@@ -5996,6 +6035,156 @@ describe('offscreen fee identity transport', () => {
         scope: 'offscreen-rpc|devnet'
       });
       expect(reply.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+    }
+  );
+});
+
+describe('actual execution producer through offscreen encoder, proxy, cancellation and wire', () => {
+  it.each(['ordinary_new_transaction', 'guardian_signed_request'])(
+    'carries %s through every actual diagnostic boundary without sending private material',
+    async route => {
+      const previousDsn = process.env.SENTRY_DSN;
+      const previousClient = process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      const previousProving = process.env.MIDEN_USE_OFFSCREEN_PROVING;
+      const previousRealm = G.__MIDEN_IN_OFFSCREEN_DOC__;
+      const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+      process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      process.env.MIDEN_USE_OFFSCREEN_PROVING = 'false';
+      const bodies: string[] = [];
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        writable: true,
+        value: async (_url: unknown, init?: { body?: unknown }) => {
+          const body = init?.body;
+          bodies.push(typeof body === 'string' ? body : ArrayBuffer.isView(body) ? new TextDecoder().decode(body) : '');
+          return { status: 200, headers: new Headers() };
+        }
+      });
+      let stopCrashReporting = () => {};
+      try {
+        await loadModule();
+        const receiveOffscreen = capturedListener;
+        if (!receiveOffscreen) throw new Error('offscreen dispatcher not installed');
+        // The two realms share one Jest registry; only the SW-side route selector reads this marker here.
+        G.__MIDEN_IN_OFFSCREEN_DOC__ = false;
+        G.chrome.offscreen = { hasDocument: async () => true, createDocument: jest.fn(), closeDocument: jest.fn() };
+        G.chrome.runtime.onMessage.removeListener = jest.fn();
+        const endpoints = await import('lib/miden-chain/effective-endpoints');
+        await endpoints.loadEndpointOverrides();
+        const proxy = await import('lib/miden/back/miden-client-proxy');
+        const Repo = await import('lib/miden/repo');
+        const { cancelTransaction } = await import('lib/miden/transaction/cancel');
+        const { ITransactionStatus } = await import('lib/miden/db/types');
+        const { initCrashReporting, stopCrashReporting: stopReporting } = await import('lib/telemetry/crash');
+        stopCrashReporting = stopReporting;
+        const original = new Error(
+          'assertion failed with error code: 15404814807981965102 private 0xabcdef amount 987654321 https://private.example/path'
+        );
+        G.__off.guardianExecuteRequest.mockRejectedValueOnce(original);
+        const request = Object.freeze({ authArg: () => undefined });
+        G.__off.deserializeTxRequest.mockReturnValueOnce(request);
+        if (route === 'ordinary_new_transaction') {
+          const { MidenClientInterface } = jest.requireActual<typeof import('lib/miden/sdk/miden-client-interface')>(
+            'lib/miden/sdk/miden-client-interface'
+          );
+          const client: import('lib/miden/sdk/miden-client-interface').MidenClientInterface = Reflect.construct(
+            MidenClientInterface,
+            [
+              {
+                transactions: { executeRequest: G.__off.guardianExecuteRequest },
+                accounts: { get: G.__off.clientAccountsGet }
+              },
+              'testnet'
+            ]
+          );
+          G.__off.clientNewTransaction.mockImplementation(
+            (
+              account: string,
+              bytes: Uint8Array,
+              delegated: boolean | undefined,
+              stage: Parameters<typeof client.newTransaction>[3]
+            ) => client.newTransaction(account, bytes, delegated, stage)
+          );
+        }
+        let encoded: unknown;
+        G.chrome.runtime.sendMessage.mockImplementation(
+          (message: { target?: string; type?: string; op_id?: string }) => {
+            if (message.target === 'offscreen')
+              return new Promise(resolve => {
+                receiveOffscreen(message, {}, response => {
+                  encoded = response;
+                  resolve(response);
+                });
+              });
+            if (message.type === 'OFFSCREEN_OP_STARTED' && message.op_id) proxy.markOpStarted(message.op_id);
+            return Promise.resolve(undefined);
+          }
+        );
+        initCrashReporting({ listenToGlobals: false });
+        const bytes = new Uint8Array([11, 12, 13]);
+        const running =
+          route === 'ordinary_new_transaction'
+            ? proxy.midenClientProxy.newTransaction('private-account', bytes, false, async () => new Uint8Array())
+            : proxy.dispatchGuardianPipeline('private-account', bytes, false, async () => new Uint8Array());
+        const reconstructed: unknown = await running.catch(error => error);
+        expect(reconstructed).not.toBe(original);
+        const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+        expect(snapshotCrashDiagnostics(original)).toMatchObject({
+          executionRoute: route,
+          authObservation: 'observed'
+        });
+        expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
+        expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('private-account', request);
+        expect(G.__off.deserializeTxRequest).toHaveBeenCalledTimes(1);
+        expect(G.__off.deserializeTxRequest).toHaveBeenCalledWith(bytes);
+        expect(bytes).toEqual(new Uint8Array([11, 12, 13]));
+        expect(G.__off.clientAccountsGet).not.toHaveBeenCalled();
+        expect(G.__off.guardianSubmitted).toBe(false);
+        const row: import('lib/miden/db/types').ITransaction = {
+          id: 'private-execution-row',
+          type: 'execute',
+          accountId: 'private-account',
+          status: ITransactionStatus.GeneratingTransaction,
+          stage: 'sending',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          displayIcon: 'SEND'
+        };
+        await Repo.transactions.put(row);
+        await cancelTransaction(row, reconstructed);
+        for (let index = 0; index < 5; index++) await new Promise(resolve => setTimeout(resolve, 5));
+        const envelope = bodies.find(body => body.includes('WalletTransactionFailure'));
+        expect(envelope).toBeDefined();
+        expect(envelope).toContain('"executionRoute":"' + route + '"');
+        expect(envelope).toContain('"authObservation":"observed"');
+        expect(envelope).toContain('"authArgPresence":"absent"');
+        expect(envelope).toContain('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH');
+        for (const sentinel of ['0xabcdef', '987654321', 'private.example', 'private-account', 'private-execution-row'])
+          expect(envelope).not.toContain(sentinel);
+        expect((await Repo.transactions.get(row.id))?.status).toBe(ITransactionStatus.Failed);
+        expect(encoded).toMatchObject({
+          ok: false,
+          errorTransactionExecution: {
+            executionRoute: route,
+            authObservation: 'observed',
+            authArgPresence: 'absent',
+            authLayout: 'absent',
+            commitmentMatch: 'unavailable',
+            accountAuthCode: 'unavailable'
+          }
+        });
+      } finally {
+        stopCrashReporting();
+        if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+        else Reflect.deleteProperty(globalThis, 'fetch');
+        if (previousDsn === undefined) delete process.env.SENTRY_DSN;
+        else process.env.SENTRY_DSN = previousDsn;
+        if (previousClient === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+        else process.env.MIDEN_USE_OFFSCREEN_CLIENT = previousClient;
+        if (previousProving === undefined) delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+        else process.env.MIDEN_USE_OFFSCREEN_PROVING = previousProving;
+        G.__MIDEN_IN_OFFSCREEN_DOC__ = previousRealm;
+      }
     }
   );
 });

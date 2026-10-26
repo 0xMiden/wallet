@@ -9,9 +9,11 @@ import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
+import { isExtension } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
 import { radioGroupKeyTarget } from './radio-group-keys';
+import { useMouseDragScroll } from './use-mouse-drag-scroll';
 
 export interface SegmentedControlItem<T extends string = string> {
   id: T;
@@ -188,6 +190,8 @@ export function SegmentedControl<T extends string>({
   // at once: no slide, no pop, no smooth scroll.
   const swap = useTabShownAgain();
   const rowRef = useRef<HTMLDivElement>(null);
+  const mouseScrollable = layout === 'scroll' && isExtension();
+  const mouseDrag = useMouseDragScroll(rowRef, mouseScrollable);
   // A disabled item is not the answer while another can be chosen, so the radio, the bubble, the tab
   // stop and the keyboard all read this one index. With nothing choosable the control is disabled as
   // a whole (read-only Developer Settings, a swap being submitted) and still shows its value.
@@ -274,7 +278,8 @@ export function SegmentedControl<T extends string>({
       // scrolls, so a row scrolled sideways does not throw the bubble off its item.
       layoutScroll={layout === 'scroll'}
       onKeyDown={handleKeyDown}
-      className={cn(container({ layout }), className)}
+      {...mouseDrag}
+      className={cn(container({ layout }), mouseScrollable && 'select-none', className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
           control, so two mounted controls never trade bubbles. Controlled and click-free: the

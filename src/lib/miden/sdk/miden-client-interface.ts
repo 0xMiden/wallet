@@ -64,6 +64,10 @@ import { reportProve } from 'lib/telemetry/report-operation';
 // `report-flow`, which imports `lib/miden/front` and drags React into the
 // service-worker bundle. `guarantees.test.ts` asserts this.
 import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
+import {
+  annotateTransactionExecution,
+  unobservedTransactionExecution
+} from 'lib/telemetry/transaction-execution-diagnostics';
 import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -103,6 +107,7 @@ import {
 } from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
+import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
@@ -1976,43 +1981,49 @@ export class MidenClientInterface {
   ): Promise<TransactionResult> {
     return proveWithFallback(
       async (prover, attempt) => {
-        if (this.shouldUseOffscreenProver(prover)) {
-          return await this.proveLocallyViaOffscreen(
-            async wasm => {
-              // Defensive, not required: every attempt still hydrates its OWN request
-              // from the bytes. The pinned SDK borrows both args in `executeTransaction`
-              // (see the doc above buildSendExecuteArgs), so this stays correct however
-              // a later SDK passes them.
-              const request = TransactionRequest.deserialize(requestBytes);
-              const acctId = resolveAccountId(wasm, accountId);
-              return { accountId: acctId, request };
-            },
-            attempt,
-            onStage
-          );
+        let execution = unobservedTransactionExecution('ordinary_new_transaction');
+        try {
+          if (this.shouldUseOffscreenProver(prover)) {
+            return await this.proveLocallyViaOffscreen(
+              async wasm => {
+                // Defensive, not required: every attempt still hydrates its OWN request
+                // from the bytes. The pinned SDK borrows both args in `executeTransaction`
+                // (see the doc above buildSendExecuteArgs), so this stays correct however
+                // a later SDK passes them.
+                const request = TransactionRequest.deserialize(requestBytes);
+                execution = observeTransactionExecutionRequest(request, 'ordinary_new_transaction');
+                const acctId = resolveAccountId(wasm, accountId);
+                return { accountId: acctId, request };
+              },
+              attempt,
+              onStage
+            );
+          }
+          // Staged execute → prove → submit → apply rather than the all-in-one
+          // `transactions.submit`, for the same reason the send path is staged: it
+          // gives the prove-fallback a seam to stop at, so a failure at or after
+          // submit can never be retried into a second broadcast of this request
+          // (dApp custom transactions and the Agglayer bridged-send both land here).
+          // Each attempt deserializes its own request as a defensive measure: the pinned
+          // SDK borrows the request in `executeRequest` too (its own `executeTransaction`
+          // call - see the doc above buildSendExecuteArgs), so this stays correct however
+          // a later SDK passes it.
+          recordProveTiming(`newTransaction staged: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
+          const request = TransactionRequest.deserialize(requestBytes);
+          execution = observeTransactionExecutionRequest(request, 'ordinary_new_transaction');
+          const executed = await this.client.transactions.executeRequest(accountId, request);
+          recordProveTiming('newTransaction staged: executeRequest returned; proving');
+          if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
+          // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
+          // hides the L1 claim (#1233). With no result to return, the dApp's `waitForTransaction`
+          // still answers with an error, one saying the network accepted it and naming its id.
+          const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction', onStage);
+          recordProveTiming('newTransaction staged: apply returned');
+          return result;
+        } catch (error) {
+          annotateTransactionExecution(error, execution);
+          throw error;
         }
-        // Staged execute → prove → submit → apply rather than the all-in-one
-        // `transactions.submit`, for the same reason the send path is staged: it
-        // gives the prove-fallback a seam to stop at, so a failure at or after
-        // submit can never be retried into a second broadcast of this request
-        // (dApp custom transactions and the Agglayer bridged-send both land here).
-        // Each attempt deserializes its own request as a defensive measure: the pinned
-        // SDK borrows the request in `executeRequest` too (its own `executeTransaction`
-        // call - see the doc above buildSendExecuteArgs), so this stays correct however
-        // a later SDK passes it.
-        recordProveTiming(`newTransaction staged: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
-        const executed = await this.client.transactions.executeRequest(
-          accountId,
-          TransactionRequest.deserialize(requestBytes)
-        );
-        recordProveTiming('newTransaction staged: executeRequest returned; proving');
-        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
-        // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
-        // hides the L1 claim (#1233). With no result to return, the dApp's `waitForTransaction`
-        // still answers with an error, one saying the network accepted it and naming its id.
-        const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction', onStage);
-        recordProveTiming('newTransaction staged: apply returned');
-        return result;
       },
       delegateTransaction,
       this.liveness

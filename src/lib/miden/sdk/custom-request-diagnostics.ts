@@ -6,10 +6,14 @@ import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-fa
 type AuthDiagnostics = Pick<TransactionFailureDiagnostics, 'authLayout' | 'commitmentMatch'>;
 
 /** Derive closed categories locally; never return authentication values or their hashes. */
-export function customRequestAuthDiagnostics(request: TransactionRequest): AuthDiagnostics {
+export function customRequestAuthDiagnostics(
+  request: TransactionRequest,
+  observe?: (state: 'present' | 'absent' | 'read_failed') => void
+): AuthDiagnostics {
   let authLayout: AuthDiagnostics['authLayout'] = 'unavailable';
   try {
     const auth = request.authArg();
+    observe?.(auth === undefined ? 'absent' : 'present');
     if (auth === undefined) return { authLayout: 'absent', commitmentMatch: 'unavailable' };
     const values = request.adviceMap().get(auth);
     if (values === undefined) return { authLayout: 'missing_preimage', commitmentMatch: 'unavailable' };
@@ -27,6 +31,7 @@ export function customRequestAuthDiagnostics(request: TransactionRequest): AuthD
       digest.free?.();
     }
   } catch {
+    observe?.('read_failed');
     return { authLayout, commitmentMatch: 'unavailable' };
   }
 }
