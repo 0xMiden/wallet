@@ -133,7 +133,8 @@ function fixture(count = 9, timing) {
       if (asset && method === 'PATCH') {
         fail('complete-before');
         asset.attributes.sourceFileChecksum = request.body.data.attributes.sourceFileChecksum;
-        asset.attributes.assetDeliveryState.state = fault === 'processing-failed' ? 'FAILED' : timing ? 'UPLOAD_COMPLETE' : 'COMPLETE';
+        asset.attributes.assetDeliveryState.state =
+          fault === 'processing-failed' ? 'FAILED' : timing ? 'UPLOAD_COMPLETE' : 'COMPLETE';
         if (timing) asset.readyAt = timing.now() + timing.delay;
         if (fault === 'processing-failed') fault = undefined;
         fail('complete-after');
@@ -330,13 +331,17 @@ test('recorded failed reservations can retry while sufficient capacity preserves
   assert.equal(c.calls.filter(x => x.method === 'DELETE' && x.path === `/v1/appScreenshots/${failed}`).length, 1);
 });
 
-
 test('five slow Apple images share processing time inside the workflow budget', async () => {
   let elapsed = 0;
   const c = fixture(9, { now: () => elapsed, delay: 590000 });
   const options = {
-    ...c.options(), maxPolls: 120, now: () => elapsed,
-    deadlineMs: 1500000, sleep: async ms => { elapsed += ms; }
+    ...c.options(),
+    maxPolls: 120,
+    now: () => elapsed,
+    deadlineMs: 1500000,
+    sleep: async ms => {
+      elapsed += ms;
+    }
   };
   // Sequential processing would consume 2950 seconds before API overhead.
   assert.ok(5 * 590000 > 30 * 60000);
@@ -344,20 +349,43 @@ test('five slow Apple images share processing time inside the workflow budget', 
   assert.ok(elapsed <= 600000, `group processing took ${elapsed}ms`);
   const commits = c.calls.filter(x => x.method === 'PATCH' && x.path.startsWith('/v1/appScreenshots/'));
   assert.equal(commits.length, 5);
-  assert.ok(commits.every(x => x.at === 0), 'commit all uploads before waiting');
+  assert.ok(
+    commits.every(x => x.at === 0),
+    'commit all uploads before waiting'
+  );
   assert.ok(c.maximum() <= 10);
-  assert.deepEqual(c.sets.get('large').map(x => x.attributes.sourceFileChecksum), c.desired.map(x => hash('md5', x.bytes)));
-  assert.deepEqual(c.sets.get('medium').map(x => x.id), c.desired.map((_, i) => `medium${i}`));
-  assert.equal(c.calls.filter(x => x.method === 'DELETE' && x.at === 0).length, 4, 'only quota-required evictions before verification');
+  assert.deepEqual(
+    c.sets.get('large').map(x => x.attributes.sourceFileChecksum),
+    c.desired.map(x => hash('md5', x.bytes))
+  );
+  assert.deepEqual(
+    c.sets.get('medium').map(x => x.id),
+    c.desired.map((_, i) => `medium${i}`)
+  );
+  assert.equal(
+    c.calls.filter(x => x.method === 'DELETE' && x.at === 0).length,
+    4,
+    'only quota-required evictions before verification'
+  );
 });
 
 test('shared deadline stops requests, preserves journal and resumes without duplicate reservations', async () => {
   let elapsed = 0;
   const c = fixture(4, { now: () => elapsed, delay: 590000 });
-  const options = () => ({ ...c.options(), maxPolls: 120, now: () => elapsed, deadlineMs: 10000,
-    sleep: async ms => { elapsed += ms; } });
+  const options = () => ({
+    ...c.options(),
+    maxPolls: 120,
+    now: () => elapsed,
+    deadlineMs: 10000,
+    sleep: async ms => {
+      elapsed += ms;
+    }
+  });
   await assert.rejects(syncScreenshots(c.client, options()), /deadline/i);
-  assert.ok(c.calls.every(x => x.at < 10000), 'no request launches after expiry');
+  assert.ok(
+    c.calls.every(x => x.at < 10000),
+    'no request launches after expiry'
+  );
   assert.equal(c.calls.filter(x => x.method === 'POST').length, 5);
   assert.equal(c.calls.filter(x => x.method === 'DELETE').length, 0);
   assert.equal(c.journal().groups[0].owned.length, 5);
@@ -373,4 +401,48 @@ test('expired deadline refuses even initial inventory', async () => {
   const c = fixture();
   await assert.rejects(syncScreenshots(c.client, { ...c.options(), deadlineMs: 10, now: () => 10 }), /deadline/i);
   assert.equal(c.calls.length, 0);
+});
+
+test('deadline during intent persistence launches no reservation and leaves safely resumable journal', async () => {
+  let elapsed = 0;
+  let expire = true;
+  const c = fixture(4);
+  const base = c.options();
+  const options = {
+    ...base,
+    now: () => elapsed,
+    deadlineMs: 10,
+    persistScreenshotJournal: async value => {
+      await base.persistScreenshotJournal(value);
+      if (expire && value.pending?.kind === 'reserve') {
+        expire = false;
+        elapsed = 10;
+      }
+    }
+  };
+  await assert.rejects(syncScreenshots(c.client, options), /deadline/i);
+  assert.equal(c.calls.filter(x => x.method !== 'GET').length, 0);
+  assert.equal(c.journal().pending, null, 'known local expiry before launch must not become indeterminate POST');
+  await syncScreenshots(c.client, { ...c.options(), now: () => elapsed, deadlineMs: 10000 });
+  await assertCanonical(c);
+});
+
+test('deadline after byte upload prevents completion and resumes the recorded reservation', async () => {
+  let elapsed = 0;
+  const c = fixture(4);
+  const options = {
+    ...c.options(),
+    now: () => elapsed,
+    deadlineMs: 10,
+    fetchImpl: async url => {
+      elapsed = 10;
+      return { ok: true, redirected: false, url };
+    }
+  };
+  await assert.rejects(syncScreenshots(c.client, options), /deadline/i);
+  assert.equal(c.calls.filter(x => x.method === 'POST').length, 1);
+  assert.equal(c.calls.filter(x => x.method === 'PATCH' || x.method === 'DELETE').length, 0);
+  await syncScreenshots(c.client, { ...c.options(), now: () => elapsed, deadlineMs: 10000 });
+  assert.equal(c.calls.filter(x => x.method === 'POST').length, 5);
+  await assertCanonical(c);
 });

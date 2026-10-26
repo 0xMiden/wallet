@@ -955,6 +955,7 @@ test('workflow prepare restores an intact private screenshot journal consumed by
     PRODUCER_RUN_ID: '',
     STATE_RUN_ID: '80',
     RELEASE_TAG: 'v1.17.8',
+    SCREENSHOT_DEADLINE_MS: String(Date.now() + 25 * 60000),
     PRIOR_STATE_DIR: join(directory, 'prior'),
     STATE_RUN_FILE: join(directory, 'state-run.json'),
     APP_STORE_CONNECT_KEY_ID: 'ABCDE12345',
@@ -1008,6 +1009,7 @@ test('workflow prepare restores an intact private screenshot journal consumed by
         screenshotOperations: {
           syncScreenshots: async (client, options) => {
             assert.deepEqual(options.screenshotJournal, journal);
+            assert.equal(options.deadlineMs, Number(env.SCREENSHOT_DEADLINE_MS));
             await options.persistScreenshotJournal(options.screenshotJournal);
             synchronized++;
             return { changed: false, matches: true };
@@ -1020,4 +1022,13 @@ test('workflow prepare restores an intact private screenshot journal consumed by
   assert.equal((await stat(restored)).mode & 0o777, 0o600);
   assert.equal((await stat(join(root, 'state'))).mode & 0o777, 0o700);
   assert.deepEqual(await readdir(join(root, 'state')), [name]);
+});
+
+test('publishing workflow establishes screenshot deadline before checkout with export margin', () => {
+  const text = readFileSync(new URL('../../.github/workflows/publish-stores.yml', import.meta.url), 'utf8');
+  assert.match(text, /timeout-minutes: 30/);
+  const initialization = text.indexOf('name: Initialize temporary evidence paths');
+  const deadline = text.indexOf('SCREENSHOT_DEADLINE_MS=');
+  assert.ok(deadline > initialization && deadline < text.indexOf('name: Check out trusted publishing automation'));
+  assert.match(text, /SCREENSHOT_DEADLINE_MS=\$\(\( \$\(date \+%s\) \* 1000 \+ 25 \* 60 \* 1000 \)\)/);
 });
