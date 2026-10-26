@@ -13,7 +13,6 @@
   "vars": {
     "ALLOWED_ORIGINS": "[]",
     "MAXMIND_DAILY_QUERY_LIMIT": "0",
-    "CALLER_REQUESTS_PER_MINUTE": "60",
     "DEPLOYMENT_REVISION": "unknown"
   },
   "ratelimits": [

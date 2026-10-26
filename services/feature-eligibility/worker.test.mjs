@@ -11,16 +11,19 @@ import { resolveDeploymentSource } from '../../scripts/feature-eligibility-deplo
 class MemoryStorage {
   values = new Map();
   queue = Promise.resolve();
+  writes = 0;
 
   async get(key) {
     return structuredClone(this.values.get(key));
   }
 
   async put(key, value) {
+    this.writes += 1;
     this.values.set(key, structuredClone(value));
   }
 
   async delete(keys) {
+    this.writes += 1;
     for (const key of Array.isArray(keys) ? keys : [keys]) this.values.delete(key);
   }
 
@@ -34,6 +37,7 @@ class MemoryStorage {
   }
 
   async setAlarm(value) {
+    this.writes += 1;
     this.alarm = value;
   }
 
@@ -214,6 +218,59 @@ test('applies caller and colo rate bindings before routing to the caller object'
   assert.match(h.rateEvents[0].key, /^[a-f0-9]{64}$/);
   assert.equal(h.rateEvents[1].key, 'colo:ZRH');
   assert.equal(h.rateEvents[2].key, 'cache:ZRH');
+});
+
+test('rate refusals never contact a durable object', async () => {
+  const caller = harness();
+  caller.env.CALLER_RATE_LIMIT.limit = async () => ({ success: false });
+  let response = await caller.request();
+  assert.equal(response.status, 429);
+  assert.deepEqual(await response.json(), { error: 'rate_limited' });
+  assert.equal(response.headers.get('Retry-After'), '60');
+  assert.equal(caller.callerStates.size, 0);
+
+  const colo = harness();
+  colo.env.COLO_RATE_LIMIT.limit = async () => ({ success: false });
+  response = await colo.request();
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '10');
+  assert.equal(colo.callerStates.size, 0);
+});
+
+test('overloaded caller objects fail closed without retrying', async () => {
+  const h = harness();
+  let attempts = 0;
+  h.env.CALLER_GUARD.get = () => ({ fetch: () => { attempts += 1; throw Object.assign(new Error('overloaded'), { overloaded: true }); } });
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'overloaded' });
+  assert.equal(response.headers.get('Retry-After'), '30');
+  assert.equal(attempts, 1);
+});
+
+test('one retryable caller object error gets a fresh stub and one bounded retry', async () => {
+  const h = harness({ timeoutMs: 100 });
+  let stubs = 0;
+  const originalGet = h.env.CALLER_GUARD.get;
+  h.env.CALLER_GUARD.get = name => {
+    stubs += 1;
+    if (stubs === 1) return { fetch: () => { throw Object.assign(new Error('reset'), { retryable: true }); } };
+    return originalGet(name);
+  };
+  assert.equal((await h.request()).status, 200);
+  assert.equal(stubs, 2);
+  assert.equal(h.paidCalls().length, 1);
+});
+
+test('a warm decision makes no durable writes', async () => {
+  const h = harness();
+  assert.equal((await h.request()).status, 200);
+  const entry = [...h.callerStates.values()][0];
+  const callerWrites = entry.storage.writes;
+  const budgetWrites = h.storage.writes;
+  assert.equal((await h.request()).status, 200);
+  assert.equal(entry.storage.writes, callerWrites);
+  assert.equal(h.storage.writes, budgetWrites);
 });
 
 test('enables swap for explicitly enabled Near Intents with a usable 1Click mapping', async () => {
@@ -621,6 +678,21 @@ test('zero query budget never contacts MaxMind', async () => {
   assert.equal(h.paidCalls().length, 0);
 });
 
+test('global-v1 grants bounded idempotent leases alongside the old single reserve API', async () => {
+  const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '6' } });
+  const payload = { day: '2026-10-20', deadline: Date.UTC(2026, 9, 20, 12) + 30, leaseId: '00000000-0000-4000-8000-000000000001', count: 4 };
+  const lease = () => h.guard.fetch(new Request('https://eligibility.internal/lease', { method: 'POST', body: JSON.stringify(payload) }));
+  assert.deepEqual(await (await lease()).json(), { reserved: true, count: 4 });
+  assert.deepEqual(await (await lease()).json(), { reserved: true, count: 4 });
+  assert.equal(h.storage.values.get('budget').count, 4);
+  const reserve = await h.guard.fetch(new Request('https://eligibility.internal/reserve', { method: 'POST', body: JSON.stringify({ day: payload.day, deadline: payload.deadline }) }));
+  assert.deepEqual(await reserve.json(), { reserved: true });
+  assert.equal(h.storage.values.get('budget').count, 5);
+  payload.leaseId = '00000000-0000-4000-8000-000000000002';
+  assert.deepEqual(await (await lease()).json(), { reserved: true, count: 1 });
+  assert.equal(h.storage.values.get('budget').count, 6);
+});
+
 test('enforces the per-caller edge limit even when decisions are cached', async () => {
   const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
   assert.equal((await h.request()).status, 200);
@@ -893,6 +965,10 @@ test('caller migration appends a class without recreating the original budget na
     config.durable_objects.bindings.some(b => b.name === 'CALLER_GUARD' && b.class_name === 'CallerEligibilityGuard')
   );
   assert.deepEqual(config.migrations.slice(1), [{ tag: 'v2', new_sqlite_classes: ['CallerEligibilityGuard'] }]);
+  assert.deepEqual(config.ratelimits, [
+    { name: 'CALLER_RATE_LIMIT', namespace_id: '189401', simple: { limit: 60, period: 60 } },
+    { name: 'COLO_RATE_LIMIT', namespace_id: '189402', simple: { limit: 5000, period: 10 } }
+  ]);
 });
 
 
