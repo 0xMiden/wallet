@@ -37,13 +37,15 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
     if (!STORE_TARGETS.some(value => value.id === id)) throw new Error('Unknown release plan target');
     if (
       !object(entry) ||
-      Object.keys(entry).some(key => !['producerRunId', 'stateRunId', 'editId', 'acknowledgement'].includes(key))
+      Object.keys(entry).some(key => !['producerRunId', 'stateRunId', 'editId', 'acknowledgement', 'releaseNotes'].includes(key))
     )
       throw new Error('Unsupported target field or identity override');
   }
   return targets.map(store => {
     const entry = plan.targets[store.id] ?? {};
     const native = store.platform !== 'chrome';
+    if (stage === 'build' && entry.releaseNotes !== undefined && entry.releaseNotes !== '')
+      throw new Error('Release notes are supported only for iOS submit');
     const common = {
       releaseTag: plan.releaseTag,
       sourceSha: plan.sourceSha,
@@ -59,6 +61,7 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
         : validatePublishRequest({
             ...common,
             action: stage,
+            releaseNotes: entry.releaseNotes,
             producerRunId: mutation ? entry.producerRunId : '',
             stateRunId: mutation ? entry.stateRunId : '',
             editId: edits ? entry.editId : '',
@@ -80,6 +83,7 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
         edit_id: request.editId ?? '',
         acknowledgement: request.acknowledgement
       });
+    if (request.releaseNotes !== undefined) inputs.release_notes = request.releaseNotes;
     return {
       targetId: store.id,
       workflowPath: `.github/workflows/${stage === 'build' ? 'build-store-artifacts' : 'publish-stores'}.yml`,

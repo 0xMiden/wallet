@@ -279,10 +279,10 @@ test('iOS submission forwards exact optional release notes without adding them t
   assert.equal(intents.filter(value => value.targetId !== 'ios-testnet').some(value => 'release_notes' in value.inputs), false);
 });
 
-test('empty optional release notes are omitted and Unicode length uses code points', () => {
+test('empty optional iOS submit notes use the exact default and Unicode length uses code points', () => {
   const input = plan();
   input.targets['ios-testnet'].releaseNotes = '';
-  assert.equal('release_notes' in coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs, false);
+  assert.equal(coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes, 'Various Fixes & Improvements');
   input.targets['ios-testnet'].releaseNotes = '😀'.repeat(4000);
   assert.equal(coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes, input.targets['ios-testnet'].releaseNotes);
   input.targets['ios-testnet'].releaseNotes += '😀';
@@ -301,5 +301,15 @@ test('release notes are rejected outside iOS submit and invalid content prevents
     const input = plan();
     input.targets[target].releaseNotes = 'Only iOS submission may carry this text.';
     assert.throws(() => coordinator.validateReleasePlan(input, { stage, target }), /release|notes|iOS|submit/i);
+  }
+});
+
+
+test('omitted iOS submit notes receive the shared default without leaking it to other targets or stages', () => {
+  const intents = coordinator.validateReleasePlan(plan(), { stage: 'submit' });
+  assert.equal(intents.find(value => value.targetId === 'ios-testnet').inputs.release_notes, 'Various Fixes & Improvements');
+  for (const intent of intents.filter(value => value.targetId !== 'ios-testnet')) assert.equal('release_notes' in intent.inputs, false);
+  for (const stage of ['build', 'status', 'upload']) {
+    for (const intent of coordinator.validateReleasePlan(plan(), { stage })) assert.equal('release_notes' in intent.inputs, false);
   }
 });
