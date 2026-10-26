@@ -213,7 +213,9 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
     if (!isUsdcxCheckDue(tx, Date.now())) return;
     const { pollUsdcxBurn } = await import('lib/usdcx/burn-status');
     await pollUsdcxBurn(tx);
-    await pollUsdcxDestination(tx);
+    // A scan the chunk cap stopped below the head is due again at once, so a long gap is caught up without back-off.
+    const { more } = await pollUsdcxDestination(tx);
+    if (more) usdcxCheckedAt.delete(tx.id);
     return;
   }
 

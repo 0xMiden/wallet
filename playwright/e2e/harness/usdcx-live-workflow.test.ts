@@ -90,6 +90,21 @@ describe('E2E USDCx Bridge-IN (live) workflow', () => {
     expect(stepsOf(EXECUTOR_JOB)).toContain(`\n          USDCX_LIVE_SOURCE: \${{ matrix.source }}\n`);
   });
 
+  it.each([ARC_JOB, EXECUTOR_JOB])(
+    "adds the return burn's payout fee to the summary of %s, whatever the run did",
+    job => {
+      expect(stepsOf(job)).toContain(
+        '\n      - name: Add the payout fees to the job summary\n' +
+          '        if: always()\n' +
+          '        continue-on-error: true\n' +
+          '        run: |\n' +
+          '          if [ -f test-results/usdcx-payout-fees.md ]; then\n' +
+          '            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"\n' +
+          '          fi\n'
+      );
+    }
+  );
+
   // Both specs match the config's usdcx-live-* glob, and a retry sends a second real deposit.
   it("runs each spec in its own jobs, with no retries, and keeps each source chain's artifact", () => {
     expect(stepsOf(ARC_JOB)).toMatch(/\n {8}run: yarn test:e2e:mobile:usdcx-live:run usdcx-live-deposit\.ios\n/);

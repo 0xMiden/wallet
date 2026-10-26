@@ -19,6 +19,7 @@ import type {
 } from 'lib/telemetry/transaction-failure';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
+import type { UsdcxPayout } from 'lib/usdcx/payout-proof';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
@@ -415,6 +416,12 @@ export interface IUsdcxBurn {
   destinationBalanceBefore?: { balance: string; blockNumber: string };
   /** Destination balance that met the expected increase after burn confirmation. */
   destinationBalanceConfirmed?: { balance: string; blockNumber: string };
+  /** The GatewayMinter mint that paid this burn, found by its note id. */
+  payout?: UsdcxPayout;
+  /** Destination block the next payout check resumes after: the last one scanned less 128, never moved back. */
+  payoutScannedBlock?: string;
+  /** When the burn first read confirmed, in ms. */
+  confirmedAt?: number;
   attemptCount?: number;
   lastAttemptBlockNum?: number;
   lastError?: string;

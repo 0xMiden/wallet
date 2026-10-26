@@ -81,7 +81,7 @@ export const XRESERVE_HARNESS_ABI = parseAbi([
   'error ZeroValue()'
 ]);
 
-const GATEWAY_MINTER_ABI = parseAbi([
+export const GATEWAY_MINTER_ABI = parseAbi([
   'event AttestationUsed(address indexed token, address indexed recipient, bytes32 indexed transferSpecHash, uint32 sourceDomain, bytes32 sourceDepositor, bytes32 sourceSigner, uint256 value)'
 ]);
 
@@ -507,8 +507,6 @@ export interface GatewayPayoutArgs {
   deadlineMs: number;
   /** `readXReserveDomainState().depositor`. */
   depositor: Hex;
-  /** `minimumUsdcxPayout(<payout chain id>, burnUnits)`, the floor the wallet's own confirmation uses. */
-  minimumValue: bigint;
 }
 
 interface PayoutState {
@@ -604,6 +602,10 @@ async function payoutCycle(
   if (sourceDepositor.toLowerCase() !== args.depositor.toLowerCase()) {
     throw uncorrelated(`sourceDepositor ${sourceDepositor}, expected ${args.depositor}`);
   }
+  // Circle's fee is whatever it kept, so the only bound is the burn: a zero or larger mint is not this payout.
+  if (value <= 0n || value > args.burnUnits) {
+    throw uncorrelated(`log value ${value} is not between 1 and the burn's ${args.burnUnits}`);
+  }
   if (value !== balance - before) {
     throw uncorrelated(
       `log value ${value} differs from the balance ${balance} at ${balanceBlock} less ${before} at ${args.fromBlock}`
@@ -612,9 +614,6 @@ async function payoutCycle(
   const transaction = await client.getTransaction({ hash: log.transactionHash });
   if (!transaction.input.toLowerCase().includes(args.burnNoteId.slice(2).toLowerCase())) {
     throw uncorrelated(`gatewayMint ${log.transactionHash} calldata lacks the burn note id ${args.burnNoteId}`);
-  }
-  if (value < args.minimumValue) {
-    throw uncorrelated(`value ${value} is below the wallet's minimum payout ${args.minimumValue}`);
   }
   return {
     endpoint,
@@ -635,8 +634,9 @@ async function payoutCycle(
  * Spec 5 step 8 (D3), the hard payout gate. Every 5 s reads the key's USDC balance at an explicit head B; once it rises
  * above `balanceBefore` (R20(d); 0n, an empty key, by default), scans GatewayMinter's AttestationUsed logs for the key
  * after `fromBlock` up to B on the same endpoint and requires exactly one, from Arc's xReserve depositor, of exactly
- * that rise, whose gatewayMint calldata carries the burn note id. A balance below `balanceBefore` fails key-moved at
- * once. An endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at `deadlineMs`.
+ * that rise and at most the burn, whose gatewayMint calldata carries the burn note id. A balance below `balanceBefore`
+ * fails key-moved at once. An endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at
+ * `deadlineMs`.
  */
 export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcReadDeps): Promise<GatewayPayout> {
   const chain = chainOf(deps);

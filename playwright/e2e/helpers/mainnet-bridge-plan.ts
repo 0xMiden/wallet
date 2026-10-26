@@ -181,3 +181,14 @@ export function bridgeLoops(chains: readonly MainnetBridgeChain[]): BridgeLoop[]
   }
   return loops;
 }
+
+/** The USDCx loops of `loops`. A night with none would pass having bridged nothing, so it fails instead. */
+export function usdcxLoopsOrFail(loops: readonly BridgeLoop[]): UsdcxLoop[] {
+  const usdcx = loops.filter((loop): loop is UsdcxLoop => loop.kind === 'usdcx');
+  if (usdcx.length === 0) {
+    throw new Error(
+      'the mainnet config names no USDCx route with deposits enabled, so the bridge loop would test nothing'
+    );
+  }
+  return usdcx;
+}

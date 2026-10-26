@@ -841,7 +841,7 @@ export const ReviewTransaction: React.FC = () => {
                   </DetailRow>
                   <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
                   {bridgeNetworkObj && amountBaseUnits !== undefined && (
-                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} amount={amountBaseUnits} />
+                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} />
                   )}
                 </>
               ) : (

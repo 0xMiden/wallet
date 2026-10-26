@@ -400,11 +400,12 @@ describe('RouteOptions', () => {
     expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
   });
 
-  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+  // Circle took 2.5635 USDC from a Sepolia payout, so no fee bound or payout is promised on any chain.
   it.each([
-    [11155111, 10_000_000n, '1.5', '8.5'],
-    [5042002, 1_000_001n, '0.1', '0.900001']
-  ])('shows Circle fee and the least payout for a burn to chain %i', (chainId, amount, fee, payout) => {
+    [11155111, 10_000_000n],
+    [5042002, 1_000_001n],
+    [11155111, 1_500_000n]
+  ])('shows Circle fee as varying and no payout for a burn to chain %i', (chainId, amount) => {
     render(
       <RouteOptions
         usdcxAvailable
@@ -419,27 +420,9 @@ describe('RouteOptions', () => {
 
     const feeRow = within(screen.getByTestId('usdcx-payout-fee'));
     expect(feeRow.getByText('usdcxCircleFee')).toBeInTheDocument();
-    expect(feeRow.getByText(`usdcxPayoutFeeUpTo|${fee}`)).toBeInTheDocument();
-    const payoutRow = within(screen.getByTestId('usdcx-payout-net'));
-    expect(payoutRow.getByText('youReceive')).toBeInTheDocument();
-    expect(payoutRow.getByText(`usdcxPayoutAtLeast|${payout}`)).toBeInTheDocument();
-  });
-
-  it('leaves out the payout while the fee allowance takes the whole amount', () => {
-    render(
-      <RouteOptions
-        usdcxAvailable
-        route="usdcx"
-        onRouteChange={jest.fn()}
-        fastQuoteLoading={false}
-        slowStatus="allowed"
-        usdcxPayout={{ chainId: 11155111, amount: 1_500_000n }}
-        {...UP}
-      />
-    );
-
-    expect(screen.getByTestId('usdcx-payout-fee')).toBeInTheDocument();
+    expect(feeRow.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
     expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
+    expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
   });
 
   it.each([
