@@ -83,6 +83,7 @@ import {
   buildSendTransactionRequest,
   canonicalWalletAccountId,
   getBech32AddressFromAccountId,
+  sameWalletAccountId,
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
@@ -98,7 +99,7 @@ import { buildNativeProverCallback } from './native-prover-mobile';
 import { toNft, type NftAsset } from './nft-asset';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
-import { readPswapOrderNote } from './pswap-order-note';
+import { readPswapOrderNote, readPublicPswapNote } from './pswap-order-note';
 import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
@@ -341,6 +342,16 @@ export interface ClientLiveness {
  * eviction message says which await parked.
  */
 export type AssertLive = (step?: string) => void;
+
+/** What `buildPswapConsumeRequest` fills: a public PSWAP note the node holds, with this account's own vault. */
+export interface PswapConsumeRequestInputs {
+  /** The note to fill, read on the node: this client never tracked it. */
+  noteId: string;
+  /** The requested-asset amount this account pays into the note, in base units. */
+  fillAmount: bigint;
+  /** The account the note's storage must name as creator; any other note is refused. */
+  creatorAccountId: string;
+}
 
 export interface PswapCancelRequestOptions {
   /**
@@ -1723,6 +1734,39 @@ export class MidenClientInterface {
       inner.newPswapCancelTransactionRequest(note, creator)
     );
     assertLive('after the cancel-request build');
+    return request.serialize();
+  }
+
+  /**
+   * Build, but do not execute, the fee-aware request that fills `fillAmount` of a public PSWAP sale note with this
+   * account's own vault (an Arcade GC purchase). The note is somebody else's, so it is read on the node, on RPC
+   * clients of the read's own, and the request carries the full note: the SDK's `newPswapConsumeTransactionRequest`
+   * takes the note itself, so a client that never tracked it can fill it (proven on mainnet by
+   * `scripts/dev/gc-sale/buy.mjs`). Refused when the note is spent, absent, not the creator's, or asks less than
+   * the fill: the SDK rejects an overfill, and a fill of the whole request would take the whole offer.
+   */
+  async buildPswapConsumeRequest(
+    accountId: string,
+    { noteId, fillAmount, creatorAccountId }: PswapConsumeRequestInputs,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<Uint8Array> {
+    const read = await readPublicPswapNote(noteId);
+    assertLive('after the node note read');
+    if (read.kind === 'spent') throw new Error(`PSWAP sale note ${noteId} is already consumed on chain`);
+    if (read.kind === 'absent') throw new Error(`PSWAP sale note ${noteId} is not a public PSWAP note`);
+    if (!sameWalletAccountId(read.fields.creator, creatorAccountId)) {
+      throw new Error(`PSWAP sale note ${noteId} was not created by account ${creatorAccountId}`);
+    }
+    const requested = read.fields.storage[2] ?? 0n;
+    if (fillAmount < 1n || fillAmount > requested) {
+      throw new Error(`PSWAP sale note ${noteId} asks ${requested}, which a fill of ${fillAmount} cannot meet`);
+    }
+
+    const consumer = walletAccountIdToSdk(accountId);
+    const request = await this.innerClientAccess()._withInnerWebClient(inner =>
+      inner.newPswapConsumeTransactionRequest(read.note, consumer, fillAmount, 0n)
+    );
+    assertLive('after the consume-request build');
     return request.serialize();
   }
 

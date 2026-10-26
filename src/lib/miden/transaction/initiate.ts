@@ -343,6 +343,67 @@ export const initiatePswapReclaimTransaction = async (
     )
   ).committedId;
 
+/** The sale a GC purchase fills, as `findLiveGcSale` (`lib/miden/arcade/gc-sale.ts`) quotes it. */
+export interface GcPurchaseQuote {
+  saleNoteId: string;
+  sellerAccountId: string;
+  /** The pay faucet (USDCx) and the fill, in base units. */
+  payFaucetId: string;
+  fillAmount: bigint;
+  /** The GC faucet and what the fill buys, in base units. */
+  gcFaucetId: string;
+  expectedAmount: bigint;
+}
+
+/**
+ * Queue an Arcade GC purchase: a consume row on the seller's public PSWAP sale note, with the fill and the GC it
+ * buys recorded on the row. The row carries no request yet: the fee-aware fill request is built from the node's
+ * copy of the note right before it runs (`gcPurchaseOf` in `lib/miden/transaction`), so nothing here needs the
+ * WASM client and the extension popup can queue it. Dedup is per sale note, like every claim: a purchase that is
+ * live or completed on this note blocks another, which is right, since the note is spent once it completes and
+ * the next purchase fills the remainder under a new id. A deliberate tap retries a failed note at once.
+ */
+export const initiateGcPurchaseTransaction = async (
+  accountId: string,
+  quote: GcPurchaseQuote,
+  delegateTransaction?: boolean
+): Promise<string> =>
+  (
+    await queueConsumeRows(
+      accountId,
+      [
+        {
+          id: quote.saleNoteId,
+          faucetId: quote.gcFaucetId,
+          amount: quote.expectedAmount.toString(),
+          senderAddress: quote.sellerAccountId,
+          isBeingClaimed: false,
+          type: NoteTypeEnum.Public,
+          carriesMoreAssets: false
+        }
+      ],
+      delegateTransaction,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      row => {
+        row.extraInputs = {
+          gcPurchase: {
+            saleNoteId: quote.saleNoteId,
+            sellerAccountId: quote.sellerAccountId,
+            payFaucetId: quote.payFaucetId,
+            fillAmount: quote.fillAmount.toString(),
+            gcFaucetId: quote.gcFaucetId,
+            expectedAmount: quote.expectedAmount.toString()
+          }
+        };
+      },
+      'arcade_gc_purchase'
+    )
+  ).committedId;
+
 /** Options for {@link initiateRotationFundingClaim}; each has the meaning of its `initiateConsumeNotesTransaction` twin. */
 export interface RotationFundingClaimOptions {
   delegate?: boolean;

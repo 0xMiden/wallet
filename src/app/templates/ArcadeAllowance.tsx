@@ -1,14 +1,22 @@
-import React, { useSyncExternalStore } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasBalanceSnapshotForNetwork } from 'lib/miden/balance-snapshot';
 import { useTokensMetadata } from 'lib/miden/front/assets';
 import { useAllBalances } from 'lib/miden/front/balance';
 import { useAccount, useAllNetworks } from 'lib/miden/front/ready';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { initiateGcPurchaseTransaction, type GcPurchaseQuote } from 'lib/miden/transaction/initiate';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { isExtension } from 'lib/platform';
 import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { HistoryAction, navigate } from 'lib/woozie';
 
+import { ArcadeGcPurchaseDrawer } from './arcade/ArcadeGcPurchaseDrawer';
+import { useGcPurchaseQuote } from './arcade/useGcPurchaseQuote';
 import { ArcadeCoinsCard } from './ArcadeCoinsCard';
 
 /** Existing export retained for the Coins route; weekly controls and service are no longer mounted. */
@@ -20,6 +28,29 @@ export const ArcadeAllowance: React.FC = () => {
   const networkName = networks.find(network => network.id === networkId)?.name ?? networkId;
   const { allTokensBaseMetadataRef } = useTokensMetadata();
   const { data, isLoading } = useAllBalances(account.publicKey, allTokensBaseMetadataRef.current);
+  const purchase = useGcPurchaseQuote(networkId);
+  const [reviewing, setReviewing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  // The USDCx a purchase is paid from, read off the same balance rows as the GC.
+  const payRow = purchase.sale
+    ? data.find(row => sameWalletAccountId(row.tokenId, purchase.sale?.payFaucetId ?? ''))
+    : undefined;
+  const payBalance = hasBalanceSnapshotForNetwork(data, networkId) ? BigInt(payRow?.balanceBaseUnits ?? '0') : null;
+  const confirmPurchase = async (quote: GcPurchaseQuote) => {
+    setSubmitting(true);
+    setPurchaseError(null);
+    try {
+      const txId = await initiateGcPurchaseTransaction(account.publicKey, quote, isDelegateProofEnabled());
+      if (isExtension()) requestSWTransactionProcessing();
+      setReviewing(false);
+      navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
+    } catch (error) {
+      setPurchaseError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSubmitting(false);
+    }
+  };
   // Pinned hex + BasicWallet addresses of public token issuers, derived with the real SDK.
   // Extension balance rows arrive before this UI realm necessarily initializes WASM.
   const issuers =
@@ -43,5 +74,32 @@ export const ArcadeAllowance: React.FC = () => {
     ? new Intl.NumberFormat(i18n.resolvedLanguage ?? 'en', { maximumFractionDigits: 6 }).format(amount)
     : null;
 
-  return <ArcadeCoinsCard balance={balance} networkName={networkName} busy={isLoading} />;
+  return (
+    <>
+      <ArcadeCoinsCard
+        balance={balance}
+        networkName={networkName}
+        busy={isLoading}
+        purchase={{
+          state: purchase.state,
+          onBuy: () => {
+            setPurchaseError(null);
+            setReviewing(true);
+            purchase.refresh();
+          }
+        }}
+      />
+      <ArcadeGcPurchaseDrawer
+        open={reviewing}
+        onOpenChange={open => {
+          if (!open) setReviewing(false);
+        }}
+        sale={purchase.sale}
+        payBalance={payBalance}
+        submitting={submitting}
+        error={purchaseError}
+        onConfirm={confirmPurchase}
+      />
+    </>
+  );
 };

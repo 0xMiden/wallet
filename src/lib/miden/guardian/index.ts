@@ -51,7 +51,7 @@ import {
   type WasmClientLockOptions,
   type WasmLockHold
 } from '../sdk/miden-client';
-import type { PswapCancelRequestOptions } from '../sdk/miden-client-interface';
+import type { PswapCancelRequestOptions, PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
 import { isGuardianCanonicalizationError, isPipelineKillLink, someInCauseChain } from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
@@ -581,6 +581,33 @@ export class MultisigService {
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
       await this.proposalStep('reclaim_persist', () => persistRequest(requestBytes));
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
+      return this.proposalStep('proposal_create', () =>
+        this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
+      );
+    });
+  }
+
+  /**
+   * Propose the fill of a public PSWAP sale note (an Arcade GC purchase), built in the proposal's own chain-synced
+   * hold like `createPswapCancelProposal`, so the request binds the height the proposal is made at. The note is
+   * read on the node inside the build; `persistRequest` stores the bytes before the proposal exists, so the row
+   * always holds the request a proposal of it was made from, and signing reads them from there. Never
+   * `createRebasedCustomProposal`: its rebuild keeps only own output notes, and this request's content is the sale
+   * note it consumes.
+   */
+  async createPswapConsumeProposal(
+    inputs: PswapConsumeRequestInputs,
+    persistRequest: (requestBytes: Uint8Array) => Promise<void>
+  ): Promise<Proposal> {
+    return await this.withChainSyncedHold('PSWAP consume proposal', async hold => {
+      const requestBytes = await this.proposalStep('purchase_build', () =>
+        midenClientProxy.buildPswapConsumeRequest(this.accountId, inputs, step =>
+          assertWasmHoldCurrent(hold, 'PSWAP consume proposal: inside the consume-request build', step)
+        )
+      );
+      assertWasmHoldCurrent(hold, 'PSWAP consume proposal: after the consume-request build');
+      await this.proposalStep('purchase_persist', () => persistRequest(requestBytes));
+      assertWasmHoldCurrent(hold, 'PSWAP consume proposal: after persisting the request');
       return this.proposalStep('proposal_create', () =>
         this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
       );

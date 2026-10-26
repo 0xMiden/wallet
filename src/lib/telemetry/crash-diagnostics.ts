@@ -90,6 +90,8 @@ export const PROPOSAL_STEPS = [
   'chain_sync',
   'reclaim_build',
   'reclaim_persist',
+  'purchase_build',
+  'purchase_persist',
   'swap_request_build',
   'swap_request_persist',
   'rebase_build',

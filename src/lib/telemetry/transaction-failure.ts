@@ -299,7 +299,8 @@ export const CONSUME_ENTRY_POINTS = [
   'dapp',
   'bridge_reclaim',
   'swap_settlement',
-  'rotation_funding'
+  'rotation_funding',
+  'arcade_gc_purchase'
 ] as const;
 
 /** What queued a consume row, stamped on the row when it is created. */

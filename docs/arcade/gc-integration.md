@@ -1,8 +1,8 @@
 # GC integration contract
 
-The current release scope is **Arcade discovery, game details, catalog-scoped Activity and synchronized GC balance display**, retaining the existing Arcade design. Coins shows GC balance and a disabled **Buy more GC** entry point; there is no weekly claim, reset, next-claim countdown or global GC balance leaderboard.
+The current release scope is **Arcade discovery, game details, catalog-scoped Activity, synchronized GC balance display and the GC purchase on mainnet**, retaining the existing Arcade design. Coins shows GC balance and a **Buy more GC** entry point that is live while the mainnet sale note is open; there is no weekly claim, reset, next-claim countdown or global GC balance leaderboard.
 
-Actual PSWAP purchasing is deferred to a separate follow-up next week. The fixed package and purchase acceptance requirements below describe that future work; they do not block review of this UI change. Buying stays unconditionally disabled. This branch does not implement a gift, purchase or Mainnet activation. The optional starter gift is not a release gate.
+The purchase is the PSWAP fill described below (`lib/miden/arcade/gc-sale.ts` and the Arcade GC purchase section of `CLAUDE.md`): the wallet finds the live sale note by its tag, lets the user enter the GC to buy (1 GC by default), prices it from the note's own terms with the cost rounded up so the script never delivers less than asked, and queues a consume row whose fee-aware fill request is built from the node's copy of the note in the Guardian proposal's hold. The fixed 1 USDCx for 1,000 GC package below is superseded by the entered amount; the acceptance requirements still describe the fill's validation. `scripts/dev/gc-sale/buy.mjs` filled the mainnet note end to end on 2026-10-26 with a throwaway wallet. This branch does not implement a gift. The optional starter gift is not a release gate.
 
 ## Asset and price
 

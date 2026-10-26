@@ -149,6 +149,7 @@ import {
   EarnDepositTransaction,
   hasLeftQueue,
   IBridgeProvider,
+  IConsumeGcPurchaseExtraInputs,
   IRequeueStreak,
   IRequeueStreakArm,
   ITransaction,
@@ -185,7 +186,7 @@ import {
   withWasmClientLock,
   withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
-import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
+import { getRealmReaderClient, proveDelegated, type PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   carriesIndefiniteSubmitOutcome,
@@ -296,6 +297,24 @@ const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | unde
   transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
     ? transaction.requestBytes
     : undefined;
+
+/**
+ * An Arcade GC purchase is a consume row too (`initiateGcPurchaseTransaction`), but its note is the seller's public
+ * PSWAP sale note, which this client never tracked, so the ordinary consume builder cannot resolve it. Its fee-aware
+ * fill request is built on the node's copy of the note: in the proposal's hold for a Guardian account, right before
+ * execution for a basic one, and persisted on the row either way.
+ */
+const gcPurchaseOf = (transaction: ITransaction): PswapConsumeRequestInputs | undefined => {
+  const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined =
+    transaction.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;
+  return purchase
+    ? {
+        noteId: purchase.saleNoteId,
+        fillAmount: BigInt(purchase.fillAmount),
+        creatorAccountId: purchase.sellerAccountId
+      }
+    : undefined;
+};
 
 /**
  * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
@@ -1899,12 +1918,23 @@ const generateTransactionWithProvider = async (
       // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
       // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
       const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-      const reclaimBytes = preparedPswapReclaimBytes(transaction);
+      const gcPurchase = gcPurchaseOf(transaction);
+      // A GC purchase's request is built right before it runs, so it binds a height the node still serves and the
+      // sale note the lineage holds now; a row that failed keeps the bytes of its last attempt until this rebuild.
+      const preparedBytes = gcPurchase
+        ? await midenClientProxy.buildPswapConsumeRequest(transaction.accountId, gcPurchase)
+        : preparedPswapReclaimBytes(transaction);
+      if (gcPurchase && preparedBytes) {
+        transaction.requestBytes = preparedBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = preparedBytes;
+        });
+      }
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        reclaimBytes
+        preparedBytes
           ? midenClientProxy.newTransaction(
               transaction.accountId,
-              reclaimBytes,
+              preparedBytes,
               transaction.delegateTransaction,
               signCallback,
               attempt && stageStampFor(transaction.id, attempt)
@@ -3482,7 +3512,21 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      if (preparedPswapReclaimBytes(transaction)) {
+      const gcPurchase = gcPurchaseOf(transaction);
+      if (gcPurchase) {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        // The sale note is the seller's, read on the node inside the proposal's hold, and the request is rebuilt
+        // there on every attempt, never rebased (that rebuild drops the note it consumes). A late approval is
+        // harmless: once another buyer spends the note, the fill fails execution and nothing is paid.
+        proposalResult = await service.createPswapConsumeProposal(gcPurchase, async requestBytes => {
+          transaction.requestBytes = requestBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = requestBytes;
+          });
+        });
+      } else if (preparedPswapReclaimBytes(transaction)) {
         service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);

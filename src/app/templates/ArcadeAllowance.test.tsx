@@ -26,7 +26,22 @@ jest.mock('lib/miden/front/balance', () => ({ useAllBalances: () => ({ data: moc
 jest.mock('lib/miden/front/assets', () => ({
   useTokensMetadata: () => ({ allTokensBaseMetadataRef: { current: {} } })
 }));
-jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
+jest.mock('lib/miden/sdk/helpers', () => ({
+  canonicalWalletAccountId: (id: string) => id,
+  sameWalletAccountId: (a: string, b: string) => a === b
+}));
+let mockPurchase: { sale: null; state: 'unavailable' | 'checking' | 'ready'; refresh: () => Promise<null> } = {
+  sale: null,
+  state: 'unavailable',
+  refresh: async () => null
+};
+jest.mock('./arcade/useGcPurchaseQuote', () => ({ useGcPurchaseQuote: () => mockPurchase }));
+jest.mock('./arcade/ArcadeGcPurchaseDrawer', () => ({ ArcadeGcPurchaseDrawer: () => null }));
+jest.mock('lib/miden/activity', () => ({ requestSWTransactionProcessing: jest.fn() }));
+jest.mock('lib/miden/transaction/initiate', () => ({ initiateGcPurchaseTransaction: jest.fn() }));
+jest.mock('lib/platform', () => ({ isExtension: () => false }));
+jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }));
+jest.mock('lib/woozie', () => ({ navigate: jest.fn(), HistoryAction: { Replace: 'replace' } }));
 jest.mock('lib/miden/front/ready', () => ({
   useAccount: () => ({ publicKey: mockAccount }),
   useAllNetworks: () => [
