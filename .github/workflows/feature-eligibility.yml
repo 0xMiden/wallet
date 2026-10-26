@@ -41,6 +41,8 @@ jobs:
         run: node --test scripts/store-publishing/*.test.mjs
       - name: Verify store artifact archive inspection
         run: python3 scripts/store-publishing/inspect-artifact.test.py
+      - name: Verify isolated caller guard behavior mutations
+        run: node .github/ci/eligibility-mutations.mjs
       - name: Validate Worker bundle and bindings
         run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
 
