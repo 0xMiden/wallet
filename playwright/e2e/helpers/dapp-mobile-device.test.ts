@@ -509,7 +509,13 @@ describe('Android native keyboard layout', () => {
       ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'tap', '220', '222'],
-      ['emulator-b', 'shell', 'input', 'text', "'typed%svalue'"],
+      ...Array.from('typed%svalue'.replace('%s', ' ')).map(character => [
+        'emulator-b',
+        'shell',
+        'input',
+        'text',
+        `'${character === ' ' ? '%s' : character}'`
+      ]),
       ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
       ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
@@ -532,10 +538,22 @@ describe('Android native keyboard layout', () => {
 
     await device.typeText('A', "x';$(id);\\z");
 
-    expect(calls).toEqual([['emulator-a', 'shell', 'input', 'text', String.raw`'x'"'"';$(id);\z'`]]);
+    expect(calls.map(call => call[4])).toEqual([
+      "'x'",
+      `''"'"''`,
+      "';'",
+      "'$'",
+      "'('",
+      "'i'",
+      "'d'",
+      "')'",
+      "';'",
+      "'\\'",
+      "'z'"
+    ]);
   });
 
-  it('preserves literal percent-s sequences while encoding spaces', async () => {
+  it('types Android text one character at a time, keeping a literal percent-s apart from a space', async () => {
     const calls: string[][] = [];
     const run: AdbRun = async (serial, args) => {
       calls.push([serial, ...args]);
@@ -545,11 +563,21 @@ describe('Android native keyboard layout', () => {
 
     await device.typeText('A', 'typed %s value');
 
-    expect(calls).toEqual([
-      ['emulator-a', 'shell', 'input', 'text', "'typed%s'"],
-      ['emulator-a', 'shell', 'input', 'text', "'%'"],
-      ['emulator-a', 'shell', 'input', 'text', "'s'"],
-      ['emulator-a', 'shell', 'input', 'text', "'%svalue'"]
+    expect(calls.map(call => call[4])).toEqual([
+      "'t'",
+      "'y'",
+      "'p'",
+      "'e'",
+      "'d'",
+      "'%s'",
+      "'%'",
+      "'s'",
+      "'%s'",
+      "'v'",
+      "'a'",
+      "'l'",
+      "'u'",
+      "'e'"
     ]);
   });
 
