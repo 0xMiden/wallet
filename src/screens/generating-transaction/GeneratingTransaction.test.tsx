@@ -5,9 +5,19 @@ import { act } from 'react-dom/test-utils';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
-import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
+import {
+  GeneratingTransaction,
+  GeneratingTransactionPage,
+  isRecoverableExpiredOneClick
+} from './GeneratingTransaction';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 let mockFeeCopy = 'worker-fee-copy';
 jest.mock('lib/i18n', () => ({
@@ -132,6 +142,9 @@ jest.mock('lib/miden/activity', () => ({
 let mockRowState: { row: any; loaded: boolean } = { row: undefined, loaded: false };
 jest.mock('./useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
+}));
+jest.mock('screens/swap-flow/OneClickRecovery', () => ({
+  OneClickRecovery: () => <div data-testid="restored-flow" />
 }));
 
 // Minimal ITransaction factory for container tests.
@@ -355,6 +368,55 @@ describe('GeneratingTransactionPage container effects', () => {
 
     expect(container.querySelector('[data-testid="redirect"]')?.textContent).toBe('redirect:/');
     act(() => root.unmount());
+  });
+
+  it('only recovers definite pre-submit OneClick deadline failures', () => {
+    const failedOneClick = {
+      status: ITransactionStatus.Failed,
+      type: 'send',
+      error: 'The 1Click quote has expired. Request a new quote before depositing.',
+      extraInputs: { oneClick: { direction: 'miden-to-evm' } }
+    };
+
+    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.Failed)).toBe(true);
+    expect(isRecoverableExpiredOneClick({ ...failedOneClick, mayHaveSubmitted: true }, ITransactionStatus.Failed)).toBe(
+      false
+    );
+    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.GeneratingTransaction)).toBe(false);
+  });
+
+  it('routes a persisted inbound attempted row to recovery after reload', async () => {
+    const oneClick = Object.assign(
+      {
+        direction: 'evm-to-miden',
+        request: { originAsset: { blockchain: 'eth' }, destinationAsset: { blockchain: 'miden' } },
+        quote: { quote: { depositAddress: '0x8888888888888888888888888888888888888888' } },
+        config: { serviceUrl: 'https://quotes.example', midenAssets: [] },
+        network: 'mainnet',
+        accountId: 'acc-1',
+        accountAddress: 'acc-1',
+        originAsset: { assetId: 'eth:token', blockchain: 'eth' },
+        destinationAsset: { assetId: 'miden:token', blockchain: 'miden' },
+        faucetId: 'miden-faucet',
+        depositAddress: '0x8888888888888888888888888888888888888888',
+        phase: 'pending-deposit'
+      },
+      { evmSubmission: 'attempted' }
+    );
+    mockRowState = {
+      row: makeTx({ type: 'bridged-receive', status: ITransactionStatus.Completed, extraInputs: { oneClick } }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    try {
+      await act(async () => {
+        for (let index = 0; index < 8; index++) await Promise.resolve();
+      });
+      expect(container.querySelector('[data-testid="restored-flow"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
   });
 
   // #602 — the processing screen nests a fixed-height full-screen page
@@ -692,6 +754,160 @@ describe('GeneratingTransactionPage container effects', () => {
     expect(container.querySelector('.size-16 > .bg-status-negative')).not.toBeNull();
     expect(container.querySelector('.bg-status-pending')).toBeNull();
     expect(stepStates(container)['generating-proof']).toBe('failed');
+    act(() => root.unmount());
+  });
+
+  const networkRefusal =
+    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+  const submitDeadline =
+    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: request to Miden node timed out; the node may be under heavy load';
+
+  it('explains an explicit submit refusal and retries through the existing action', async () => {
+    mockReconcileUnconfirmed.mockClear();
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: networkRefusal
+      }),
+      loaded: true
+    };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('invalid request parameters');
+    expect(container.textContent).not.toContain('notConfirmed');
+    expect(container.querySelector('.size-16 > .bg-status-negative')).not.toBeNull();
+    expect(stepStates(container).submitting).toBe('failed');
+    expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+    const retryButton = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+    expect(retryButton).toBeTruthy();
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(requeueFailedTransactionMock).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
+  it('explains a dropped connection and a missing answer without calling the transaction failed', async () => {
+    mockReconcileUnconfirmed.mockClear();
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: 'TypeError: Failed to fetch'
+      }),
+      loaded: true
+    };
+
+    const dropped = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(dropped.container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(dropped.container.textContent).toContain('submissionInterrupted');
+    expect(dropped.container.textContent).not.toContain('transactionFailed');
+    expect(dropped.container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+    expect(stepStates(dropped.container).submitting).toBe('pending');
+    expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+    act(() => dropped.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting',
+        type: 'consume',
+        error: submitDeadline
+      }),
+      loaded: true
+    };
+    const quiet = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(quiet.container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(quiet.container.textContent).toContain('submissionUnanswered');
+    expect(quiet.container.textContent).not.toContain('transactionFailed');
+    expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+    expect(mockReconcileUnconfirmed).toHaveBeenCalled();
+    act(() => quiet.root.unmount());
+  });
+
+  it('keeps an in-progress submission on the spinner and Hide, and a late success on the receipt path', async () => {
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.GeneratingTransaction, stage: 'submitting', type: 'consume' }),
+      loaded: true
+    };
+    const pending = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(pending.container.textContent).toContain('generatingTransactionDescription');
+    expect(pending.container.textContent).toContain('hide');
+    expect(pending.container.textContent).not.toContain('submissionUnanswered');
+    expect(pending.container.textContent).not.toContain('submissionRejectedByNetwork');
+    act(() => pending.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        error: submitDeadline
+      }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(container.textContent).toContain('submissionUnanswered');
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Completed,
+        stage: 'submitting',
+        type: 'consume',
+        error: "Transaction 0xabc was accepted into the node's mempool at block 9 but the local store update failed."
+      }),
+      loaded: true
+    };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    await flush();
+    expect(container.textContent).not.toContain('submissionUnanswered');
+    expect(container.textContent).toContain('transactionCompleted');
+    act(() => root.unmount());
+  });
+
+  it('gives an unrecognized submit error the existing failed copy and full-error disclosure, not a verdict', async () => {
+    const unrecognized = 'Note is invalid';
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.Failed, stage: 'submitting', type: 'consume', error: unrecognized }),
+      loaded: true
+    };
+    const definite = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(definite.container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(definite.container.textContent).toContain(unrecognized);
+    expect(definite.container.textContent).not.toMatch(/submission(Rejected|Interrupted|Unanswered)/);
+    act(() => definite.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: unrecognized
+      }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionUndeterminedHint');
+    expect(container.textContent).not.toMatch(/submission(Rejected|Interrupted|Unanswered)/);
+    expect(container.textContent).not.toContain(unrecognized);
+    const showFullError = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'showFullError');
+    expect(showFullError).toBeTruthy();
+    await act(async () => {
+      showFullError!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container.textContent).toContain(unrecognized);
     act(() => root.unmount());
   });
 
@@ -1431,4 +1647,179 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(container.textContent).toContain('doNotCloseWindowAutoClose');
     act(() => root.unmount());
   });
+});
+
+describe('user-visible transaction errors', () => {
+  let root: ReturnType<typeof createRoot>;
+  let container: HTMLDivElement;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+    jest.mocked(reportUserVisibleError).mockClear();
+    safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    requeueFailedTransactionMock.mockReset();
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockAcknowledgementOf.mockReturnValue(null);
+    mockRowState = { row: makeTx({ status: ITransactionStatus.Queued }), loaded: true };
+    container = document.createElement('div');
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  });
+  const renderPage = async () => {
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+  };
+  const failRow = () => {
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        error: 'private row reason 123 https://private.invalid',
+        rawError: 'private raw detail'
+      }),
+      loaded: true
+    };
+  };
+  const expectDwell = (id: string, surface: string) => {
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, surface]]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it('reports a mounted Queued to Failed transition once for its visible and announced presentations', async () => {
+    await renderPage();
+    failRow();
+    await renderPage();
+    expect(container.textContent).toContain('transactionFailed');
+    expect(container.textContent).toContain('private row reason 123 https://private.invalid');
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toContain('private row reason');
+    expectDwell('raw_transaction_failed', 'status_screen');
+    mockRowState.row = { ...mockRowState.row, error: 'changed private reason' };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_transaction_failed', 'status_screen']]);
+  });
+
+  it.each(['initial', 'asynchronous', 'reopen'])('does not report a persisted failed row: %s', async mode => {
+    if (mode === 'asynchronous') {
+      mockRowState = { row: undefined, loaded: false };
+      await renderPage();
+      act(() => jest.advanceTimersByTime(2000));
+    }
+    failRow();
+    await renderPage();
+    if (mode === 'reopen') {
+      act(() => root.unmount());
+      root = createRoot(container);
+      await renderPage();
+    }
+    expect(container.textContent).toContain('transactionFailed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports when the first asynchronously loaded nonfailed row subsequently fails', async () => {
+    mockRowState = { row: undefined, loaded: false };
+    await renderPage();
+    mockRowState = { row: makeTx({ status: ITransactionStatus.Queued }), loaded: true };
+    await renderPage();
+    failRow();
+    await renderPage();
+    expect(container.textContent).toContain('transactionFailed');
+    expectDwell('raw_transaction_failed', 'status_screen');
+  });
+
+  it.each(['clear', 'unmount'])('does not report a watched failure removed before dwell: %s', async mode => {
+    await renderPage();
+    failRow();
+    await renderPage();
+    expect(container.textContent).toContain('transactionFailed');
+    act(() => jest.advanceTimersByTime(999));
+    if (mode === 'clear') {
+      mockRowState = { row: makeTx({ status: ITransactionStatus.Queued }), loaded: true };
+      await renderPage();
+    } else {
+      act(() => root.unmount());
+      root = createRoot(container);
+    }
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['loading', 'missing', 'queued', 'unconfirmed', 'completed'])('keeps %s state silent', async mode => {
+    const statuses: Record<string, ITransactionStatus> = {
+      queued: ITransactionStatus.Queued,
+      unconfirmed: ITransactionStatus.Unconfirmed,
+      completed: ITransactionStatus.Completed
+    };
+    mockRowState =
+      mode === 'loading' || mode === 'missing'
+        ? { row: undefined, loaded: mode === 'missing' }
+        : { row: makeTx({ status: statuses[mode] }), loaded: true };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels a retry failure report when a second retry starts before dwell', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('private retry'));
+    failRow();
+    await renderPage();
+    const retry = () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+    await act(async () => {
+      retry()!.click();
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('private retry');
+    act(() => jest.advanceTimersByTime(999));
+    requeueFailedTransactionMock.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      retry()!.click();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['raw', 'fee', 'fallback'])(
+    'reports a user-triggered %s retry failure on a persisted failed row',
+    async kind => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      mockFeeCopy = 'private translated fee refusal';
+      const failure =
+        kind === 'fee'
+          ? new ClaimFeeRefusedError()
+          : kind === 'raw'
+            ? new Error('private retry https://private.invalid 123')
+            : 'private untyped refusal';
+      requeueFailedTransactionMock.mockRejectedValueOnce(failure);
+      failRow();
+      await renderPage();
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      const retry = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+      expect(retry).toBeDefined();
+      await act(async () => {
+        retry!.click();
+      });
+      const text =
+        kind === 'fee' ? mockFeeCopy : kind === 'raw' ? 'private retry https://private.invalid 123' : 'smthWentWrong';
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(text);
+      expectDwell(
+        kind === 'fee' ? 'insufficientFeeAsset' : kind === 'raw' ? 'raw_transaction_retry_failed' : 'smthWentWrong',
+        'inline'
+      );
+    }
+  );
 });

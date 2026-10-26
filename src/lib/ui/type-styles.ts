@@ -24,6 +24,7 @@ export const TYPE_STYLES = [
   'body',
   'body-strong',
   'explainer',
+  'explainer-heading',
   'body-sm',
   'label',
   'caption',

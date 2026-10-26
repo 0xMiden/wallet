@@ -38,6 +38,7 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => null,
   isNoteTransportConfigured: () => false,
   getEffectiveNetworkName: () => 'testnet'
@@ -113,6 +114,35 @@ describe('initiateConsumeNotesTransaction — batching', () => {
     const rows = await consumeRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.noteIds).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('queueConsumeNotes — swap settlement link', () => {
+  // A link written after the insert left a window where a running processor could complete a sibling chunk and
+  // stamp the order while this row was still unlinked (#1644).
+  it('writes the link in the insert that creates the row', async () => {
+    const inserted: Array<ITransaction['extraInputs']> = [];
+    const onCreating = (_key: unknown, row: ITransaction) => {
+      inserted.push(row.extraInputs ? { ...row.extraInputs } : undefined);
+    };
+    Repo.transactions.hook('creating', onCreating);
+    try {
+      await queueConsumeNotes(
+        ACCOUNT,
+        [note('payback-1'), note('payback-2')],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        'swap_settlement',
+        undefined,
+        { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }
+      );
+    } finally {
+      Repo.transactions.hook('creating').unsubscribe(onCreating);
+    }
+
+    expect(inserted).toEqual([{ swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }]);
   });
 });
 

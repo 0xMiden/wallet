@@ -118,7 +118,10 @@ describe('the never-committed verdicts', () => {
       expect(outcome.kind).toBe('never-committed');
       const [report, ...rest] = captured();
       expect(rest).toEqual([]);
-      expect(report?.message).toContain(`; point node_verdict; never_committed; rule ${rule}. authentication`);
+      expect(report?.message).toContain(`; point node_verdict; never_committed; rule ${rule}`);
+      expect(report?.message).toContain(
+        rule === 'expired' ? '; proof wait unavailable. authentication' : '. authentication'
+      );
       expect(report?.message).not.toContain('; network.');
       expect(report?.level).toBe('error');
       expectNoTransactionData(report?.message ?? '');
@@ -234,7 +237,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
       `Transaction unconfirmed: tx_receive; stage submitting; realm unknown; proving preference delegated;`
     );
     expect(report?.message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg under_9s. authentication`
+      `; point pipeline; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit ${answer}; submit leg under_9s. authentication`
     );
     expect(report?.level).toBe('warning');
     expectNoTransactionData(report?.message ?? '');
@@ -298,7 +301,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     for (const [index, report] of reports.entries()) {
       const bucket = index === 0 ? 'under_9s' : 'unavailable';
       expect(report.message).toContain(
-        `; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg ${bucket}. `
+        `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit unavailable; submit leg ${bucket}. `
       );
     }
   });
@@ -317,7 +320,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
       Repo.transactions.hook('updating').unsubscribe(advanceDuringWrite);
     }
     expect(captured()[0]?.message).toContain(
-      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg 9_to_11s. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit unavailable; submit leg 9_to_11s. '
     );
   });
 
@@ -327,7 +330,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     clock.mockReturnValue(SUBMITTED_AT_MS + 9_500);
     await markTransactionUnconfirmed(submitting(), unavailable());
     expect(captured()[0]?.message).toContain(
-      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
     );
   });
 });
@@ -455,12 +458,17 @@ describe('a pre-flight sync killed by the offscreen deadline', () => {
     await Repo.transactions.put(row);
     await cancelTransactionAfterPipelineStopped(
       row,
-      new OperationAbortedError('3f2c8a9e-1b4d-4c6e-9a7b-2d5e8f0c1a3b', 'deadline')
+      new OperationAbortedError('3f2c8a9e-1b4d-4c6e-9a7b-2d5e8f0c1a3b', 'deadline', {
+        started: true,
+        deadline: { owner: 'collateral', timer: 'started', killer: 'write' }
+      })
     );
     const [report, ...rest] = captured();
     expect(rest).toEqual([]);
     expect(report?.message).toContain('Transaction failed: tx_receive; stage syncing; realm unknown;');
-    expect(report?.message).toContain('; point pipeline; offscreen_aborted_deadline. authentication');
+    expect(report?.message).toContain(
+      '; point pipeline; offscreen_aborted_deadline; deadline owner collateral; deadline timer started; deadline op write; op start reported yes. authentication'
+    );
     expect(report?.message).not.toContain('3f2c8a9e');
     expect(report?.level).toBe('error');
   });
@@ -549,5 +557,84 @@ describe('the queue expiry', () => {
       ITransactionStatus.Failed,
       ITransactionStatus.Failed
     ]);
+  });
+});
+
+describe('a submit the node refused as expired', () => {
+  const EXECUTED_AT_MS = 1_800_000_000_000;
+  let clock: jest.SpyInstance;
+
+  const expired = () =>
+    new Error(
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: ' +
+        `invalid request parameters (transaction expired): status: 'invalid request parameters (transaction expired)', ` +
+        `self: "tx ${TRANSACTION} for ${ACCOUNT}"`
+    );
+
+  // A 60 block window; the wait is converted at 3 s a block.
+  const submitting = (waitMs: number | undefined, evidence: Partial<ISubmitEvidence> | null = {}): ITransaction => ({
+    id: 'tx-1',
+    type: 'execute',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: EXECUTED_AT_MS / 1000 - 30,
+    stage: 'submitting',
+    stageTimestamps:
+      waitMs === undefined
+        ? { submitting: EXECUTED_AT_MS }
+        : { executing: EXECUTED_AT_MS, submitting: EXECUTED_AT_MS + waitMs },
+    attemptId: 'a1',
+    submitEvidence:
+      evidence === null
+        ? undefined
+        : [
+            {
+              attemptId: 'a1',
+              capturedAt: NOW,
+              source: 'stage',
+              refBlock: 1000,
+              expirationBlock: 1060,
+              ...evidence
+            }
+          ],
+    delegateTransaction: true,
+    displayIcon: 'DEFAULT'
+  });
+
+  beforeEach(() => {
+    clock = jest.spyOn(Date, 'now').mockReturnValue(EXECUTED_AT_MS + 400_000);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+  });
+
+  it.each([
+    [89_999, 'under_half_window'],
+    [90_000, 'over_half_window'],
+    [180_000, 'over_half_window'],
+    [180_001, 'past_window']
+  ])('reports a wait of %s ms before submit against the evidence window as %s', async (waitMs, bucket) => {
+    await Repo.transactions.put(submitting(waitMs));
+    expect(await cancelTransaction(submitting(waitMs), expired())).toBe(true);
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      `; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired; proof wait ${bucket}. authentication`
+    );
+    expect(report?.message).not.toMatch(/\b(?:89999|90000|180000|180001|1000|1060|60)\b/);
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  it.each([
+    ['has no execution stamp', submitting(undefined)],
+    ['has no evidence', submitting(100_000, null)],
+    ['has evidence without an expiration', submitting(100_000, { expirationBlock: undefined })],
+    ['has evidence without a reference block', submitting(100_000, { refBlock: undefined })],
+    ['has evidence of another attempt only', submitting(100_000, { attemptId: 'a0' })]
+  ])('reports the wait as unavailable when the row %s', async (_name, row) => {
+    await Repo.transactions.put(row);
+    expect(await cancelTransaction(row, expired())).toBe(true);
+    expect(captured()[0]?.message).toContain('node expired; proof wait unavailable. authentication');
   });
 });

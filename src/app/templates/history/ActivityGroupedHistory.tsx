@@ -4,11 +4,13 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 
 import { ClaimsLoadingBar, RestoreDeclinedTransfers } from './ActivityClaimsStatus';
 import { ActivityGroupList } from './ActivityGroupList';
+import { ActivityGroupsBoundary } from './ActivityGroupsBoundary';
 import History from './History';
 import { useActivityClaimList } from './useActivityClaimList';
 
 interface ActivityGroupedHistoryProps {
   search: string;
+  onReturnToList: () => void;
   programId?: string | null;
   /** Forwarded to the list below, which owns the loading state the caller reports on. */
   onInitialLoad?: () => void;
@@ -29,7 +31,12 @@ interface ActivityGroupedHistoryProps {
  * Incoming transfers waiting for a claim have no group to live in, so their cards sit above the
  * groups, as actionable here as in the List view.
  */
-export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ search, programId, onInitialLoad }) => {
+export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
+  search,
+  programId,
+  onInitialLoad,
+  onReturnToList
+}) => {
   const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, declinedIds, hiddenCount } =
     useActivityClaimList(search, 'all');
   const { allContacts } = useFilteredContacts();
@@ -71,19 +78,20 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
             pendingItems={representedItems}
             onInitialLoad={onInitialLoad}
             renderEntries={view => (
-              <ActivityGroupList
-                entries={view.entries}
-                nameOf={nameOf}
-                initialLoading={view.initialLoading}
-                loadError={view.loadError}
-                onRetry={view.onRetry}
-                // History's first read already holds the whole history (get.ts), so a count is final and
-                // there is nothing more to page.
-                hasMore={false}
-                loadMore={view.loadMore}
-                scrollParentRef={scrollRef}
-                searchQuery={search}
-              />
+              <ActivityGroupsBoundary onReturnToList={onReturnToList}>
+                <ActivityGroupList
+                  entries={view.entries}
+                  nameOf={nameOf}
+                  initialLoading={view.initialLoading}
+                  loadError={view.loadError}
+                  onRetry={view.onRetry}
+                  // History pages the settled feed, so a count stays partial until that read is exhausted.
+                  hasMore={view.hasMore}
+                  loadMore={view.loadMore}
+                  scrollParentRef={scrollRef}
+                  searchQuery={search}
+                />
+              </ActivityGroupsBoundary>
             )}
           />
         </div>

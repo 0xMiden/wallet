@@ -59,17 +59,15 @@ boundaries that were never adjacent, so unrelated legitimate reports start
 getting dropped. It trades a contrived evasion for a real loss of diagnostics.
 Rejected on those grounds.
 
-**A transaction failure report's own fixed values.** `reportTransactionFailure`
-passes the report's closed set (`CLOSED_NAMES` in `transaction-failure.ts`)
-through `captureCrash`, and the recovery-phrase check reads each exact
-whole-token closed name as one word outside the list, so it ends a run: the
-report's labels (`match`, `account`, `code`) sit between such values and would
-otherwise read as four wordlist words and drop the report. Some closed values
-are wordlist words themselves (`fee`, `local`, `other`), so within such a report
-a phrase those values split every three words would not reach four. The report
-is built only from fixed values, with no cause, stack or breadcrumbs, so no free
-text reaches it today; a change that let free text into it would have to check
-that text without the closed set.
+**A diagnostic report's own fixed values.** `reportTransactionFailure` and
+`reportUserVisibleError` pass their closed identifiers through `captureCrash`
+only while rebuilding their fixed message. The exact rebuilt name and message
+are captured before permission's await and bound to that Error's identity.
+The final recovery-phrase check exempts only the matching outer exception's
+fixed message, then restores it. An event type alone cannot authorize that
+exception. Causes, breadcrumbs, extra data and every other event string are
+checked without closed-name exemptions, so those values cannot split a phrase
+in free text. Contamination still discards the whole event.
 
 A second rule covers the realistic single-word case: a mnemonic-context word
 (`seed`, `phrase`, `recovery`, …) plus any wordlist hit drops the message, with

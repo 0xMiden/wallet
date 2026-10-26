@@ -14,6 +14,8 @@
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
 
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
 import {
   GuardianReRegisterRefusedError,
@@ -226,6 +228,7 @@ const mockGetSignerDetailsFromAccount = jest.fn();
 // routes its write THROUGH it rather than calling accounts.insert directly.
 const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
+  getSignerCommitmentsFromAccount: () => [],
   // Kept REAL: it is pure string validation, and it is the guard that keeps a
   // guardian's wire response out of the transaction script source.
   assertGuardianKeyCommitment: jest.requireActual('./account').assertGuardianKeyCommitment,
@@ -479,6 +482,42 @@ describe('MultisigService', () => {
       expect(proposal).toEqual({ kind: 'custom' });
     });
 
+    it.each([
+      {
+        label: 'send',
+        sdk: 'createP2idProposal',
+        securityChange: undefined,
+        create: (service: MultisigService) => service.createSendProposal('rec', 'fauc', 1000n, 'Private' as never)
+      },
+      {
+        label: 'procedure threshold',
+        sdk: 'createUpdateProcedureThresholdProposal',
+        securityChange: 'update-procedure-threshold',
+        create: (service: MultisigService) => service.createUpdateProcedureThresholdProposal('update_guardian', 2)
+      },
+      {
+        label: 'custom',
+        sdk: 'createCustomProposal',
+        securityChange: undefined,
+        create: (service: MultisigService) => service.createCustomProposal(new Uint8Array([1]), 'my_type')
+      }
+    ])(
+      'names a rejected $label proposal creation without replacing its Error',
+      async ({ sdk, create, securityChange }) => {
+        const error = new Error('proposal refused');
+        const multisig = makeMultisig({ [sdk]: jest.fn(async () => Promise.reject(error)) });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+        await expect(create(service)).rejects.toBe(error);
+
+        expect(snapshotCrashDiagnostics(error)).toEqual(
+          securityChange === undefined
+            ? { proposalStep: 'proposal_create' }
+            : { proposalStep: 'proposal_create', securityChange }
+        );
+      }
+    );
+
     describe('createRebasedCustomProposal', () => {
       const originalBytes = new Uint8Array([1, 2, 3]);
       const rebasedBytes = new Uint8Array([9, 8, 7]);
@@ -555,6 +594,19 @@ describe('MultisigService', () => {
 
         expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
         expect(createCustomFn).not.toHaveBeenCalled();
+      });
+
+      it('names a rejected rebased proposal creation apart from a failed rebuild', async () => {
+        const { service, createCustomFn } = arrange();
+        const error = new Error('proposal refused');
+        createCustomFn.mockRejectedValueOnce(error);
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toBe(error);
+        expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+
+        const buildError = new Error('rebuild failed');
+        mockFeeAwareRequestBuilder.mockRejectedValueOnce(buildError);
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toBe(buildError);
+        expect(snapshotCrashDiagnostics(buildError)).toEqual({ proposalStep: 'rebase_build' });
       });
 
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
@@ -1852,6 +1904,23 @@ describe('MultisigService', () => {
       expect(mockProbeVerdicts).toEqual([['https://new', true]]);
     });
 
+    it('names a rejected switch-guardian proposal creation but not the new guardian key fetch', async () => {
+      const error = new Error('proposal refused');
+      const multisig = makeMultisig({ createSwitchGuardianProposal: jest.fn(async () => Promise.reject(error)) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBe(error);
+      expect(snapshotCrashDiagnostics(error)).toEqual({
+        proposalStep: 'proposal_create',
+        securityChange: 'switch-guardian'
+      });
+
+      const fetchError = new Error('unreachable');
+      guardianConfig.getPubkey.mockRejectedValueOnce(fetchError);
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBe(fetchError);
+      expect(snapshotCrashDiagnostics(fetchError)).toEqual({});
+    });
+
     it('createSwitchGuardianProposal re-throws when the new guardian fetch fails and releases its origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
@@ -2530,6 +2599,26 @@ describe('MultisigService', () => {
       expect(svc.guardianEndpoint).toBe('https://stored.guardian.test');
     });
 
+    it('records the cold signer facts on the service, and on a Guardian authentication refusal while loading', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub', requiresHotKeyRotation: true } as never;
+      const facts = { guardianSignerInSet: 'unknown', guardianSigningKey: 'cold', hotKeyRotationPending: 'yes' };
+      mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'cold-commit-no-prefix' });
+      multisigClientConfig.load.mockResolvedValueOnce(makeMultisig());
+      const svc = await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig');
+      expect(svc.authFacts).toEqual(facts);
+      const refusal = Object.assign(new Error('authentication failed for acc-id'), {
+        name: 'GuardianHttpError',
+        status: 401,
+        code: 'authentication_failed'
+      });
+      multisigClientConfig.load.mockRejectedValueOnce(refusal);
+      await expect(MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig')).rejects.toBe(
+        refusal
+      );
+      expect(snapshotCrashDiagnostics(refusal)).toEqual(facts);
+    });
+
     it('throws when the WalletAccount has no coldPublicKey', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const walletAccount = { publicKey: 'acc-id' } as never; // missing coldPublicKey
@@ -2609,6 +2698,30 @@ describe('MultisigService', () => {
         expect.not.objectContaining({ chainAnchor: expect.anything() })
       );
       expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
+    });
+
+    it('names a rejected replace-hot-key proposal creation but not its request build', async () => {
+      const error = new Error('proposal refused');
+      const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: { kind: 'request' },
+        salt: { toHex: () => 'salt-hex' }
+      });
+      mockRequestBoundBlockNum.mockReturnValueOnce(4242);
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
+      expect(snapshotCrashDiagnostics(error)).toEqual({
+        proposalStep: 'proposal_create',
+        securityChange: 'replace-hot-key'
+      });
+
+      const buildError = new Error('request build failed');
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockBuildUpdateSignersTransactionRequest.mockRejectedValueOnce(buildError);
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(buildError);
+      expect(snapshotCrashDiagnostics(buildError)).toEqual({});
     });
 
     // #788 follow-up: an eviction ABANDONS this flow rather than cancelling it —
@@ -2820,6 +2933,91 @@ describe('MultisigService', () => {
       resolveSync();
       await third;
       expect(syncState).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('security-change proposal failures', () => {
+    const accountId = 'mtst1qprivateaccount00';
+    const hex = '0xabcdef1234';
+    const amount = '987654321';
+    const privateFailure = () => new Error(`fungible vault withdrawal account ${accountId} ${hex} amount ${amount}`);
+    const expectClosedChange = (error: Error, securityChange: string) => {
+      expect(error.message).toContain(accountId);
+      expect(error.message).toContain(hex);
+      expect(error.message).toContain(amount);
+      const snapshot = snapshotCrashDiagnostics(error);
+      expect(snapshot).toEqual({ proposalStep: 'proposal_create', securityChange });
+      const reported = JSON.stringify(snapshot);
+      expect(reported).not.toContain(accountId);
+      expect(reported).not.toContain(hex);
+      expect(reported).not.toContain(amount);
+      expect(reported).not.toMatch(/0x[0-9a-f]/i);
+    };
+
+    it('names a rejected threshold update and leaves the account, hex and amount on the failure only', async () => {
+      const error = privateFailure();
+      const procedure = 'update_guardian';
+      const multisig = makeMultisig({
+        createUpdateProcedureThresholdProposal: jest.fn(async () => Promise.reject(error))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(service.createUpdateProcedureThresholdProposal(procedure, 2)).rejects.toBe(error);
+      expectClosedChange(error, 'update-procedure-threshold');
+      expect(JSON.stringify(snapshotCrashDiagnostics(error))).not.toContain(procedure);
+    });
+
+    it('names a rejected guardian switch and leaves the account, hex and amount on the failure only', async () => {
+      const error = privateFailure();
+      const endpoint = 'https://private-new-guardian.example/rotate';
+      const commitment = `0x${'ab'.repeat(32)}`;
+      const multisig = makeMultisig({ createSwitchGuardianProposal: jest.fn(async () => Promise.reject(error)) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment, pubkey: 'new-pubkey' });
+      await expect(service.createSwitchGuardianProposal(endpoint)).rejects.toBe(error);
+      expectClosedChange(error, 'switch-guardian');
+      const reported = JSON.stringify(snapshotCrashDiagnostics(error));
+      expect(reported).not.toContain(endpoint);
+      expect(reported).not.toContain(commitment);
+      expect(reported).not.toContain('private-new-guardian.example');
+    });
+
+    it('names a rejected key rotation and leaves the account, hex and amount on the failure only', async () => {
+      const error = privateFailure();
+      const hotCommitment = '0xnewhotcommit';
+      const multisig = makeMultisig({
+        threshold: 1,
+        createProposal: jest.fn(async () => Promise.reject(error))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => accountId }) } as never;
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: { kind: 'request' },
+        salt: { toHex: () => 'salt-hex' }
+      });
+      mockRequestBoundBlockNum.mockReturnValueOnce(4242);
+      await expect(service.createReplaceHotKeyProposal(account, hotCommitment)).rejects.toBe(error);
+      expectClosedChange(error, 'replace-hot-key');
+      const reported = JSON.stringify(snapshotCrashDiagnostics(error));
+      expect(reported).not.toContain(hotCommitment);
+      expect(reported).not.toContain('coldcommit');
+      expect(reported).not.toContain('salt-hex');
+    });
+
+    it('does not read a security change from the text of another proposal failure', async () => {
+      const error = privateFailure();
+      const multisig = makeMultisig({
+        createConsumeNotesProposal: jest.fn(async () => Promise.reject(error))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(service.createConsumeNotesProposal([accountId])).rejects.toBe(error);
+      const snapshot = snapshotCrashDiagnostics(error);
+      expect(snapshot).toEqual({ proposalStep: 'proposal_create' });
+      expect(snapshot).not.toHaveProperty('securityChange');
+      const reported = JSON.stringify(snapshot);
+      expect(reported).not.toContain(accountId);
+      expect(reported).not.toContain(hex);
+      expect(reported).not.toContain(amount);
     });
   });
 });

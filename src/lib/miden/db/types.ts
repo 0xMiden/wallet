@@ -2,6 +2,14 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
+import type {
+  OneClickAsset,
+  OneClickConfig,
+  OneClickProviderStatus,
+  OneClickQuoteRequest,
+  OneClickQuoteResponse,
+  OneClickStatusResponse
+} from 'lib/one-click/types';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type {
   ClaimFeeAdmission,
@@ -9,7 +17,9 @@ import type {
   ConsumeEntryPoint,
   TransactionFailureDiagnostics
 } from 'lib/telemetry/transaction-failure';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
+import type { UsdcxPayout } from 'lib/usdcx/payout-proof';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
@@ -34,6 +44,19 @@ export enum ITransactionStatus {
 /** The row can still produce a transaction: it is queued or generating. */
 export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
+/**
+ * A claim of one settlement kind for one swap order that has not settled yet: queued, generating, or waiting for the
+ * node's verdict. Neither stamp writer marks the order settled while one is open (#1644).
+ */
+export const isOpenSettlementClaim = (
+  row: Pick<ITransaction, 'type' | 'status' | 'extraInputs'>,
+  settle: Pick<IConsumeSwapSettleExtraInputs, 'swapOrderTxId' | 'swapSettleKind'>
+): boolean =>
+  row.type === 'consume' &&
+  row.extraInputs?.swapOrderTxId === settle.swapOrderTxId &&
+  row.extraInputs?.swapSettleKind === settle.swapSettleKind &&
+  (isLiveTransaction(row) || row.status === ITransactionStatus.Unconfirmed);
 
 /** The pipeline is done with the row: it completed, failed, or waits for the node's verdict (#1081). */
 export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
@@ -145,7 +168,50 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
  * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
  * (Sepolia USDC ↔ USDCx on Miden).
  */
-export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
+
+export type IOneClickDirection = 'miden-to-evm' | 'evm-to-miden';
+export type IOneClickPhase =
+  | 'depositing'
+  | 'known-deposit-tx'
+  | 'pending-deposit'
+  | 'processing'
+  | 'arriving'
+  | 'delivered'
+  | 'refunded'
+  | 'incomplete-deposit'
+  | 'failed';
+
+export interface IOneClickTrackingData {
+  direction: IOneClickDirection;
+  request: OneClickQuoteRequest;
+  quote: OneClickQuoteResponse;
+  fundingDeadline?: string;
+  config: OneClickConfig;
+  network: string;
+  accountId: string;
+  accountAddress: string;
+  originAsset: OneClickAsset;
+  destinationAsset: OneClickAsset;
+  faucetId: string;
+  amount: string;
+  phase: IOneClickPhase;
+  depositAddress?: string;
+  depositMemo?: string;
+  originTransactionHash?: string;
+  destinationNoteIds?: string[];
+  providerStatus?: OneClickProviderStatus;
+  statusResponse?: OneClickStatusResponse;
+  providerSubmitted?: boolean;
+  evmSubmission?: 'not-started' | 'attempted' | 'known';
+  updatedAt?: number;
+  error?: string;
+}
+
+export interface ISendExtraInputs {
+  recallBlocks?: number;
+  oneClick?: IOneClickTrackingData;
+}
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -348,8 +414,24 @@ export interface IUsdcxCctpLeg {
 }
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
+/**
+ * The delivery of an AggLayer ERC-20 deposit, saved with its row so the match outlives the document. A test network
+ * registers a token's faucet on its first deposit, so a row may name only the token; its faucet and scale are then
+ * read from the registry when the delivery is matched.
+ */
+export interface IAgglayerDelivery {
+  /** The deposited ERC-20 on the source chain, lowercase. */
+  originToken: string;
+  /** The registry faucet for the deposited token: it mints the delivery and sends its note. Absent until registered. */
+  faucetId?: string;
+  /** The faucet's registry scale: a deposit of `w` source base units arrives as `floor(w / 10^scale)`. */
+  scale?: number;
+}
+
 export interface IBridgedReceiveExtraInputs {
   agglayerRoute?: AgglayerRecoveryConfig;
+  /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
+  agglayerDelivery?: IAgglayerDelivery;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   /** EVM source chain; absent on legacy Sepolia rows. */
@@ -362,6 +444,7 @@ export interface IBridgedReceiveExtraInputs {
   sourceAmount: string;
   sourceSymbol: string;
   phase: IBridgedReceivePhase;
+  oneClick?: IOneClickTrackingData;
   /**
    * The typed "you receive" amount, exact (Fast: `minTokenOut`), shown until the note is consumed.
    * Screens format it when they show it; older rows hold a Fast quote already rounded for display.
@@ -374,6 +457,7 @@ export interface IBridgedReceiveExtraInputs {
   /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
   cctp?: IUsdcxCctpLeg;
   error?: string;
+  errorId?: UserErrorId;
   /**
    * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
    * first phase write. Absent on rows written before this field and on E2E hook rows.
@@ -485,6 +569,12 @@ export interface IUsdcxBurn {
   destinationBalanceBefore?: { balance: string; blockNumber: string };
   /** Destination balance that met the expected increase after burn confirmation. */
   destinationBalanceConfirmed?: { balance: string; blockNumber: string };
+  /** The GatewayMinter mint that paid this burn, found by its note id. */
+  payout?: UsdcxPayout;
+  /** Destination block the next payout check resumes after: the last one scanned less 128, never moved back. */
+  payoutScannedBlock?: string;
+  /** When the burn first read confirmed, in ms. */
+  confirmedAt?: number;
   attemptCount?: number;
   lastAttemptBlockNum?: number;
   lastError?: string;
@@ -597,6 +687,10 @@ export interface IEarnDepositExtraInputs {
   outputSymbol?: string;
   /** settlement status derived from polling `getIntentStatus`. */
   epochStatus?: 'pending' | 'confirmed' | 'failed';
+  /** Protocol string a deposit hashes. Absent on a row queued before it was stored. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain of the Earn market. Absent on a legacy row. */
+  chainId?: number;
 }
 
 /**
@@ -664,6 +758,10 @@ export interface IEarnWithdrawExtraInputs {
   outputSymbol?: string;
   /** failure reason, set alongside `phase === 'failed'`. */
   error?: string;
+  /** Protocol string a deposit hashes. A retry refuses a row that has none. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain the withdrawal executes on. A retry may derive it from `marketUid` when `protocol` is present. */
+  chainId?: number;
 }
 
 /**
@@ -678,6 +776,8 @@ export interface IBridgeInInfo {
   sourceAmount?: string;
   /** EVM-side input token symbol (e.g. USDC). */
   sourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase, copied from the tracker it settled; absent for ETH. */
+  sourceToken?: string;
   /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
   intentNonce?: string;
   intentOwner?: string;
@@ -716,6 +816,12 @@ export interface IConsumeSwapSettleExtraInputs {
   swapOrderTxId: string;
   /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
   swapSettleKind: 'settle' | 'reclaim';
+  /**
+   * Queued by a settlement pass that split the order over several claims, each at most MAX_NOTES_PER_UNATTENDED_CLAIM
+   * notes of one kind (#1644). Its completion never stamps the order: the settlement tick stamps it once no note of
+   * the order is left to claim.
+   */
+  swapSettlePartial?: boolean;
 }
 
 export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
@@ -1161,6 +1267,13 @@ export interface ITransaction {
   neverCommittedAt?: number;
   /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
   attemptId?: string;
+  /**
+   * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
+   * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
+   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process; only the
+   * startup sweep reads this, for an attempt a dead process left before its submit.
+   */
+  guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
 }
 
 /**
@@ -1266,7 +1379,7 @@ export class SendTransaction implements ITransaction {
   delegateTransaction?: boolean;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
-  extraInputs: { recallBlocks?: number } = {
+  extraInputs: ISendExtraInputs = {
     recallBlocks: undefined
   };
 
@@ -1440,6 +1553,8 @@ export class ConsumeTransaction implements ITransaction {
  * optional fields — need the same shape without hand-rolling their own copy.
  */
 export interface ISwapExtraInputs {
+  /** Endpoint scope of the vault preflight; absent on legacy orders. */
+  balanceScope?: string;
   requestedFaucetId: string;
   requestedAmount: bigint;
   orderId?: bigint | string;
@@ -1690,7 +1805,9 @@ export class EarnDepositTransaction implements ITransaction {
     faucetId: string,
     sendParams: IBridgedSendNoteParams,
     delegateTransaction?: boolean,
-    requestBytes?: Uint8Array
+    requestBytes?: Uint8Array,
+    protocol?: '1delta' | 'dummy-lending',
+    chainId?: number
   ) {
     this.id = uuid();
     this.type = 'earn-deposit';
@@ -1711,7 +1828,9 @@ export class EarnDepositTransaction implements ITransaction {
       marketUid,
       sourceFaucetId: faucetId,
       recallBlocks: sendParams.recallBlocks,
-      epochStatus: 'pending'
+      epochStatus: 'pending',
+      ...(protocol ? { protocol } : {}),
+      ...(chainId !== undefined ? { chainId } : {})
     };
   }
 }
@@ -1747,7 +1866,9 @@ export class EarnWithdrawTransaction implements ITransaction {
     sourceSymbol = 'USDC',
     submissionAttemptId?: string,
     attemptStartedAt?: number,
-    sourceDecimals?: number
+    sourceDecimals?: number,
+    protocol?: '1delta' | 'dummy-lending',
+    chainId?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1770,7 +1891,9 @@ export class EarnWithdrawTransaction implements ITransaction {
       phase: 'redeeming',
       submissionState: 'preparing',
       submissionAttemptId,
-      attemptStartedAt: attemptStartedAt ?? now
+      attemptStartedAt: attemptStartedAt ?? now,
+      ...(protocol ? { protocol } : {}),
+      ...(chainId !== undefined ? { chainId } : {})
     };
   }
 }

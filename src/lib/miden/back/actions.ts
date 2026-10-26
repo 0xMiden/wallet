@@ -851,6 +851,35 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
 }
 
 /**
+ * Persist the verdict that another device rotated the account's hot key. On
+ * the accounts write queue like every other read-modify-write of the list;
+ * broadcast only when the vault wrote it, so a refused (stale) verdict moves
+ * nothing on screen.
+ */
+export function markHotKeyRotatedOut(accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const { written, ...updated } = await vault.markHotKeyRotatedOut(
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      );
+      if (written) accountsUpdated(updated);
+    })
+  );
+}
+
+/** Drop the rotated-out hot key and flag the account for a rotation to this device. */
+export function retireRotatedOutHotKey(accountPublicKey: string, expectedHotPubKey: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.retireRotatedOutHotKey(accountPublicKey, expectedHotPubKey);
+      accountsUpdated(updated);
+    })
+  );
+}
+
+/**
  * Frontend-triggered kickoff for the detached Guardian pending-note recovery.
  * Fired by GuardianRecoveryProvider for every flagged account; returns false
  * (so the provider retries) while the account is still ineligible or busy.
@@ -965,6 +994,15 @@ export function swapHotKey(accountPublicKey: string, newHotPubKey: string, expec
   );
 }
 
+export function importHotKeyPair(accountPublicKey: string, keyPairPayload: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.importHotKeyPair(accountPublicKey, keyPairPayload);
+      accountsUpdated(updated);
+    })
+  );
+}
+
 export function getPublicKeyForCommitment(commitment: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getPublicKeyForCommitment(commitment);
@@ -1067,7 +1105,7 @@ export async function processDApp(
       return queued(() => requestSign(origin, req, sessionId));
 
     case MidenDAppMessageType.LoginSignRequest:
-      return withInited(() => getDappQueue().add(() => requestLoginSign(origin, req, sessionId)));
+      return queued(() => requestLoginSign(origin, req, sessionId));
 
     case MidenDAppMessageType.AssetsRequest:
       return queued(() => requestAssets(origin, req, sessionId));
@@ -1076,7 +1114,7 @@ export async function processDApp(
       return queued(() => requestGuardianInfo(origin, req));
 
     case MidenDAppMessageType.LoginKeyRequest:
-      return withInited(() => getDappQueue().add(() => requestLoginKey(origin, req)));
+      return queued(() => requestLoginKey(origin, req));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
       return queued(() => requestImportPrivateNote(origin, req, sessionId));

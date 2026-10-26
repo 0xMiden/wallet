@@ -21,8 +21,8 @@ const VERDICT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'bridged-send'
 ]);
 
-/** The Guardian's production grace for a pending candidate. */
-export const GUARDIAN_PENDING_HOLD_SEC = 600;
+/** How long the production Guardian holds a pending candidate: its 600 s grace plus 48 checks 10 s apart (#1644). */
+export const GUARDIAN_PENDING_HOLD_SEC = 1080;
 /** How long an entry recorded on another network stays checkable. */
 export const OTHER_NETWORK_GIVE_UP_SEC = 24 * 60 * 60;
 

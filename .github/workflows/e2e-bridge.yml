@@ -1,7 +1,7 @@
 name: E2E Bridge
 
-# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge) on
-# every push to main. UI-only, real Miden testnet. Two routes, and only one of
+# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge) when
+# Release E2E dispatches it. UI-only, real Miden testnet. Two routes, and only one of
 # them runs here:
 #   - Slow/AggLayer (bridge-out-agglayer) is THIS job's signal: the wallet's real
 #     work is the Miden leg - build + prove + submit the B2AGG note → the
@@ -17,16 +17,13 @@ name: E2E Bridge
 #     quote before it builds anything.
 #
 # Testnet-only by nature — it depends on LIVE external services (Miden testnet,
-# the Epoch allocator/solver, a public Sepolia RPC), so it is a post-merge
-# signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
+# the Epoch allocator/solver, a public Sepolia RPC), so it is a nightly
+# and release signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
 # solver-fulfilled / Miden-side, so the test signs nothing on EVM and only reads
 # a public Sepolia RPC — there is no funded key to inject. `--retries=1` absorbs
 # transient testnet/RPC hiccups so a one-off external blip doesn't red main.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -117,6 +114,9 @@ jobs:
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Build extension (testnet, e2e flags)
         run: yarn test:e2e:blockchain:build

@@ -108,7 +108,7 @@ import {
   MidenRequest
 } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
@@ -117,7 +117,12 @@ import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
-import type { ConfirmationHandlerState } from 'lib/telemetry/crash-diagnostics';
+import {
+  backgroundAgeOf,
+  type ConfirmationHandlerState,
+  type ConfirmationRegistryState,
+  type ConfirmationRequestShape
+} from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
@@ -140,8 +145,8 @@ import {
   onceAfterUnlock,
   waitForUnlock
 } from './dapp-locked';
+import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
-import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
@@ -149,6 +154,7 @@ import { IConsumedAssetTotal, type ITransaction } from '../db/types';
 import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
+import { describeNft, toNft, type NftAsset } from '../sdk/nft-asset';
 import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
@@ -859,8 +865,9 @@ const generatePromisifySign = async (
 
 /**
  * A login signature: once the user approves, the account's login key for the page's domain signs the login message,
- * Poseidon2 of the login tag and the page's 32-byte word, never the word itself. The page chooses the word but not the
- * message the key signs, so it cannot make a login signature authorize a transaction.
+ * Poseidon2 of the login tag and the page's word, never the word itself. A word holds four little-endian u64 field
+ * elements, each strictly below 0xffffffff00000001, in 32 bytes. The page chooses the word but not the message the key
+ * signs, so it cannot make a login signature authorize a transaction.
  */
 export async function requestLoginSign(
   origin: string,
@@ -870,7 +877,9 @@ export async function requestLoginSign(
 ): Promise<MidenDAppLoginSignResponse> {
   const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
   if (req.kind !== 'word' || !isLoginWord(req.payload)) {
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`);
+    throw new Error(
+      `${MidenDAppErrorType.InvalidParams}: a login signature signs only a word: 32 bytes holding four little-endian field elements`
+    );
   }
 
   // Caught, as requestSign's is, or a throw of its own would leave the dApp's promise unsettled. Mapped as
@@ -975,11 +984,7 @@ const sessionLoginKey = (dApp: MidenDAppSession, domain: string) => () =>
 
 function isLoginWord(payload: unknown): boolean {
   if (typeof payload !== 'string') return false;
-  try {
-    return b64ToU8(payload).length === 32;
-  } catch {
-    return false;
-  }
+  return fieldWordFromBase64(payload) !== null;
 }
 
 const hasDAppErrorCode = (message: string): boolean =>
@@ -1135,10 +1140,11 @@ async function getPrivateNoteDetails(
                 return true;
               })
             : candidates;
-        // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
+        // `restriction` is the wallet's own consume guard and `nonFungibleAssets` feeds only its own approval sheet,
+        // not note data the user agreed to share.
         return uniqueCandidates
           .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
-          .map(({ restriction: _restriction, ...note }) => note);
+          .map(({ restriction: _restriction, nonFungibleAssets: _nonFungibleAssets, ...note }) => note);
       });
     });
     return privateNotes;
@@ -3082,6 +3088,7 @@ const isConfirmationOf = (req: MidenRequest, id: string): boolean =>
 type ConfirmationState = Exclude<ConfirmationHandlerState, 'unknown'>;
 const CONFIRMATION_STATES_KEPT = 64;
 const confirmationStates = new Map<string, ConfirmationState>();
+let confirmationStatesPruned = false;
 
 function recordConfirmationState(id: string, state: ConfirmationState): void {
   confirmationStates.delete(id);
@@ -3089,16 +3096,34 @@ function recordConfirmationState(id: string, state: ConfirmationState): void {
   for (const oldest of confirmationStates.keys()) {
     if (confirmationStates.size <= CONFIRMATION_STATES_KEPT) return;
     confirmationStates.delete(oldest);
+    confirmationStatesPruned = true;
   }
 }
 
-/** The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached. */
+function requestShapeOf(req: unknown): ConfirmationRequestShape {
+  if (typeof req !== 'object' || req === null || !('id' in req)) return 'missing';
+  const sent: unknown = req.id;
+  if (typeof sent === 'string') return 'string';
+  if (Array.isArray(sent)) return typeof sent[0] === 'string' ? 'array_with_string' : 'array_without_string';
+  return 'other';
+}
+
+function registryState(): ConfirmationRegistryState {
+  if (confirmationStatesPruned) return 'pruned';
+  return confirmationStates.size === 0 ? 'empty' : 'holding';
+}
+
+/**
+ * The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached, the
+ * shape of the id the request carried, what this worker remembers of recent approvals and how long it has run.
+ */
 export function confirmationNotFound(req: unknown): Error & { code: string } {
   const sent: unknown = typeof req === 'object' && req !== null && 'id' in req ? req.id : undefined;
   // The payload request sends the popup's SWR key, an array holding the id.
   const id: unknown = Array.isArray(sent) ? sent[0] : sent;
   const state = typeof id === 'string' ? confirmationStates.get(id) : undefined;
-  return Object.assign(new Error('Not Found'), { code: `confirmation_${state ?? 'unknown'}` });
+  const labels = [requestShapeOf(req), registryState(), backgroundAgeOf(performance.now())];
+  return Object.assign(new Error('Not Found'), { code: [`confirmation_${state ?? 'unknown'}`, ...labels].join(':') });
 }
 
 async function requestConfirm({
@@ -3312,15 +3337,12 @@ async function createConfirmWindow(
 }
 
 export async function getNetworkRPC(net: string | undefined) {
-  // dApp didn't specify a network — fall back to the wallet's currently
-  // selected one. Prevents an immediate connect() failure for dApps that
-  // (legitimately) just want to use whatever the user is on.
+  // When the dApp names no network, use the RPC of the network that the wallet
+  // runs on. This is the effective network (the endpoint override, else the
+  // build default), not the legacy stored network id: Mainnet invitation
+  // onboarding writes only the override (#1655).
   if (!net) {
-    const current = await getCurrentMidenNetwork();
-    if (!current) {
-      throw new Error(MidenDAppErrorType.NetworkNotGranted);
-    }
-    return current.rpcBaseURL;
+    return getEffectiveRpcUrl();
   }
   // Only a mainnet wallet takes a mainnet claim. A test-network claim still reaches a mainnet wallet, whose
   // connect sheet warns, because the adapter cannot name mainnet yet.
@@ -3404,6 +3426,7 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 interface ResolvedConsumeNote {
   noteId: string;
   assets: Asset[];
+  nonFungibleAssets: NftAsset[];
   noteType: string;
   restriction?: ConsumeRestriction;
 }
@@ -3451,7 +3474,8 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
         .map(asset => ({
           amount: asset.amount().toString(),
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
-        }))
+        })),
+      nonFungibleAssets: note.assets().nonFungibleAssets().map(toNft)
     };
   } catch (error) {
     if (error instanceof WebAssembly.RuntimeError) throw error;
@@ -3481,6 +3505,7 @@ function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): Resolve
       return {
         noteId: decoded.noteId,
         assets: decoded.assets,
+        nonFungibleAssets: decoded.nonFungibleAssets,
         noteType: decoded.noteType,
         restriction: decoded.restriction
       };
@@ -3532,6 +3557,7 @@ async function resolveConsumeNote(
   return {
     noteId,
     assets: details.assets,
+    nonFungibleAssets: details.nonFungibleAssets,
     noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown',
     restriction: details.restriction
   };
@@ -3573,13 +3599,15 @@ async function formatConsumeTransactionPreview(
   carried: ResolvedConsumeNote | null,
   accountId: string
 ): Promise<ConsumePreview> {
-  const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
-  // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
-  // nothing before execution asks whether the account can consume the note.
+  const { noteId, assets, nonFungibleAssets, noteType, restriction } =
+    carried ?? (await resolveConsumeNote(transaction, accountId));
+  // Refused here, before the sheet: once approved, the consume would fail at execution with
+  // ERR_NOTE_ACTIVE_ACCOUNT_IS_NOT_TARGET_ACCOUNT or ERR_RECLAIM_DISABLED, and nothing before execution asks whether the
+  // account can consume the note.
   if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
     throw new Error('This account can never consume this note - refusing it');
   }
-  const headlineFaucet = assets[0]?.faucetId;
+  const headlineFaucet = assets[0]?.faucetId ?? nonFungibleAssets[0]?.faucetId;
   const messages = [
     headlineFaucet
       ? `Consuming note from faucet: ${truncateAddress(headlineFaucet, false)}`
@@ -3590,6 +3618,9 @@ async function formatConsumeTransactionPreview(
     messages.push(
       `Amount, ${formatAmountSafe(BigInt(asset.amount), 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))}`
     );
+  }
+  for (const nft of nonFungibleAssets) {
+    messages.push(`Receiving, ${describeNft(nft, faucetId => truncateAddress(faucetId, false))}`);
   }
   messages.push(`Note Type, ${capitalizeFirstLetter(noteType)}`);
   const maxFee = await formatMaxNetworkFee();
@@ -3648,6 +3679,15 @@ const OPAQUE_SIGNATURE_WARNING =
  * as strings. Amounts go through the faucet's own decimals, like every other
  * preview row in this file.
  */
+const nftFaucetLabel = (faucetId: string) => truncateAddress(faucetId, false);
+
+/**
+ * Shown where a summary's vault change counts assets the wallet cannot list (an NFT in a Guardian signing summary,
+ * whose vault delta the SDK exposes only as a count). Stands in for the asset rows rather than "No assets move".
+ */
+const UNLISTED_ASSETS_WARNING =
+  'Warning, this transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it.';
+
 async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
   const rows: string[] = [];
   for (const asset of view.outgoing) {
@@ -3662,6 +3702,9 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
       `Receiving, ${formatAmountSafe(asset.amount, 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))} ${getAssetSymbol(tokenMetadata)}`
     );
   }
+  for (const nft of view.outgoingNfts) rows.push(`Sending, ${describeNft(nft, nftFaucetLabel)}`);
+  for (const nft of view.incomingNfts) rows.push(`Receiving, ${describeNft(nft, nftFaucetLabel)}`);
+  if (view.unlistedAssets > 0) rows.push(UNLISTED_ASSETS_WARNING);
   if (rows.length === 0) {
     rows.push('Assets, no fungible asset moves');
   }
@@ -3830,8 +3873,11 @@ async function formatSimulatedCustomEffects(
 
     const effects = [
       ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
-      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume'))))
+      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume')))),
+      ...view.outgoingNfts.map(nft => `Leaves this account, ${describeNft(nft, nftFaucetLabel)}`),
+      ...view.incomingNfts.map(nft => `Enters this account, ${describeNft(nft, nftFaucetLabel)}`)
     ];
+    if (view.unlistedAssets > 0) effects.push(UNLISTED_ASSETS_WARNING);
     // BEFORE the "nothing moves" check, and separate from it. `summaryToView` subtracts the
     // fee out of `outgoing` so it is not double-counted against the transfer, which means a
     // transaction whose ONLY movement is the fee arrives here with two empty lists -- and

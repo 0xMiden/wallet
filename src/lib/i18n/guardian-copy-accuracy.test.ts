@@ -52,7 +52,13 @@ const SUCCESS_RECEIPT_KEYS = [
   // so leaving them out of the sweep meant the replacement text was held to a
   // weaker standard than the text it replaces.
   'guardianSwitchUnconfirmedInfo1',
-  'guardianSwitchUnconfirmedInfo3'
+  'guardianSwitchUnconfirmedInfo3',
+  // Each row's title restates its claim in a few words, which is where a short translation goes wrong.
+  'guardianSwitchSuccessInfo1Title',
+  'guardianSwitchUnconfirmedInfo1Title',
+  'guardianSwitchSuccessInfo2Title',
+  'guardianSwitchSuccessInfo3Title',
+  'guardianSwitchSuccessInfo4Title'
 ] as const;
 
 // The whole receipt surface, labels included — every string that tells the user
@@ -661,15 +667,16 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     expect(whatItDoes).not.toMatch(/approves or rejects/i);
   });
 
-  it('states plainly that the Guardian co-signs every transaction', () => {
-    expect(whatItDoes).toMatch(/co-?signs?/i);
+  // The product calls the Guardian's signature an acknowledgement; earlier copy said co-signs.
+  it('states plainly that the Guardian acknowledges every transaction', () => {
+    expect(whatItDoes).toMatch(/(co-?signs?|acknowledges) every transaction/i);
   });
 
   it('explains what changes and what stays the same when the Guardian is switched', () => {
     // The issue asks specifically for "what changes when the Guardian provider is
     // switched". Accurate answer: only the co-signer changes; funds/account are
     // untouched.
-    expect(switching).toMatch(/co-?sign|provider/i);
+    expect(switching).toMatch(/co-?sign|acknowledges|provider/i);
     expect(switching).toMatch(/stay the same|unchanged|same/i);
   });
 
@@ -738,7 +745,7 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     // has any role" overstated a state the wallet cannot observe.
     const info1 = message('guardianSwitchSuccessInfo1');
     expect(info1).not.toMatch(/no longer has any role/i);
-    expect(info1).toMatch(/can no longer co-sign/i);
+    expect(info1).toMatch(/can no longer (co-sign|acknowledge)/i);
   });
 
   it('ships the whole receipt surface in every locale', () => {

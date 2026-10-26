@@ -2,11 +2,13 @@ import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testi
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import {
+  buildOfferedAmount,
   buildRequestedAmount,
   DEFAULT_SWAP_SLIPPAGE_BPS,
   getSwapEta,
   getSwapPairPrice,
   quoteSwap,
+  quoteSwapForReceive,
   scale18,
   SwapEta,
   swapEtaBlocksSubmit,
@@ -438,5 +440,41 @@ describe('quoteSwap', () => {
     await expect(
       quoteSwap(TEST_TOKEN_IETH, 50000000n, TEST_TOKEN_IUSDT, { slippageBps: 20, now })
     ).rejects.toMatchObject({ code: 'no_price' });
+  });
+});
+
+describe('receive-driven quotes', () => {
+  it('inverts the fee-inclusive directional price with ceiling rounding across 18/6 decimals', () => {
+    const price = { ...IETH_IUSDT_PRICE, fillPrice: '2497.5', offeredDecimals: 18, requestedDecimals: 6 };
+    const offer = buildOfferedAmount(100000000n, price, 20);
+    expect(buildRequestedAmount(offer, price, 20)).toBeGreaterThanOrEqual(100000000n);
+    expect(buildRequestedAmount(offer - 1n, price, 20)).toBeLessThan(100000000n);
+    expect(offer).toBe(40120280601242526n);
+  });
+
+  it('uses the selected direction rather than reciprocating the opposite direction fee', () => {
+    const price = { ...IETH_IUSDT_PRICE, fillPrice: '0.0003996', offeredDecimals: 6, requestedDecimals: 18 };
+    const offer = buildOfferedAmount(10n ** 18n, price, 20);
+    expect(buildRequestedAmount(offer, price, 20)).toBeGreaterThanOrEqual(10n ** 18n);
+    expect(buildRequestedAmount(offer - 1n, price, 20)).toBeLessThan(10n ** 18n);
+  });
+
+  it('refuses zero price and nonpositive receive amounts', () => {
+    expect(() => buildOfferedAmount(1n, { ...IETH_IUSDT_PRICE, fillPrice: '0' }, 20)).toThrow(SwapQuoteError);
+    expect(() => buildOfferedAmount(0n, IETH_IUSDT_PRICE, 20)).toThrow(SwapQuoteError);
+  });
+
+  it('checks the calculated offer and unchanged receive target with the solver', async () => {
+    const { calls } = installFetch([
+      () => ({ status: 200, body: IETH_IUSDT_PRICE }),
+      () => ({ status: 200, body: etaWith() })
+    ]);
+    const quote = await quoteSwapForReceive(TEST_TOKEN_IETH, 124160211179n, TEST_TOKEN_IUSDT, { slippageBps: 20 });
+    expect(quote.offeredAmount).toBe(50000000n);
+    expect(quote.requestedAmount).toBe(124160211179n);
+    expect(quote.builtAsk).toBe(false);
+    const params = new URL(calls[1]!.url).searchParams;
+    expect(params.get('offered_amount')).toBe('50000000');
+    expect(params.get('requested_amount')).toBe('124160211179');
   });
 });

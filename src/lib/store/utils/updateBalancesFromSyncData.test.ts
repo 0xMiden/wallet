@@ -8,6 +8,10 @@ import { __resetFaucetAssetsMetadataForTest, faucetMetadataOf, useWalletStore } 
 
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
 
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
+
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
@@ -241,6 +245,21 @@ describe('updateBalancesFromSyncData', () => {
     expect(balances[0]!.balance).toBe(5000); // 5000000000 / 10^6
     expect(state.balancesLoading['account-1']).toBe(false);
     expect(state.balancesLastFetched['account-1']).toBeGreaterThan(0);
+  });
+
+  it('preserves serialized base units alongside the display balance', async () => {
+    const faucetId = 'large-sync-faucet';
+    const amountBaseUnits = '12345678901234567890';
+    await updateBalancesFromSyncData('large-sync-account', [
+      { faucetId, amountBaseUnits, metadata: { name: 'Large', symbol: 'LARGE', decimals: 0 } }
+    ]);
+
+    const row = useWalletStore
+      .getState()
+      .balances['large-sync-account']!.find(balance => balance.tokenId === faucetId)!;
+
+    expect(row).toMatchObject({ balanceBaseUnits: amountBaseUnits });
+    expect(row.balance).toBe(Number(amountBaseUnits));
   });
 
   it('always includes MIDEN token even when vault is empty', async () => {

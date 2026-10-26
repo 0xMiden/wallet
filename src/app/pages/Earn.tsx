@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPane } from 'app/layouts/HomeGroupPane';
+import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
@@ -21,6 +24,9 @@ const Earn: FC = () => {
   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
   // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
+  useUserVisibleError(notOnNetwork ? 'earnUnavailableOnNetwork' : null, 'inline');
+  // The vault view's notice, said here too so the tab does not read as open before a vault is opened.
+  const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !notOnNetwork });
 
   // A network with no Earn has nothing to load or retry, so it gets neither the summary nor the load error.
   if (notOnNetwork) {
@@ -46,6 +52,7 @@ const Earn: FC = () => {
         {t('earnTitle')}
       </h1>
       <div className="flex flex-col gap-5">
+        <FeatureUnavailableNotice availability={earnDeposit} data-testid="earn-unavailable-notice" />
         {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
         {!(positions.length === 0 && (isLoading || loadFailed)) && (
           <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
@@ -81,10 +88,7 @@ const Earn: FC = () => {
           ) : (
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} />}
-              <div
-                className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
-                onPointerDown={event => event.stopPropagation()}
-              >
+              <div className="-mx-4 overflow-x-auto overscroll-x-contain no-scrollbar touch-pan-x">
                 <div className="flex gap-3 px-4 pb-1">
                   {positions.map(position => (
                     <PositionCard key={position.id} position={position} fullWidth={positions.length === 1} />
@@ -149,6 +153,8 @@ const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ pos
 
 const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
+  const asset = vault.fundingAsset ?? vault.asset;
+  const network = vault.fundingAsset ? 'Miden' : vault.network;
 
   return (
     <CardButton
@@ -159,17 +165,24 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
     >
       <div className="flex w-full items-center gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fill">
-          <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
+          <ProviderLogo protocol={vault.protocol} logoUrl={vault.logoUrl} className="h-8 w-8" />
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-row-title text-ink">{vault.protocol}</div>
+          {/* The document's name of the vault, as written in every language. */}
+          <div className="truncate text-row-title text-ink">{earnSubjectTitle(vault)}</div>
+          {/* A market with its own name (a Morpho market) says it first, so two markets of one protocol
+              read differently. */}
           <div className="truncate text-caption text-muted">
-            {t('earnVaultAssetOnNetwork', {
-              asset: vault.fundingAsset ?? vault.asset,
-              network: vault.fundingAsset ? 'Miden' : vault.network
-            })}
+            {vault.marketName
+              ? t('earnMarketAssetOnNetwork', { market: vault.marketName, asset, network })
+              : t('earnVaultAssetOnNetwork', { asset, network })}
           </div>
+          {vault.listedAbout && (
+            <div className="line-clamp-2 text-caption text-muted" data-testid={`earn-vault-row-about-${vault.id}`}>
+              {vault.listedAbout}
+            </div>
+          )}
         </div>
 
         <span className="shrink-0 text-value text-positive-tint-ink">{vault.apy}</span>

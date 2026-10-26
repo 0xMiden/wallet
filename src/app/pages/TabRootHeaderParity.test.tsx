@@ -168,5 +168,5 @@ it('keeps Explore on the category testids and its own accessible name', async ()
   expect(row).toHaveAttribute('role', 'radiogroup');
   expect(row).toHaveAccessibleName('exploreCategoriesLabel');
   expect(screen.getByTestId('explore-chip-all')).toHaveAttribute('aria-checked', 'true');
-  expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getByTestId('explore-chip-arcade')).toHaveAttribute('aria-checked', 'false');
 });

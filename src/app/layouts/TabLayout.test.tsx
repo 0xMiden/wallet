@@ -29,6 +29,8 @@ const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, is
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnread = { value: false };
+const mockUnreadBadges = { value: false };
+jest.mock('lib/badges/useWalletBadges', () => ({ useHasUnreadBadges: () => mockUnreadBadges.value }));
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
 // symbols the layout uses: `navigate` (a spy) and `useLocation` (reads state).
@@ -114,7 +116,7 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
   __esModule: true,
   default: () => {
     homeSwipeRenders.count += 1;
-    return <div data-testid="home-swipe" />;
+    return <div data-testid="home-swipe" data-home-pager="" />;
   }
 }));
 
@@ -198,6 +200,7 @@ beforeEach(() => {
   mockEnv.sidePanel = false;
   mockReturning.value = false;
   mockHasUnread.value = false;
+  mockUnreadBadges.value = false;
 });
 
 describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
@@ -374,6 +377,7 @@ describe('TabLayout — tabs list composition', () => {
 
   it('leaves the Activity tab unmarked once nothing is unread', () => {
     mockHasUnread.value = false;
+    mockUnreadBadges.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
   });
@@ -411,13 +415,23 @@ describe('TabLayout — action colours', () => {
     ['overview', 'Wallet'],
     ['send', 'Send'],
     ['receive', 'Receive'],
-    ['earn', 'Earn'],
-    ['swap', 'Convert']
-  ])('draws the %s icon in its action colour', (action, icon) => {
+    ['earn', 'Earn']
+  ])('draws the %s icon in its action colour', (action, icon, colour = `text-action-${action}`) => {
     mockLocation.pathname = '/';
     renderLayout();
     const glyph = within(screen.getByTestId(`action-${action}`)).getByTestId(`icon-${icon}`);
-    expect(glyph).toHaveClass(`text-action-${action}`);
+    expect(glyph).toHaveClass(colour);
+  });
+
+  it.each([
+    ['inactive', '/', 'overview'],
+    ['active', '/swap', 'swap']
+  ])('draws the Swap icon in its contrast-tested action colour in the %s state', (_state, pathname, activeId) => {
+    mockLocation.pathname = pathname;
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', activeId);
+    const glyph = within(screen.getByTestId('action-swap')).getByTestId('icon-Convert');
+    expect(glyph).toHaveClass('text-action-swap');
   });
 });
 
@@ -614,6 +628,27 @@ describe('TabLayout — the bar hides while scrolling down on mobile', () => {
     expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
 
     expect(homeSwipeRenders.count).toBe(before);
+  });
+
+  // The Home pager scrolls sideways every frame of a swipe; its events are no vertical scroll and
+  // must not cost the bar any work, so they neither keep it hidden nor re-arm its idle timer.
+  it("ignores the Home pager's horizontal scroll events", () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    renderLayout();
+    scrollTo(0);
+    scrollTo(40);
+    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
+
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+    fireEvent.scroll(screen.getByTestId('home-swipe'));
+    act(() => {
+      jest.advanceTimersByTime(100);
+    });
+
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
   });
 
   it('never hides the floating pill off-mobile', () => {
@@ -1007,4 +1042,12 @@ describe('TabLayout — the keyboard hides the bottom nav elsewhere', () => {
     expect(useHideNavbarWhileOpen).not.toHaveBeenCalled();
     unmount();
   });
+});
+
+it('marks Profile unread independently from Activity', () => {
+  mockUnreadBadges.value = true;
+  renderLayout();
+  expect(screen.getByTestId('nav-me')).toHaveAttribute('data-dot', 'true');
+  expect(screen.getByTestId('nav-me')).toHaveAttribute('data-dot-label', 'activityUnread');
+  expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
 });

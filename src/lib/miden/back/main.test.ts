@@ -70,6 +70,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => {
     ...actual,
     markOpStarted: jest.fn(),
     handleOffscreenStageEvent: jest.fn(),
+    handleOffscreenSubmitGate: jest.fn(async () => ({ ok: true })),
     reloadOffscreenEndpointOverrides: jest.fn(async () => true)
   };
 });
@@ -212,6 +213,7 @@ jest.mock('lib/miden/back/actions', () => ({
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   swapHotKey: jest.fn(),
+  importHotKeyPair: jest.fn(),
   checkGuardianDrift: jest.fn(),
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
@@ -856,6 +858,16 @@ describe('processRequest', () => {
     expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
   });
 
+  it('forwards an ImportHotKeyPairRequest to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.ImportHotKeyPairRequest,
+      accountPublicKey: 'acc',
+      keyPairPayload: 'hot:evm'
+    });
+    expect(res.type).toBe(WalletMessageType.ImportHotKeyPairResponse);
+    expect(Actions.importHotKeyPair).toHaveBeenCalledWith('acc', 'hot:evm');
+  });
+
   it('forwards a SwapHotKeyRequest without an expectation as none (#1233)', async () => {
     const res = await dispatch({
       type: WalletMessageType.SwapHotKeyRequest,
@@ -1356,6 +1368,37 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     );
     // The crossing is still recorded downstream, as an evidence-less entry.
     expect(proxyMock.handleOffscreenStageEvent).toHaveBeenLastCalledWith('op-2', 'submitting', undefined);
+  });
+
+  // #1644: the Guardian leaf's submit gate is answered, not fire-and-forget, so the port is held and every fault
+  // answers no.
+  it('routes an OFFSCREEN_SUBMIT_GATE to handleOffscreenSubmitGate with parsed evidence and answers its reply', async () => {
+    const id = `0x${'c'.repeat(64)}`;
+    const sendResponse = jest.fn();
+    const ret = signListener()(
+      { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate', evidence: { transactionId: id, smuggled: 1 } },
+      ownSender,
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flushStorage();
+    expect(proxyMock.handleOffscreenSubmitGate).toHaveBeenCalledWith({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: 'op-gate',
+      evidence: { transactionId: id }
+    });
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('answers an OFFSCREEN_SUBMIT_GATE no when its handler rejects, and ignores one without an op_id', async () => {
+    proxyMock.handleOffscreenSubmitGate.mockRejectedValueOnce(new Error('IndexedDB closed'));
+    const sendResponse = jest.fn();
+    signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate' }, ownSender, sendResponse);
+    await flushStorage();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'IndexedDB closed' });
+    expect(signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE' }, ownSender, jest.fn())).toBe(false);
   });
 
   it('ignores an OFFSCREEN_STAGE_EVENT missing op_id or stage (no handler call, no crash)', () => {

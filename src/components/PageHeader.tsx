@@ -59,10 +59,10 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     <div className={clsx('flex shrink-0 flex-col', className)}>
       <header className="flex min-h-15 shrink-0 items-center gap-3">
         {onBack && (
-          // A 44px `fill` circle with an `ink` glyph, in a flow too: the flow accents are under 3:1 on white.
+          // The `back` appearance paints `back-glyph`: flow accents are under 3:1 on white.
           <IconButton
             icon={IconName.ArrowLeft}
-            appearance="filled"
+            appearance="back"
             label={t('back')}
             onClick={onBack}
             data-testid={backTestId}

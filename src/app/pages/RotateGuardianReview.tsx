@@ -3,9 +3,8 @@ import React, { FC, FormEvent, useCallback, useEffect, useMemo, useRef, useState
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { guardianEndpointDisplayName, useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
-import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button } from 'components/Button';
@@ -14,6 +13,8 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
@@ -37,6 +38,7 @@ import {
 } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate, useLocation } from 'lib/woozie';
 
 const RotateGuardianReview: FC = () => {
@@ -82,6 +84,7 @@ const RotateGuardianReview: FC = () => {
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const submissionRef = useRef(false);
 
   // Set when the user backs out of a submission, so one that lands afterwards
@@ -142,10 +145,12 @@ const RotateGuardianReview: FC = () => {
       // credential, but the password step submits straight through to here.
       if (endpointUnchanged) {
         setError(t('guardianEndpointUnchanged'));
+        setErrorId('guardianEndpointUnchanged');
         return;
       }
       if (endpointInvalid) {
         setError(t('invalidUrl'));
+        setErrorId('invalidUrl');
         return;
       }
       // Claimed synchronously, before the first `await` below. The queue read is
@@ -169,6 +174,7 @@ const RotateGuardianReview: FC = () => {
         const queued = await getUncompletedTransactions(currentAccount.publicKey);
         if (queued.some(tx => tx.type === 'switch-guardian')) {
           setError(t('guardianSwitchAlreadyInProgress'));
+          setErrorId('guardianSwitchAlreadyInProgress');
           return;
         }
         await unlock(credential);
@@ -239,6 +245,14 @@ const RotateGuardianReview: FC = () => {
               ? err
               : t('smthWentWrong');
         setError(rotationInProgress ? t('guardianSwitchAlreadyInProgress') : message);
+        setErrorId(
+          rotationInProgress
+            ? 'guardianSwitchAlreadyInProgress'
+            : (typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string') ||
+                typeof err === 'string'
+              ? 'raw_guardian_switch_failed'
+              : 'smthWentWrong'
+        );
       } finally {
         submissionRef.current = false;
         setSubmitting(false);
@@ -254,12 +268,14 @@ const RotateGuardianReview: FC = () => {
     // an auth failure, on a step that could never succeed.
     if (endpointUnchanged) {
       setError(t('guardianEndpointUnchanged'));
+      setErrorId('guardianEndpointUnchanged');
       return;
     }
     // Before the credential step, not after it: authenticating and only then
     // being told the target is malformed reads as an auth failure.
     if (endpointInvalid) {
       setError(t('invalidUrl'));
+      setErrorId('invalidUrl');
       return;
     }
     if (hasHardwareProtector) {
@@ -345,6 +361,7 @@ const RotateGuardianReview: FC = () => {
             <PasscodeEntry
               onSubmit={code => void authenticateAndSwitch(code)}
               onChange={() => setError(null)}
+              errorId={errorId}
               error={error}
               isSubmitting={submitting}
               className="mt-auto pb-2"
@@ -360,6 +377,7 @@ const RotateGuardianReview: FC = () => {
                 value={password}
                 autoFocus
                 placeholder="********"
+                errorId={errorId}
                 error={error ?? undefined}
                 onChange={event => {
                   setPassword(event.target.value);
@@ -379,61 +397,82 @@ const RotateGuardianReview: FC = () => {
           network it commits on. Outside SubPageLayout's body, which is the scroll region. */}
       <NetworkModeBanner />
       {/* Continue and its error are pinned in the footer, outside the scroll region (#463): the
-          illustration and the hero cost ~220px of the 600px popup, which pushed a CTA inside the
+          hero cost ~220px of the 600px popup, which pushed a CTA inside the
           scroller below the fold. */}
-      <SubPageLayout
-        title={t('reviewRotation')}
-        onBack={handleBack}
-        footerLayout="stack"
-        footer={
-          <>
-            {/* Both protector reads failed or the probe missed its deadline: no credential step can be chosen,
-                so Continue stays disabled (`hasHardwareProtector` is null) and Retry probes again. */}
-            {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
-            {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
-                Continue and the reason appears above it. `max-h` + scroll so a long backend error
-                cannot grow the footer and push Continue off-screen. */}
-            {error && (
-              <Notice tone="negative" role="alert" className="max-h-24 overflow-y-auto select-text wrap-break-word">
-                {error}
-              </Notice>
-            )}
-            <Button
-              className="max-w-none"
-              data-testid="rotate-guardian-confirm"
-              title={t('continue')}
-              onClick={handleContinue}
-              disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
-              isLoading={submitting}
-            />
-          </>
-        }
-      >
-        <div className="flex flex-col items-center">
-          <GuardianRotationIllustration className="mb-4 h-28 w-auto" aria-hidden="true" />
+      {/* Every line is Nunito, as on the picker before it: body styles that read the sans face take the heading face. */}
+      <div className="contents face-heading">
+        <SubPageLayout
+          title={t('reviewRotation')}
+          onBack={handleBack}
+          footerLayout="stack"
+          footer={
+            <>
+              {/* Both protector reads failed or the probe missed its deadline: no credential step can be chosen,
+                  so Continue stays disabled (`hasHardwareProtector` is null) and Retry probes again. */}
+              {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
+              {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
+                  Continue and the reason appears above it. `max-h` + scroll so a long backend error
+                  cannot grow the footer and push Continue off-screen. */}
+              {error && (
+                <Notice
+                  errorId={errorId}
+                  tone="negative"
+                  role="alert"
+                  className="max-h-24 overflow-y-auto select-text wrap-break-word"
+                >
+                  {error}
+                </Notice>
+              )}
+              <Button
+                className="max-w-none"
+                data-testid="rotate-guardian-confirm"
+                title={t('continue')}
+                onClick={handleContinue}
+                disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
+                isLoading={submitting}
+              />
+            </>
+          }
+        >
+          {/* What the switch does, in two sentences: the page's explainer line, first under the header as on
+              the picker before it. */}
+          <p className="px-1 text-explainer-heading text-muted">
+            {t('guardianRotationExplainer', {
+              newGuardian: guardianEndpointDisplayName(newEndpoint, t('unknown')),
+              oldGuardian: guardianEndpointDisplayName(currentEndpoint, t('unknown'))
+            })}
+          </p>
+
           <GuardianTransitionHero
             previousEndpoint={currentEndpoint}
             newEndpoint={newEndpoint}
             previousLabel={t('currentGuardianLabel')}
             newLabel={t('newGuardianLabel')}
           />
-        </div>
 
-        <SubPageSection title={t('details')} titleAs="h2">
-          <DetailCard>
-            <DetailRow label={t('walletKeyHot')}>{hotKeyLabel}</DetailRow>
-            <DetailRow label={t('recoveryPhraseCold')}>{t('required')}</DetailRow>
-          </DetailCard>
-        </SubPageSection>
+          <SubPageSection title={t('approveWith')} titleAs="h2" titleSize="md">
+            <DetailCard surface="outline">
+              <DetailRow label={t('walletKeyHot')}>{hotKeyLabel}</DetailRow>
+              <DetailRow label={t('recoveryPhraseCold')}>{t('required')}</DetailRow>
+            </DetailCard>
+          </SubPageSection>
 
-        <Notice
-          tone="warning"
-          title={t('oldGuardianCantBlockTitle')}
-          icon={<Icon name={IconName.WarningFill} size="sm" fill="currentColor" />}
-        >
-          {t('oldGuardianCantBlockBody')}
-        </Notice>
-      </SubPageLayout>
+          {/* Reassurance, not an alarm: a fact row with a sage shield, as the switch's success screen states
+              its facts, on a soft `fill` card rather than a warning box. */}
+          <ListGroup>
+            <FactRow
+              titleAs="h3"
+              leading={
+                <IconCircle className="bg-positive-tint text-positive-tint-ink">
+                  <Icon name={IconName.ShieldCheck} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t('oldGuardianCantBlockTitle')}
+              description={t('oldGuardianCantBlockBody')}
+            />
+          </ListGroup>
+        </SubPageLayout>
+      </div>
     </PageLayout>
   );
 };

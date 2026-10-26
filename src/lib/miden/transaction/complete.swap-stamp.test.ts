@@ -75,6 +75,81 @@ it("stamps a live order's reclaim on the order once its consume completes", asyn
   expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toEqual(expect.any(Number));
 });
 
+const settlementClaim = (
+  id: string,
+  swapSettleKind: 'settle' | 'reclaim',
+  status: ITransactionStatus
+): ITransaction => ({
+  id,
+  type: 'consume',
+  accountId: 'account',
+  status,
+  displayIcon: 'RECEIVE',
+  initiatedAt: 3,
+  noteId: `${id}-note`,
+  noteIds: [`${id}-note`],
+  extraInputs: { swapOrderTxId: 'swap', swapSettleKind }
+});
+
+// A settlement over the claim cap is several consume rows (#1644); the stamp is the last one's, so a chunk that
+// fails leaves the order unstamped and the next tick queues its notes again.
+it('stamps a settlement split over several claims only once the last of them completes (#1644)', async () => {
+  await Repo.transactions.add(swapOrder());
+  await Repo.transactions.add(settlementClaim('reclaim-2', 'reclaim', ITransactionStatus.Queued));
+
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+  expect((await Repo.transactions.get('reclaim'))?.status).toBe(ITransactionStatus.Completed);
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toBeUndefined();
+
+  await completeConsumeTransaction('reclaim-2', reclaimOfOrderNote());
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toEqual(expect.any(Number));
+});
+
+it('a sibling claim awaiting its verdict holds the stamp, a failed one does not', async () => {
+  await Repo.transactions.add(swapOrder());
+  await Repo.transactions.add(settlementClaim('reclaim-failed', 'reclaim', ITransactionStatus.Failed));
+  await Repo.transactions.add(settlementClaim('reclaim-unconfirmed', 'reclaim', ITransactionStatus.Unconfirmed));
+
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toBeUndefined();
+
+  await Repo.transactions.update('reclaim-unconfirmed', { status: ITransactionStatus.Failed });
+  await Repo.transactions.update('reclaim', { status: ITransactionStatus.GeneratingTransaction });
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toEqual(expect.any(Number));
+});
+
+// One chunk of a split settlement covers only part of the order's notes, and a refused or failed chunk leaves no
+// open sibling to wait for, so its completion never stamps; the settlement tick's repair stamps the order once no
+// note of it is left to claim (#1644).
+it('never stamps the order from one chunk of a split settlement', async () => {
+  await Repo.transactions.add(swapOrder());
+  await Repo.transactions.update('reclaim', {
+    extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'reclaim', swapSettlePartial: true }
+  });
+  await Repo.transactions.add(settlementClaim('reclaim-failed', 'reclaim', ITransactionStatus.Failed));
+
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+
+  expect((await Repo.transactions.get('reclaim'))?.status).toBe(ITransactionStatus.Completed);
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toBeUndefined();
+});
+
+// The payback side outranks the tip: a reclaimedAt written while the order has settle claims would shut the repair,
+// which runs only with both stamps absent, so a split payback settlement would never read Confirmed (#1644).
+it('leaves an order with settle claims to the settle stamp when its lone reclaim completes', async () => {
+  await Repo.transactions.add(swapOrder());
+  await Repo.transactions.add({
+    ...settlementClaim('settle-chunk', 'settle', ITransactionStatus.Completed),
+    extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'settle', swapSettlePartial: true }
+  });
+
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+
+  expect((await Repo.transactions.get('reclaim'))?.status).toBe(ITransactionStatus.Completed);
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toBeUndefined();
+});
+
 // A Guardian-recovered order is closed by its lineage on the node once the walk reads finished, which then takes the
 // stamp from this consume; stamped here, a cancel of a remainder would close an order a later fill may still own (#1487).
 it('leaves the close of a Guardian-recovered order to its lineage when its reclaim completes', async () => {

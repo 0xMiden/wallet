@@ -1285,6 +1285,18 @@ describe('useWalletStore', () => {
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
 
+    it('importHotKeyPair posts an ImportHotKeyPairRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportHotKeyPairResponse });
+
+      await useWalletStore.getState().importHotKeyPair('acc', 'hot:evm');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey: 'acc',
+        keyPairPayload: 'hot:evm'
+      });
+    });
+
     it('swapHotKey posts a SwapHotKeyRequest carrying the expectation (#1233)', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
 
@@ -1343,6 +1355,33 @@ describe('useWalletStore', () => {
         type: WalletMessageType.SetGuardianSyncStatusRequest,
         accountPublicKey: 'pub-key',
         guardianSyncStatus: 'needs-user-input'
+      });
+    });
+
+    it('markHotKeyRotatedOut posts a MarkHotKeyRotatedOutRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.MarkHotKeyRotatedOutResponse });
+
+      const { markHotKeyRotatedOut } = useWalletStore.getState();
+      await markHotKeyRotatedOut('pub-key', 'hot-1', '0xabc');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.MarkHotKeyRotatedOutRequest,
+        accountPublicKey: 'pub-key',
+        hotPublicKey: 'hot-1',
+        onChainHotCommitment: '0xabc'
+      });
+    });
+
+    it('retireRotatedOutHotKey posts a RetireRotatedOutHotKeyRequest carrying the expected key', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.RetireRotatedOutHotKeyResponse });
+
+      const { retireRotatedOutHotKey } = useWalletStore.getState();
+      await retireRotatedOutHotKey('pub-key', 'hot-1');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.RetireRotatedOutHotKeyRequest,
+        accountPublicKey: 'pub-key',
+        expectedHotPubKey: 'hot-1'
       });
     });
 

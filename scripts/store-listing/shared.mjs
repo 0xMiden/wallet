@@ -71,3 +71,56 @@ export async function readJsonFile(filePath, label) {
 export function isMainModule(importMetaUrl) {
   return Boolean(process.argv[1]) && pathToFileURL(process.argv[1]).href === importMetaUrl;
 }
+
+const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+function parseDay(value, label) {
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(value), `${label} must use YYYY-MM-DD`);
+  const date = new Date(`${value}T00:00:00Z`);
+  assert(!Number.isNaN(date.valueOf()), `${label} must be a valid date`);
+  return date;
+}
+
+export function validateRuleAge(rules, asOf) {
+  // A checked date is an expiring assertion, not historical decoration. This
+  // forces a rule review instead of silently carrying old dimensions forward.
+  const checkedAt = parseDay(rules.checkedAt, 'checkedAt');
+  const evaluationDate = parseDay(asOf, 'as-of date');
+  const ageDays = (evaluationDate.valueOf() - checkedAt.valueOf()) / millisecondsPerDay;
+  assert(ageDays >= 0, 'Store rules cannot be checked in the future');
+  assert(ageDays <= rules.maxAgeDays, `Store rules are stale: checked ${rules.checkedAt}`);
+}
+
+export function validateRuleSources(rule) {
+  // Every encoded limit needs a first-party review trail for the next refresh.
+  assert(Array.isArray(rule.sources) && rule.sources.length > 0, `${rule.label} must include first-party rule sources`);
+  for (const source of rule.sources) {
+    assert(
+      typeof source === 'string' && source.startsWith('https://'),
+      `${rule.label} rule source must be an HTTPS URL`
+    );
+  }
+}
+
+function dimensionsMatch(asset, dimensions) {
+  return dimensions.some(candidate => candidate.width === asset.width && candidate.height === asset.height);
+}
+
+export function validateScreenshotDimensions(asset, rule) {
+  // Apple and Chrome publish exact canvases. Google instead publishes a range
+  // and aspect-ratio bound, so the manifest supports both rule shapes.
+  if (rule.dimensions) {
+    assert(
+      dimensionsMatch(asset, rule.dimensions),
+      `${asset.id} has unsupported screenshot dimensions ${asset.width}x${asset.height}`
+    );
+    return;
+  }
+
+  const shortSide = Math.min(asset.width, asset.height);
+  const longSide = Math.max(asset.width, asset.height);
+  assert(
+    shortSide >= rule.minDimension && longSide <= rule.maxDimension && longSide / shortSide <= rule.maxLongToShortRatio,
+    `${asset.id} has unsupported screenshot dimensions ${asset.width}x${asset.height}`
+  );
+}

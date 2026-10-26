@@ -6,7 +6,7 @@ import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { beginBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess, syncFuseUntilMs } from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
@@ -27,6 +27,7 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
@@ -67,6 +68,19 @@ export interface FetchBalancesOptions {
  * behind another's read. It releases the address in `finally`.
  */
 export const fetchingAddresses = new Set<string>();
+
+/** Plain diagnostics only: observing a skipped E2E read must not take the lock or grant a fused probe. */
+export function balanceReadStateForTest(address: string) {
+  const hold = getCurrentWasmLockHold();
+  return {
+    inFlight: fetchingAddresses.has(address),
+    fused: isSyncFused('balances'),
+    fuseUntilMs: syncFuseUntilMs('balances'),
+    network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+    lock:
+      hold === null ? null : { label: hold.label, pauseCount: hold.pauseCount, normalCeilingMs: hold.normalCeilingMs }
+  };
+}
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
 
@@ -364,7 +378,8 @@ export async function fetchBalances(
         tokenSlug: nativeMetadata.symbol,
         metadata: nativeMetadata,
         ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-        balance: 0
+        balance: 0,
+        balanceBaseUnits: '0'
       }
     ];
   }
@@ -409,7 +424,8 @@ export async function fetchBalances(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       ...balancePrice(tokenPrices, tokenId, tokenMetadata.symbol),
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      balanceBaseUnits: asset.amount().toString()
     });
   }
 
@@ -423,7 +439,8 @@ export async function fetchBalances(
       tokenSlug: nativeMetadata.symbol,
       metadata: nativeMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     });
   }
 

@@ -1,8 +1,12 @@
 import React from 'react';
 
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 export interface ErrorLineProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   /** The message. Nothing renders when it is empty, so a caller can pass its error state directly. */
   children?: React.ReactNode;
   /**
@@ -25,10 +29,12 @@ export interface ErrorLineProps {
  */
 export const ErrorLine: React.FC<ErrorLineProps> = ({
   children,
+  errorId,
   role = 'alert',
   className,
   'data-testid': dataTestId
 }) => {
+  useUserVisibleError(children ? errorId : null, 'inline');
   if (!children) return null;
 
   return (

@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { AmountInput, normalizeDecimalInput } from './AmountInput';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // Mock the Icon component / IconName enum used by the error row. Keeps the DOM
 // tiny and lets us assert which icon variant was requested.
@@ -31,6 +35,50 @@ const TESTID = 'amount';
 const getInput = () => screen.getByTestId(TESTID) as HTMLInputElement;
 
 describe('AmountInput', () => {
+  it('shows a compact estimate while preserving exact input and callback precision through focus and blur', () => {
+    const onValueChange = jest.fn();
+    const exact = '0.040060070075077579';
+    render(
+      <AmountInput
+        value={exact}
+        unfocusedDisplayValue="≈ 0.04006007"
+        decimalsLimit={18}
+        maxLength={80}
+        data-testid={TESTID}
+        onValueChange={onValueChange}
+      />
+    );
+    expect(getInput()).toHaveValue(exact);
+    expect(screen.getByText('≈ 0.04006007')).toBeInTheDocument();
+    fireEvent.focus(getInput());
+    expect(screen.queryByText('≈ 0.04006007')).not.toBeInTheDocument();
+    expect(getInput()).toHaveValue(exact);
+    fireEvent.blur(getInput());
+    expect(screen.getByText('≈ 0.04006007')).toBeInTheDocument();
+    expect(getInput()).toHaveValue(exact);
+    for (const [value] of onValueChange.mock.calls) expect(value).toBe(exact);
+  });
+
+  it('keeps the same focused control when a computed amount becomes user-edited', () => {
+    const { rerender } = render(
+      <AmountInput
+        value="0.040060070075077579"
+        unfocusedDisplayValue="≈ 0.04006007"
+        decimalsLimit={18}
+        maxLength={80}
+        data-testid={TESTID}
+      />
+    );
+    const input = getInput();
+    act(() => input.focus());
+    rerender(
+      <AmountInput value="0.05" unfocusedDisplayValue="0.05" decimalsLimit={18} maxLength={80} data-testid={TESTID} />
+    );
+    expect(getInput()).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(getInput()).toHaveValue('0.05');
+  });
+
   describe('amountTextSize scaling (via input className)', () => {
     it('uses text-[4rem] for a short value (< 7 chars)', () => {
       render(<AmountInput value="123" data-testid={TESTID} />);
@@ -344,6 +392,27 @@ describe('AmountInput', () => {
       expect(onValueChange).toHaveBeenCalled();
     });
 
+    it('preserves redundant trailing zeros while rejecting excess nonzero precision', () => {
+      const onValueChange = jest.fn();
+      render(
+        <AmountInput
+          value="1.23"
+          preservePrecision
+          decimalsLimit={2}
+          maxLength={80}
+          onValueChange={onValueChange}
+          data-testid={TESTID}
+        />
+      );
+
+      fireEvent.change(getInput(), { target: { value: '1.2300' } });
+      expect(onValueChange).toHaveBeenCalledWith('1.2300');
+
+      onValueChange.mockClear();
+      fireEvent.change(getInput(), { target: { value: '1.2301' } });
+      expect(onValueChange).not.toHaveBeenCalled();
+    });
+
     // #433 — on a comma-decimal keyboard/locale (es, de, fr, …) the user types a
     // comma for the decimal point. Group separators are disabled, so a comma can
     // only mean "decimal": normalize it to a dot before parsing so the emitted
@@ -523,5 +592,43 @@ describe('AmountInput', () => {
     it('drops commas as groupings when a dot is already present', () => {
       expect(normalizeDecimalInput('1,000.50')).toBe('1000.50');
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the field surface after the dwell', () => {
+    render(<AmountInput errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'field');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<AmountInput errorId={errorId} error="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<AmountInput errorId="usdcxFaucetUnavailable" invalid helper="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<AmountInput errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<AmountInput errorId="usdcxFaucetUnavailable" invalid helper="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { DeadletteredNotesNotice } from './DeadletteredNotesNotice';
 
@@ -10,7 +11,10 @@ import { DeadletteredNotesNotice } from './DeadletteredNotesNotice';
 // is real ("$count$" placeholders live in en.json).
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: { count?: number }) => (params?.count !== undefined ? `${key}:${params.count}` : key)
+    t: (key: string, params?: { count?: number }) =>
+      ['deadletteredNotesBody', 'deadletteredNotesBodyOne'].includes(key)
+        ? `Visible ${key}${params?.count === undefined ? '' : `:${params.count}`}`
+        : key
   })
 }));
 
@@ -75,7 +79,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
     render(<DeadletteredNotesNotice />);
 
     expect(screen.getByText('deadletteredNotesTitle')).toBeInTheDocument();
-    expect(screen.getByText('deadletteredNotesBody:2')).toBeInTheDocument();
+    expect(screen.getByText('Visible deadletteredNotesBody:2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'connectivityRetry' })).toBeInTheDocument();
   });
 
@@ -103,7 +107,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
     render(<DeadletteredNotesNotice />);
 
     expect(screen.getByText('deadletteredNotesTitleOne')).toBeInTheDocument();
-    expect(screen.getByText('deadletteredNotesBodyOne')).toBeInTheDocument();
+    expect(screen.getByText('Visible deadletteredNotesBodyOne')).toBeInTheDocument();
   });
 
   it('retry drains via the intercom action, then revalidates the signal', async () => {
@@ -150,5 +154,82 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
 
     expect(button).not.toBeDisabled();
     jest.useRealTimers();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible dead-letter errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+    mockCount = 0;
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    [1, 'deadletteredNotesBodyOne', 'Visible deadletteredNotesBodyOne'],
+    [3, 'deadletteredNotesBody', 'Visible deadletteredNotesBody:3']
+  ] as const)('reports the fixed %s-note body identity %s after 1000 ms', (count, id, copy) => {
+    mockCount = count;
+    const view = render(<DeadletteredNotesNotice />);
+    expect(screen.getByText(copy)).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+    view.rerender(<DeadletteredNotesNotice className="layout-only" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+  });
+
+  it('keeps the plural episode through a count-only refresh', () => {
+    mockCount = 2;
+    const view = render(<DeadletteredNotesNotice />);
+    expect(screen.getByText('Visible deadletteredNotesBody:2')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    mockCount = 4;
+    view.rerender(<DeadletteredNotesNotice />);
+    expect(screen.getByText('Visible deadletteredNotesBody:4')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([['deadletteredNotesBody', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['deadletteredNotesBody', 'inline']]);
+  });
+
+  it('does not report an empty or still-loading store', () => {
+    mockCount = undefined as unknown as number;
+    const view = render(<DeadletteredNotesNotice />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    mockCount = 0;
+    view.rerender(<DeadletteredNotesNotice />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('does not report a dead-letter notice cleared by a completed drain before dwell', async () => {
+    mockCount = 1;
+    mockRequest.mockResolvedValueOnce({ type: 'RETRY_DEADLETTERED_NOTES_RESPONSE', requeued: 1 });
+    const view = render(<DeadletteredNotesNotice />);
+    expect(screen.getByText('Visible deadletteredNotesBodyOne')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
+    });
+    mockCount = 0;
+    view.rerender(<DeadletteredNotesNotice />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
   });
 });

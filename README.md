@@ -9,6 +9,8 @@
 
 A secure, cross-platform wallet for the [Miden](https://miden.xyz) blockchain. Available as a browser extension, desktop application, and mobile app.
 
+**Building a dApp for Bread?** Read the [developer guide](https://0xmiden.github.io/wallet/developers/): connecting, transactions, sign-in and fullscreen in the mobile browser.
+
 ## Platforms
 
 | Platform | Technology | Status |
@@ -109,6 +111,8 @@ yarn mobile:android       # Build and open in Android Studio
 ```
 
 #### Release Builds
+
+For store releases, follow the [publishing procedure](scripts/store-publishing/README.md). It builds production artifacts from an exact published release and verifies their identity before upload, submission and publication.
 
 ```bash
 # Android
@@ -216,6 +220,23 @@ yarn test:e2e
 # Linting and formatting
 yarn lint
 yarn format
+```
+
+### E2E in CI
+
+No E2E suite runs on a push to `main` or `next`. Pull requests keep their own E2E checks; the suites that used to run after every merge run on a schedule instead:
+
+- **Release E2E** (`release-e2e.yml`), the release E2E jobs: dispatches the fourteen testnet suites (`e2e-android`, `e2e-blockchain`, `e2e-bridge`, `e2e-bridge-in`, `e2e-dapp`, `e2e-dapp-browser`, `e2e-resilience`, `e2e-telemetry`, `e2e-usdcx`, `e2e-usdcx-live`, `pr-e2e-bridge-guardian`, `pr-e2e-earn`, `pr-e2e-guardian-lifecycle`, `pr-e2e-swap`) against `main` every night at 02:13 UTC, against a full release's tag when it is published, and against any branch or tag by hand. A release candidate does not start it automatically: test one by hand, with a dispatch on its tag or Next E2E (devnet). Its nightly leaves `e2e-usdcx-live` and `e2e-resilience` to their own crons (03:17 and 05:00 UTC).
+- **Next E2E (devnet)** (`next-e2e-devnet.yml`): dispatches `next`'s own `e2e-blockchain.yml` on devnet every night at 01:31 UTC.
+- **E2E Mainnet Nightly** (`e2e-mainnet-nightly.yml`): the mainnet round trips on two reused accounts, every night at 05:30 UTC.
+
+Each suite runs as its own run on its own workflow page, and that run records the commit it tested. The dispatcher's summary names a tested commit only for a tag; for a branch it gives the head at dispatch time, which a later push can move. It fails naming any suite it could not start. To run them by hand:
+
+```bash
+gh workflow run release-e2e.yml --ref main -f ref=main               # every release suite, against main
+gh workflow run release-e2e.yml --ref main -f ref=v1.17.6            # the same, against a tag
+gh workflow run next-e2e-devnet.yml --ref main                       # next's suite on devnet
+gh workflow run e2e-blockchain.yml --ref main -f network=testnet     # one suite on its own
 ```
 
 ### E2E Blockchain Tests

@@ -1,11 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { type FeatureAvailability, geoFeatureGate } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
-import { getDefaultSwapPair, getSwapPartners, getSwapTokens, type SwapToken } from './tokens';
+import {
+  getDefaultSwapPair,
+  getSwapPartners,
+  getSwapTokens,
+  getSwapTokensVersion,
+  subscribeSwapTokens,
+  type SwapToken
+} from './tokens';
 
 /**
  * The swap registry for a component: `getSwapTokens()`, re-read when the bridge config lands or
@@ -14,6 +21,7 @@ import { getDefaultSwapPair, getSwapPartners, getSwapTokens, type SwapToken } fr
  * on the list.
  */
 export function useSwapTokens(): SwapToken[] {
+  useSyncExternalStore(subscribeSwapTokens, getSwapTokensVersion, getSwapTokensVersion);
   useBridgeConfigSnapshot({ load: false });
   const [, setSdkReady] = useState(false);
   useEffect(() => {
@@ -50,6 +58,8 @@ export function useSwapPickerTokens(partnersOf?: string): SwapToken[] {
  * log; users see the swap screen's own copy.
  */
 export function swapAvailability(snapshot: BridgeConfigSnapshot): FeatureAvailability {
+  const gated = geoFeatureGate('swap', snapshot.geo);
+  if (gated) return gated;
   if (getDefaultSwapPair() !== null) return { state: 'available' };
   if (snapshot.status === 'loading') return { state: 'loading' };
   const pairs = snapshot.derived?.swap?.pairs;

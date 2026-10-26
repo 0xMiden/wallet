@@ -14,6 +14,24 @@ import { pendingNoteUnreadKey } from './activityUnread';
 import type { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
 
+/**
+ * Whether a filter chip shows the claim cards. A claim card is an incoming transfer, so it shows
+ * under the chips that list transfers, and under no other category.
+ */
+function showsClaimCards(filter: ActivityFilter): boolean {
+  switch (filter) {
+    case 'all':
+    case 'pending':
+    case 'transfer':
+      return true;
+    case 'swap':
+    case 'earn':
+    case 'others':
+    case 'arcade':
+      return false;
+  }
+}
+
 function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boolean {
   if (item.status === 'checking' || item.status === 'unavailable') return false;
   // An accepted transfer is no longer a card at all: `History` stops standing its consume row
@@ -29,7 +47,18 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  */
 export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, retryHeld, cannotPayFee, account, isLoadingNotes } = useActivityClaims();
+  const {
+    items: claimItems,
+    accept,
+    acceptMany,
+    retryHeld,
+    cannotPayFee,
+    account,
+    isLoadingNotes
+  } = useActivityClaims();
+  // Every claim is a card on every network: on Mainnet a note of the native asset sent by its
+  // faucet is a bridge-in, which the USDCx faucet mints, so no network filters the faucet claims.
+  const items = claimItems;
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -42,7 +71,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   // Unsearched: History hides the consume row of each of these, and a search that drops a card
   // must not bring that row back.
   const representedItems = useMemo(
-    () => items.filter(item => isShown(item, hidden.ids) && filter !== 'sent' && filter !== 'faucet'),
+    () => (showsClaimCards(filter) ? items.filter(item => isShown(item, hidden.ids)) : []),
     [items, hidden.ids, filter]
   );
   // The cards drawn.

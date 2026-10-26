@@ -127,7 +127,7 @@ it('sends an unknown submit outcome as a warning and only a final failure as an 
   expect(captured).toHaveLength(2);
   const [unconfirmed, failed] = captured;
   expect(unconfirmed).toContain(
-    'submit_outcome_unknown; grpc unknown; app hidden during submit yes; submit leg unavailable. '
+    'submit_outcome_unknown; endpoint submit_proven_transaction; grpc unknown; app hidden during submit yes; submit leg unavailable. '
   );
   expect(unconfirmed).toContain('"level":"warning"');
   expect(unconfirmed).not.toContain('"level":"error"');

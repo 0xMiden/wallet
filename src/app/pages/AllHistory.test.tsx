@@ -134,6 +134,7 @@ jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
     programId?: string | null;
     search: string;
     filter?: string;
+    onReturnToList: () => void;
     onInitialLoad?: () => void;
   }) => (
     <div
@@ -142,8 +143,15 @@ jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
       data-search-query={props.search}
       data-filter={props.filter ?? ''}
     >
+      <button data-testid="groups-return-to-list" onClick={props.onReturnToList} />
       <button data-testid="grouped-history-loaded" onClick={() => props.onInitialLoad?.()} />
     </div>
+  )
+}));
+
+jest.mock('app/templates/history/ArcadeActivityHistory', () => ({
+  ArcadeActivityHistory: ({ search }: { search: string }) => (
+    <div data-testid="arcade-history" data-search-query={search} />
   )
 }));
 
@@ -202,6 +210,25 @@ const bubbleIn = (item: HTMLElement) => item.querySelector('[data-slot="motion-h
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 describe('AllHistory', () => {
+  it('opens the existing Activity tab with Arcade selected, overriding Groups for this visit only', () => {
+    localStorage.setItem('activity_view_setting', 'groups');
+    mockLocationSearch.value = '?filter=arcade&view=list';
+    render(<AllHistory />);
+    expect(screen.getByTestId('arcade-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('grouped-history')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'categoryArcade' })).toHaveAttribute('aria-checked', 'true');
+    expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+  });
+  it('persists List after scoped Groups recovery and reopens safely', () => {
+    localStorage.setItem('activity_view_setting', 'groups');
+    const view = render(<AllHistory />);
+    fireEvent.click(screen.getByTestId('groups-return-to-list'));
+    expect(screen.getByTestId('history')).toBeInTheDocument();
+    expect(localStorage.getItem('activity_view_setting')).toBe('list');
+    view.unmount();
+    render(<AllHistory />);
+    expect(screen.getByTestId('history')).toBeInTheDocument();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
@@ -229,15 +256,32 @@ describe('AllHistory', () => {
 
     expect(screen.getByRole('heading', { name: 'activity' })).toBeTruthy();
 
-    // Every filter chip is rendered from the memoized filters list.
-    for (const label of ['all', 'pending', 'sent', 'received', 'faucet']) {
-      expect(getFilterButton(label)).toBeTruthy();
+    // Every filter chip is rendered from the memoized filters list, in this order.
+    expect(screen.getAllByRole('radio').map(radio => radio.textContent)).toEqual([
+      'all',
+      'pending',
+      'transfer',
+      'swap',
+      'earn',
+      'others'
+    ]);
+    for (const label of ['sent', 'received', 'faucet']) {
+      expect(screen.queryByRole('radio', { name: label })).toBeNull();
     }
+    expect(screen.queryByRole('radio', { name: 'faucet' })).toBeNull();
 
     // The search field is closed until the header's search button opens it.
     expect(screen.queryByPlaceholderText('searchByNameOrSymbol')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
     expect(screen.getByPlaceholderText('searchByNameOrSymbol')).toBeTruthy();
+  });
+
+  it('falls back to All for a removed Faucet deep link rather than keeping an invisible filter', () => {
+    mockLocationSearch.value = '?filter=faucet&view=list';
+    render(<AllHistory />);
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
+    expect(getHistory()).toHaveAttribute('data-filter', 'all');
+    expect(screen.queryByRole('radio', { name: 'faucet' })).toBeNull();
   });
 
   it('forwards programId and filters to the activity content', () => {
@@ -275,13 +319,13 @@ describe('AllHistory', () => {
     // with the 8px that separates it from the rule carried by the rule.
     expect(row).toHaveClass('px-4', 'py-1');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
-    expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
+    expect(getFilterButton('transfer')).toHaveAttribute('aria-checked', 'false');
     // The selection rides the bottom nav's raised bubble in the accent tint, with an
     // `accent-tint-ink` label; the rest are outlined pills on the page.
     expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-tint', 'shadow-raised');
     expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-accent-tint-ink');
-    expect(bubbleIn(getFilterButton('sent'))).toBeNull();
-    expect(getFilterButton('sent')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
+    expect(bubbleIn(getFilterButton('transfer'))).toBeNull();
+    expect(getFilterButton('transfer')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });
 
   describe('reduced motion', () => {
@@ -304,16 +348,16 @@ describe('AllHistory', () => {
   it('changes the active filter and propagates it to History on tap', () => {
     render(<AllHistory />);
 
-    fireEvent.click(getFilterButton('received'));
+    fireEvent.click(getFilterButton('swap'));
 
     expect(hapticSelection).toHaveBeenCalledTimes(1);
     expect(hapticLight).not.toHaveBeenCalled();
-    expect(getFilterButton('received')).toHaveAttribute('aria-checked', 'true');
+    expect(getFilterButton('swap')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'false');
-    expect(getHistory().getAttribute('data-filter')).toBe('received');
+    expect(getHistory().getAttribute('data-filter')).toBe('swap');
 
     // The bubble moves to the newly-selected filter (the old one fades out through the exit).
-    expect(bubbleIn(getFilterButton('received'))).not.toBeNull();
+    expect(bubbleIn(getFilterButton('swap'))).not.toBeNull();
 
     // The newly-selected chip is scrolled into view.
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
@@ -361,12 +405,12 @@ describe('AllHistory', () => {
   it('does not re-fire haptics when re-tapping a newly selected filter', () => {
     render(<AllHistory />);
 
-    fireEvent.click(getFilterButton('faucet'));
+    fireEvent.click(getFilterButton('others'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(getHistory().getAttribute('data-filter')).toBe('faucet');
+    expect(getHistory().getAttribute('data-filter')).toBe('others');
 
     // A second tap on the same (now selected) filter is silent.
-    fireEvent.click(getFilterButton('faucet'));
+    fireEvent.click(getFilterButton('others'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
     expect(hapticLight).not.toHaveBeenCalled();
   });
@@ -458,7 +502,7 @@ describe('AllHistory', () => {
     it('does not begin a flow per render', () => {
       render(<AllHistory />);
 
-      fireEvent.click(getFilterButton('sent'));
+      fireEvent.click(getFilterButton('earn'));
       fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
       fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
 
@@ -565,7 +609,7 @@ describe('AllHistory', () => {
       // One radio group in the panel, and exactly two radios in it.
       expect(within(menu).getAllByRole('radiogroup')).toHaveLength(1);
       expect(within(menu).getAllByRole('radio')).toHaveLength(2);
-      for (const id of ['all', 'pending', 'sent', 'received', 'faucet']) {
+      for (const id of ['all', 'pending', 'transfer', 'swap', 'earn', 'others']) {
         expect(screen.queryByTestId(`activity-filter-${id}`)).toBeNull();
       }
     });
@@ -600,8 +644,8 @@ describe('AllHistory', () => {
 
     it("keeps the feed's own filter choice while the user is away in Groups", async () => {
       render(<AllHistory />);
-      fireEvent.click(getFilterButton('sent'));
-      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+      fireEvent.click(getFilterButton('transfer'));
+      expect(getHistory().getAttribute('data-filter')).toBe('transfer');
 
       openMenu();
       fireEvent.click(screen.getByTestId('activity-view-groups'));
@@ -610,23 +654,23 @@ describe('AllHistory', () => {
       openMenu();
       fireEvent.click(screen.getByTestId('activity-view-list'));
 
-      expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'true');
-      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+      expect(getFilterButton('transfer')).toHaveAttribute('aria-checked', 'true');
+      expect(getHistory().getAttribute('data-filter')).toBe('transfer');
     });
 
     it("restores the feed's own filter after a trip to Groups when the page remounts", async () => {
       const first = render(<AllHistory />);
-      fireEvent.click(getFilterButton('sent'));
+      fireEvent.click(getFilterButton('transfer'));
       openMenu();
       fireEvent.click(screen.getByTestId('activity-view-groups'));
       await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
       openMenu();
       fireEvent.click(screen.getByTestId('activity-view-list'));
 
-      expect(mockLocationSearch.value).toBe('?filter=sent');
+      expect(mockLocationSearch.value).toBe('?filter=transfer');
       first.unmount();
       render(<AllHistory />);
-      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+      expect(getHistory().getAttribute('data-filter')).toBe('transfer');
     });
 
     it('ignores a tap on the view that is already chosen', () => {
@@ -797,7 +841,7 @@ describe('AllHistory', () => {
     });
 
     it("leaves the saved view in charge of the page's own record of a filter", () => {
-      mockLocationSearch.value = '?filter=sent';
+      mockLocationSearch.value = '?filter=transfer';
       render(<AllHistory />);
 
       expect(screen.getByTestId('grouped-history')).toBeTruthy();
@@ -806,11 +850,11 @@ describe('AllHistory', () => {
     it('stays on the feed when the user picks another filter on a List a link asked for', () => {
       mockLocationSearch.value = '?filter=pending&view=list';
       render(<AllHistory />);
-      fireEvent.click(getFilterButton('sent'));
+      fireEvent.click(getFilterButton('transfer'));
 
-      expect(mockLocationSearch.value).toBe('?filter=sent&view=list');
+      expect(mockLocationSearch.value).toBe('?filter=transfer&view=list');
       expect(screen.queryByTestId('grouped-history')).toBeNull();
-      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+      expect(getHistory().getAttribute('data-filter')).toBe('transfer');
     });
 
     // The link's filter becomes the kept choice, as a pick does, so it survives a return to Activity
@@ -869,6 +913,14 @@ describe('AllHistory — opened at a filter', () => {
     render(<AllHistory />);
 
     expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
+  });
+
+  it.each(['sent', 'received', 'faucet'])('shows All for an old link to the removed %s filter', removed => {
+    mockLocationSearch.value = `?filter=${removed}&view=list`;
+    render(<AllHistory />);
+
+    expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
+    expect(screen.getByTestId('history')).toHaveAttribute('data-filter', 'all');
   });
 
   it('follows a later link, because the tab stays mounted under the others', () => {

@@ -14,9 +14,12 @@ export const createAppKit = jest.fn((options: { networks?: MockNetwork[] } = {})
   let active = networks[0];
   const relayer = { connected: false, on: jest.fn() };
   return {
+    open: jest.fn(async () => {}),
     setThemeMode: jest.fn(),
     ready: jest.fn(async () => {}),
     subscribeState: jest.fn(() => () => {}),
+    subscribeAccount: jest.fn(() => () => {}),
+    disconnect: jest.fn(async () => {}),
     getUniversalProvider: jest.fn(async () => ({ client: { core: { relayer } } })),
     getCaipNetworks: jest.fn(() => networks),
     getCaipNetwork: jest.fn(() => active),

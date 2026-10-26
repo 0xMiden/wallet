@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -75,6 +76,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     @Override
     public void load() {
         super.load();
+        BreadAuthTabLauncher.hostLoaded(getActivity());
+        IabLog.setDebuggable((getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             this::handleFileChooserResult
@@ -538,7 +541,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             );
         }
 
-        Log.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
+        IabLog.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
 
         this.getActivity().runOnUiThread(
             new Runnable() {
@@ -626,7 +629,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             try {
                 options.setProxyRequestsPattern(Pattern.compile(proxyRequestsStr));
             } catch (PatternSyntaxException e) {
-                Log.e("WebViewDialog", String.format("Pattern '%s' is not a valid pattern", proxyRequestsStr));
+                Log.e("WebViewDialog", "Invalid proxy request pattern: " + e.getClass().getSimpleName());
             }
         }
 
@@ -748,10 +751,25 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
-                @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime) {
+                @Override
+                public void permissionDeniedToast() {
+                    notifyListeners("permissionDeniedToast", new JSObject());
+                }
+
+                @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime, String morphId) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("policyRevision", revision).put("visibilitySequence", sequence);
                     if (lifetime != null) event.put("managedHostCloseToken", lifetime);
+                    if (morphId != null) event.put("morphId", morphId);
                     notifyListeners("presentationMinimizeRequested", event);
+                }
+                @Override public void presentationMorph(BreadMorphEvent morph) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("morphId", morph.morphId)
+                        .put("phase", morph.phase).put("target", morph.target).put("progress", morph.progress)
+                        .put("velocity", morph.velocity).put("tracking", morph.tracking).put("visibilitySequence", morph.sequence);
+                    JSObject managed = call.getObject("managedHostClose");
+                    String lifetime = managed == null ? null : managed.getString("token");
+                    if (lifetime != null && !lifetime.isEmpty()) event.put("managedHostCloseToken", lifetime);
+                    notifyListeners("presentationMorph", event);
                 }
                 @Override public void presentationChanged(boolean fullscreen, boolean resolved, long revision, String lifetime) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0])
@@ -813,7 +831,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void javascriptCallback(String message) {
                     // Handle the message received from JavaScript
-                    Log.d("WebViewDialog", "Received message from JavaScript: " + message);
+                    Log.d("WebViewDialog", "Received message from JavaScript");
                     // Process the message as needed
                     try {
                         // Parse the received message as a JSON object
@@ -838,7 +856,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         // Notify listeners with the parsed message
                         notifyListeners("messageFromWebview", jsObject);
                     } catch (JSONException e) {
-                        Log.e("WebViewDialog", "Error parsing JSON message: " + e.getMessage());
+                        // JSON exception messages can include the bridge payload.
+                        Log.e("WebViewDialog", "Error parsing JSON message");
 
                         // If JSON parsing fails, send the raw message as a string
                         JSObject jsObject = new JSObject();
@@ -863,7 +882,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading authorized app link at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
+            IabLog.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
             options.setAuthorizedAppLinks(authorizedLinks);
         } else {
             Log.d("InAppBrowserPlugin", "No authorized app links provided.");
@@ -882,7 +901,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading blocked host at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
+            IabLog.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
             options.setBlockedHosts(blockedHosts);
         } else {
             Log.d("InAppBrowserPlugin", "No blocked hosts provided.");
@@ -1022,13 +1041,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             return;
         }
         JSObject eventData = call.getObject("detail");
-        // Log event data
         if (eventData == null) {
             call.reject("No event data provided");
             return;
         }
 
-        Log.d("InAppBrowserPlugin", "Event data: " + eventData.toString());
+        Log.d("InAppBrowserPlugin", "Sending message to JavaScript");
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
@@ -1342,14 +1360,15 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        String dataUrl = dialog.takeSnapshotData(scale, quality);
-                        if (dataUrl == null) {
-                            call.reject("snapshot failed");
-                            return;
-                        }
-                        JSObject ret = new JSObject();
-                        ret.put("data", dataUrl);
-                        call.resolve(ret);
+                        dialog.takeSnapshotData(scale, quality, dataUrl -> {
+                            if (dataUrl == null) {
+                                call.reject("snapshot failed");
+                                return;
+                            }
+                            JSObject ret = new JSObject();
+                            ret.put("data", dataUrl);
+                            call.resolve(ret);
+                        });
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error taking snapshot: " + e.getMessage());
                         call.reject("snapshot failed: " + e.getMessage());
@@ -1409,6 +1428,59 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 }
             }
         );
+    }
+
+    /**
+     * Miden plugin method (#1817): run the native expand or collapse of a positioned instance as one
+     * spring on the live page. setVisible's guards apply; every refusal resolves accepted: false.
+     */
+    @PluginMethod
+    public void morph(PluginCall call) {
+        final String instanceId = call.getString("id");
+        final WebViewDialog dialog = instanceId == null ? null : WebViewRegistry.getShared().get(instanceId);
+        if (dialog == null) {
+            call.resolve(new JSObject().put("accepted", false));
+            return;
+        }
+        this.getActivity().runOnUiThread(() -> {
+            boolean accepted = false;
+            try {
+                String lifetime = dialog.managedClose() == null ? null : dialog.managedClose().token;
+                boolean current = WebViewRegistry.getShared().get(instanceId) == dialog
+                    && java.util.Objects.equals(lifetime, call.getString("managedHostCloseToken"))
+                    && (lifetime == null || call.getInt("visibilitySequence") != null);
+                if (current) {
+                    boolean shown = dialog.isShowing();
+                    accepted = dialog.presentationMorph(call.getString("to"), call.getObject("card"), call.getObject("velocity"),
+                        call.getString("morphId"), call.getInt("policyRevision"), call.getInt("visibilitySequence"));
+                    if (shown != dialog.isShowing() && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
+                }
+            } catch (Exception e) {
+                Log.e("InAppBrowser", "morph failed: " + e.getMessage());
+            }
+            call.resolve(new JSObject().put("accepted", accepted));
+        });
+    }
+
+    /** Miden plugin method (#1817): publish the landing card the native Bread button collapses to. */
+    @PluginMethod
+    public void setMorphTarget(PluginCall call) {
+        WebViewRegistry.getShared().setMorphCard(WebViewDialog.hostCard(call.getObject("card")));
+        call.resolve();
+    }
+
+    /**
+     * Miden plugin method (#1817): hold the full frame rate from a touch-down on a control that can
+     * start a morph. A morph that starts takes the request over; without one it lapses after durationMs.
+     */
+    @PluginMethod
+    public void prepareMorph(PluginCall call) {
+        Integer requested = call.getInt("durationMs");
+        long duration = requested == null ? BreadFrameBoost.DURATION_MS : Math.max(0, Math.min(2000, requested));
+        this.getActivity().runOnUiThread(() -> {
+            BreadFrameBoost.hold(getBridge() == null ? null : getBridge().getWebView(), duration);
+            call.resolve();
+        });
     }
 
     /**

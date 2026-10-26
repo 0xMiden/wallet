@@ -27,10 +27,14 @@ import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { isOneClickDeadlineError } from 'lib/one-click/deadline';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate, Redirect } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -57,6 +61,52 @@ import type {
 } from './types';
 import { useTransactionRow } from './useTransactionRow';
 
+const OneClickRecovery = React.lazy(() =>
+  import('screens/swap-flow/OneClickRecovery').then(module => ({ default: module.OneClickRecovery }))
+);
+
+export function isRecoverableExpiredOneClick(
+  active:
+    | {
+        type?: string;
+        status?: ITransactionStatus;
+        mayHaveSubmitted?: boolean;
+        error?: string;
+        rawError?: string;
+        processingStartedAt?: number;
+        extraInputs?: { oneClick?: { direction?: string; evmSubmission?: string } };
+      }
+    | undefined,
+  status: ITransactionStatus | undefined
+): boolean {
+  const oneClick = active?.extraInputs?.oneClick;
+  if (
+    active?.type === 'bridged-receive' &&
+    active.status === ITransactionStatus.Completed &&
+    status === ITransactionStatus.Completed &&
+    oneClick?.direction === 'evm-to-miden' &&
+    (oneClick.evmSubmission === 'attempted' || oneClick.evmSubmission === 'known')
+  ) {
+    return true;
+  }
+  return (
+    status === ITransactionStatus.Failed &&
+    active?.type === 'send' &&
+    active.status === ITransactionStatus.Failed &&
+    active.mayHaveSubmitted !== true &&
+    !isOutcomeUnconfirmed({
+      type: active.type,
+      status: active.status,
+      error: active.error,
+      rawError: active.rawError,
+      mayHaveSubmitted: active.mayHaveSubmitted,
+      processingStartedAt: active.processingStartedAt
+    }) &&
+    isOneClickDeadlineError(active.error) &&
+    active.extraInputs?.oneClick?.direction === 'miden-to-evm'
+  );
+}
+
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
@@ -64,7 +114,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const { signTransaction } = useMidenContext();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<{ text: string; id: UserErrorId } | null>(null);
   const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
@@ -109,6 +159,30 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
+  // Loading is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedRow = useRef<{ txId: string; failed: boolean }>();
+  if (loaded && active?.id === txId && firstLoadedRow.current?.txId !== txId) {
+    firstLoadedRow.current = { txId, failed: status === ITransactionStatus.Failed };
+  }
+  useUserVisibleError(
+    loaded &&
+      active?.id === txId &&
+      status === ITransactionStatus.Failed &&
+      firstLoadedRow.current?.txId === txId &&
+      !firstLoadedRow.current.failed
+      ? 'raw_transaction_failed'
+      : null,
+    'status_screen'
+  );
+  const submissionMessage =
+    active !== undefined && (status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed)
+      ? submissionFeedback(active)
+      : undefined;
+  const expiredOneClick = isRecoverableExpiredOneClick(active, status);
+  useUserVisibleError(
+    submissionMessage !== undefined && submissionMessage.rowCopy === undefined ? submissionMessage.messageKey : null,
+    'status_screen'
+  );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
   // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
   useEffect(() => {
@@ -165,10 +239,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         requestSWTransactionProcessing();
       } catch (error) {
         if (error instanceof ClaimFeeRefusedError) {
-          setRetryError(t('insufficientFeeAsset'));
+          setRetryError({ text: t('insufficientFeeAsset'), id: 'insufficientFeeAsset' });
         } else {
           console.error('[GeneratingTransaction] Failed to retry transaction:', error);
-          setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+          setRetryError(
+            error instanceof Error
+              ? { text: error.message, id: 'raw_transaction_retry_failed' }
+              : { text: t('smthWentWrong'), id: 'smthWentWrong' }
+          );
         }
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
@@ -261,24 +339,37 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         were unreachable for the same reason.
       */}
       <div className={classNames('flex min-h-0 flex-1 flex-col w-full')}>
-        <GeneratingTransaction
-          onDoneClick={onClose}
-          transactionComplete={transactionComplete}
-          hasErrors={hasErrors}
-          keepOpen={keepOpen}
-          activeStage={activeStage}
-          activeType={activeType}
-          isGuardian={isGuardian}
-          activeTransaction={active}
-          completedTransaction={active}
-          completedTxHash={receiptTxHash}
-          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
-          onRetry={onRetry}
-          onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
-          canRetry={canRetry}
-          isRetrying={isRetrying}
-          retryError={retryError}
-        />
+        {expiredOneClick && active?.extraInputs?.oneClick ? (
+          <React.Suspense
+            fallback={<div className="flex min-h-0 flex-1 items-center justify-center bg-app-bg" aria-busy="true" />}
+          >
+            <OneClickRecovery
+              tracking={active.extraInputs.oneClick}
+              transactionAccountId={active.accountId}
+              onBack={onClose}
+            />
+          </React.Suspense>
+        ) : (
+          <GeneratingTransaction
+            onDoneClick={onClose}
+            transactionComplete={transactionComplete}
+            hasErrors={hasErrors}
+            keepOpen={keepOpen}
+            activeStage={activeStage}
+            activeType={activeType}
+            isGuardian={isGuardian}
+            activeTransaction={active}
+            completedTransaction={active}
+            completedTxHash={receiptTxHash}
+            onViewExplorer={explorerUrl ? onViewExplorer : undefined}
+            onRetry={onRetry}
+            onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
+            canRetry={canRetry}
+            isRetrying={isRetrying}
+            retryError={retryError?.text}
+            retryErrorId={retryError?.id}
+          />
+        )}
       </div>
     </div>
   );
@@ -300,9 +391,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   onRetryAnyway,
   canRetry = false,
   isRetrying = false,
-  retryError
+  retryError,
+  retryErrorId
 }) => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
+  useUserVisibleError(!showSuccessReceipt && retryError ? retryErrorId : null, 'inline');
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
@@ -326,7 +419,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
+  const submission = failedRow !== undefined ? submissionFeedback(failedRow) : undefined;
+  const outcomeUnconfirmed =
+    transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
+  // A stored submit refusal is a definite failure even after the submit stamp. A stored timeout,
+  // drop, or missing answer stays not confirmed, including when the row was marked Failed.
+  const unconfirmed = submission?.kind === 'rejected' ? false : submission !== undefined ? true : outcomeUnconfirmed;
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
@@ -368,6 +466,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
+      if (submission !== undefined) return submission.rowCopy ?? t(submission.messageKey);
       if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
       // Prefer the row's own error. The pipeline writes prose here for the failures it
       // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
@@ -392,7 +491,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     commitUnconfirmed,
     activeTransaction,
     completedTransaction,
-    guardianBusy
+    guardianBusy,
+    submission
   ]);
 
   const dismissalDescription = useMemo(() => {
@@ -560,8 +660,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
           )}
           {/* The row's own text stays one tap away, as on its Activity card. */}
-          {unconfirmed && (
-            <ErrorDetails details={failedRow?.rawError ?? failedRow?.error} className="mt-2 w-full items-center" />
+          {(unconfirmed || submission?.details !== undefined) && (
+            <ErrorDetails
+              details={submission?.details ?? failedRow?.rawError ?? failedRow?.error}
+              className="mt-2 w-full items-center"
+            />
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

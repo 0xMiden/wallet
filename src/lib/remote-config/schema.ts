@@ -2,10 +2,31 @@ import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
+import { type GeoBlocks, readGeoBlocks } from './geo';
+import { parseOneClickEvmAssets } from '../one-click/identity';
+import type { OneClickEvmAssetConfig } from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
 export type BridgeSwitch = 'earn';
+
+export interface OneClickMidenAssetConfig {
+  assetId: string;
+  faucetId: string;
+  decimals: number;
+}
+
+export interface OneClickAppFeeConfig {
+  recipient: string;
+  fee: number;
+}
+
+export interface OneClickConfig {
+  serviceUrl: string;
+  midenAssets: OneClickMidenAssetConfig[];
+  evmAssets?: OneClickEvmAssetConfig[];
+  appFees?: OneClickAppFeeConfig[];
+}
 
 export interface SwapConfig {
   /**
@@ -14,6 +35,7 @@ export interface SwapConfig {
    * tokens and no quotes.
    */
   etaUrl?: string;
+  oneClick?: OneClickConfig;
 }
 
 /** The picker pings every listed Guardian operator, so the list is bounded. */
@@ -45,11 +67,50 @@ export interface GuardianConfig {
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
 export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
 
-/** Earn protocols the Earn code supports. */
-export const SUPPORTED_EARN_PROTOCOLS = ['dummy-lending'] as const;
-export type EarnProtocol = (typeof SUPPORTED_EARN_PROTOCOLS)[number];
-/** The lender key Epoch's positions service names each protocol by; it also leads the protocol's market uids. */
-export const EARN_LENDER_KEYS: Readonly<Record<EarnProtocol, string>> = { 'dummy-lending': 'DUMMY_LENDING' };
+/**
+ * The protocol strings a listed Earn vault can name. A deposit's `protocolHashIdentifier` is
+ * `keccak256(toBytes(protocol))`. The testnet deposits use the hash of `dummy-lending`.
+ */
+export const EARN_VAULT_PROTOCOLS = ['1delta', 'dummy-lending'] as const;
+export type EarnVaultProtocol = (typeof EARN_VAULT_PROTOCOLS)[number];
+
+/** The risk levels a listed Earn vault can name. */
+export const EARN_VAULT_RISKS = ['low', 'medium', 'high'] as const;
+export type EarnVaultRisk = (typeof EARN_VAULT_RISKS)[number];
+
+/** The longest vault name and `about` sentence the wallet shows. */
+export const MAX_EARN_VAULT_NAME_LENGTH = 64;
+export const MAX_EARN_VAULT_ABOUT_LENGTH = 200;
+
+/**
+ * A vault's `logo`: a file under `icons/` of the config repo, relative to the base URL the document was fetched from.
+ * The rule of the config repo's validator (scripts/validate.mjs).
+ */
+export const EARN_VAULT_LOGO = /^icons\/[a-z0-9]+(-[a-z0-9]+)*\.(svg|png)$/;
+
+/**
+ * An Earn vault as the document lists it. The list is the only source of the vaults the wallet offers: a market of
+ * the Epoch catalogue that no entry names is not offered. The text fields are literal: the wallet shows them as
+ * written in every language.
+ */
+export interface EarnVaultConfig {
+  /** Unique in the list: `^[a-z][a-z0-9-]*$`. The vault's route id (`/earn/vaults/{id}`). */
+  id: string;
+  /** `LENDER_KEY:chainId:underlying`, lowercase; unique in the list. */
+  marketUid: string;
+  name: string;
+  /** The protocol string a deposit hashes into its `protocolHashIdentifier`. */
+  protocol: EarnVaultProtocol;
+  about?: string;
+  risk?: EarnVaultRisk;
+  /** False when the document stops new deposits into the vault. True when the document does not set it. */
+  depositsEnabled: boolean;
+  /**
+   * The vault's mark, a path such as `icons/aave.svg` relative to the document's base URL (`EARN_VAULT_LOGO`).
+   * Several vaults may name one file. Resolve it with `selectEarnVaultLogoUrl`.
+   */
+  logo?: string;
+}
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;
@@ -86,6 +147,15 @@ export interface MainnetCountdownConfig {
   launchAt?: number;
 }
 
+/**
+ * The ceilings the document puts on bridge transfers. `bridgeInMaxBalanceUsd` is the most the receiving account may
+ * hold, in US dollars, once a bridge-in lands: the wallet refuses a deposit that takes the account's valued balance
+ * past it. Absent means no ceiling.
+ */
+export interface BridgeLimitsConfig {
+  bridgeInMaxBalanceUsd?: number;
+}
+
 export interface RouteSwitches {
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
@@ -95,9 +165,24 @@ export interface EpochChainConfig extends RouteSwitches {
   tokens: { USDC?: { contractAddress: EvmAddress; outputs: string[] } };
 }
 
+export interface AgglayerDepositTokenConfig {
+  contractAddress: EvmAddress;
+}
+
 export interface AgglayerChainConfig extends RouteSwitches {
   contractAddress: EvmAddress;
   midenBridgeId: string;
+  /**
+   * The ERC-20 source tokens the document lists for a deposit, by the symbol the picker shows. Native ETH is never
+   * listed: the wallet finds it in the bridge's faucet registry, which is also what verifies each token here.
+   * Absent when the document lists none.
+   */
+  tokens?: Record<string, AgglayerDepositTokenConfig>;
+  /**
+   * A Blockscout API root (`.../api/v2`) that lists an address's ERC-20 holdings on this chain. On a test network the
+   * picker offers the connected wallet's holdings through it; absent, and on mainnet, only `tokens` are offered.
+   */
+  tokenApiUrl?: string;
 }
 
 export type UsdcxDepositConfig =
@@ -143,14 +228,21 @@ export interface BridgeConfig {
   version: number;
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
-  features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
+  features: { earn: boolean; nearIntents: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
   /**
-   * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
-   * way in directly. False or absent: Welcome shows the create and recover flows, and the logo taps
-   * unlock the invite-only way in.
+   * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
+   * blocks the feature. A withdrawal of an existing Earn position is not a start.
    */
-  onboarding?: { inviteOnly: boolean };
+  geo?: GeoBlocks;
+  /**
+   * The mainnet launch. Before its moment Welcome shows the create and recover flows, with the logo taps
+   * as the unlock of the invite-only way in; from the moment on Welcome shows the invite-only way in
+   * directly and an existing test-network wallet is offered the switch to mainnet. The document's
+   * `onboarding.inviteOnly` is no longer read: the moment is the one switch.
+   */
   mainnetCountdown?: MainnetCountdownConfig;
+  /** Only there when the document sets a `limits` section. */
+  limits?: BridgeLimitsConfig;
   swap?: SwapConfig;
   /**
    * The network's Guardian operators in picker order, the first being the default. Never empty. Absent means the
@@ -162,11 +254,19 @@ export interface BridgeConfig {
    * does not know.
    */
   onramp?: OnrampConfig;
+  /**
+   * The Earn vaults the wallet offers, in picker order. Present, and never empty, exactly when `features.earn` is
+   * true.
+   */
+  earn?: { vaults: EarnVaultConfig[] };
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
+// An ERC-20 symbol as the deposit picker shows it: 1 to 11 upper-case ASCII letters or digits. The same rule as the
+// config repo's validator (scripts/validate.mjs).
+const AGGLAYER_TOKEN_SYMBOL = /^[A-Z0-9]{1,11}$/;
 // Lower-case letters and digits in groups joined by single hyphens.
 const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // C0 controls, DEL and C1 controls: none belongs in a line of text the wallet shows.
@@ -174,11 +274,16 @@ const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 // An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+// The Earn vault rules of the config repo's validator (scripts/validate.mjs).
+const EARN_VAULT_ID = /^[a-z][a-z0-9-]*$/;
+const EARN_LENDER_KEY = /^[A-Z0-9_]+$/;
+const EARN_CHAIN_ID = /^[1-9][0-9]*$/;
+const LOWERCASE_EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
 // What this build does not know or cannot complete (a newer chain, route, token or output) is left out instead, so
-// only its own routes go unavailable. mainnetCountdown, which only drives a banner, is off when malformed.
+// only its own routes go unavailable. mainnetCountdown is off when malformed: no banner and no launch.
 const invalid = (): never => {
   throw new Error('invalid bridge config');
 };
@@ -228,6 +333,62 @@ function baseUrl(value: unknown, allowLocalHttp: boolean): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
+function oneClick(
+  value: unknown,
+  network: string,
+  allowLocalHttp: boolean,
+  allowOneClickLocalE2E: boolean
+): OneClickConfig | undefined {
+  if (network !== 'mainnet' && !(network === 'localnet' && allowOneClickLocalE2E)) return undefined;
+  const config = section(value);
+  const serviceUrl = baseUrl(config.serviceUrl, network === 'localnet' && allowOneClickLocalE2E && allowLocalHttp);
+  if (network === 'localnet' && allowOneClickLocalE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname))
+    return invalid();
+  const entries = config.midenAssets;
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 64) return invalid();
+  const ids = new Set<string>();
+  const faucets = new Set<string>();
+  const midenAssets = entries.map(entry => {
+    const asset = section(entry);
+    if (
+      typeof asset.assetId !== 'string' ||
+      asset.assetId.length < 1 ||
+      asset.assetId.length > 256 ||
+      CONTROL_CHARACTER.test(asset.assetId)
+    )
+      return invalid();
+    const assetId = asset.assetId;
+    const faucetId = midenAccountId(asset.faucetId);
+    if (!isSafeIntegerInRange(asset.decimals, 0, 38) || ids.has(assetId) || faucets.has(faucetId)) return invalid();
+    ids.add(assetId);
+    faucets.add(faucetId);
+    return { assetId, faucetId, decimals: asset.decimals };
+  });
+  const evmAssets = parseOneClickEvmAssets(config.evmAssets, ids);
+  let appFees: OneClickAppFeeConfig[] | undefined;
+  if (config.appFees !== undefined) {
+    if (!Array.isArray(config.appFees) || config.appFees.length > 3) return invalid();
+    appFees = config.appFees.map(entry => {
+      const fee = section(entry);
+      if (
+        typeof fee.recipient !== 'string' ||
+        fee.recipient.length < 2 ||
+        fee.recipient.length > 64 ||
+        !/^[a-z0-9._-]+$/.test(fee.recipient)
+      )
+        return invalid();
+      if (!isSafeIntegerInRange(fee.fee, 0, 1000)) return invalid();
+      return { recipient: fee.recipient, fee: fee.fee };
+    });
+    if (appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000) return invalid();
+  }
+  return { serviceUrl, midenAssets, evmAssets, ...(appFees === undefined ? {} : { appFees }) };
+}
+
+function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max;
+}
+
 function featureSwitch(features: Record<string, unknown>, name: string): boolean {
   const value = features[name];
   if (value === undefined) return false;
@@ -254,6 +415,19 @@ function readCountdown(value: unknown): MainnetCountdownConfig {
 }
 
 type ConfigValue = Parameters<typeof section>[0];
+
+// A ceiling in US dollars: a finite number above zero. A malformed ceiling fails the document, since a ceiling the
+// wallet silently dropped would let a deposit through that the operator meant to refuse.
+function usdCeiling(value: ConfigValue): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return invalid();
+  return value;
+}
+
+function readLimits(value: ConfigValue): BridgeLimitsConfig | undefined {
+  if (value === undefined) return undefined;
+  const bridgeInMaxBalanceUsd = read(section(value), 'bridgeInMaxBalanceUsd', usdCeiling);
+  return bridgeInMaxBalanceUsd === undefined ? undefined : { bridgeInMaxBalanceUsd };
+}
 
 function requiredBoolean(value: ConfigValue): boolean {
   return typeof value === 'boolean' ? value : invalid();
@@ -296,12 +470,30 @@ function epochChain(value: ConfigValue): EpochChainConfig | undefined {
   };
 }
 
-function agglayerChain(value: ConfigValue): AgglayerChainConfig {
+// A map keyed by symbol, each entry an EVM address, no address twice: the rules the config repo's validator applies.
+function agglayerDepositTokens(value: ConfigValue): Record<string, AgglayerDepositTokenConfig> {
+  const tokens: Record<string, AgglayerDepositTokenConfig> = {};
+  const addresses = new Set<string>();
+  for (const [symbol, token] of Object.entries(section(value))) {
+    if (!AGGLAYER_TOKEN_SYMBOL.test(symbol)) return invalid();
+    const contractAddress = evmAddress(section(token).contractAddress);
+    if (addresses.has(contractAddress)) return invalid();
+    addresses.add(contractAddress);
+    tokens[symbol] = { contractAddress };
+  }
+  return tokens;
+}
+
+function agglayerChain(value: ConfigValue, url: (value: ConfigValue) => string): AgglayerChainConfig {
   const bridge = section(value);
+  const tokens = read(bridge, 'tokens', agglayerDepositTokens);
+  const tokenApiUrl = read(bridge, 'tokenApiUrl', url);
   return {
     ...switches(bridge),
     contractAddress: evmAddress(bridge.contractAddress),
-    midenBridgeId: midenAccountId(bridge.midenBridgeId)
+    midenBridgeId: midenAccountId(bridge.midenBridgeId),
+    ...(tokens === undefined ? {} : { tokens }),
+    ...(tokenApiUrl === undefined ? {} : { tokenApiUrl })
   };
 }
 
@@ -349,7 +541,10 @@ function usdcxChain(value: ConfigValue): UsdcxChainConfig | undefined {
   };
 }
 
-function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainConfig> {
+function supportedChains(
+  value: ConfigValue,
+  url: (value: ConfigValue) => string
+): Record<string, SupportedEvmChainConfig> {
   const chains: Record<string, SupportedEvmChainConfig> = {};
   const ids = new Set<number>();
   // Chains skipped, or whose xreserve deposit was left out: an executor deposit through one is left out too.
@@ -368,7 +563,7 @@ function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainCo
     ids.add(item.chainId);
     const bridges = section(item.bridges);
     const epoch = read(bridges, 'epoch', epochChain);
-    const agglayer = read(bridges, 'agglayer', agglayerChain);
+    const agglayer = read(bridges, 'agglayer', value => agglayerChain(value, url));
     const usdcx = read(bridges, 'usdcx', usdcxChain);
     if (section(bridges.usdcx).deposit !== undefined && !usdcx?.deposit) incomplete.add(slug);
     chains[slug] = {
@@ -456,7 +651,88 @@ function readOnramp(
   return known ? config : undefined;
 }
 
-function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
+const member = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
+
+// The USDC contract of each Epoch route, lowercase, by chain id: the markets a vault can name. Read from the document
+// as written, as the config repo's validator reads it, so a chain or route this build leaves out (a newer build's
+// chain, a route with no provider values) still names its vaults. A route with no USDC address names none.
+function epochUsdcByChain(value: unknown): Map<number, string | undefined> {
+  const routes = new Map<number, string | undefined>();
+  if (!isRecord(value)) return routes;
+  for (const entry of Object.values(value)) {
+    const chainId = member(entry, 'chainId');
+    const epoch = member(member(entry, 'bridges'), 'epoch');
+    if (!isPositiveSafeInteger(chainId) || !isRecord(epoch)) continue;
+    const usdc = member(member(member(epoch, 'tokens'), 'USDC'), 'contractAddress');
+    routes.set(chainId, typeof usdc === 'string' ? usdc.toLowerCase() : undefined);
+  }
+  return routes;
+}
+
+// `LENDER_KEY:chainId:underlying` of an Epoch route's own USDC, lowercase.
+function earnMarketUid(value: unknown, routes: Map<number, string | undefined>): string {
+  if (typeof value !== 'string') return invalid();
+  const parts = value.split(':');
+  const [lenderKey = '', chainId = '', underlying = ''] = parts;
+  if (parts.length !== 3 || !EARN_LENDER_KEY.test(lenderKey) || !EARN_CHAIN_ID.test(chainId)) return invalid();
+  if (!LOWERCASE_EVM_ADDRESS.test(underlying) || !Number.isSafeInteger(Number(chainId))) return invalid();
+  const usdc = routes.get(Number(chainId));
+  return usdc !== undefined && usdc === underlying ? value.toLowerCase() : invalid();
+}
+
+// Literal text, shown as written: 1 to `maxLength` characters. Unlike a Guardian's text, neither the config repo's
+// validator nor this parser checks its characters or spaces.
+function earnVaultText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) return invalid();
+  return value;
+}
+
+// A path under `icons/`, never a URL: the wallet resolves it against the document's own base URL.
+function earnVaultLogo(value: unknown): string {
+  return typeof value === 'string' && EARN_VAULT_LOGO.test(value) ? value : invalid();
+}
+
+function oneOf<T extends string>(values: readonly T[], value: unknown): T {
+  return values.find(known => known === value) ?? invalid();
+}
+
+function readEarnVault(value: unknown, routes: Map<number, string | undefined>): EarnVaultConfig {
+  if (!isRecord(value)) return invalid();
+  if (typeof value.id !== 'string' || !EARN_VAULT_ID.test(value.id)) return invalid();
+  const about = read(value, 'about', about => earnVaultText(about, MAX_EARN_VAULT_ABOUT_LENGTH));
+  const risk = read(value, 'risk', risk => oneOf(EARN_VAULT_RISKS, risk));
+  const logo = read(value, 'logo', earnVaultLogo);
+  return {
+    id: value.id,
+    marketUid: earnMarketUid(value.marketUid, routes),
+    name: earnVaultText(value.name, MAX_EARN_VAULT_NAME_LENGTH),
+    protocol: oneOf(EARN_VAULT_PROTOCOLS, value.protocol),
+    ...(about === undefined ? {} : { about }),
+    ...(risk === undefined ? {} : { risk }),
+    depositsEnabled: read(value, 'depositsEnabled', requiredBoolean) ?? true,
+    ...(logo === undefined ? {} : { logo })
+  };
+}
+
+// The section exists exactly when Earn is on: Earn on with no vault would offer nothing, and vaults with Earn off
+// would be a list nothing reads. Two entries for one id or one market are ambiguous.
+function readEarn(value: unknown, earnEnabled: boolean, chains: unknown): { vaults: EarnVaultConfig[] } | undefined {
+  if (value === undefined) return earnEnabled ? invalid() : undefined;
+  if (!earnEnabled || !isRecord(value) || !Array.isArray(value.vaults) || value.vaults.length === 0) return invalid();
+  const routes = epochUsdcByChain(chains);
+  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, routes));
+  const ids = new Set(vaults.map(vault => vault.id));
+  const markets = new Set(vaults.map(vault => vault.marketUid));
+  if (ids.size !== vaults.length || markets.size !== vaults.length) return invalid();
+  return { vaults };
+}
+
+function readConfig(
+  body: unknown,
+  network: string,
+  allowLocalHttp: boolean,
+  allowOneClickLocalE2E: boolean
+): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
   if (body.network !== network || !isPositiveSafeInteger(version)) return invalid();
@@ -472,7 +748,6 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       { faucetId: midenAccountId(section(output).faucetId) }
     ])
   );
-  const inviteOnly = read(section(body.onboarding), 'inviteOnly', requiredBoolean);
   const allocatorUrl = read(epoch, 'allocatorUrl', url);
   const positionsUrl = read(epoch, 'positionsUrl', url);
   const indexerUrl = read(agglayer, 'indexerUrl', url);
@@ -481,7 +756,11 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const irisUrl = read(usdcx, 'irisUrl', url);
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
-  const supportedEvmChains = supportedChains(body.supportedEvmChains);
+  const oneClickConfig =
+    swap.oneClick === undefined
+      ? undefined
+      : read(swap, 'oneClick', value => oneClick(value, network, allowLocalHttp, allowOneClickLocalE2E));
+  const supportedEvmChains = supportedChains(body.supportedEvmChains, url);
   // A route without the provider values it runs on is left out; so is a token output nothing declares.
   for (const { bridges } of Object.values(supportedEvmChains)) {
     if (bridges.epoch && (!allocatorUrl || !positionsUrl)) delete bridges.epoch;
@@ -495,6 +774,11 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   // Every chain the document lists, known to this build or not; `supportedChains` has checked each id already.
   const documentChainIds = Object.values(section(body.supportedEvmChains)).map(entry => section(entry).chainId);
   const onramp = readOnramp(body.onramp, documentChainIds, supportedEvmChains);
+  const limits = readLimits(body.limits);
+  const geo = readGeoBlocks(body.geo, invalid);
+  const features = section(body.features);
+  const earnEnabled = featureSwitch(features, 'earn');
+  const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
   return {
     network,
     version,
@@ -513,18 +797,24 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     },
     supportedEvmChains,
     features: {
-      earn: featureSwitch(section(body.features), 'earn'),
+      earn: earnEnabled,
+      nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
         ['fastBridge', 'bridgeIn', 'bridgeOut']
-          .filter(name => section(body.features)[name] !== undefined)
-          .map(name => [name, featureSwitch(section(body.features), name)])
+          .filter(name => features[name] !== undefined)
+          .map(name => [name, featureSwitch(features, name)])
       )
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
-    swap: etaUrl === undefined ? {} : { etaUrl },
+    ...(limits === undefined ? {} : { limits }),
+    swap: {
+      ...(etaUrl === undefined ? {} : { etaUrl }),
+      ...(oneClickConfig === undefined ? {} : { oneClick: oneClickConfig })
+    },
     ...(guardians === undefined ? {} : { guardians }),
     ...(onramp === undefined ? {} : { onramp }),
-    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })
+    ...(earn === undefined ? {} : { earn }),
+    ...(geo === undefined ? {} : { geo })
   };
 }
 
@@ -543,10 +833,10 @@ export function epochCollateralFaucetId(config: BridgeConfig): string | undefine
 export function parseBridgeConfig(
   body: unknown,
   network: string,
-  options: { allowLocalHttp?: boolean } = {}
+  options: { allowLocalHttp?: boolean; allowOneClickLocalE2E?: boolean } = {}
 ): BridgeConfig | null {
   try {
-    return readConfig(body, network, options.allowLocalHttp === true);
+    return readConfig(body, network, options.allowLocalHttp === true, options.allowOneClickLocalE2E === true);
   } catch {
     return null;
   }

@@ -12,6 +12,8 @@ import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type Unavaila
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
+import type { FeatureEligibility, GeoLookup, StartupEligibilityDiagnostics, StartupEligibilityReason } from './geo';
+import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
   bridgeConfigCacheKey,
@@ -31,6 +33,7 @@ export interface BridgeConfigSnapshot {
   /** Only ever the derivation of `config`. */
   derived: DerivedBridgeConfig | null;
   lastFetch: { at: number; ok: boolean; error?: string } | null;
+  geo?: GeoLookup;
 }
 
 export const HEALTHY_POLL_MS = 3_600_000;
@@ -71,6 +74,8 @@ const listeners = new Set<() => void>();
 let holds = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
+let startupGeo: GeoLookup | undefined;
+let startupEligibility: Promise<GeoLookup> | undefined;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -90,7 +95,14 @@ function stateFor(network: string): NetworkState {
     failures: 0,
     logged: {},
     subscriptions: [],
-    snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null }
+    snapshot: {
+      network,
+      status: 'loading',
+      config: null,
+      derived: null,
+      lastFetch: null,
+      ...(startupGeo ? { geo: startupGeo } : {})
+    }
   };
   states.set(network, state);
   return state;
@@ -115,7 +127,8 @@ function publish(state: NetworkState): void {
     status: state.derived !== null || state.attempted ? 'ready' : 'loading',
     config: state.stored?.config ?? null,
     derived: state.derived,
-    lastFetch: state.lastFetch
+    lastFetch: state.lastFetch,
+    ...(startupGeo ? { geo: startupGeo } : {})
   };
   // The Guardian operators follow the accepted document. With no document there is nothing to follow, so a list this
   // realm already took stays.
@@ -253,7 +266,8 @@ function keepValuesRead(
             rollupId: kept(chain.agglayer.rollupId, before.agglayer.rollupId),
             tokens: kept(chain.agglayer.tokens, before.agglayer.tokens),
             evmNetworkId: kept(chain.agglayer.evmNetworkId, before.agglayer.evmNetworkId),
-            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode)
+            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode),
+            depositTokens: kept(chain.agglayer.depositTokens, before.agglayer.depositTokens)
           },
           epoch: { evmUsdc: kept(chain.epoch.evmUsdc, before.epoch.evmUsdc) }
         }
@@ -265,7 +279,9 @@ function keepValuesRead(
     epoch: {
       ...next.epoch,
       market: kept(next.epoch.market, previous.epoch.market),
-      midenUsdcFaucet: kept(next.epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet)
+      midenUsdcFaucet: kept(next.epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
+      // The Earn vault catalogue too: a positions host that is down for one check must not empty the Earn screens.
+      vaults: kept(next.epoch.vaults, previous.epoch.vaults)
     },
     // The swap registry too: a solver that is down for one check must not empty the token pickers.
     ...(next.swap && previous.swap ? { swap: { pairs: kept(next.swap.pairs, previous.swap.pairs) } } : {})
@@ -345,7 +361,10 @@ function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[]
   });
   // Swap is not a switched feature, but a failed read of the solver's pairs clears the same way: the solver comes back.
   const swapDown: UnavailableReason[] = snapshot.derived?.swap?.pairs.state === 'error' ? ['service-down'] : [];
-  return [...reasons, ...swapDown];
+  // So does a failed read of the Earn vault catalogue. The Earn market comes from the same requests, but a stored
+  // catalogue that does not read back fails the catalogue alone and leaves the market readable.
+  const vaultsDown: UnavailableReason[] = snapshot.derived?.epoch.vaults.state === 'error' ? ['service-down'] : [];
+  return [...reasons, ...swapDown, ...vaultsDown];
 }
 
 function pollInterval(state: NetworkState): number {
@@ -444,6 +463,61 @@ export async function ensureBridgeConfig(): Promise<BridgeConfigSnapshot> {
   }
 }
 
+/** One eligibility decision for this page lifetime. Ordinary document refreshes never repeat it. */
+export function initFeatureEligibility(): Promise<GeoLookup> {
+  if (startupEligibility) return startupEligibility;
+  startupGeo = { state: 'loading' };
+  startupEligibility = (async (): Promise<GeoLookup> => {
+    let geo: GeoLookup;
+    const diagnostics: StartupEligibilityDiagnostics = {
+      startupEligibilityStage: 'config_initialization',
+      startupEligibilityReason: 'config_unavailable',
+      startupEligibilityRetry: 'not_attempted'
+    };
+    const onFailure = (reason: StartupEligibilityReason) => {
+      diagnostics.startupEligibilityReason = reason;
+    };
+    try {
+      const snapshot = await ensureBridgeConfig();
+      let decision: FeatureEligibility | null = null;
+      if (snapshot.config) {
+        diagnostics.startupEligibilityStage = 'eligibility_lookup';
+        diagnostics.startupEligibilityReason = 'unexpected';
+        decision = await lookupFeatureEligibility(snapshot.network, snapshot.config.version, { onFailure });
+      }
+      if (!decision && snapshot.config) {
+        const state = states.get(snapshot.network);
+        if (state) {
+          await startRefresh(state);
+          const refreshed = state.snapshot;
+          if (refreshed.config && refreshed.config.version > snapshot.config.version) {
+            diagnostics.startupEligibilityStage = 'eligibility_retry';
+            diagnostics.startupEligibilityReason = 'unexpected';
+            diagnostics.startupEligibilityRetry = 'retry_failed';
+            decision = await lookupFeatureEligibility(refreshed.network, refreshed.config.version, { onFailure });
+          } else if (refreshed.lastFetch?.ok === false) {
+            diagnostics.startupEligibilityStage = 'config_refresh';
+            diagnostics.startupEligibilityReason = 'config_unavailable';
+            diagnostics.startupEligibilityRetry = 'refresh_failed';
+          } else {
+            diagnostics.startupEligibilityRetry = 'config_not_advanced';
+          }
+        }
+      }
+      geo = decision ? { state: 'ready', ...decision } : { state: 'failed', diagnostics: { ...diagnostics } };
+    } catch {
+      diagnostics.startupEligibilityReason =
+        diagnostics.startupEligibilityStage === 'config_initialization' ? 'config_initialization_failed' : 'unexpected';
+      geo = { state: 'failed', diagnostics: { ...diagnostics } };
+    }
+    startupGeo = geo;
+    states.forEach(state => publish(state));
+    return geo;
+  })();
+  states.forEach(state => publish(state));
+  return startupEligibility;
+}
+
 /** Test-only: fetches and re-derives now, awaited. */
 export async function _refreshBridgeConfigForTest(): Promise<BridgeConfigSnapshot> {
   const state = await hydrateCurrent();
@@ -476,4 +550,6 @@ export function _resetBridgeConfigRuntimeForTest(): void {
   holds = 0;
   if (schedulerInstalled) document.removeEventListener('visibilitychange', onVisibilityChange);
   schedulerInstalled = false;
+  startupGeo = undefined;
+  startupEligibility = undefined;
 }

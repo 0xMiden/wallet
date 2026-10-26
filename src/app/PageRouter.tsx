@@ -17,6 +17,7 @@ import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
+import { ARCADE_COINS_PATH } from 'lib/arcade';
 import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
@@ -45,6 +46,7 @@ import { armHeldOnboardingMark, useOnboardingFinishing } from './onboarding-fini
 import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
 import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
+import { ArcadePage } from './pages/ArcadePage';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import Cash from './pages/Cash';
@@ -214,6 +216,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return Woozie.Router.SKIP;
       }
     })
+  ],
+  // Arcade destinations are native Explore subpages, with the same wallet-ready guard.
+  [
+    ARCADE_COINS_PATH,
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <ArcadePage />
+      </FullScreenPage>
+    ))
   ],
   // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
   // the counterparty's address and is absent for a category group (`/activity/group/swap`).

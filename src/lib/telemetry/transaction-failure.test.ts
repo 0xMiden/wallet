@@ -5,12 +5,23 @@ import { join } from 'node:path';
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { isIOS } from 'lib/platform';
+import { isDesktop, isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
 import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
+import {
+  markReownNativeFailure,
+  type ReownNativeFailure,
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from 'lib/walletconnect/native-request-failure';
 
+import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
+import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
 import {
   ACCOUNT_AUTH_CODES,
@@ -29,14 +40,24 @@ import {
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
+  QUEUE_AGE_BUCKETS,
+  SUBMIT_CROSSINGS,
+  OFFSCREEN_DEADLINE_KILLERS,
+  OFFSCREEN_DEADLINE_OWNERS,
+  OFFSCREEN_DEADLINE_TIMERS,
+  OFFSCREEN_OP_STARTED,
   PIPELINE_KILLS,
+  PROOF_WAIT_BUCKETS,
   PROVING_PREFERENCES,
   REAP_AGES,
   REAPED_ATTEMPT_ORIGINS,
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
+  STARTUP_SELECTIONS,
+  STORED_STAGE_AGES,
   SUBMIT_ENDPOINTS,
+  SUBMIT_RECORDS,
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
   SUBMIT_LEG_BUCKETS,
@@ -50,7 +71,12 @@ import { TELEMETRY_ERROR_KINDS } from './types';
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
-jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isIOS: jest.fn(() => false),
+  isDesktop: jest.fn(() => false)
+}));
+jest.mock('./context', () => ({ resolveTelemetryContext: jest.fn() }));
 jest.mock('lib/secure-hot-key/hotKeyPlugin', () => ({ HotKey: { signWithHotKey: jest.fn() } }));
 jest.mock('lib/secure-hot-key/jsFallback', () => ({ signHotDigest: jest.fn() }));
 
@@ -116,6 +142,10 @@ const nativeHotKeyCodes = (): string[] => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(isDesktop).mockReturnValue(false);
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'extension', network: 'testnet', appVersion: '1.17.6' });
 });
 
 it('reports the screenshot assertion as a fixed diagnostic instead of redacted numeric text', async () => {
@@ -153,8 +183,13 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     SUBMIT_NODE_ERRORS,
     SUBMIT_HIDDEN_ANSWERS,
     ['under_9s', '9_to_11s', 'over_11s', 'unavailable'],
+    ['under_half_window', 'over_half_window', 'past_window', 'unavailable'],
     THROWN_CLASS_VALUES,
     PIPELINE_KILLS,
+    OFFSCREEN_DEADLINE_OWNERS,
+    OFFSCREEN_DEADLINE_TIMERS,
+    OFFSCREEN_DEADLINE_KILLERS,
+    OFFSCREEN_OP_STARTED,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
     CONFIRMING_STEPS,
@@ -163,6 +198,11 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     CLAIM_FEE_ADMISSIONS,
     REAP_AGES,
     REAPED_ATTEMPT_ORIGINS,
+    STARTUP_SELECTIONS,
+    STORED_STAGE_AGES,
+    QUEUE_AGE_BUCKETS,
+    SUBMIT_CROSSINGS,
+    SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
     HOT_KEY_CODES,
     GUARDIAN_ERROR_CODES,
@@ -177,7 +217,13 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     AUTH_PREPARATIONS,
     AUTH_LAYOUTS,
     COMMITMENT_MATCHES,
-    ACCOUNT_AUTH_CODES
+    ACCOUNT_AUTH_CODES,
+    REOWN_NATIVE_ORIGINS,
+    REOWN_WALLET_RESPONSE_CODES,
+    REOWN_REQUEST_AGES,
+    REOWN_PUBLICATIONS,
+    REOWN_BACKGROUND_ANSWERS,
+    ['invalid_permissions']
   ];
   expect([...(closedNames ?? [])].sort()).toEqual([...new Set(closedLists.flat())].sort());
 });
@@ -362,7 +408,7 @@ it.each([
   }
 );
 
-it('omits all claim-only segments from a send even when claim fields are present', async () => {
+it('omits the claim-only segments from a send but keeps its recorded last deferral', async () => {
   reportTransactionFailure({
     type: 'send',
     entryPoint: 'claim',
@@ -371,8 +417,35 @@ it('omits all claim-only segments from a send even when claim fields are present
   });
   const message = await reportedMessage();
   expect(message).not.toContain('queued by');
-  expect(message).not.toContain('last deferral');
   expect(message).not.toContain('claim fee admission');
+  expect(message).toMatch(/; platform (?:desktop|extension|ios|android); last deferral wallet_locked; point pipeline;/);
+});
+
+// Without a recorded deferral the segment is left out, so the existing non-consume groups keep their message.
+it('adds no last deferral segment to a non-consume report that recorded none', async () => {
+  reportTransactionFailure({ type: 'swap', reason: 'queued_expired' });
+  expect(await reportedMessage()).not.toContain('last deferral');
+});
+
+it('names an unlisted non-consume deferral as other', async () => {
+  const failure: TransactionFailure = { type: 'send', reason: 'queued_expired' };
+  Reflect.set(failure, 'lastDeferral', 'nonsense');
+  reportTransactionFailure(failure);
+  expect(await reportedMessage()).toContain('; last deferral other; point pipeline;');
+});
+
+it('sends only the fixed deferral of an expired send whose error carries ids, hex and amounts', async () => {
+  const accountId = '0x7bfb0f38b0fafa103f86a805594170';
+  const noteId = '0x' + 'ab12'.repeat(16);
+  reportTransactionFailure({
+    type: 'send',
+    reason: 'queued_expired',
+    lastDeferral: 'guardian_backpressure',
+    error: new Error(`send of 1250000 to ${accountId} with note ${noteId} expired after 42 attempts`)
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('; last deferral guardian_backpressure; point pipeline; queued_expired.');
+  for (const leaked of [accountId, noteId, '1250000', '42 attempts', 'ab12']) expect(message).not.toContain(leaked);
 });
 
 it('places claim segments after platform and before the failure point in the first sentence', async () => {
@@ -442,6 +515,60 @@ it.each([
   expect(message).toContain(`; reap age ${age}; reaped attempt ${attempt}; point pipeline; stuck_reaped.`);
   expect(message).not.toContain('nonsense');
 });
+
+it('places startup segments after platform and before the failure point for a startup-interrupted claim', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'signing-proposal',
+    entryPoint: 'claim',
+    reason: 'interrupted_on_startup',
+    startup: { selection: 'before_session', stageAge: 'under_10m', submit: 'no_submit_recorded' }
+  });
+  expect(await reportedMessage()).toMatch(
+    /; claim fee admission unrecorded; startup selection before_session; stored stage age under_10m; submit no_submit_recorded; point pipeline; interrupted_on_startup\. authentication/
+  );
+});
+
+it.each([
+  { name: 'absent', startup: undefined, selection: 'unavailable', age: 'unavailable', submit: 'unavailable' },
+  {
+    name: 'listed',
+    startup: { selection: 'future_stamp', stageAge: 'over_1d', submit: 'submit_recorded' },
+    selection: 'future_stamp',
+    age: 'over_1d',
+    submit: 'submit_recorded'
+  },
+  {
+    name: 'unlisted',
+    startup: { selection: 'nonsense', stageAge: 'nonsense', submit: 'nonsense' },
+    selection: 'unavailable',
+    age: 'unavailable',
+    submit: 'unavailable'
+  }
+])('reports $name startup fields through their closed lists', async ({ startup, selection, age, submit }) => {
+  const failure: TransactionFailure = { type: 'send', reason: 'interrupted_on_startup' };
+  Reflect.set(failure, 'startup', startup);
+  reportTransactionFailure(failure);
+  const message = await reportedMessage();
+  expect(message).toContain(
+    `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; point pipeline; interrupted_on_startup.`
+  );
+  expect(message).not.toContain('nonsense');
+});
+
+it.each(['stuck_reaped', 'user_cancelled', undefined] as const)(
+  'omits startup segments for reason %s',
+  async reason => {
+    reportTransactionFailure({
+      type: 'consume',
+      reason,
+      startup: { selection: 'missing_start', stageAge: 'under_1m', submit: 'submit_recorded' }
+    });
+    const message = await reportedMessage();
+    expect(message).not.toContain('startup selection');
+    expect(message).not.toContain('stored stage age');
+  }
+);
 
 it.each(['queued_expired', 'user_cancelled', undefined] as const)('omits reap segments for reason %s', async reason => {
   reportTransactionFailure({
@@ -697,11 +824,11 @@ const expectNoTransactionData = (message: string) => {
 };
 
 // web-sdk 0.17.3 `submitProvenTransaction` over miden-client 0.17.3 `SubmissionOutcomeUnknown` and `RpcError`.
-const submitOutcomeUnknown = (kind: string) =>
+const submitOutcomeUnknown = (kind: string, endpoint = 'submit_proven_transaction') =>
   new Error(
     `failed to submit proven transaction: submission of transaction ${TX_ID} came back without a definite outcome, ` +
       'so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
-      `submit_proven_transaction: ${kind}`
+      `${endpoint}: ${kind}`
   );
 
 // `cause` wrapped in `times` Errors, the outermost last.
@@ -913,9 +1040,27 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      '; submit_outcome_unknown; grpc other; app hidden during submit no; submit leg unavailable. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc other; app hidden during submit no; submit leg unavailable. '
     );
     expect(message).not.toContain('not_found');
+  });
+
+  it('includes the source-known RPC endpoint and no raw request data', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      error: submitOutcomeUnknown(
+        `request to Miden node timed out; the node may be under heavy load ${ACCOUNT} ${AMOUNT} ${TX_ID} https://rpc.testnet.miden.io`,
+        'get_transaction_encryption_key'
+      )
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; point pipeline; submit_outcome_unknown; endpoint get_transaction_encryption_key; grpc deadline_exceeded; app hidden during submit no; submit leg unavailable. authentication'
+    );
+    expectNoTransactionData(message);
   });
 
   it.each([
@@ -940,7 +1085,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc ${status}; app hidden during submit no; submit leg unavailable. authentication`
+      `; point pipeline; submit_outcome_unknown; endpoint submit_proven_transaction; grpc ${status}; app hidden during submit no; submit leg unavailable. authentication`
     );
     expectNoTransactionData(message);
   });
@@ -961,7 +1106,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg unavailable. `
+      `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc unavailable; app hidden during submit ${answer}; submit leg unavailable. `
     );
     expectNoTransactionData(message);
   });
@@ -987,7 +1132,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; submit_outcome_unknown; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
+      `; submit_outcome_unknown; endpoint submit_proven_transaction; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
     );
     expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
@@ -1039,9 +1184,66 @@ describe('a submit the node refused', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; submit_rejected; endpoint submit_proven_batch; grpc failed_precondition; node ${node}. authentication`
+      `; submit_rejected; endpoint submit_proven_batch; grpc failed_precondition; node ${node}` +
+        `${node === 'expired' ? '; proof wait unavailable' : ''}. authentication`
     );
     expectNoTransactionData(message);
+  });
+
+  describe('an expired proof', () => {
+    const expired = () => refused('submit_proven_transaction', 'invalid request parameters (transaction expired)');
+
+    it.each([
+      [0, 'under_half_window'],
+      [49, 'under_half_window'],
+      [50, 'over_half_window'],
+      [100, 'over_half_window'],
+      [101, 'past_window'],
+      [4321, 'past_window']
+    ])('reports a wait of %s blocks in a 100 block window as %s, without either number', async (wait, bucket) => {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        error: expired(),
+        proofWaitBlocks: wait,
+        expiryWindowBlocks: 100
+      });
+      const message = await reportedMessage();
+      expect(message).toContain(
+        `; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired; proof wait ${bucket}. authentication`
+      );
+      expect(message).not.toMatch(/\b(?:49|50|100|101|4321)\b/);
+    });
+
+    it.each([
+      ['no wait', undefined, 100],
+      ['no window', 10, undefined],
+      ['an empty window', 10, 0],
+      ['a negative window', 10, -5],
+      ['a negative wait', -1, 100],
+      ['a wait that is not finite', Number.NaN, 100],
+      ['a window that is not finite', 10, Number.POSITIVE_INFINITY]
+    ])('reports %s as unavailable', async (_name, wait, window) => {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        error: expired(),
+        proofWaitBlocks: wait,
+        expiryWindowBlocks: window
+      });
+      expect(await reportedMessage()).toContain('node expired; proof wait unavailable. authentication');
+    });
+
+    it('leaves a refusal that is not an expiry without the wait', async () => {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        error: refused('submit_proven_transaction', 'internal server error'),
+        proofWaitBlocks: 90,
+        expiryWindowBlocks: 100
+      });
+      expect(await reportedMessage()).not.toContain('proof wait');
+    });
   });
 
   it.each([
@@ -1102,7 +1304,7 @@ describe('a submit the node refused', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      '; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable; submit leg unavailable. '
+      '; submit_outcome_unknown; endpoint submit_proven_transaction; grpc cancelled; app hidden during submit unavailable; submit leg unavailable. '
     );
     expect(message).not.toContain('submit_rejected');
   });
@@ -1111,12 +1313,14 @@ describe('a submit the node refused', () => {
 describe('a pipeline killed from outside', () => {
   const sync = (cause: unknown) => new Error(`pre-flight sync for ${ACCOUNT} failed`, { cause });
 
+  const unrecorded =
+    'deadline owner unavailable; deadline timer unavailable; deadline op unavailable; op start reported unavailable';
   it.each([
-    ['deadline', 'offscreen_aborted_deadline'],
-    ['deadline-no-kill', 'offscreen_aborted_deadline_no_kill'],
-    ['doc-closed', 'offscreen_aborted_doc_closed'],
-    ['transport', 'offscreen_aborted_transport'],
-    [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other']
+    ['deadline', `offscreen_aborted_deadline; ${unrecorded}`],
+    ['deadline-no-kill', `offscreen_aborted_deadline_no_kill; ${unrecorded}`],
+    ['doc-closed', 'offscreen_aborted_doc_closed; op start reported unavailable'],
+    ['transport', 'offscreen_aborted_transport; op start reported unavailable'],
+    [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other; op start reported unavailable']
   ])('names an offscreen abort for %s by its reason, never its operation id', async (reason, identity) => {
     reportTransactionFailure({
       type: 'consume',
@@ -1160,8 +1364,60 @@ describe('a pipeline killed from outside', () => {
     await settle();
     const [evicted, aborted] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
     expect(evicted).toContain('; point pipeline; wasm_lock_evicted_other. ');
-    expect(aborted).toContain('; point pipeline; offscreen_aborted_other. ');
+    expect(aborted).toContain('; point pipeline; offscreen_aborted_other; op start reported unavailable. ');
     expectNoTransactionData(`${evicted} ${aborted}`);
+  });
+
+  it.each([
+    [
+      'its own deadline after it started',
+      { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } },
+      'deadline owner own; deadline timer started; deadline op write; op start reported yes'
+    ],
+    [
+      "another op's dispatch deadline before it started",
+      { started: false, deadline: { owner: 'collateral', timer: 'dispatch', killer: 'read' } },
+      'deadline owner collateral; deadline timer dispatch; deadline op read; op start reported no'
+    ],
+    [
+      'a resumed deadline',
+      { started: true, deadline: { owner: 'own', timer: 'resumed', killer: 'write' } },
+      'deadline owner own; deadline timer resumed; deadline op write; op start reported yes'
+    ],
+    [
+      'values outside the lists',
+      { started: 'yes', deadline: { owner: ACCOUNT_HEX, timer: AMOUNT, killer: OP_ID } },
+      'deadline owner unavailable; deadline timer unavailable; deadline op unavailable; op start reported unavailable'
+    ]
+  ])('names a deadline abort with %s by closed facts only', async (_label, facts, expected) => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'sending',
+      error: sync(new OperationAbortedError(OP_ID, 'deadline', facts as never))
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; offscreen_aborted_deadline; ${expected}. authentication`);
+    expectNoTransactionData(message);
+  });
+
+  it('names whether a transport abort had started, and survives a hostile facts accessor', async () => {
+    const hostile = new OperationAbortedError(OP_ID, 'transport');
+    Object.defineProperty(hostile, 'facts', {
+      get: () => {
+        throw new Error(`facts for ${ACCOUNT_HEX}`);
+      }
+    });
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'sending',
+      error: new OperationAbortedError(OP_ID, 'transport', { started: true })
+    });
+    reportTransactionFailure({ type: 'consume', stage: 'sending', error: hostile });
+    await settle();
+    const [started, unreadable] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+    expect(started).toContain('; point pipeline; offscreen_aborted_transport; op start reported yes. ');
+    expect(unreadable).toContain('; point pipeline; offscreen_aborted_transport; op start reported unavailable. ');
+    expectNoTransactionData(`${started} ${unreadable}`);
   });
 
   it('names the kill rather than the unknown outcome text it abandoned', async () => {
@@ -1544,10 +1800,47 @@ describe('the never-committed verdict', () => {
         error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.'
       });
       const message = await reportedMessage();
-      expect(message).toContain(`; point node_verdict; never_committed; rule ${rule}. authentication`);
+      const proofWait = rule === 'expired' ? '; proof wait unavailable' : '';
+      expect(message).toContain(`; point node_verdict; never_committed; rule ${rule}${proofWait}. authentication`);
       expect(message).not.toContain('; network.');
     }
   );
+
+  it('adds only the prior failure identity and expiry-relative wait bucket', async () => {
+    const priorError = new Error(
+      `failed to execute transaction: failed to fetch transaction inputs from the data store: account with id ${ACCOUNT_HEX}, amount 4200`
+    );
+    const failure: TransactionFailure = {
+      point: 'node_verdict',
+      type: 'send',
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
+      proofWaitBlocks: 360,
+      expiryWindowBlocks: 600
+    };
+    Reflect.set(failure, 'priorError', priorError);
+    reportTransactionFailure(failure);
+
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; point node_verdict; never_committed; rule expired; prior transaction_execution_failed; cause fetch_inputs; proof wait over_half_window. authentication'
+    );
+    expectNoTransactionData(message);
+  });
+
+  it('omits prior failure identity for non-expired never-committed verdicts', async () => {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: 'send',
+      reason: 'never_committed',
+      neverCommittedRule: 'superseded',
+      priorError: new Error('failed to fetch transaction inputs from the data store')
+    });
+
+    const message = await reportedMessage();
+    expect(message).toContain('; point node_verdict; never_committed; rule superseded. authentication');
+    expect(message).not.toContain('prior transaction_execution_failed');
+  });
 
   it('names a verdict with no rule by its reason alone, and a rule outside the list as other', async () => {
     reportTransactionFailure({ point: 'guardian_node_verdict', type: 'switch-guardian', reason: 'never_committed' });
@@ -1650,9 +1943,14 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['device key code', () => [...HOT_KEY_CODES, 'other', 'none'], () => policyText(DEVICE_KEY, DEVICE_KEY_CODES)],
   [
+    'unknown-outcome RPC endpoint',
+    () => SUBMIT_ENDPOINTS,
+    () => policyText(UNKNOWN_OUTCOME, 'request endpoint', 'It carries the kind of answer')
+  ],
+  [
     'unknown-outcome gRPC status',
     () => SUBMIT_UNKNOWN_OUTCOME_STATUSES,
-    () => policyText(UNKNOWN_OUTCOME, 'It carries', 'and whether the App')
+    () => policyText(UNKNOWN_OUTCOME, 'kind of answer', 'and whether the App')
   ],
   [
     'hidden-during-submit answer',
@@ -1660,6 +1958,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
     () => policyText(UNKNOWN_OUTCOME, 'and whether the App', SUBMIT_LEG)
   ],
   ['submit leg bucket', () => SUBMIT_LEG_BUCKETS, () => policyText(UNKNOWN_OUTCOME, SUBMIT_LEG)],
+  ['proof wait bucket', () => PROOF_WAIT_BUCKETS, () => policyText(REFUSED, '; and for an expired proof')],
   ['refused endpoint', () => SUBMIT_ENDPOINTS, () => policyText(REFUSED, 'It names', '; the kind of answer')],
   [
     'refused gRPC status',
@@ -1690,6 +1989,11 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['reap age', () => [...REAP_AGES, 'unavailable'], () => policyText('The stuck-transaction check')],
   ['reaped attempt', () => [...REAPED_ATTEMPT_ORIGINS, 'unavailable'], () => policyText('The stuck-transaction check')],
+  ['startup selection', () => [...STARTUP_SELECTIONS, 'unavailable'], () => policyText('The startup check')],
+  ['stored stage age', () => [...STORED_STAGE_AGES, 'unavailable'], () => policyText('The startup check')],
+  ['queue age bucket', () => QUEUE_AGE_BUCKETS, () => policyText('The age of a queued row that expired')],
+  ['submit crossing', () => SUBMIT_CROSSINGS, () => policyText("The attempt's submit crossing")],
+  ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )
@@ -1860,4 +2164,107 @@ it('never makes a telemetry failure escape into the transaction', async () => {
   });
   expect(() => reportTransactionFailure({ type: 'swap' })).not.toThrow();
   await settle();
+});
+
+const nativeFailure: ReownNativeFailure = {
+  nativeOrigin: 'wallet_error',
+  walletResponseCode: 'internal_error',
+  requestAge: '120_to_300s',
+  published: 'confirmed',
+  backgrounded: 'yes'
+};
+const nativeDiagnostics = {
+  reownNativeOrigin: 'wallet_error',
+  reownWalletResponseCode: 'internal_error',
+  reownRequestAge: '120_to_300s',
+  reownPublished: 'confirmed',
+  reownBackgrounded: 'yes'
+};
+
+it('gatesNativeDiagnosticsToAndroidInboundBridgeCause', () => {
+  const cause = new Error('opaque');
+  markReownNativeFailure(cause, nativeFailure);
+  annotateCrash(cause, { ...nativeDiagnostics, workerMode: 'disabled' });
+  const bridgeReceive = { route: 'usdcx', step: 'wallet_approve', cause } satisfies NonNullable<
+    TransactionFailure['bridgeReceive']
+  >;
+  const cases: ReadonlyArray<readonly ['android' | 'ios' | 'extension', boolean, TransactionFailure]> = [
+    ['ios', false, { type: 'bridged-receive', error: cause, bridgeReceive }],
+    ['extension', false, { type: 'bridged-receive', error: cause, bridgeReceive }],
+    ['android', true, { type: 'bridged-receive', error: cause, bridgeReceive }],
+    ['android', false, { type: 'send', error: cause, bridgeReceive }],
+    ['android', false, { type: 'bridged-receive', error: cause }],
+    ['android', false, { type: 'bridged-receive', error: cause, bridgeReceive: { route: 'usdcx' } }]
+  ];
+  for (const [platform, desktop, failure] of cases) {
+    jest.mocked(resolveTelemetryContext).mockReturnValue({ platform, network: 'testnet', appVersion: '1.17.6' });
+    jest.mocked(isDesktop).mockReturnValue(desktop);
+    reportTransactionFailure(failure);
+    const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+    expect(report).toBeInstanceOf(Error);
+    expect(snapshotCrashDiagnostics(report)).toEqual({ workerMode: 'disabled' });
+  }
+  jest.mocked(isDesktop).mockReturnValue(false);
+  reportTransactionFailure({ type: 'bridged-receive', bridgeReceive });
+  expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).toEqual(nativeDiagnostics);
+});
+
+it('carriesNativeDiagnosticsForAFailedUsdcxDeposit', () => {
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'android', network: 'testnet', appVersion: '1.17.6' });
+  jest.mocked(isDesktop).mockReturnValue(false);
+  const cause = new Error('opaque');
+  markReownNativeFailure(cause, nativeFailure);
+
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause }
+  });
+
+  expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).toEqual(nativeDiagnostics);
+});
+
+it('nativeDimensionsDoNotChangeTitleSeverityOrFingerprint', () => {
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'android', network: 'testnet', appVersion: '1.17.6' });
+  const snapshots: ReownNativeFailure[] = [
+    nativeFailure,
+    { nativeOrigin: 'publish_error', requestAge: '120_to_300s', published: 'confirmed', backgrounded: 'yes' },
+    { ...nativeFailure, walletResponseCode: 'user_rejected' },
+    { ...nativeFailure, requestAge: 'unknown' },
+    { ...nativeFailure, published: 'unobserved' },
+    { ...nativeFailure, backgrounded: 'no' }
+  ];
+  for (const snapshot of snapshots) {
+    const cause = new Error('opaque');
+    markReownNativeFailure(cause, snapshot);
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause }
+    });
+  }
+  const firstReport = jest.mocked(captureCrash).mock.calls[0]?.[0];
+  const firstCaptureOptions = jest.mocked(captureCrash).mock.calls[0]?.[2];
+  expect(firstReport).toBeInstanceOf(Error);
+  if (!(firstReport instanceof Error) || firstCaptureOptions === undefined) throw new Error('Missing first capture');
+  for (const [secondReport, , secondCaptureOptions] of jest.mocked(captureCrash).mock.calls.slice(1)) {
+    expect(secondReport).toBeInstanceOf(Error);
+    if (!(secondReport instanceof Error) || secondCaptureOptions === undefined)
+      throw new Error('Missing second capture');
+    expect(firstReport.message).toBe(secondReport.message);
+    expect(firstCaptureOptions.level).toBe(secondCaptureOptions.level);
+    expect(firstCaptureOptions).not.toHaveProperty('fingerprint');
+    expect(secondCaptureOptions).not.toHaveProperty('fingerprint');
+    expect(secondReport.cause).toBeUndefined();
+    expect(secondReport.stack).toBeUndefined();
+  }
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: new Error('Invalid permissions for call.') }
+  });
+  expect(capturedMessage(snapshots.length)).toBe(
+    firstReport.message.replace('evm error other', 'evm error invalid_permissions')
+  );
 });

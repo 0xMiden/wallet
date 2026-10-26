@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, within } from '@testing-library/react';
 
+import { recoveredHistoryRecord } from 'lib/miden/guardian/history';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
@@ -13,7 +14,11 @@ const FAUCET = 'miden-native-faucet';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) =>
-      key === 'activityGroupPartialCount' ? `${options?.count}+` : key
+      key === 'activityGroupPartialCount'
+        ? `${options?.count}+`
+        : key === 'swapProgressPercent'
+          ? `swapProgressPercent_${options?.percentage}`
+          : key
   })
 }));
 
@@ -349,6 +354,62 @@ describe('ActivityGroupList', () => {
     expect(screen.getByText('cancelled · 2 hours')).toBeTruthy();
   });
 
+  it('states partial-fill progress beside the swap pair, including zero and below 0.1%', () => {
+    for (const percentage of ['40', '0', '<0.1']) {
+      const view = renderList([
+        entry({
+          txType: 'swap',
+          token: 'MIDEN',
+          requestedToken: 'USDC',
+          swapFillProgress: percentage
+        })
+      ]);
+
+      expect(
+        screen.getByText(`swap MIDEN → USDC · amountFilled: swapProgressPercent_${percentage} · 2 hours`)
+      ).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  it('does not show swap progress without both tokens', () => {
+    for (const swap of [
+      entry({ txType: 'swap', message: 'Swapped', token: 'MIDEN', swapFillProgress: '40' }),
+      entry({ txType: 'swap', message: 'Swapped', requestedToken: 'USDC', swapFillProgress: '40' })
+    ]) {
+      const view = renderList([swap]);
+
+      expect(screen.queryByText(/swapProgressPercent/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('keeps cancelled and unconfirmed swap statuses ahead of fill progress', () => {
+    for (const [status, expected] of [
+      [{ isCancelled: true }, 'cancelled · 2 hours'],
+      [{ isUnconfirmed: true }, 'notConfirmed · 2 hours']
+    ] as const) {
+      const view = renderList([
+        entry({
+          txType: 'swap',
+          token: 'MIDEN',
+          requestedToken: 'USDC',
+          swapFillProgress: '40',
+          ...status
+        })
+      ]);
+
+      expect(screen.getByText(expected)).toBeTruthy();
+      expect(screen.queryByText(/swapProgressPercent/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('localizes a failed group whose latest message is the English sentinel', () => {
+    renderList([entry({ message: 'Transaction failed', secondaryAddress: 'mtst1alice' })]);
+    expect(screen.getByText('transactionFailedNotificationTitle · 2 hours')).toBeTruthy();
+  });
+
   it('badges a group that still has something in flight, and counts it', () => {
     renderList([
       entry({ timestamp: 900, type: HistoryEntryType.PendingTransaction, secondaryAddress: 'mtst1alice' }),
@@ -469,5 +530,52 @@ describe('ActivityGroupList', () => {
       expect(screen.queryByTestId('activity-group-row')).toBeNull();
       expect(screen.getByText('noOperationsFound')).toBeTruthy();
     });
+  });
+});
+
+describe('recovered and legacy message-less rows', () => {
+  it.each([
+    ['p2id', 'sent'],
+    ['consume_notes', 'received'],
+    ['swap', 'guardianHistorySwap'],
+    ['bridged_send', 'guardianHistoryBridgeOut'],
+    ['earn_deposit', 'guardianHistoryEarnDeposit'],
+    ['switch_guardian', 'guardianHistoryGuardianChanged'],
+    ['update_procedure_threshold', 'guardianHistoryAccountSecured'],
+    ['custom_transaction', 'guardianHistoryExecuted']
+  ])('renders a real recovered %s record without a display message', (proposalType, title) => {
+    const timestamp = '2026-08-01T00:00:00Z';
+    const row = recoveredHistoryRecord(
+      'me',
+      '0x123',
+      'testnet',
+      'https://guardian.example',
+      {
+        nonce: 12,
+        status: 'canonical',
+        timestamp,
+        newCommitment: 'final',
+        inputNotes: [],
+        outputNotes: [],
+        decodeWarnings: []
+      },
+      {
+        accountId: '0x123',
+        nonce: 12,
+        prevCommitment: 'previous',
+        newCommitment: 'final',
+        status: { status: 'canonical', timestamp },
+        deltaPayload: { txSummary: { data: '' }, signatures: [] },
+        metadata: { proposal: { proposalType } }
+      }
+    );
+    expect(row.displayMessage).toBeUndefined();
+    renderList([entry({ message: row.displayMessage, guardianRecovered: row.recovered, txType: row.type })]);
+    expect(rows()[0]).toHaveTextContent(title);
+  });
+
+  it.each([undefined, '', '   '])('uses a known action for a legacy row with message %s', message => {
+    renderList([entry({ message, txType: 'send', amount: '1', token: 'MIDEN' })]);
+    expect(rows()[0]).toHaveTextContent('sent 1 MIDEN');
   });
 });

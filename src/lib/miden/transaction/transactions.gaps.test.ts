@@ -13,11 +13,9 @@ import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { captureCrash } from 'lib/telemetry/crash';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
-import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
-import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { NoteTypeEnum } from '../types';
 import {
   completeCustomTransaction,
   generateTransaction,
@@ -29,6 +27,10 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ITransactionStatus } from '../db/types';
+import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { NoteTypeEnum } from '../types';
 
 // The lock's HOLD, owned for the duration of the callback: the guardian pipeline
 // re-checks ownership before proving and before submit (#777).
@@ -162,9 +164,14 @@ jest.mock('../activity/helpers', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
+  isAndroid: () => false,
   isMobile: () => false,
-  isExtension: () => true
+  isIOS: () => false,
+  isExtension: () => true,
+  isDesktop: () => false
 }));
+
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn() }
@@ -1367,6 +1374,33 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     };
   };
 
+  it('reports the not-landed verdict after a killed consume without leaking its operation id', async () => {
+    const accountHex = '0x1234567890abcdef1234567890abcdef';
+    const noteHex = '0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+    const amount = '987654321.123456';
+    const operationId = `consume-${accountHex}-${noteHex}-${amount}`;
+    pushConsume('nk-verdict-report');
+    const restore = patchClient('Committed', new OperationAbortedError(operationId, 'deadline'));
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(txStore.find(row => row.id === 'nk-verdict-report')!.status).toBe(ITransactionStatus.Failed);
+      const report = jest
+        .mocked(captureCrash)
+        .mock.calls.map(([captured]) => captured)
+        .find(captured => captured instanceof Error && captured.name === 'WalletTransactionFailure');
+      expect(report).toBeInstanceOf(Error);
+      if (!(report instanceof Error)) throw new Error('missing consume failure report');
+      const diagnostics = snapshotCrashDiagnostics(report);
+      for (const privateValue of [operationId, accountHex, noteHex, amount]) {
+        expect(report.message).not.toContain(privateValue);
+        expect(JSON.stringify(diagnostics)).not.toContain(privateValue);
+      }
+      expect(Reflect.get(diagnostics, 'consumeVerdict')).toBe('not-landed');
+    } finally {
+      restore();
+    }
+  });
+
   it('node reports the note LOCAL-consumed (provably mine) → the killed consume ends Completed Received', async () => {
     pushConsume('nk-landed');
     const restore = patchClient('ConsumedAuthenticatedLocal');
@@ -1476,6 +1510,9 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     expect(syncState).toHaveBeenCalledTimes(1);
     expect(getInputNoteDetails).not.toHaveBeenCalled();
     expect(txStore.find(r => r.id === 'nk-sync-evicted')!.status).toBe(ITransactionStatus.Failed);
+    const report = jest.mocked(captureCrash).mock.calls[0]?.[0];
+    expect(report).toBeInstanceOf(Error);
+    expect(snapshotCrashDiagnostics(report)).not.toHaveProperty('consumeVerdict');
   });
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
@@ -2011,3 +2048,10 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     expect(row.requestBytes).toBeUndefined();
   });
 });
+
+// Vault admission is tested separately; retain these fixtures' WASM eviction boundaries.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

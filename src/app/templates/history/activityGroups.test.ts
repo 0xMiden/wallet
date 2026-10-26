@@ -1,9 +1,15 @@
+import { ICON_BY_TYPE, ITransactionType } from 'lib/miden/db/types';
+
 import {
+  ActivityCategory,
+  activityCategoryOf,
+  activityClaimGroupKeyOf,
   activityGroupKeyOf,
   activityGroupMatcher,
   activityGroupPath,
   groupActivityEntries,
   isActivityGroupKind,
+  isFaucetClaimNote,
   isPendingActivityEntry
 } from './activityGroups';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -15,6 +21,15 @@ const FAUCET = 'miden-native-faucet';
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => FAUCET
 }));
+// The effective network: Testnet unless a case puts the wallet on Mainnet, which has no faucet.
+let mockWalletNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = 'testnet';
+});
 
 let nextKey = 0;
 const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
@@ -266,6 +281,84 @@ describe('activityGroupPath', () => {
   it('leaves a category group without an id segment', () => {
     expect(activityGroupPath({ kind: 'swap', id: 'swap' })).toBe('/activity/group/swap');
     expect(activityGroupPath({ kind: 'guardian', id: 'guardian' })).toBe('/activity/group/guardian');
+  });
+});
+
+describe('activityCategoryOf', () => {
+  const EXPECTED: Record<ITransactionType, ActivityCategory> = {
+    send: 'transfer',
+    consume: 'transfer',
+    'bridged-send': 'transfer',
+    'bridged-receive': 'transfer',
+    buy: 'transfer',
+    sell: 'transfer',
+    swap: 'swap',
+    'earn-deposit': 'earn',
+    'earn-withdraw': 'earn',
+    execute: 'others',
+    'switch-guardian': 'others',
+    'replace-hot-key': 'others',
+    'update-procedure-threshold': 'others'
+  };
+
+  const TYPES: ITransactionType[] = [
+    'send',
+    'consume',
+    'bridged-send',
+    'bridged-receive',
+    'buy',
+    'sell',
+    'swap',
+    'earn-deposit',
+    'earn-withdraw',
+    'execute',
+    'switch-guardian',
+    'replace-hot-key',
+    'update-procedure-threshold'
+  ];
+
+  it('puts each transaction type in its category', () => {
+    for (const txType of TYPES) {
+      expect([txType, activityCategoryOf(entry({ txType }))]).toEqual([txType, EXPECTED[txType]]);
+    }
+  });
+
+  it('covers every transaction type the wallet stores', () => {
+    expect([...TYPES].sort()).toEqual(Object.keys(ICON_BY_TYPE).sort());
+  });
+
+  it('keeps a failed row in the category of its type', () => {
+    expect(activityCategoryOf(entry({ txType: 'send', transactionIcon: 'FAILED' }))).toBe('transfer');
+    expect(activityCategoryOf(entry({ txType: 'consume', transactionIcon: 'FAILED' }))).toBe('transfer');
+    expect(activityCategoryOf(entry({ txType: 'swap', transactionIcon: 'FAILED' }))).toBe('swap');
+    expect(activityCategoryOf(entry({ txType: 'earn-withdraw', transactionIcon: 'FAILED' }))).toBe('earn');
+  });
+});
+
+describe('isFaucetClaimNote', () => {
+  it('is a note of the native asset that the native faucet sent', () => {
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET })).toBe(true);
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: 'mtst1alice' })).toBe(false);
+    expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' })).toBe(false);
+  });
+
+  it('reads the id it is given, and recognises nothing while that id is unknown', () => {
+    expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' }, 'other-faucet')).toBe(true);
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET }, null)).toBe(false);
+  });
+
+  // On Mainnet the native faucet is the USDCx minter, so its note is a bridge-in, grouped by sender.
+  it('is never a faucet claim on Mainnet, where the group is the faucet address', () => {
+    mockWalletNetwork = 'mainnet';
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET })).toBe(false);
+    expect(activityClaimGroupKeyOf({ faucetId: FAUCET, senderAddress: FAUCET })).toEqual({
+      kind: 'address',
+      id: FAUCET
+    });
+    expect(activityGroupKeyOf(entry({ txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET }))).toEqual({
+      kind: 'address',
+      id: FAUCET
+    });
   });
 });
 

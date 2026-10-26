@@ -47,7 +47,8 @@ function ready(): BridgeConfigSnapshot {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: { state: 'skipped' }
   };
   derived.agglayer = { indexer: { state: 'ok', value: true } };
   return snapshot;
@@ -131,6 +132,38 @@ it.each<[string, BridgeFeature[]]>([
   expectOnly(snapshot, affected, { state: 'unavailable', reason: 'off' });
 });
 
+it.each<[string, (snapshot: BridgeConfigSnapshot) => void]>([
+  [
+    'no vault',
+    snapshot => {
+      if (snapshot.config) snapshot.config.earn = undefined;
+    }
+  ],
+  [
+    'a vault on another chain only',
+    snapshot => {
+      if (snapshot.config) {
+        snapshot.config.earn = {
+          vaults: [
+            {
+              id: 'aave-v3-base-usdc',
+              marketUid: 'aave_v3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+              name: 'Aave V3 USDC',
+              protocol: '1delta',
+              depositsEnabled: true
+            }
+          ]
+        };
+      }
+    }
+  ]
+])('reads Earn deposits as not configured when the document lists %s on the chain', (_label, change) => {
+  const snapshot = ready();
+  change(snapshot);
+  expectOnly(snapshot, ['earnDeposit'], { state: 'unavailable', reason: 'not-configured' });
+  expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'not-configured' });
+});
+
 it('requires the shared allocator only for Epoch operations', () => {
   const snapshot = ready();
   if (!snapshot.config) throw new Error('The test document is missing');
@@ -195,14 +228,11 @@ it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
 it.each<[Probe<never>, string]>([
   [ABSENT, 'not-deployed'],
   [ERROR, 'service-down']
-])('still needs the output faucet for Earn off Testnet (%p)', (midenUsdcFaucet, reason) => {
+])('never needs the output faucet for Earn, off Testnet either (%p)', midenUsdcFaucet => {
   const snapshot = withProbes({ epoch: { midenUsdcFaucet } });
   if (!snapshot.config) throw new Error('The test document is missing');
   snapshot.config.network = 'devnet';
-  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
-    state: 'unavailable',
-    reason
-  });
+  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toEqual(AVAILABLE);
 });
 
 it('reports an absent dependency before a failed call', () => {
@@ -256,5 +286,50 @@ describe('the E2E collateral faucet', () => {
       if (saved === undefined) delete process.env.MIDEN_E2E_TEST;
       else process.env.MIDEN_E2E_TEST = saved;
     }
+  });
+});
+
+describe('startup feature eligibility', () => {
+  function withDecision(geo: BridgeConfigSnapshot['geo']) {
+    return { ...ready(), geo };
+  }
+  const decision = (earn: boolean): BridgeConfigSnapshot['geo'] => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn, swap: true }
+  });
+
+  it('keeps legacy availability when the backend snapshot has no startup decision', () => {
+    expect(featureAvailability('earnDeposit', withDecision(undefined))).toEqual(AVAILABLE);
+  });
+
+  it('waits for the startup decision and reports a failed lookup', () => {
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'loading' }))).toEqual({ state: 'loading' });
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'failed' }))).toMatchObject({
+      reason: 'service-down'
+    });
+  });
+
+  it('uses the startup Earn boolean without requiring local block rules', () => {
+    const denied = withDecision(decision(false));
+    expect(denied.config?.geo).toBeUndefined();
+    expect(featureAvailability('earnDeposit', denied)).toMatchObject({ reason: 'restricted' });
+    expect(featureAvailability('earnDeposit', withDecision(decision(true)))).toEqual(AVAILABLE);
+  });
+
+  it('keeps the startup decision when the accepted config version changes', () => {
+    const snapshot = withDecision(decision(false));
+    if (!snapshot.config || !snapshot.derived) throw new Error('Missing test configuration');
+    snapshot.config.version += 1;
+    snapshot.derived.version = snapshot.config.version;
+    expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'restricted' });
+    snapshot.geo = decision(true);
+    expect(featureAvailability('earnDeposit', snapshot)).toEqual(AVAILABLE);
+  });
+
+  it('does not apply the Earn decision to withdrawals or other features', () => {
+    expect(featureAvailability('fastBridgeOut', withDecision(decision(false)))).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeOut', withDecision({ state: 'failed' }))).toEqual(AVAILABLE);
   });
 });

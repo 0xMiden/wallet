@@ -1,6 +1,6 @@
 name: E2E USDCx
 
-# Runs the live USDCx suites on the extension after every push to main, through the runner `yarn e2e:real` uses
+# Runs the live USDCx suites on the extension when Release E2E dispatches it, through the runner `yarn e2e:real` uses
 # (scripts/e2e-real.mjs), in two jobs. The Arc job runs usdcx-in (a deposit from the CI key into a fresh Guardian wallet),
 # usdcx-burn (a Send burn to that key from a fresh standard and a fresh Guardian wallet, each waiting for Circle's payout)
 # and usdcx (the round trip: burn, payout, deposit back). The L2 job then runs usdcx-in-l2 (a deposit the same key signs
@@ -12,10 +12,9 @@ name: E2E USDCx
 # Circle's doing rather than the wallet's, and its message says so. The runner probes every service before it builds,
 # builds the extension itself for each suite and runs the browser headless.
 #
-# The suites burn to and deposit from ONE key, so each burn's payout refills what the deposits spend: a green run leaves
-# it about 2.9 USDC richer on Arc, about 0.97 USDC richer on each L2 (a 0.99 payout less a 0.023 deposit with Circle's
-# fee) and about 0.98 USDC richer on Ethereum Sepolia (a 2 USDCx burn's 0.9965 payout less a 0.017 deposit with
-# Circle's fee). On all three it also pays gas in ETH, which is sent to it by hand. CI has its own key, the repository
+# The suites burn 5 USDCx to and deposit from ONE key, so successful burn payouts replenish what deposits spend.
+# The payout depends on Circle's fee for each burn. The L2 and Ethereum Sepolia deposits also pay gas in ETH,
+# which is sent to the key by hand. CI has its own key, the repository
 # secret USDCX_HARNESS_ARC_KEY: never a developer's harness key and never the iOS job's. In each job only the step that
 # writes it to the runner's key file reads the secret; the suites read the file through the runner, and no cache or
 # upload includes it.
@@ -23,9 +22,6 @@ name: E2E USDCx
 # Not a per-PR gate: it spends public testnet funds and depends on services the project does not run.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -116,9 +112,12 @@ jobs:
 
       # The Arc suites in turn, narrowest first, and each only once the one before passed: a red suite can leave a
       # payout or a deposit still landing on the key, inside the next suite's payout window. Each Playwright run empties
-      # test-results/, so each suite's results upload before the next suite starts. An upload may fail without failing
-      # the job: the Arc suites after it run only when every step before them passed, and its failure is never the
-      # wallet's.
+      # test-results/, so each suite's results upload, and a burning suite's payout fees reach the job summary, before
+      # the next suite starts. An upload or a summary may fail without failing the job: the Arc suites after it run only
+      # when every step before them passed, and its failure is never the wallet's.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Run usdcx-in
         id: usdcx_in
         run: node scripts/e2e-real.mjs --suite usdcx-in
@@ -145,6 +144,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Add usdcx-burn payout fees to the job summary
+        if: always() && steps.usdcx_burn.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Run usdcx (round trip)
         id: usdcx_round_trip
         run: node scripts/e2e-real.mjs --suite usdcx
@@ -157,6 +164,14 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx payout fees to the job summary
+        if: always() && steps.usdcx_round_trip.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # After the Arc job, red or green: its suites leave nothing pending on Base Sepolia, Arbitrum Sepolia or Ethereum
   # Sepolia, so a red one cannot break a proof here. Never in a cancelled run. This job's own setup guards the key: a
@@ -239,6 +254,9 @@ jobs:
       # usdcx-in-l2 spends from the key on all three chains, and usdcx-burn-l2 proves each payout as the rise of the
       # key's balance there from a read taken right before its burn. Every deposit is mined before usdcx-in-l2's step
       # ends, so running them in this order is enough.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Run usdcx-in-l2
         id: usdcx_in_l2
         run: node scripts/e2e-real.mjs --suite usdcx-in-l2
@@ -268,3 +286,11 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx-burn-l2 payout fees to the job summary
+        if: always() && steps.usdcx_burn_l2.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi

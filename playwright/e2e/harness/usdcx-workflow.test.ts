@@ -113,8 +113,8 @@ function holdsKeyFile(entry: string): boolean {
 }
 
 describe('E2E USDCx workflow', () => {
-  it('runs after every push to main and by dispatch, and on nothing else', () => {
-    expect(topLevel('on')).toEqual(['  push:', '    branches:', '      - main', '  workflow_dispatch:']);
+  it('runs only by dispatch (Release E2E starts it), and on nothing else', () => {
+    expect(topLevel('on')).toEqual(['  workflow_dispatch:']);
   });
 
   it('queues every run, from any branch, on one fixed group and never cancels one in progress', () => {
@@ -247,6 +247,26 @@ describe('E2E USDCx workflow', () => {
       expect(upload.match(/^ {10}path:.*$/gm)).toEqual(['          path: test-results/']);
       expect(upload).not.toMatch(/\.miden-e2e|arc-keys|harness\.json|~\/|\$HOME/);
     }
+  });
+
+  // Each Playwright run empties test-results/, so a suite's fee table is read before the next suite starts.
+  it.each([
+    [ARC_JOB, 'usdcx_burn'],
+    [ARC_JOB, 'usdcx_round_trip'],
+    [L2_JOB, 'usdcx_burn_l2']
+  ])("adds the payout fees of %s's %s to the job summary after its upload, whatever it did", (job, id) => {
+    const list = stepsOf(job);
+    const suite = list.findIndex(step => isSuite(step) && new RegExp(`^ {8}id: ${id}$`, 'm').test(step));
+    const summary = bare(list[suite + 2] ?? '');
+    expect(list[suite + 1]).toContain('uses: actions/upload-artifact@');
+    expect(summary).toMatch(new RegExp(`^ {8}if: always\\(\\) && steps\\.${id}\\.outcome != 'skipped'$`, 'm'));
+    expect(summary).toMatch(/^ {8}continue-on-error: true$/m);
+    expect(summary).toContain(
+      '        run: |\n' +
+        '          if [ -f test-results/usdcx-payout-fees.md ]; then\n' +
+        '            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"\n' +
+        '          fi\n'
+    );
   });
 
   it('caches, uploads and checks out no path that holds the key file', () => {

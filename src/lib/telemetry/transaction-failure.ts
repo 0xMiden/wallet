@@ -12,7 +12,16 @@ import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
-import { type BridgeReceiveFailure, bridgeReceiveIdentity } from './bridge-receive-failure';
+import {
+  type BridgeReceiveFailure,
+  bridgeReceiveIdentity,
+  bridgeReceiveNativeFailure,
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from './bridge-receive-failure';
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
@@ -142,6 +151,18 @@ export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', '
   'unavailable'
 ];
 
+/**
+ * How long a transaction waited between its execution and its submit, against the blocks its expiration allows. The
+ * wait is converted at an estimated block time, so a bucket only separates a wait that was a fraction of the window
+ * from one that used it up.
+ */
+export const PROOF_WAIT_BUCKETS: readonly ['under_half_window', 'over_half_window', 'past_window', 'unavailable'] = [
+  'under_half_window',
+  'over_half_window',
+  'past_window',
+  'unavailable'
+];
+
 export const THROWN_CLASSES: readonly [
   'wasm_runtime_error',
   'type_error',
@@ -218,6 +239,13 @@ export const PIPELINE_KILLS = [
 ] as const;
 
 type PipelineKill = (typeof PIPELINE_KILLS)[number];
+
+// Facts an offscreen abort carries (miden-client-proxy.ts): whose deadline closed the document, which of its timers
+// fired, whether that op was a write, and whether this op's start signal had arrived (a dropped signal reads `no`).
+export const OFFSCREEN_DEADLINE_OWNERS = ['own', 'collateral', 'unavailable'] as const;
+export const OFFSCREEN_DEADLINE_TIMERS = ['dispatch', 'backstop', 'started', 'resumed', 'unavailable'] as const;
+export const OFFSCREEN_DEADLINE_KILLERS = ['write', 'read', 'unavailable'] as const;
+export const OFFSCREEN_OP_STARTED = ['yes', 'no', 'unavailable'] as const;
 
 export const EXECUTION_CAUSES = [
   'request_note_consumed',
@@ -308,6 +336,26 @@ export interface ReapSnapshot {
   attempt: (typeof REAPED_ATTEMPT_ORIGINS)[number];
 }
 
+/** Which of the startup sweep's rules picked the row: no recorded start, a start before this session, or a start too far ahead. */
+export const STARTUP_SELECTIONS = ['missing_start', 'before_session', 'future_stamp'] as const;
+
+/** How long before the sweep the row entered its stored stage. */
+export const STORED_STAGE_AGES = ['under_1m', 'under_10m', 'under_1h', 'under_1d', 'over_1d'] as const;
+
+export const QUEUE_AGE_BUCKETS = ['30m_to_1h', '1h_to_6h', '6h_to_24h', 'over_24h', 'unavailable'] as const;
+
+export type QueueAgeBucket = (typeof QUEUE_AGE_BUCKETS)[number];
+
+export const SUBMIT_CROSSINGS = ['crossed', 'not_crossed', 'unavailable'] as const;
+
+export const SUBMIT_RECORDS = ['submit_recorded', 'no_submit_recorded'] as const;
+
+export interface StartupSnapshot {
+  selection: (typeof STARTUP_SELECTIONS)[number];
+  stageAge?: (typeof STORED_STAGE_AGES)[number];
+  submit: (typeof SUBMIT_RECORDS)[number];
+}
+
 export const FAILURE_POINTS = [
   'pipeline',
   'earn_settlement',
@@ -332,16 +380,28 @@ export interface TransactionFailure {
   /** Read only with the `never_committed` reason. */
   neverCommittedRule?: NeverCommittedRule;
   error?: unknown;
+  /** The failure that preceded an expired `never_committed` verdict; only its fixed identity is reported. */
+  priorError?: unknown;
   delegateTransaction?: boolean;
   outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
   lastDeferral?: ConsumeDeferralCause;
   feeAdmission?: ClaimFeeAdmission;
   reap?: ReapSnapshot;
+  /** Read only with the `interrupted_on_startup` reason. */
+  startup?: StartupSnapshot;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
+  /** Age bucket for a row that expired while queued; the timestamp and exact age are never reported. */
+  queueAge?: QueueAgeBucket;
+  /** Whether this attempt's committed evidence shows that it reached the submit call. */
+  submitCrossing?: (typeof SUBMIT_CROSSINGS)[number];
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
   submitLegMs?: number;
+  /** Blocks the transaction waited from its execution to its submit, at the estimated block time. */
+  proofWaitBlocks?: number;
+  /** Blocks from the transaction's reference block to its expiration. */
+  expiryWindowBlocks?: number;
   /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
   alreadyReported?: boolean;
   point?: (typeof FAILURE_POINTS)[number];
@@ -523,8 +583,44 @@ const LOCK_EVICTIONS = new Map<unknown, PipelineKill>([
   ['realm-error', 'wasm_lock_evicted_realm_error']
 ]);
 
+function closedFact<T extends string>(read: () => unknown, values: readonly T[], fallback: T): T {
+  try {
+    const value = read();
+    return values.find(listed => listed === value) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// The facts are read field by field off the thrown value, so a value from another realm or a hostile accessor
+// degrades each one to `unavailable` rather than dropping the abort's name.
+function offscreenAbortFacts(link: unknown, kill: PipelineKill): string {
+  const field = (owner: () => unknown, name: string) => () => {
+    const value = owner();
+    return typeof value === 'object' && value !== null ? Reflect.get(value, name) : undefined;
+  };
+  const facts = field(() => link, 'facts');
+  const startedValue = field(facts, 'started');
+  const started = closedFact(
+    () => {
+      const value = startedValue();
+      return value === true ? 'yes' : value === false ? 'no' : undefined;
+    },
+    OFFSCREEN_OP_STARTED,
+    'unavailable'
+  );
+  if (kill !== 'offscreen_aborted_deadline' && kill !== 'offscreen_aborted_deadline_no_kill') {
+    return `${kill}; op start reported ${started}`;
+  }
+  const deadline = field(facts, 'deadline');
+  const owner = closedFact(field(deadline, 'owner'), OFFSCREEN_DEADLINE_OWNERS, 'unavailable');
+  const timer = closedFact(field(deadline, 'timer'), OFFSCREEN_DEADLINE_TIMERS, 'unavailable');
+  const killer = closedFact(field(deadline, 'killer'), OFFSCREEN_DEADLINE_KILLERS, 'unavailable');
+  return `${kill}; deadline owner ${owner}; deadline timer ${timer}; deadline op ${killer}; op start reported ${started}`;
+}
+
 // Named by class and reason, never by message: the abort's message carries the operation id.
-function killIdentity(error: unknown): PipelineKill | undefined {
+function killIdentity(error: unknown): string | undefined {
   for (const link of errorChain(error)) {
     try {
       const offscreen = isOperationAbortedError(link);
@@ -535,9 +631,8 @@ function killIdentity(error: unknown): PipelineKill | undefined {
       } catch {
         reason = undefined;
       }
-      return offscreen
-        ? (OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other')
-        : (LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other');
+      if (!offscreen) return LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other';
+      return offscreenAbortFacts(link, OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other');
     } catch {
       // A throwing accessor costs this link, not the report.
     }
@@ -608,6 +703,26 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
+export interface SubmitGrpcFailure {
+  endpoint: (typeof SUBMIT_ENDPOINTS)[number];
+  status: (typeof SUBMIT_GRPC_STATUSES)[number];
+}
+
+/** The endpoint and gRPC status for an SDK request failure inside a submit. */
+export function submitGrpcFailure(error: unknown): SubmitGrpcFailure | undefined {
+  const refusal = submitRequestFailure(error);
+  if (refusal === undefined) return undefined;
+  return {
+    endpoint: SUBMIT_ENDPOINT_BY_NAME.get(refusal.endpoint) ?? 'other',
+    status: grpcStatusOf(refusal.kind)?.[0] ?? 'other'
+  };
+}
+
+/** The gRPC status of an SDK request failure inside a submit, or undefined when absent. */
+export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+  return submitGrpcFailure(error)?.status;
+}
+
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
@@ -623,12 +738,29 @@ function submitOutcomeIdentity(
   hiddenDuringSubmit: boolean | undefined,
   submitLegMs: number | undefined
 ): string {
-  const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
+  const refusal = submitRequestFailure(error);
+  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal?.endpoint) ?? 'other';
+  const matched = grpcStatusOf(refusal?.kind)?.[0];
   const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
-  return `${coined('submit_outcome_unknown')}; grpc ${status}; ${submitContextIdentity(hiddenDuringSubmit, submitLegMs)}`;
+  return `${coined('submit_outcome_unknown')}; endpoint ${endpoint}; grpc ${status}; ${submitContextIdentity(
+    hiddenDuringSubmit,
+    submitLegMs
+  )}`;
 }
 
-function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
+function proofWaitBucket(
+  waitBlocks: number | undefined,
+  windowBlocks: number | undefined
+): (typeof PROOF_WAIT_BUCKETS)[number] {
+  if (waitBlocks === undefined || windowBlocks === undefined) return 'unavailable';
+  if (!Number.isFinite(waitBlocks) || waitBlocks < 0 || !Number.isFinite(windowBlocks) || windowBlocks <= 0) {
+    return 'unavailable';
+  }
+  const used = waitBlocks / windowBlocks;
+  return used < 0.5 ? 'under_half_window' : used <= 1 ? 'over_half_window' : 'past_window';
+}
+
+function submitRefusalIdentity(refusal: { endpoint: string; kind: string }, failure: TransactionFailure): string {
   const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal.endpoint) ?? 'other';
   const status = grpcStatusOf(refusal.kind);
   let node: (typeof SUBMIT_NODE_ERRORS)[number] = 'none';
@@ -637,7 +769,11 @@ function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): str
     const after = refusal.kind.slice(status[1].length);
     if (after.startsWith(' (')) node = SUBMIT_NODE_TEXT.find(([, text]) => after.startsWith(text, 2))?.[0] ?? 'other';
   }
-  return `${coined('submit_rejected')}; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
+  const identity = `${coined('submit_rejected')}; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
+  // Only an expiry has a window to measure the wait against.
+  return node === 'expired'
+    ? `${identity}; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
+    : identity;
 }
 
 function failureIdentity(failure: TransactionFailure): string {
@@ -656,7 +792,7 @@ function failureIdentity(failure: TransactionFailure): string {
     return submitOutcomeIdentity(error, failure.hiddenDuringSubmit, failure.submitLegMs);
   }
   const refusal = submitRequestFailure(error);
-  if (refusal !== undefined) return submitRefusalIdentity(refusal);
+  if (refusal !== undefined) return submitRefusalIdentity(refusal, failure);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
   if ([...reportedCauseChain(error)].some(isClientTerminatedError) || /WebClient terminated/.test(message)) {
@@ -686,8 +822,13 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SUBMIT_NODE_ERRORS,
   ...SUBMIT_HIDDEN_ANSWERS,
   ...SUBMIT_LEG_BUCKETS,
+  ...PROOF_WAIT_BUCKETS,
   ...THROWN_CLASSES,
   ...PIPELINE_KILLS,
+  ...OFFSCREEN_DEADLINE_OWNERS,
+  ...OFFSCREEN_DEADLINE_TIMERS,
+  ...OFFSCREEN_DEADLINE_KILLERS,
+  ...OFFSCREEN_OP_STARTED,
   ...EXECUTION_CAUSES,
   ...SIGNING_STEPS,
   ...CONFIRMING_STEPS,
@@ -696,6 +837,11 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...CLAIM_FEE_ADMISSIONS,
   ...REAP_AGES,
   ...REAPED_ATTEMPT_ORIGINS,
+  ...STARTUP_SELECTIONS,
+  ...STORED_STAGE_AGES,
+  ...QUEUE_AGE_BUCKETS,
+  ...SUBMIT_CROSSINGS,
+  ...SUBMIT_RECORDS,
   'none',
   'unrecorded',
   'unavailable',
@@ -713,7 +859,13 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...AUTH_PREPARATIONS,
   ...AUTH_LAYOUTS,
   ...COMMITMENT_MATCHES,
-  ...ACCOUNT_AUTH_CODES
+  ...ACCOUNT_AUTH_CODES,
+  ...REOWN_NATIVE_ORIGINS,
+  ...REOWN_WALLET_RESPONSE_CODES,
+  ...REOWN_REQUEST_AGES,
+  ...REOWN_PUBLICATIONS,
+  ...REOWN_BACKGROUND_ANSWERS,
+  'invalid_permissions'
 ]);
 
 function softwareVersion(value: string): string {
@@ -782,7 +934,11 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
               failure.feeAdmission === undefined ? 'unrecorded' : 'other'
             )}`
           ].join('')
-        : '';
+        : // Any row the loop requeued records its cause; only a recorded one is named, so a report that has none keeps its
+          // message and its Sentry group.
+          failure.lastDeferral === undefined
+          ? ''
+          : `; last deferral ${diagnostic<string>(failure.lastDeferral, CONSUME_DEFERRAL_CAUSES, 'other')}`;
     const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
@@ -793,15 +949,37 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
             `; reaped attempt ${diagnostic<string>(failure.reap?.attempt, REAPED_ATTEMPT_ORIGINS, 'unavailable')}`
           ].join('')
         : '';
+    const startup =
+      reason === 'interrupted_on_startup'
+        ? [
+            `; startup selection ${diagnostic<string>(failure.startup?.selection, STARTUP_SELECTIONS, 'unavailable')}`,
+            `; stored stage age ${diagnostic<string>(failure.startup?.stageAge, STORED_STAGE_AGES, 'unavailable')}`,
+            `; submit ${diagnostic<string>(failure.startup?.submit, SUBMIT_RECORDS, 'unavailable')}`
+          ].join('')
+        : '';
+    const queueAge =
+      reason === 'queued_expired' && failure.queueAge !== undefined
+        ? `; queue age ${diagnostic<string>(failure.queueAge, QUEUE_AGE_BUCKETS, 'unavailable')}`
+        : '';
+    const submitCrossing =
+      failure.submitCrossing === undefined
+        ? ''
+        : `; submit crossing ${diagnostic<string>(failure.submitCrossing, SUBMIT_CROSSINGS, 'unavailable')}`;
     const identity =
       reason === undefined
         ? failureIdentity(failure)
         : reason === 'never_committed' && failure.neverCommittedRule !== undefined
-          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}`
+          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}` +
+            (failure.neverCommittedRule !== 'expired' || failure.priorError === undefined
+              ? ''
+              : `; prior ${failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError })}`) +
+            (failure.neverCommittedRule === 'expired'
+              ? `; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
+              : '')
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${submitCrossing}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
@@ -809,7 +987,35 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     report.name = 'WalletTransactionFailure';
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
-    annotateCrash(report, snapshotCrashDiagnostics(failure.error));
+    const inherited = snapshotCrashDiagnostics(failure.error);
+    delete inherited.reownNativeOrigin;
+    delete inherited.reownWalletResponseCode;
+    delete inherited.reownRequestAge;
+    delete inherited.reownPublished;
+    delete inherited.reownBackgrounded;
+    annotateCrash(report, inherited);
+    // Each is checked against its closed list there; a value the wallet does not define is dropped.
+    const bridgeSource = failure.bridgeReceive;
+    if (bridgeSource !== undefined) {
+      annotateCrash(report, {
+        bridgeBalanceCheck: bridgeSource.balanceCheck,
+        bridgeOrphanCheck: bridgeSource.orphanCheck,
+        bridgeSourceRoute: bridgeSource.sourceRoute
+      });
+    }
+    const native =
+      type === 'bridged-receive' && platform === 'android'
+        ? bridgeReceiveNativeFailure(failure.bridgeReceive?.cause)
+        : undefined;
+    if (native !== undefined) {
+      annotateCrash(report, {
+        reownNativeOrigin: native.nativeOrigin,
+        reownWalletResponseCode: native.walletResponseCode,
+        reownRequestAge: native.requestAge,
+        reownPublished: native.published,
+        reownBackgrounded: native.backgrounded
+      });
+    }
     // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
     // whatever held the queue has its own report, and each row behind it would otherwise add another error.
     const neverStarted = reason === 'queued_expired' && failure.stage === undefined;

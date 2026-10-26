@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useSWRConfig } from 'swr';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
 import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
@@ -11,12 +12,15 @@ import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { marketUidChainId } from 'lib/epoch/market-uid';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { cn } from 'lib/ui/util';
-import { navigate } from 'lib/woozie';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
+import { networkName } from 'screens/earn-flow/earn-mapping';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -44,6 +48,22 @@ interface EarnWithdrawStatusProps {
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const { trigger, state } = useLocation();
+  const mountedByReturn = usePageMountedByReturn();
+  const revealedByLayer = usePageRevealedByLayer();
+  const newSubmission =
+    trigger === HistoryAction.Push && state?.newSubmissionTxId === txId && !mountedByReturn && !revealedByLayer;
+  // The spinner is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedFailed = useRef<boolean>();
+  if (loaded && row && firstLoadedFailed.current === undefined) {
+    firstLoadedFailed.current = row.extraInputs.phase === 'failed';
+  }
+  useUserVisibleError(
+    loaded && row?.extraInputs.phase === 'failed' && (firstLoadedFailed.current === false || newSubmission)
+      ? 'raw_earn_withdraw_failed'
+      : null,
+    'status_screen'
+  );
   const { mutate } = useSWRConfig();
   const refreshedReceipt = useRef<string>();
   const receiptId = row?.extraInputs?.phase === 'received' ? row.id : undefined;
@@ -69,6 +89,8 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     );
 
   const inputs: IEarnWithdrawExtraInputs = row.extraInputs;
+  const sourceChainId = typeof inputs.marketUid === 'string' ? marketUidChainId(inputs.marketUid) : undefined;
+  const sourceNetwork = sourceChainId === undefined ? t('network') : networkName(String(sourceChainId));
   const failed = inputs.phase === 'failed';
   const prepared = inputs.submissionState === 'prepared';
   const submitted =
@@ -111,9 +133,12 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           className="mt-4 face-heading"
         />
         <ReceiptRows
+          surface="outline"
+          face="heading"
           className="mt-4"
           rows={[
-            { label: t('route'), value: 'Sepolia → Miden' },
+            // The source chain is the market's own, read from the row's market uid, never a fixed network.
+            { label: t('route'), value: `${sourceNetwork} → Miden` },
             {
               label: t('status'),
               // A status word is a `StatusBadge`, never a bare line of text: the closed set

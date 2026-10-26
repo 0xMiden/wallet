@@ -38,7 +38,7 @@ import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from '
 
 import { WalletStore } from './types';
 import { balancePrice } from './utils/balancePrice';
-import { fetchBalances, fetchingAddresses } from './utils/fetchBalances';
+import { balanceReadStateForTest, fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
 let intercom: IIntercomClient | null = null;
@@ -275,6 +275,7 @@ export const useWalletStore = create<WalletStore>()(
     fiatRates: null,
     fiatRatesLoading: false,
     tokenPrices: {},
+    tokenPricesStatus: 'loading',
 
     // Initial sync state
     isInitialized: false,
@@ -663,6 +664,15 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
 
+    importHotKeyPair: async (accountPublicKey, keyPairPayload) => {
+      const res = await request({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey,
+        keyPairPayload
+      });
+      assertResponse(res.type === WalletMessageType.ImportHotKeyPairResponse);
+    },
+
     setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.SetGuardianEndpointRequest,
@@ -699,6 +709,25 @@ export const useWalletStore = create<WalletStore>()(
         guardianSyncStatus
       });
       assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
+    },
+
+    markHotKeyRotatedOut: async (accountPublicKey, hotPublicKey, onChainHotCommitment) => {
+      const res = await request({
+        type: WalletMessageType.MarkHotKeyRotatedOutRequest,
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      });
+      assertResponse(res.type === WalletMessageType.MarkHotKeyRotatedOutResponse);
+    },
+
+    retireRotatedOutHotKey: async (accountPublicKey, expectedHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.RetireRotatedOutHotKeyRequest,
+        accountPublicKey,
+        expectedHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
     },
 
     checkGuardianDrift: async accountPublicKey => {
@@ -1186,6 +1215,7 @@ export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getS
 // Use globalThis (not window) so this works in both extension pages and the
 // service worker context where window is undefined.
 if (process.env.MIDEN_E2E_TEST === 'true') {
+  Reflect.set(globalThis, '__TEST_BALANCE_READ_STATE__', balanceReadStateForTest);
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();

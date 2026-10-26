@@ -19,10 +19,13 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
+import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { buyInputsOf, formatBuyTokenAmount } from 'screens/buy-status/buy-status-helpers';
 import { sellInputsOf } from 'screens/sell-status/sell-status-helpers';
@@ -166,11 +169,21 @@ export const isReceiveEntry = (
 ): boolean =>
   entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
 
+/**
+ * Whether a note of the native asset that the native faucet sent is a faucet claim on this
+ * network. Mainnet has no faucet to request funds from: its native faucet is the USDCx minter, so
+ * such a note there is a bridge-in, shown as an ordinary receive. Every other network has a faucet
+ * drip to show. The caller gives the network of each call, because a Developer Settings save can
+ * change it without a reload.
+ */
+export const networkHasFaucetClaims = (network: MIDEN_NETWORK_NAME): boolean => network !== MIDEN_NETWORK_NAME.MAINNET;
+
 export const isFaucetRequest = (
   entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'> & {
     txType?: IHistoryEntry['txType'];
   }
 ): boolean => {
+  if (!networkHasFaucetClaims(getEffectiveNetworkName())) return false;
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
   return isReceiveEntry(entry) && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
@@ -287,7 +300,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
   if (entry.bridgeProvider === 'usdcx') {
-    if (entry.usdcxBurn?.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed) return 'confirmed';
+    if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
     if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
     return 'pending';
   }
@@ -306,9 +319,10 @@ export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' |
 /**
  * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
  * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
- * as a confirmed destination payout.
+ * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
+ * none arrives within 2 hours.
  */
-export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
+export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
   if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
   if (entry.bridgeInProvider === 'usdcx') {
     const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
@@ -317,7 +331,10 @@ export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
   if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
-      return entry.usdcxBurn.destinationBalanceConfirmed ? 'confirmed' : 'burnConfirmed';
+      if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
+      return isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, now, entry.restoredFromBackup === true)
+        ? 'payoutDelayed'
+        : 'burnConfirmed';
     case 'discarded':
       return 'burnDiscarded';
     case 'consuming':
@@ -397,9 +414,14 @@ const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): str
       return 'Agglayer';
     case 'usdcx':
       return 'Circle xReserve';
+    case 'near-intents':
+      return '1Click';
     case 'epoch':
-    default:
       return 'Epoch';
+    case undefined:
+      return 'Epoch';
+    default:
+      return 'Bridge';
   }
 };
 
@@ -426,9 +448,11 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
       : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
-  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
-  const keepsSourceSymbol = entry.bridgeInProvider === 'usdcx' || inSymbol === 'ETH';
-  const inLabel = keepsSourceSymbol ? inSymbol : evmUsdcLabel(snapshot, inSymbol);
+  const inLabel = bridgeInSourceLabel(snapshot, {
+    provider: entry.bridgeInProvider,
+    symbol: inSymbol,
+    sourceToken: entry.bridgeInSourceToken
+  });
   return {
     inSymbol,
     outSymbol,
@@ -604,12 +628,13 @@ export const TRANSACTION_COLORS = {
  * `nativeFaucetId` is a parameter rather than `getNativeAssetIdSync()` because those screens
  * take it from `useMidenFaucetId()`, which re-renders once discovery lands; `null` means "not
  * known yet", so the claim reads as an ordinary one until it is — the same contract the badge's
- * asset labels already follow.
+ * asset labels already follow. On Mainnet it is never a faucet mint (`networkHasFaucetClaims`).
  */
 export const isFaucetMintTransaction = (
   transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
   nativeFaucetId: string | null
 ): boolean =>
+  networkHasFaucetClaims(getEffectiveNetworkName()) &&
   transaction?.type === 'consume' &&
   nativeFaucetId !== null &&
   transaction.faucetId === nativeFaucetId &&

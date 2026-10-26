@@ -31,6 +31,8 @@ export interface EndpointOverride {
   // without naming the chain's fee faucet. Optional so a stored 1.16 override still
   // loads; production and E2E must fill it.
   feeFaucetId?: string;
+  // Set only by the Developer Settings save; the Mainnet launch leaves such a choice alone.
+  developerChoice?: boolean;
 }
 
 // Build-time NTL env override (mirrors the precedence in constants.getNoteTransportUrl).
@@ -41,6 +43,10 @@ let overrideCache: EndpointOverride | null = null;
 
 export function getActiveOverride(): EndpointOverride | null {
   return overrideCache;
+}
+
+export function hasDeveloperNetworkChoice(): boolean {
+  return overrideCache?.developerChoice === true;
 }
 
 export function getEffectiveNetworkName(): MIDEN_NETWORK_NAME {
@@ -322,6 +328,19 @@ export async function applyEndpointOverride(override: EndpointOverride): Promise
 }
 
 /**
+ * Keep the stored override but drop its developer-choice marker, so the next onboarding follows the launch
+ * again. Reads storage, not the cache: a realm that never loaded it must still strip it.
+ */
+export async function forgetDeveloperNetworkChoice(): Promise<void> {
+  const storage = getStorageProvider();
+  const raw = (await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]))[ENDPOINT_OVERRIDE_STORAGE_KEY];
+  if (!isEndpointOverride(raw) || !raw.developerChoice) return;
+  const { developerChoice: _marker, ...rest } = raw;
+  await storage.set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: rest });
+  overrideCache = rest;
+}
+
+/**
  * Remove the stored override. Only the tests that reset their fixture with it call it. The destructive
  * reset must not: the dev reset takes the override with the wipe (`keepEndpointOverride: false`), and a
  * separate clear after it could fail after the wallet is already gone.
@@ -342,8 +361,13 @@ const OVERRIDE_ENDPOINT_FIELDS = [
 ] as const;
 
 // What `buildNetworkChoiceOverride` stores: a network, with no endpoint and no developer option of its own.
-const isNetworkChoice = (override: EndpointOverride) =>
+export const isNetworkChoiceOverride = (override: EndpointOverride) =>
   OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
+
+/** Synchronous provenance check: onboarding's endpoint-free network choice uses the canonical defaults. */
+export function hasCustomEndpointOverride(override: unknown): boolean {
+  return override != null && (!isEndpointOverride(override) || !isNetworkChoiceOverride(override));
+}
 
 /**
  * Whether a developer endpoint override is stored. The network choice onboarding stores is not one, so an
@@ -351,7 +375,5 @@ const isNetworkChoice = (override: EndpointOverride) =>
  */
 export async function isEndpointOverrideActive(): Promise<boolean> {
   const items = await getStorageProvider().get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-  const stored = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-  if (stored == null) return false;
-  return !isEndpointOverride(stored) || !isNetworkChoice(stored);
+  return hasCustomEndpointOverride(items[ENDPOINT_OVERRIDE_STORAGE_KEY]);
 }

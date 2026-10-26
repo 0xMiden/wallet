@@ -576,7 +576,18 @@ const DOCUMENT = {
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true },
+  // Earn on needs a vault list on an Epoch route.
+  earn: {
+    vaults: [
+      {
+        id: 'dummy-lending-sepolia-usdc',
+        marketUid: `DUMMY_LENDING:11155111:${EVM_USDC}`,
+        name: 'Dummy Lending USDC',
+        protocol: 'dummy-lending'
+      }
+    ]
+  }
 };
 
 function epochProvider(fields: object) {
@@ -720,7 +731,9 @@ describe('the preflight reads what it probes from the network config document', 
 
   it('passes a document that leaves a switch out, which the wallet reads as off', () => {
     const features = {};
-    const res = preflight('bridge-out-epoch', { ...DOCUMENT, features });
+    // Earn read as off takes its vault list out too: the wallet refuses an earn section while Earn is off.
+    const { earn: _earn, ...withoutEarn } = DOCUMENT;
+    const res = preflight('bridge-out-epoch', { ...withoutEarn, features });
     expect(res.status).toBe(0);
     expect(res.requests).toContain(`${ALLOCATOR}/health`);
   }, 35_000);
@@ -1475,7 +1488,7 @@ describe('usdcxGrantProblem', () => {
     expect(usdcxGrantProblem(LIVE)).toBeUndefined();
   });
 
-  it('asks the smallest live tier that leaves a 1 USDCx burn and its fees their margin', () => {
+  it('asks the smallest live tier that leaves a 5 USDCx burn and its fees their margin', () => {
     // 210: the most a grant's consume fee takes at testnet's base fee of 7 (base fee x 30).
     const covering = LIVE.token_amounts
       .map(tokens => BigInt(tokens) * 10n ** BigInt(USDCX_DECIMALS))
@@ -1602,8 +1615,8 @@ describe('the usdcx-in-l2 copies are the ones the harness and the wallet use', (
     expect(l2KeyGasProblem(base, address, 13_200_000_000_000n, 6_000_000n)).toBeUndefined();
     expect(l2KeyUsdcProblem(base, address, 50_000n)).toBe(
       `top up the key on Base Sepolia: ${address} holds 0.05 USDC, below the 0.101 USDC one bridge-in takes ` +
-        "(0.001 deposited and twice Circle's forward fee, up to 0.05 each); a green usdcx-burn-l2 run pays it about " +
-        '0.99 USDC there'
+        "(0.001 deposited and twice Circle's forward fee, up to 0.05 each); a green usdcx-burn-l2 run refills it " +
+        "with that run's payout"
     );
     expect(l2KeyUsdcProblem(base, address, 101_000n)).toBeUndefined();
   });
@@ -1936,7 +1949,7 @@ describe('the usdcx preflight', () => {
     expect(failedChecks(res.output)).toEqual(['Arc funded key']);
     expect(res.output).toContain(
       `harness key ${address} holds 0.0209 USDC, below the 0.021 USDC one deposit and its gas need; refill it with ` +
-        "yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or export E2E_ARC_PRIVATE_KEY with a " +
+        'yarn e2e:real --suite usdcx (after its burn pays out), or export E2E_ARC_PRIVATE_KEY with a ' +
         'funded key'
     );
     expect(res.output).not.toContain(privateKey.slice(2));

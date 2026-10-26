@@ -54,6 +54,7 @@ import {
   OFFSCREEN_RELOAD_ENDPOINTS,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   b64ToBytes,
@@ -62,12 +63,15 @@ import {
   decodeArg,
   errorNameOf,
   type OffscreenCallRequest,
+  type OffscreenSendDto,
   type OffscreenConnectivityEvent,
   type OffscreenOpStarted,
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignResponse,
-  type OffscreenStageEvent
+  type OffscreenStageEvent,
+  type OffscreenSubmitGateRequest,
+  type OffscreenSubmitGateResponse
 } from 'lib/miden/back/offscreen-codec';
 import type {
   ConsumeTransaction,
@@ -114,9 +118,11 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { assertOneClickDeadline } from 'lib/one-click/deadline';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
@@ -458,6 +464,26 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // stamp it fires afterwards is correctly addressed to a row the SW has already
 // moved past — 'proving' arriving after the row completed would rewind the UI,
 // and 'submitting' would set may-have-submitted on a row already adjudicated.
+// The Guardian leaf's submit gate (#1644). Unlike a stage stamp it is AWAITED, and only an `ok` from the service
+// worker lets the leaf submit: the worker records the crossing before it answers, so an attempt it never let through
+// provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
+// A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
+// pre-submit step.
+async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
+  const { op_id } = context;
+  if (!op_id || context.settled) throw new Error('offscreen submit gate: no live op to submit for');
+  const request: OffscreenSubmitGateRequest = {
+    target: SW_TARGET,
+    type: OFFSCREEN_SUBMIT_GATE,
+    op_id,
+    ...(evidence === undefined ? {} : { evidence })
+  };
+  const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
+  if (resp?.ok !== true) {
+    throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+  }
+}
+
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
   const { op_id } = context;
   if (!op_id || context.settled) return;
@@ -842,19 +868,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // crossed as decimal strings are re-widened to BigInt so the reconstructed row
   // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
   // path.
-  sendTransaction: async (
-    context,
-    client,
-    dto: {
-      accountId: string;
-      secondaryAccountId: string;
-      faucetId: string;
-      noteType: unknown;
-      amount: string;
-      delegateTransaction?: boolean;
-      extraInputs: { recallBlocks?: number };
-    }
-  ) => {
+  sendTransaction: async (context, client, dto: OffscreenSendDto) => {
     // `context` arrived bound to THIS op (threaded by `handleCall` before any
     // await), so a stamp fired late (an evicted dispatch still running) carries
     // its own op_id rather than the successor's — see `postStageEvent` (#775).
@@ -882,22 +896,29 @@ const DISPATCH: Record<string, DispatchFn> = {
       faucetId: string;
       amount: string;
       delegateTransaction?: boolean;
-      extraInputs: { requestedFaucetId: string; requestedAmount: string };
-    }
+      extraInputs: { requestedFaucetId: string; requestedAmount: string; balanceScope?: string };
+      swapFeeContext: { scope: string; nativeAssetId: string; feeFaucetId: string | null; baseFee: string };
+    },
+    feeContext: SwapFeeContext
   ) => {
     const tx = decodeBeforeSubmit(
       () =>
         ({
-          ...dto,
+          accountId: dto.accountId,
+          faucetId: dto.faucetId,
           amount: BigInt(dto.amount),
+          delegateTransaction: dto.delegateTransaction,
           extraInputs: {
             requestedFaucetId: dto.extraInputs.requestedFaucetId,
-            requestedAmount: BigInt(dto.extraInputs.requestedAmount)
+            requestedAmount: BigInt(dto.extraInputs.requestedAmount),
+            balanceScope: dto.extraInputs.balanceScope
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+    const result = await client.swapTransaction(
+      tx,
+      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      feeContext
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
@@ -960,7 +981,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // than re-declared here, so this list and the SW-side packer cannot drift.
   // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction] = args;
+    const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired] = args;
     // This op's own id and lock hold, threaded in by `handleCall` before any
     // await so both are provably ours (issue #775). The hold is what keeps a pause from
     // silencing the watchdog of whichever holder took the lock after an
@@ -1093,17 +1114,19 @@ const DISPATCH: Record<string, DispatchFn> = {
       // local under a relaxed ceiling - so the same question has to be asked again.
       // Still pre-submit: nothing has been broadcast at this point.
       assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
+      // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
+      await passSubmitGate(
+        context,
+        readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+      );
+      // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
+      assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
+      if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
     } catch (preSubmitError) {
       // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
       // own shape: markErrorBeforeSubmit never tags one.
       throw markErrorBeforeSubmit(preSubmitError);
     }
-    // Read under this op's own hold before the stamp, so the service worker can record what the attempt was (#1081).
-    postStageEvent(
-      context,
-      'submitting',
-      readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
-    );
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
@@ -1455,8 +1478,24 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     }
     // NOTE: the client is deliberately NOT resolved here — it is resolved inside
     // the lock below, at execution start (issue #775).
-    recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
     const args = decodeBeforeSubmit(() => msg.argsB64.map(decodeArg));
+    let executionFeeContext: SwapFeeContext | undefined;
+    if (msg.method === 'swapTransaction') {
+      executionFeeContext = await stepBeforeSubmit(async () => {
+        const dto = args[0] as {
+          extraInputs?: { balanceScope?: string };
+          swapFeeContext: { scope: string; nativeAssetId: string; feeFaucetId: string | null; baseFee: string };
+        };
+        const queuedFeeContext = decodeBeforeSubmit(() => ({
+          ...dto.swapFeeContext,
+          baseFee: BigInt(dto.swapFeeContext.baseFee)
+        }));
+        const scope = dto.extraInputs?.balanceScope ?? queuedFeeContext.scope;
+        const currentFeeContext = await readSwapFeeContext(scope);
+        return assertSwapFeeContextMatches(queuedFeeContext, currentFeeContext, scope);
+      });
+    }
+    recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
     // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
     // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
     // (imported here in the offscreen bundle — distinct from the SW's instance),
@@ -1523,7 +1562,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // parking awaits without opting in.
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
       try {
-        return await dispatch(context, client, ...args);
+        const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
+        return await dispatch(context, client, ...dispatchArgs);
       } finally {
         // Closes the window for late stage stamps: whatever the dispatch does
         // after this point, its stamps are about a step the SW has already been

@@ -22,7 +22,8 @@ import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/avail
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { initiateUsdcxBurn } from 'lib/usdcx/burn';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
@@ -32,7 +33,20 @@ import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, settleSendFlow } from './send-telemetry';
 
-// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
 
@@ -52,14 +66,28 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   error: null,
   symbol: 'USDC'
 };
-let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+let mockEpochQuoteArgs: { amount?: bigint } = {};
+let mockBurnMinimum = 5_000_000n;
+let mockUseRealBurnMinimum = false;
 // The native asset's chain metadata; null until a test discovers one, as before discovery.
 let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
-jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
-jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+jest.mock('lib/usdcx/burn', () => ({
+  initiateUsdcxBurn: jest.fn(async () => 'burn-tx'),
+  readUsdcxMinimumBurn: jest.fn()
+}));
+jest.mock('lib/usdcx/use-burn-minimum', () => ({
+  useBurnMinimum: (enabled: boolean) => {
+    const useMinimum = mockUseRealBurnMinimum
+      ? jest.requireActual<typeof import('lib/usdcx/use-burn-minimum')>('lib/usdcx/use-burn-minimum').useBurnMinimum
+      : () => mockBurnMinimum;
+    return useMinimum(enabled);
+  }
+}));
 
 const mockWalletStoreState = {
-  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number; observedAt?: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -312,8 +340,15 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
   toAdaptiveFixed: (v: number) => v.toFixed(2),
-  stringToBigInt: jest.fn()
+  stringToBigInt: jest.fn(),
+  // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
+  // return, so the guard has to call the real helper.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -360,7 +395,11 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 jest.mock('lib/platform', () => ({
-  isExtension: jest.fn(() => false)
+  isExtension: jest.fn(() => false),
+  isMobile: () => false,
+  isDesktop: () => false,
+  isIOS: () => false,
+  isAndroid: () => false
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -425,7 +464,10 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => mockEpochQuote
+  useEpochQuote: (args: { amount?: bigint }) => {
+    mockEpochQuoteArgs = args;
+    return mockEpochQuote;
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -508,7 +550,7 @@ beforeEach(() => {
   mockBridgeAvailability = { state: 'available' };
   jest.resetAllMocks();
   jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
-  mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+  mockBurnMinimum = 5_000_000n;
   jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
   mockAuthorizationAccountOverride = undefined;
 
@@ -542,6 +584,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
+  mockEpochQuoteArgs = {};
   mockNativeMetadata = null;
 
   delete process.env.MIDEN_E2E_TEST;
@@ -559,21 +602,20 @@ describe('USDCx burn review', () => {
   beforeEach(() => {
     mockDetectedChain = 'ethereum';
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
-    mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+    mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
-  it('submits the exact base-unit burn and shows Circle fee and the least payout', async () => {
+  it('submits the exact base-unit burn and shows Circle fee as varying, with no payout bound', async () => {
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
-    // The review now shows the payout Circle's fee leaves, where it used to show no payout figure at all.
-    expect(screen.getByText('usdcxPayoutFeeUpTo|0.1')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutAtLeast|0.900001')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() =>
       expect(initiateUsdcxBurn).toHaveBeenCalledWith(
         expect.objectContaining({
-          amount: 1_000_001n,
+          amount: 5_000_001n,
           faucetId: USDCX_FAUCET_ID_BECH32,
           destinationChainId: 5042002,
           destinationAddress: '0x1111111111111111111111111111111111111111'
@@ -589,10 +631,7 @@ describe('USDCx burn review', () => {
     ['base-sepolia', 84532],
     ['arbitrum-sepolia', 421614]
   ])('accepts a USDCx deep link targeting %s', async (network, chainId) => {
-    // 2.000001 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
-    mockSearch = mockSearch
-      .replace('network=arc-testnet', `network=${network}`)
-      .replace('amount=1.000001', 'amount=2.000001');
+    mockSearch = mockSearch.replace('network=arc-testnet', `network=${network}`);
     render(<ReviewTransaction />);
     await flush();
     fireEvent.click(screen.getByTestId('send-review-submit'));
@@ -609,16 +648,26 @@ describe('USDCx burn review', () => {
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
 
-  it('disables submission below the on-chain minimum', async () => {
-    mockBurnPreflight.minimum = 2_000_000n;
+  it('disables submission below the minimum burn, naming it', async () => {
+    mockBurnMinimum = 5_000_000n;
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=4.999999');
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByText('5 USDCx')).toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
-    expect(screen.getByText('usdcxBelowMinimumBurn')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxBelowMinimumBurn|5');
+  });
+
+  it('accepts a burn at the minimum', async () => {
+    mockBurnMinimum = 5_000_000n;
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=5');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
   });
 
   it('rejects precision that would otherwise silently round', async () => {
-    mockSearch = mockSearch.replace('1.000001', '1.0000001');
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=5.0000001');
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
@@ -647,15 +696,6 @@ describe('USDCx burn review', () => {
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
 
-  // Circle takes a flat ~1.0035 USDC from a Sepolia payout; the allowance a burn there must exceed is 1.5 USDC.
-  it('disables submission of a burn the Sepolia fee allowance takes whole, naming the allowance and the network', async () => {
-    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=1.5');
-    render(<ReviewTransaction />);
-    await flush();
-    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
-    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|1.5|Sepolia');
-  });
-
   it('names the allowance and the network a refused burn carries', async () => {
     jest
       .mocked(initiateUsdcxBurn)
@@ -670,15 +710,14 @@ describe('USDCx burn review', () => {
     );
   });
 
-  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
-  it('shows the Sepolia fee allowance and the payout it leaves', async () => {
-    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=10');
+  // Circle took 2.5635 USDC from a Sepolia payout, above the 1.5 USDC allowance, so no fee bound or payout is shown.
+  it('shows the Sepolia fee as varying and promises no payout', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=5.000001', 'amount=10');
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutFeeUpTo|1.5')).toBeInTheDocument();
-    expect(screen.getByText('youReceive')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutAtLeast|8.5')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
+    expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
   });
 });
@@ -732,6 +771,14 @@ describe('ReviewTransaction — redirect guards', () => {
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
+  it('redirects when a typed base unit exceeds an 18-decimal token balance', async () => {
+    mockSearch = 'amount=1.000000000000000001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 1, metadata: { ...VALID_TOKEN.metadata, decimals: 18 } }];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
   // Epoch and Agglayer settle on Sepolia alone; the send flow clears a non-USDCx token on these chains, and this is the
   // backstop for a link that skips the flow.
   it.each([
@@ -773,7 +820,7 @@ describe('ReviewTransaction — rendering', () => {
     mockBalanceData = [
       { tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
     ];
-    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3, observedAt: Date.now() } };
     try {
       render(<ReviewTransaction />);
       await flush();
@@ -915,7 +962,7 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
     // A bridge has neither a transfer type nor an expiration, so nothing to fold away.
     expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
@@ -1080,6 +1127,28 @@ describe('ReviewTransaction — onSubmit', () => {
     });
     await flush();
   };
+
+  it.each([
+    ['same-chain', 'miden', ''],
+    ['Epoch', 'ethereum', '&network=sepolia&route=epoch'],
+    ['Agglayer', 'ethereum', '&network=sepolia&route=agglayer']
+  ])('refuses a direct %s review URL with digits past token precision', async (_label, chain, suffix) => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockDetectedChain = chain as 'miden' | 'ethereum';
+    mockSearch = `amount=1.001&to=0xrecipient&tokenId=tok1${suffix}`;
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await clickSubmit();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+  });
 
   // This screen is reachable by URL and re-derives its own token, so it cannot
   // rely on the amount screen having refused. Every conversion below it runs
@@ -2149,5 +2218,209 @@ describe('ReviewTransaction — send telemetry', () => {
     expect(handleAt(0).complete).not.toHaveBeenCalled();
     expect(handleAt(0).fail).not.toHaveBeenCalled();
     expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReviewTransaction user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockUseRealBurnMinimum = true;
+    jest.mocked(readUsdcxMinimumBurn).mockResolvedValue(5_000_000n);
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    mockUseRealBurnMinimum = false;
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const expectReport = async (id: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'review']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  const setBurnRoute = (amount = '5.000001') => {
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
+    mockSearch = `amount=${amount}&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+  };
+
+  it('reports a raw burn submit failure by its site code while retaining its message', async () => {
+    setBurnRoute();
+    const message = 'Faucet https://faucet.invalid/private?amount=123.45 failed for mtst1private';
+    jest.mocked(initiateUsdcxBurn).mockRejectedValueOnce(new Error(message));
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports an unrepresentable review amount with its precision error id', async () => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockSearch = 'amount=1.001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    await expectReport('amountExceedsTokenDecimals');
+  });
+
+  it('reports the specific UsdcxBurnError code from a burn submit refusal', async () => {
+    setBurnRoute();
+    jest.mocked(initiateUsdcxBurn).mockRejectedValueOnce(new UsdcxBurnError('usdcxUnsupportedFaucet'));
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxUnsupportedFaucet');
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('usdcxUnsupportedFaucet');
+  });
+
+  it('does not report the immediate minimum or a pending minimum read as a failure', async () => {
+    setBurnRoute();
+    const minimum = deferred<bigint>();
+    jest.mocked(readUsdcxMinimumBurn).mockReturnValueOnce(minimum.promise);
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('5 USDCx')).toBeVisible();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    await act(async () => minimum.resolve(5_000_000n));
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports a raw same-chain submit failure by its site code while retaining the message', async () => {
+    setValidRoute();
+    const message = 'Send 123.45 to mtst1private failed at https://send.invalid/private';
+    initiateMock.mockRejectedValueOnce(new Error(message));
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it.each([
+    new Error('Bridge 123.45 to 0xprivate failed at https://bridge.invalid/private'),
+    'Bridge 123.45 to 0xprivate failed at https://bridge.invalid/private'
+  ])('reports a raw bridge submit failure without forwarding its runtime value (%s)', async reason => {
+    setValidRoute();
+    mockDetectedChain = 'ethereum';
+    mockSearch += '&network=sepolia&route=agglayer';
+    initiateB2AggBridgeMock.mockRejectedValueOnce(reason);
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(reason instanceof Error ? reason.message : reason);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports the locally known Agglayer token refusal by its translation key', async () => {
+    setValidRoute();
+    mockDetectedChain = 'ethereum';
+    mockSearch += '&network=sepolia&route=agglayer';
+    jest.mocked(isAgglayerFaucetAllowed).mockResolvedValueOnce(false);
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('agglayerTokenUnsupported');
+    expect(initiateB2AggBridge).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('agglayerTokenUnsupported');
+  });
+
+  it('reports a raw pre-submit assessment failure on the review surface', async () => {
+    setValidRoute();
+    const message = 'Assessment for mtst1private failed at https://limits.invalid/private?amount=123.45';
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValueOnce(new Error(message));
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(initiateMock).not.toHaveBeenCalled();
+    await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports a typed burn submit refusal by its code without forwarding translated parameters', async () => {
+    setBurnRoute();
+    jest
+      .mocked(initiateUsdcxBurn)
+      .mockRejectedValueOnce(
+        new UsdcxBurnError('usdcxSendMoreThanPayoutFee', { amount: '0.1', network: 'Arc Testnet' })
+      );
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|0.1|Arc Testnet');
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await expectReport('usdcxSendMoreThanPayoutFee');
+  });
+
+  it.each([
+    { amount: '5.0000001', minimum: 5_000_000n, id: 'usdcxInvalidAmount', text: 'usdcxInvalidAmount' },
+    { amount: '5.000001', minimum: 6_000_000n, id: 'usdcxBelowMinimumBurn', text: 'usdcxBelowMinimumBurn|6' },
+    { amount: '4.999999', minimum: 5_000_000n, id: 'usdcxBelowMinimumBurn', text: 'usdcxBelowMinimumBurn|5' }
+  ])('reports the displayed $id burn validation refusal after 1000 ms', async ({ amount, minimum, id, text }) => {
+    setBurnRoute(amount);
+    jest.mocked(readUsdcxMinimumBurn).mockResolvedValueOnce(minimum);
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(text);
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await expectReport(id);
+  });
+
+  it('reports unknownTokenScale on the review surface while its send remains blocked', async () => {
+    setValidRoute();
+    mockBalanceData = [UNSCALED_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await expectReport('unknownTokenScale');
   });
 });

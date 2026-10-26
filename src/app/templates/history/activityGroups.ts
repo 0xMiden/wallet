@@ -8,8 +8,61 @@
  * never of what exists (see `ActivityGroup.count`).
  */
 
+import type { ITransactionType } from 'lib/miden/db/types';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest } from './transactionUtils';
+import { isFaucetRequest, networkHasFaucetClaims } from './transactionUtils';
+
+/**
+ * The category chips of the Activity feed (Transfer, Swap, Earn, Others). Each transaction type
+ * is in one category only.
+ */
+export type ActivityCategory = 'transfer' | 'swap' | 'earn' | 'others';
+
+/**
+ * The category of an activity row. It reads the transaction type, not the icon: a failed row
+ * shows the FAILED icon, but it stays in the category of its type.
+ *
+ * The switch has a case for each `ITransactionType` and no default. Thus a new type does not
+ * compile until it gets a category, and no row can go missing from every chip.
+ */
+export function activityCategoryOf(entry: { txType: ITransactionType }): ActivityCategory {
+  switch (entry.txType) {
+    case 'send':
+    case 'consume':
+    case 'bridged-send':
+    case 'bridged-receive':
+    case 'buy':
+    case 'sell':
+      return 'transfer';
+    case 'swap':
+      return 'swap';
+    case 'earn-deposit':
+    case 'earn-withdraw':
+      return 'earn';
+    case 'execute':
+    case 'switch-guardian':
+    case 'replace-hot-key':
+    case 'update-procedure-threshold':
+      return 'others';
+  }
+}
+
+/**
+ * Whether a claimable note is a faucet claim. Its consume row copies the note's faucet and sender
+ * (`ConsumeTransaction`), so this is `isFaucetRequest` on those two values: a note of the native
+ * asset sent by the native faucet, on a network that has a faucet (`networkHasFaucetClaims`); on
+ * Mainnet that faucet is the USDCx minter, so the note is an ordinary receive there.
+ */
+export function isFaucetClaimNote(
+  note: { faucetId: string; senderAddress: string },
+  nativeFaucetId: string | null = getNativeAssetIdSync()
+): boolean {
+  if (!networkHasFaucetClaims(getEffectiveNetworkName())) return false;
+  return !!nativeFaucetId && note.faucetId === nativeFaucetId && note.senderAddress === nativeFaucetId;
+}
 
 /**
  * What a group is keyed by:
@@ -149,13 +202,11 @@ export function activityGroupMatcher(kind: ActivityGroupKind, id?: string): (ent
   return entry => matches(activityGroupKeyOf(entry));
 }
 
-/**
- * The group a claim card belongs to: the one its consume row joins. That row copies the note's faucet and
- * sender (`ConsumeTransaction`), so the faucet test is `isFaucetRequest` run on those two.
- */
+/** The group a claim card belongs to: the one its consume row joins (see `isFaucetClaimNote`). */
 export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
-  const row = { transactionIcon: 'RECEIVE' as const, faucetId: note.faucetId, secondaryAddress: note.senderAddress };
-  return isFaucetRequest(row) ? { kind: 'faucet', id: 'faucet' } : { kind: 'address', id: note.senderAddress.trim() };
+  return isFaucetClaimNote(note)
+    ? { kind: 'faucet', id: 'faucet' }
+    : { kind: 'address', id: note.senderAddress.trim() };
 }
 
 /** `activityGroupMatcher` for claim cards, which have no history entry yet. */

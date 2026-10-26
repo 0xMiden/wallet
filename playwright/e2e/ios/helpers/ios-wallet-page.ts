@@ -5,7 +5,6 @@ import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../../src/lib/miden-chain/native-asset-cache-keys';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { toBaseUnits } from '../../helpers/balance-truth';
@@ -32,6 +31,17 @@ import {
   type TransactionRowSnapshot,
   type TransactionRowsQuery
 } from '../../helpers/history';
+import {
+  CURRENT_ACCOUNT_ROWS_JS,
+  NATIVE_ASSET_CACHE_EXPR,
+  nativeAssetOf,
+  ridingOut,
+  stashAndPoll,
+  TX_DB,
+  TX_STORE,
+  type CurrentAccountRows,
+  type MobileNativeAsset
+} from '../../helpers/mobile-store-reads';
 import {
   BRIDGE_DEPOSIT_LAYER,
   BRIDGE_SOURCE_NETWORK_JS,
@@ -73,78 +83,8 @@ const UNLOCKED_CONDITION_JS =
   `var st = s.getState(); ` +
   `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
 
-/** `readTransactionRowsInPage`'s database and store (src/lib/miden/repo.ts), the same on every platform. */
-const TX_DB = 'TridentMain';
-const TX_STORE = 'transactions';
-
-// The Capacitor Preferences entries lib/miden-chain/native-asset writes, one per (RPC URL, network) scope; the
-// extension harness reads the same entries from chrome.storage (balance-truth.ts walletCacheEntry).
-const NATIVE_ASSET_CACHE_EXPR =
-  `(async function () { var P = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences; ` +
-  `if (!P) throw new Error('no Capacitor Preferences plugin'); var keys = (await P.keys()).keys || []; var out = {}; ` +
-  `for (var i = 0; i < keys.length; i++) { var k = keys[i]; ` +
-  `if (k.indexOf(${JSON.stringify(`${NATIVE_ASSET_ID_CACHE}:`)}) === 0 || ` +
-  `k.indexOf(${JSON.stringify(`${NATIVE_ASSET_FEE_CACHE}:`)}) === 0) out[k] = (await P.get({ key: k })).value; } ` +
-  `return out; })()`;
-
-// `balances` is keyed by the account's public key, so another account's rows cannot leak into the current one's.
-const CURRENT_ACCOUNT_ROWS_JS =
-  `var s = window.__TEST_STORE__; if (!s) return null; var st = s.getState(); ` +
-  `var pk = st.currentAccount && st.currentAccount.publicKey; if (!pk) return null; var meta = st.assetsMetadata || {}; ` +
-  `return { account: pk, displayFaucetId: (st.balancesDisplayFaucetId && st.balancesDisplayFaucetId[pk]) || null, ` +
-  `rows: ((st.balances && st.balances[pk]) || []).map(function (r) { var m = r.metadata || meta[r.tokenId] || {}; ` +
-  `return { tokenId: String(r.tokenId), symbol: m.symbol || '', decimals: m.decimals, balance: r.balance }; }) };`;
-
-interface CurrentAccountRows {
-  account: string;
-  displayFaucetId: string | null;
-  rows: Array<{ tokenId: string; symbol: string; decimals: number; balance: number }>;
-}
-
-/** The chain's native (fee) asset as the wallet discovered it and as the current account's balance row shows it. */
-export interface IosNativeAsset {
-  /** The composite id (`<bech32>_<suffix>`) the store keys the balance row by. */
-  tokenId: string;
-  symbol: string;
-  decimals: number;
-  /** The chain's `verification_base_fee`, which bounds a landed path's fee. */
-  baseFee: number;
-}
-
-/** The one Preferences value under `prefix`; a cache that has seen two chains would let key order pick one. */
-function onePreference(entries: Record<string, string | null>, prefix: string): string {
-  const keys = Object.keys(entries).filter(key => key.startsWith(`${prefix}:`));
-  const [key] = keys;
-  const value = key === undefined ? undefined : entries[key];
-  if (keys.length !== 1 || typeof value !== 'string') {
-    throw new Error(
-      `the wallet's ${prefix} cache has ${keys.length} entries (${keys.join(', ') || 'none'}), expected one`
-    );
-  }
-  return value;
-}
-
-function nativeAssetOf(entries: Record<string, string | null>, view: CurrentAccountRows | null): IosNativeAsset {
-  const tokenId = onePreference(entries, NATIVE_ASSET_ID_CACHE);
-  const fee: unknown = JSON.parse(onePreference(entries, NATIVE_ASSET_FEE_CACHE));
-  const feeFaucetId = fee !== null && typeof fee === 'object' ? Reflect.get(fee, 'faucetId') : undefined;
-  const baseFee = fee !== null && typeof fee === 'object' ? Reflect.get(fee, 'baseFee') : undefined;
-  if (feeFaucetId !== tokenId || typeof baseFee !== 'number' || !Number.isInteger(baseFee) || baseFee < 0) {
-    throw new Error(
-      `the wallet's ${NATIVE_ASSET_FEE_CACHE} entry ${JSON.stringify(fee)} has no base fee for ${tokenId}`
-    );
-  }
-  if (view?.displayFaucetId && view.displayFaucetId !== tokenId) {
-    throw new Error(`the store shows ${view.displayFaucetId} as the native token; the wallet discovered ${tokenId}`);
-  }
-  const row = view?.rows.find(candidate => candidate.tokenId === tokenId);
-  if (!row || row.symbol === '' || !Number.isInteger(row.decimals)) {
-    throw new Error(
-      `no balance row with a symbol and decimals for the native token ${tokenId}: ${JSON.stringify(view)}`
-    );
-  }
-  return { tokenId, symbol: row.symbol, decimals: row.decimals, baseFee };
-}
+/** The chain's native (fee) asset as the wallet discovered it; the mobile dApp harness reads it the same way. */
+export type IosNativeAsset = MobileNativeAsset;
 
 /** A page route without its search: the onboarding bypass keeps `?password=` in `location.href` all session. */
 export function routeOf(href: string): string {
@@ -179,26 +119,7 @@ function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: 
   return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
-const READ_ATTEMPTS = 3;
-const READ_RETRY_MS = 1_000;
-
-/**
- * `read`, asked again after a failed CDP eval: an inspector reattach, or the bridge's 30 s eval cap while a local
- * prove holds the WebView's JS thread. The live spec's polls run for minutes and `pollUntil` fails on one failed read,
- * so only the third failure in a row counts.
- */
-async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await read();
-    } catch (error) {
-      if (attempt >= READ_ATTEMPTS) throw error;
-      await sleep(READ_RETRY_MS);
-    }
-  }
-}
-
-// The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
+// The review slides over the retained Send layer, whose route step holds the same payout row and burn notice.
 const SEND_REVIEW = '[data-page-layer="/send/review"]';
 // Mobile mounts the app as a full page, so the in-progress route is the -full variant.
 const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
@@ -217,7 +138,7 @@ function usdcxReviewJs(networkLabel: string, networkFeeLabel: string): string {
       `return (x.textContent || '').trim() === label && x.nextElementSibling && x.nextElementSibling.tagName === 'DIV'; }); ` +
       `return s ? (s.nextElementSibling.textContent || '').trim() : null; } ` +
       `return { network: row(${JSON.stringify(networkLabel)}), networkFee: row(${JSON.stringify(networkFeeLabel)}), ` +
-      `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+      `fee: val('usdcx-payout-fee'), notice: text('usdcx-burn-notice') };`
   );
 }
 
@@ -241,7 +162,6 @@ interface UsdcxReviewView {
   network: string | null;
   networkFee: string | null;
   fee: string | null;
-  net: string | null;
   notice: string | null;
 }
 
@@ -333,7 +253,6 @@ export class IosWalletPage implements WalletPage {
   private beforeCapture?: () => Promise<void>;
   private settlePrompt?: () => Promise<PromptSettlement>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
-  private stashSeq = 0;
 
   constructor(opts: IosWalletPageOpts) {
     this.cdp = opts.cdp;
@@ -533,29 +452,7 @@ export class IosWalletPage implements WalletPage {
 
   /** Run a Promise-returning hook expression and poll its stashed result. */
   private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
-    // The sequence keeps two reads started in the same millisecond apart.
-    const key = `${prefix}_${Date.now()}_${++this.stashSeq}`;
-    const k = JSON.stringify(key);
-    await this.cdp.eval(
-      `window[${k}] = undefined; ` +
-        `Promise.resolve(${promiseExpr})` +
-        `.then(function (v) { window[${k}] = { ok: true, v: v }; })` +
-        `.catch(function (e) { window[${k}] = { ok: false, e: String((e && e.message) || e) }; }); ` +
-        `return null;`
-    );
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      // Deleted once read: a burn row's stash holds about 0.5 MB of result bytes.
-      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(
-        `var r = window[${k}]; if (r) { delete window[${k}]; } return r || null;`
-      );
-      if (r) {
-        if (r.ok) return r.v as T;
-        throw new Error(`stashAndPoll(${prefix}): ${r.e}`);
-      }
-      if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
-      await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
-    }
+    return stashAndPoll<T>(js => this.cdp.eval(js), prefix, promiseExpr, timeoutMs);
   }
 
   // ── Row, native-asset and vault reads (the live USDCx spec) ─────────────
@@ -646,7 +543,7 @@ export class IosWalletPage implements WalletPage {
    * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
    * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
    * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
-   * route card, the payout rows and the notice on the route and the review, and the review's network and fee rows; a
+   * route card, the payout fee row and the notice on the route and the review, and the review's network and fee rows; a
    * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
    */
   async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
@@ -698,14 +595,13 @@ export class IosWalletPage implements WalletPage {
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-amount-confirm"]`, 45_000);
 
     await this.pollEval<UsdcxRouteView | null>(
-      'the USDCx route card, payout rows and burn notice',
+      'the USDCx route card, payout fee row and burn notice',
       USDCX_ROUTE_JS,
       view =>
         view !== null &&
         view.pressed === 'true' &&
         view.cardText.includes(routeFees) &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       30_000
     );
@@ -737,7 +633,6 @@ export class IosWalletPage implements WalletPage {
         view.network === chain.networkName &&
         view.networkFee === sponsorshipFee &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       15_000
     );
@@ -1378,10 +1273,16 @@ export class IosWalletPage implements WalletPage {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
       lastBalance = await this.getBalance(tokenSymbol);
 
@@ -1389,16 +1290,19 @@ export class IosWalletPage implements WalletPage {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
-      if (attempt < maxAttempts) await sleep(intervalMs);
-    }
 
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+      await sleep(Math.min(intervalMs, remainingAfter));
+    }
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────

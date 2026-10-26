@@ -10,6 +10,7 @@ import {
 } from './constants';
 import {
   getEffectiveAllowNoGuardian,
+  hasCustomEndpointOverride,
   buildDefaultOverrideFor,
   buildNetworkChoiceOverride,
   type EndpointOverride,
@@ -23,6 +24,7 @@ const mockKvStore: Record<string, unknown> = {};
 let mockThrows = false;
 let mockWriteThrows = false;
 let mockStorageCalls = 0;
+let mockStorageWrites = 0;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
@@ -34,6 +36,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
     },
     set: async (obj: Record<string, unknown>) => {
       mockStorageCalls++;
+      mockStorageWrites++;
       if (mockWriteThrows) throw new Error('storage write failed');
       Object.assign(mockKvStore, obj);
     },
@@ -69,6 +72,7 @@ beforeEach(() => {
   mockThrows = false;
   mockWriteThrows = false;
   mockStorageCalls = 0;
+  mockStorageWrites = 0;
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES;
   delete process.env.MIDEN_FEE_FAUCET_ID;
@@ -606,5 +610,104 @@ describe('getTestNetworkNameKey', () => {
     }
     expect(keys.sort()).toEqual(['devnet', 'localnet', 'testnet']);
     expect(keys.filter(key => !(key in en))).toEqual([]);
+  });
+});
+
+describe('badge network provenance', () => {
+  it('retains canonical Mainnet provenance when the saved onboarding choice loads in a new realm', async () => {
+    const before = loadModule();
+    await before.applyEndpointOverride(before.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+    const reloaded = loadModule();
+    await reloaded.loadEndpointOverrides();
+    expect(reloaded.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+    expect(reloaded.hasCustomEndpointOverride).toHaveLength(1);
+    expect(reloaded.hasCustomEndpointOverride(reloaded.getActiveOverride())).toBe(false);
+  });
+
+  it('accepts build defaults and an endpoint-free onboarding network choice', () => {
+    expect(hasCustomEndpointOverride(null)).toBe(false);
+    expect(hasCustomEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET))).toBe(false);
+  });
+
+  it.each([
+    { rpcUrl: 'https://custom.invalid' },
+    { proverUrl: 'https://custom.invalid' },
+    { noteTransportUrl: 'https://custom.invalid' },
+    { faucetUrl: 'https://custom.invalid' },
+    { faucetApiUrl: 'https://custom.invalid' },
+    { explorerUrl: 'https://custom.invalid' },
+    { guardianUrl: 'https://custom.invalid' },
+    { allowNoGuardian: true },
+    { feeFaucetId: 'custom-fee' }
+  ])('rejects a Mainnet-labelled developer configuration %s', fields => {
+    expect(hasCustomEndpointOverride({ ...buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET), ...fields })).toBe(
+      true
+    );
+  });
+});
+
+describe('developer network choice marker', () => {
+  const marked = (m: typeof import('./effective-endpoints')): EndpointOverride => ({
+    ...m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET),
+    developerChoice: true
+  });
+
+  it.each([
+    ['no override', undefined],
+    ['the onboarding network choice', buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.TESTNET)],
+    ['the build defaults of a network', buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET)]
+  ])('is not set by %s', async (_name, override) => {
+    const m = loadModule();
+    if (override) await m.applyEndpointOverride(override);
+    expect(m.hasDeveloperNetworkChoice()).toBe(false);
+  });
+
+  it('is set once a marked override is applied, and survives a reload and the offscreen hand-over', async () => {
+    const m = loadModule();
+    await m.applyEndpointOverride(marked(m));
+    expect(m.hasDeveloperNetworkChoice()).toBe(true);
+
+    const reloaded = loadModule();
+    await reloaded.loadEndpointOverrides();
+    expect(reloaded.hasDeveloperNetworkChoice()).toBe(true);
+
+    const adopted = loadModule();
+    adopted.adoptEndpointState(m.getEndpointState());
+    expect(adopted.hasDeveloperNetworkChoice()).toBe(true);
+  });
+
+  it('forget keeps the stored override but drops the marker', async () => {
+    const m = loadModule();
+    const override = marked(m);
+    await m.applyEndpointOverride(override);
+
+    await m.forgetDeveloperNetworkChoice();
+
+    const stored = mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY];
+    expect(stored).not.toHaveProperty('developerChoice');
+    expect(stored).toMatchObject({ networkName: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: override.rpcUrl });
+    expect(m.hasDeveloperNetworkChoice()).toBe(false);
+    expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.TESTNET);
+  });
+
+  it('forget reads the stored override, so a realm that never loaded it still strips the marker', async () => {
+    const m = loadModule();
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = marked(m);
+
+    await m.forgetDeveloperNetworkChoice();
+
+    expect(mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY]).not.toHaveProperty('developerChoice');
+  });
+
+  it('forget writes nothing when the override is unmarked or absent', async () => {
+    const m = loadModule();
+    await m.forgetDeveloperNetworkChoice();
+    await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET));
+    const writes = mockStorageWrites;
+
+    await m.forgetDeveloperNetworkChoice();
+
+    expect(mockStorageWrites).toBe(writes);
+    expect(writes).toBe(1);
   });
 });

@@ -4,19 +4,20 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { amountCaptionClassName, amountFigureClassName } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { earnCollateralFaucetId, openEarnPosition } from 'lib/epoch';
-import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
+import { amountExceedsTokenDecimals, stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -30,10 +31,18 @@ import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { CHART_DOT_RING, CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
+import {
+  EarnAmountUnit,
+  EarnAssetMark,
+  EarnHero,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnVaultClosedNotice
+} from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
@@ -58,16 +67,18 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
+  // The vaults come from the derivation's catalogue, which can settle after the positions read.
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading: isLoading || vaultsPending, error: loadError });
 
   const { t } = useTranslation();
   const account = useAccount();
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
@@ -88,7 +99,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const amountBaseUnits = useMemo(() => {
     if (collateralDecimals === undefined) return undefined;
     try {
-      return stringToBigInt(amount.replace(/,/g, ''), collateralDecimals);
+      const typed = amount.replace(/,/g, '');
+      // The review URL is not bound to what the amount step allowed; finer than the scale would be cut, not refused.
+      if (amountExceedsTokenDecimals(typed, collateralDecimals)) return undefined;
+      return stringToBigInt(typed, collateralDecimals);
     } catch {
       return undefined;
     }
@@ -123,13 +137,24 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   };
 
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
-    if (amountBaseUnits === undefined || !collateral || !collateralMatches) return;
+    // The deposit goes to the market of the vault on this page, never to another configured market.
+    const vaultInfo = found?.info;
+    if (
+      amountBaseUnits === undefined ||
+      !collateral ||
+      !collateralMatches ||
+      !vaultInfo ||
+      !earnVaultTakesDeposits(vaultInfo)
+    ) {
+      return;
+    }
     if (authorization !== undefined && authorization.accountId !== account.publicKey) {
       setSpendingLimitChallenge(undefined);
       return;
     }
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
+      setSubmitErrorId('earnNoEvmAddress');
       return;
     }
     setIsSubmitting(true);
@@ -145,6 +170,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       await openEarnPosition({
         amount: amountBaseUnits,
         collateral,
+        market: earnMarketForVault(vaultInfo),
+        protocol: vaultInfo.listing.protocol,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
@@ -178,6 +205,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       }
       settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
       setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+      setSubmitErrorId(e instanceof Error ? 'raw_earn_deposit_submit_failed' : 'earnFailedToOpenPosition');
     } finally {
       setIsSubmitting(false);
     }
@@ -188,10 +216,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     if (isSubmitting) return;
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
+      setSubmitErrorId('earnNoEvmAddress');
       return;
     }
-    if (amountBaseUnits === undefined || !collateralMatches) {
+    if (amountBaseUnits === undefined || !collateralMatches || !found?.info || !earnVaultTakesDeposits(found.info)) {
       setSubmitError(t('earnFailedToOpenPosition'));
+      setSubmitErrorId('earnFailedToOpenPosition');
       return;
     }
     setIsSubmitting(true);
@@ -226,6 +256,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         return;
       }
       setSubmitError(error instanceof Error ? error.message : t('earnFailedToOpenPosition'));
+      setSubmitErrorId(error instanceof Error ? 'raw_earn_deposit_submit_failed' : 'earnFailedToOpenPosition');
       setIsSubmitting(false);
     }
   };
@@ -264,9 +295,14 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         footer={
           (loadFailed && !found) || pending ? undefined : (
             <>
-              <EarnCollateralNotice reason={collateralReason} />
+              {/* One reason at a time: a vault that accepts no deposits now says that, not the collateral. */}
+              {vault.canOpen === false ? (
+                <EarnVaultClosedNotice canOpen={vault.canOpen} depositsEnabled={vault.depositsEnabled} />
+              ) : (
+                <EarnCollateralNotice reason={collateralReason} />
+              )}
               {submitError && (
-                <Notice tone="negative" role="alert" data-testid="earn-deposit-review-error">
+                <Notice errorId={submitErrorId} tone="negative" role="alert" data-testid="earn-deposit-review-error">
                   {submitError}
                 </Notice>
               )}
@@ -276,7 +312,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleOpenPosition}
-                disabled={isSubmitting || amountValue <= 0 || !vault.id || !collateralMatches}
+                disabled={
+                  isSubmitting || amountValue <= 0 || !vault.info || vault.canOpen === false || !collateralMatches
+                }
                 className="w-full max-w-none"
               />
             </>
@@ -284,10 +322,17 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         }
       >
         {loadFailed && !found ? (
-          <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
+          <EarnLoadError
+            onRetry={refetch}
+            message={t('earnVaultLoadError')}
+            errorId="earnVaultLoadError"
+            className="mt-10"
+          />
         ) : pending ? null : (
           <>
-            {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
+            {loadFailed && (
+              <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+            )}
             <EarnHero
               layout="label-first"
               // As far under the divider as the vault page's caption and the Earn tab's.
@@ -300,6 +345,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} compact />}
               label={t('earnDepositAmountTitle')}
+              meta={
+                collateral && (
+                  <TokenUsdValue
+                    amount={amount.replace(/,/g, '')}
+                    decimals={collateral.decimals}
+                    faucetId={collateral.faucetId}
+                    symbol={collateral.symbol}
+                  />
+                )
+              }
             />
 
             <DepositProjection vault={vault} amount={amountValue} />
@@ -324,7 +379,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   // `aprPercent` is the number `apy` is formatted from; reading it directly (rather than parsing
   // the display string back out) keeps this in step with a target `apy` can drift from, such as a
   // number still travelling in an AnimatedNumber elsewhere on the page.
@@ -426,7 +482,18 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
         <DetailRow label={t('earnEstimatedTime')}>{t('earnEstimatedTimeValue')}</DetailRow>
         {/* The deposit is a fee-paying Miden transaction: `completeEarnDepositTransaction`
             records the charge and EarnSuccess renders it on the very next screen. */}
-        {networkFee && <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>}
+        {networkFee && (
+          <DetailRow
+            label={t('networkFeeMax')}
+            sub={
+              networkFeeDetails && (
+                <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+              )
+            }
+          >
+            {networkFee}
+          </DetailRow>
+        )}
       </DetailCard>
     </div>
   );

@@ -5,17 +5,17 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  testSnapshotWithSwapPairs
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { TEST_TOKEN_IUSDT, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
+import type { ActivityFilter } from './History';
 import type { PendingActivityItem } from './PendingActivityCard';
 
 const mockAccept = jest.fn();
@@ -45,6 +45,16 @@ let mockRecovery: GuardianNoteRecoveryProgress | null = null;
 let mockRecoveryPending: boolean | undefined = true;
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+});
+
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
@@ -56,6 +66,27 @@ jest.mock('lib/wallet-prompts', () => ({
   ...jest.requireActual('lib/wallet-prompts'),
   useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
 }));
+// The effective network, and the native asset a faucet claim pays out: the real ones unless a case sets them.
+let mockWalletNetwork: string | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
+// A case can start with the native asset unknown (null) and resolve its lookup later.
+let mockNativeAssetId: string | null | undefined;
+let mockNativeAssetLookup: Promise<string> | undefined;
+jest.mock('lib/miden-chain/native-asset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+  return {
+    ...actual,
+    getNativeAssetIdSync: () => (mockNativeAssetId === undefined ? actual.getNativeAssetIdSync() : mockNativeAssetId),
+    getNativeAssetId: () =>
+      mockNativeAssetLookup ??
+      (typeof mockNativeAssetId === 'string' ? Promise.resolve(mockNativeAssetId) : actual.getNativeAssetId())
+  };
+});
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
@@ -63,7 +94,12 @@ let mockPathname = '/history';
 jest.mock('react-i18next', () => ({
   // Interpolations are appended to the key, so a test can read the count a line was given.
   useTranslation: () => ({
-    t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${Object.values(params).join(':')}` : key)
+    t: (key: string, params?: Record<string, unknown>) =>
+      key === 'activityHiddenNotesError'
+        ? 'Visible hidden transfer read failure'
+        : params
+          ? `${key}:${Object.values(params).join(':')}`
+          : key
   })
 }));
 jest.mock('app/hooks/useActivityClaims', () => ({
@@ -117,6 +153,7 @@ const mockHistoryRenders: Array<{
   renderPendingItem: unknown;
   filter?: string;
   hideLoadingSpinner?: boolean;
+  deferInitialLoad?: boolean;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -126,7 +163,8 @@ jest.mock('./History', () => ({
     renderPendingItem,
     filter,
     onLoadingChange,
-    hideLoadingSpinner
+    hideLoadingSpinner,
+    deferInitialLoad
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
@@ -134,11 +172,19 @@ jest.mock('./History', () => ({
     onLoadingChange: (loading: boolean) => void;
     filter?: string;
     hideLoadingSpinner?: boolean;
+    deferInitialLoad?: boolean;
   }) => {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       onLoadingChange(mockState.isLoadingHistory);
     }, [onLoadingChange, mockState.isLoadingHistory]);
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter, hideLoadingSpinner });
+    mockHistoryRenders.push({
+      pendingItems,
+      drawnPendingItems,
+      renderPendingItem,
+      filter,
+      hideLoadingSpinner,
+      deferInitialLoad
+    });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -188,6 +234,9 @@ beforeEach(() => {
   mockHistoryRenders.length = 0;
   mockBridgeSnapshot = undefined;
   mockConfirm.mockResolvedValue(true);
+  mockWalletNetwork = undefined;
+  mockNativeAssetId = undefined;
+  mockNativeAssetLookup = undefined;
 });
 
 function expandCard(noteId: string): HTMLElement {
@@ -197,14 +246,9 @@ function expandCard(noteId: string): HTMLElement {
   return card;
 }
 
-it('revalues an unchanged pending list on config-only price changes and removes an unavailable total', () => {
+it('revalues an unchanged pending list on verified price asset changes and removes an unavailable total', () => {
   _setSwapTokensForTest(undefined);
-  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot =>
-    testSnapshotWithSwapPairs({
-      tokens: [testSwapPairsToken({ ...TEST_TOKEN_IUSDT, priceSymbol })],
-      pairs: []
-    });
-  mockBridgeSnapshot = snapshotFor('USDC');
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'USDC');
   mockState.items = [
     {
       note: {
@@ -220,24 +264,31 @@ it('revalues an unchanged pending list on config-only price changes and removes 
     }
   ];
   try {
-    render(<ActivityPendingHistory search="" filter="pending" />);
+    const view = render(<ActivityPendingHistory search="" filter="pending" />);
     expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$2.00');
 
-    act(() => {
-      mockBridgeSnapshot = snapshotFor('ETH');
-      publishMockBridgeSnapshot();
-    });
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'ETH');
+    view.rerender(<ActivityPendingHistory search="" filter="pending" />);
     expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$1.00');
 
-    act(() => {
-      mockBridgeSnapshot = snapshotFor();
-      publishMockBridgeSnapshot();
-    });
+    mockVerifiedPriceAssets.delete(TEST_TOKEN_IUSDT.faucetId);
+    view.rerender(<ActivityPendingHistory search="" filter="pending" />);
     expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
     expect(screen.getByText('activityPendingWaiting:1')).toBeInTheDocument();
   } finally {
     _setSwapTokensForTest(undefined);
   }
+});
+
+it('shows the fetching bar and passes deferInitialLoad while the catalog is pending', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" catalogPending />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(true);
+
+  view.rerender(<ActivityPendingHistory search="" filter="all" catalogPending={false} />);
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(false);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 });
 
 it('hides the list spinner under its own progress bar', () => {
@@ -376,9 +427,73 @@ it('hands History a claiming note a search hides, so its consume row stays hidde
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
 });
 
-it('hides pending notes when the activity filter excludes incoming transfers', () => {
-  render(<ActivityPendingHistory search="" filter="sent" />);
+const FILTERS_WITHOUT_CARDS: ActivityFilter[] = ['swap', 'earn', 'others'];
+const FILTERS_WITH_CARDS: ActivityFilter[] = ['all', 'pending', 'transfer'];
+
+it.each(FILTERS_WITHOUT_CARDS)('hides pending notes under %s, which lists no incoming transfers', filter => {
+  render(<ActivityPendingHistory search="" filter={filter} />);
   expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  // No card stands for a consume row there either.
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
+});
+
+it.each(FILTERS_WITH_CARDS)('shows pending notes under %s', filter => {
+  render(<ActivityPendingHistory search="" filter={filter} />);
+  const timeline = screen.getByTestId('timeline');
+  for (const id of ['first', 'second', 'third']) {
+    expect(timeline.querySelector(`[data-pending-note-id="${id}"]`)).not.toBeNull();
+  }
+});
+
+describe('a faucet claim card by network', () => {
+  const NATIVE = 'native-faucet-id';
+  const faucetItem: PendingActivityItem = {
+    note: {
+      id: 'faucet-note',
+      faucetId: NATIVE,
+      amount: '1000000',
+      senderAddress: NATIVE,
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  beforeEach(() => {
+    mockNativeAssetId = NATIVE;
+    mockState.items = [...mockItems, faucetItem];
+  });
+  const faucetCard = () => screen.getByTestId('timeline').querySelector('[data-pending-note-id="faucet-note"]');
+
+  it.each(['testnet', 'mainnet'])('shows the card on %s and counts it for Accept All', network => {
+    // On Mainnet the native faucet is the USDCx minter, so such a note is a bridge-in, never noise.
+    mockWalletNetwork = network;
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(faucetCard()).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+    expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual([
+      'first',
+      'second',
+      'third',
+      'faucet-note'
+    ]);
+  });
+
+  it('counts a declined faucet claim for Restore on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockState.items = [faucetItem];
+    mockHidden.ids = new Set(['faucet-note']);
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).not.toBeNull();
+  });
+});
+
+it('does not classify incoming claim cards as Arcade or offer bulk acceptance there', () => {
+  render(<ActivityPendingHistory search="" filter="arcade" predicate={() => true} />);
+  expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
 });
 
 it('shows Accept All on the pending tab and claims every listed note that can be accepted', () => {
@@ -633,9 +748,11 @@ it('does not offer Restore when every declined transfer is gone or already claim
 
 it('hands the timeline the same pending items and renderer when a render changes no pending item', () => {
   const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  // The mount can render more than once (the native faucet id hook settles in an effect).
+  const mounted = mockHistoryRenders.length;
   rerender(<ActivityPendingHistory search="" filter="all" />);
-  expect(mockHistoryRenders).toHaveLength(2);
-  const [first, second] = mockHistoryRenders;
+  expect(mockHistoryRenders).toHaveLength(mounted + 1);
+  const [first, second] = mockHistoryRenders.slice(-2);
   expect(second?.pendingItems).toBe(first?.pendingItems);
   expect(second?.renderPendingItem).toBe(first?.renderPendingItem);
 });
@@ -686,5 +803,74 @@ describe('a search for the name a transfer is shown under', () => {
       publishMockBridgeSnapshot();
     });
     expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible pending-history errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockHidden.failed = false;
+  });
+  afterEach(() => {
+    mockHidden.failed = false;
+    jest.useRealTimers();
+  });
+
+  it('reports activityHiddenNotesError after the actual hidden-set failure dwells', async () => {
+    mockHidden.failed = true;
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible hidden transfer read failure');
+    await expectErrorAfterDwell('activityHiddenNotesError', 'inline');
+  });
+
+  it.each(['recovery', 'unmount'])('clears a hidden-set failure on %s before dwell', async control => {
+    mockHidden.failed = true;
+    const view = render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible hidden transfer read failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'recovery') {
+      mockHidden.failed = false;
+      view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps fetching, fee-blocked actions and persisted failed notes silent', async () => {
+    mockState.isLoadingNotes = true;
+    mockCannotPayFee.mockReturnValue(true);
+    mockState.items = mockItems.map(item => ({ ...item, status: 'failed' }));
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-accept-all')).toBeDisabled();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

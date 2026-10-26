@@ -16,6 +16,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
 import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
 import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
 
 const walletBuildIdentity = readWalletBuildIdentity(__dirname);
@@ -25,6 +26,10 @@ const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 const MANIFEST_VERSION = process.env.MANIFEST_VERSION ?? '3';
 const MANIFEST_FILE = MANIFEST_VERSION === '3' ? 'manifest.json' : 'manifest.v2.json';
 const MIDEN_NETWORK = process.env.MIDEN_NETWORK ?? '';
+const DEFAULT_WALLETCONNECT_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
+// E2E-only stable origin for the dedicated Reown project: chrome-extension://dfkbipcpggpmndndboecmjgjdgcncbhl.
+const ONE_CLICK_E2E_EXTENSION_KEY =
+  'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApKxTXezKO16d/iNeGTeu0MkL2LSOkZ6qgXSMwdWxd54MprilKDBwYNo/DMgFVJxtp9XFJH100IMdb/bycbTvjZP+Lj17cwZdu7gfToS7o5RohyFgCmrnWT5rD8C0Yzv9aF0eySFojrv+TcJUGOGt2XKKgf3loe/yvJ8bteHqSyHWZv15sKG2Ike2FvI5uggGHbuSB6gopRIur8EdM2Qb9lvE7xOahKNcYRvc9tO1c9FeWV279WxEqNP4T26gu7SgE1Srk+gPD/v0ul0yqYrmcjE82z+m6pjwT02pWahd8uy5nOZdtC6YOWuHFN8EmGZMU8BvuoUhJvsfcWYE50xtqwIDAQAB';
 
 // ── Manifest transform (ported from webpack.public.config.js) ───────────────
 
@@ -96,6 +101,14 @@ function copyPublicAssets(outDir: string): Plugin {
       const manifestSrc = join(publicDir, MANIFEST_FILE);
       const manifestContent = JSON.parse(readFileSync(manifestSrc, 'utf8'));
       const transformed = transformManifestKeys(manifestContent, TARGET_BROWSER);
+
+      if (process.env.MIDEN_E2E_TEST === 'true' && process.env.MIDEN_E2E_ONE_CLICK_TESTNET === 'true') {
+        const projectId = (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim();
+        if (!projectId || projectId.toLowerCase() === DEFAULT_WALLETCONNECT_PROJECT_ID) {
+          throw new Error('OneClick E2E requires its dedicated WALLETCONNECT_PROJECT_ID');
+        }
+        transformed.key = ONE_CLICK_E2E_EXTENSION_KEY;
+      }
 
       // Devnet builds get green icons so the extension can be told apart from
       // a production wallet at a glance. Swap both the top-level `icons` (shown
@@ -233,6 +246,10 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+  'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+    process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+  ),
   // E2E builds read the bridge config document from this base instead of the published repo. Ignored unless
   // MIDEN_E2E_TEST is 'true' (lib/remote-config/source.ts); empty by default, so every other build reads the repo.
   'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
@@ -277,7 +294,9 @@ const sharedDefine = {
   'process.env.WALLET_BUILD_TARGET': JSON.stringify('extension'),
   'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
   'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
-  'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? '')
+  'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+  'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+  'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : '')
 };
 
 export default defineConfig({

@@ -350,3 +350,49 @@ describe('bundledGridCardCount', () => {
     expect(bundledGridCardCount()).toBe(3);
   });
 });
+
+describe('DappBrowserDriver morph observability', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('waitForMotionIdle resolves only when motion is null', async () => {
+    const { driver, target } = driverWith([1]);
+    const motion = { id: 'dapp-beta', target: 'collapsed', started: true, acknowledging: false };
+    const states = [
+      { ...STATE, motion },
+      { ...STATE, motion: { ...motion, acknowledging: true } },
+      { ...STATE, motion: null }
+    ];
+    let reads = 0;
+    target.evalJs = async js =>
+      JSON.parse(JSON.stringify(js.includes('__TEST_DAPP_BROWSER__') ? states[Math.min(reads++, 2)] : VIEWPORT));
+
+    const idle = await driver.waitForMotionIdle();
+
+    expect(reads).toBe(3);
+    expect(idle.motion).toBeNull();
+  });
+
+  it('viewportEventsSince counts only newer non-load reports', () => {
+    const { driver, server } = driverWith([1]);
+    const at = (seq: number, reason: DappViewportReport['reason']) => ({ ...report(seq), reason });
+    server.reports = () => [
+      at(1, 'load'),
+      at(2, 'resize'),
+      at(3, 'visible'),
+      at(4, 'observer'),
+      at(5, 'load'),
+      at(6, 'safe-area'),
+      at(7, 'visual-viewport'),
+      at(8, 'media')
+    ];
+
+    expect(driver.viewportEventsSince('beta', 2).map(entry => [entry.seq, entry.reason])).toEqual([
+      [4, 'observer'],
+      [6, 'safe-area'],
+      [7, 'visual-viewport'],
+      [8, 'media']
+    ]);
+  });
+});

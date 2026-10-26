@@ -9,6 +9,7 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isMobile } from 'lib/platform';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { cn } from 'lib/ui/util';
 
 import { ChooseProtectionScreen } from './common/ChooseProtection';
@@ -19,6 +20,7 @@ import { MainnetAccessScreen } from './common/MainnetAccess';
 import { MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
+import { ReusedPhraseScreen } from './common/ReusedPhrase';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -65,8 +67,10 @@ export interface OnboardingFlowProps {
   biometricError?: string | null;
   /** The last Guardian lookup failure's display text, or `null`. */
   guardianLookupFailure?: string | null;
+  guardianLookupFailureId?: UserErrorId | null;
   /** Registration/recovery failure text to surface on the confirmation step (#630). */
   recoveryError?: string | null;
+  recoveryErrorId?: UserErrorId | null;
   /**
    * Progress of the background guardian auto-detection probe (issue #418).
    * Left undefined by hosts that don't run the probe, which makes the import
@@ -86,6 +90,11 @@ export interface OnboardingFlowProps {
    * Guardian multisig account).
    */
   importViaKey?: boolean;
+  /**
+   * Whether the recovery-method step may offer a new account from the entered phrase when no backup is
+   * found. Off where the host cannot create one (a password reset, an invite-only network).
+   */
+  canCreateWithPhrase?: boolean;
   /**
    * Whether the header offers back. Hosts turn it off on a step that cannot be left safely (the
    * wallet is being created, or already exists). Welcome never shows it: nothing comes before it.
@@ -158,11 +167,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupFailure = null,
+  guardianLookupFailureId,
   recoveryError = null,
+  recoveryErrorId,
   guardianProbe,
   guardianNetwork,
   confirmCreating = false,
   importViaKey = false,
+  canCreateWithPhrase = false,
   canGoBack = true,
   onBiometricChange,
   onAction
@@ -347,6 +359,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.ImportFromSeed:
         return (
           <ImportSeedPhraseScreen
+            descriptionKey="importSeedPhraseHint"
             wordslist={wordslist}
             onSubmit={onImportSeedPhraseSubmit}
             onImportWithKey={() => onForwardAction?.({ id: 'import-with-key' })}
@@ -370,13 +383,17 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return (
           <ImportRecoveryMethodScreen
             error={guardianLookupFailure}
+            errorId={guardianLookupFailureId}
             probe={guardianProbe}
             guardianOnly={importViaKey}
             network={guardianNetwork}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
+            onCreateNew={canCreateWithPhrase ? () => onForwardAction?.({ id: 'create-with-phrase' }) : undefined}
             onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
         );
+      case OnboardingStep.ReusedPhrase:
+        return <ReusedPhraseScreen onSubmit={() => onForwardAction?.({ id: 'reused-phrase-acknowledge' })} />;
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
       case OnboardingStep.Confirmation:
@@ -386,6 +403,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             biometricAttempts={biometricAttempts}
             biometricError={biometricError}
             recoveryError={recoveryError}
+            recoveryErrorId={recoveryErrorId}
             creating={confirmCreating}
             onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
@@ -413,18 +431,21 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     biometricAttempts,
     biometricError,
     guardianLookupFailure,
+    guardianLookupFailureId,
     recoveryError,
+    recoveryErrorId,
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
     guardianNetwork,
     confirmCreating,
     importViaKey,
+    canCreateWithPhrase,
     onboardingType
   ]);
 
   // A step moves like a pushed page (the `page` preset): going forward it slides in from the right
-  // over the step it replaces, which parks at `pageSlideParallax` under the `pageSlideDim` dim; going
+  // over the step it replaces, which parks at `pageSlideCovered` under the `pageSlideDim` dim; going
   // back the step on top slides out to the right and uncovers the one beneath. Only mobile animates
   // (the extension swaps at once, as its pages do), and reduced motion is instant everywhere.
   const pagePreset = usePreset('page');

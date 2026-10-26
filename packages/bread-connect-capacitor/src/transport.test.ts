@@ -14,8 +14,21 @@ import {
   writeLink
 } from '@miden-sdk/bread-connect';
 
+import { openManagedWallet } from './native-opener.js';
 import { KeyValueStorage } from './storage.js';
 import { AppSwitchTransport, BreadConnectError, LinkSource } from './transport.js';
+
+const mockNativePrepare = jest.fn();
+const mockNativeStep = jest.fn();
+const mockNativeRevoke = jest.fn();
+
+jest.mock('./plugin.js', () => ({
+  BreadConnectNative: {
+    prepareOpen: (options: unknown) => mockNativePrepare(options),
+    openStep: (options: unknown) => mockNativeStep(options),
+    revokeOpen: (options: unknown) => mockNativeRevoke(options)
+  }
+}));
 
 const CALLBACK = 'https://game.example/bread';
 const PERMISSION_REQUEST: DAppMessage = { type: 'PERMISSION_REQUEST', appMeta: { name: 'Game' }, network: 'testnet' };
@@ -622,5 +635,135 @@ describe('AppSwitchTransport', () => {
     await answer;
     expect(h.transport.transactionOutcome('tx-3')).toEqual({ output: 4 });
     h.transport.stop();
+  });
+});
+
+describe('managed native request ownership', () => {
+  beforeEach(() => {
+    mockNativePrepare.mockReset().mockResolvedValue({ attemptId: 'old-native' });
+    mockNativeStep.mockReset();
+    mockNativeRevoke.mockReset().mockResolvedValue(undefined);
+  });
+
+  function managedHarness() {
+    const h = harness();
+    const transport = new AppSwitchTransport({
+      callback: h.options.callback,
+      storage: h.storage,
+      links: h.links,
+      now: h.options.now,
+      managedOpener: openManagedWallet
+    });
+    return { ...h, transport };
+  }
+
+  it('defaultOpenerDoesNotSendStoreAfterSupersession', async () => {
+    let finishOld: (result: { opened: boolean; next: 'primaryStore' }) => void = () => undefined;
+    let deliverOldRevoke: () => void = () => undefined;
+    mockNativePrepare
+      .mockResolvedValueOnce({ attemptId: 'old-native' })
+      .mockResolvedValueOnce({ attemptId: 'new-native' });
+    mockNativeStep
+      .mockImplementationOnce(() => new Promise(resolve => (finishOld = resolve)))
+      .mockResolvedValue({ opened: true });
+    mockNativeRevoke.mockImplementationOnce(() => new Promise<void>(resolve => (deliverOldRevoke = resolve)));
+    const h = managedHarness();
+    const first = h.transport.connect(PERMISSION_REQUEST).catch((error: unknown) => error);
+    try {
+      await flush();
+      expect(mockNativeStep.mock.calls).toEqual([[{ attemptId: 'old-native', step: 'wallet' }]]);
+      const second = h.transport.connect(PERMISSION_REQUEST);
+      const secondOutcome = second.catch((error: unknown) => error);
+      expect(await first).toMatchObject({ code: 'SUPERSEDED' });
+      await flush();
+      expect(mockNativeStep.mock.calls[1]).toEqual([{ attemptId: 'new-native', step: 'wallet' }]);
+      expect(mockNativeRevoke.mock.calls[0]).toEqual([{ attemptId: 'old-native' }]);
+      const bread = fakeBread(approve);
+      h.transport.receive(bread.open(mockNativePrepare.mock.calls[0]![0].url));
+      expect(await settled(second)).toBe('pending');
+      finishOld({ opened: false, next: 'primaryStore' });
+      await flush();
+      // Prove the replacement remains usable even while the old revoke delivery is pending.
+      h.transport.receive(bread.open(mockNativePrepare.mock.calls[1]![0].url));
+      expect(await secondOutcome).toEqual(PERMISSION_RESPONSE);
+      expect(h.transport.session()).toMatchObject({ permission: PERMISSION_RESPONSE });
+      const oldStoreCommands = mockNativeStep.mock.calls.filter(
+        call => call[0].attemptId === 'old-native' && call[0].step === 'primaryStore'
+      );
+      expect(oldStoreCommands).toHaveLength(0);
+      expect(await first).toMatchObject({ code: 'SUPERSEDED' });
+      expect(h.openWallet).not.toHaveBeenCalled();
+    } finally {
+      finishOld({ opened: false, next: 'primaryStore' });
+      deliverOldRevoke();
+      h.transport.stop();
+      await flush();
+    }
+  });
+
+  it.each([
+    { cause: 'stop', expected: { code: 'CANCELLED' } },
+    { cause: 'answer', expected: PERMISSION_RESPONSE },
+    { cause: 'timeout', expected: { code: 'TIMEOUT' } }
+  ])('sends no late store command after managed $cause settlement', async ({ cause, expected }) => {
+    let finishWallet: (result: { opened: boolean; next: 'primaryStore' }) => void = () => undefined;
+    let deliverRevoke: () => void = () => undefined;
+    mockNativeStep
+      .mockImplementationOnce(() => new Promise(resolve => (finishWallet = resolve)))
+      .mockResolvedValue({ opened: false });
+    mockNativeRevoke.mockImplementationOnce(() => new Promise<void>(resolve => (deliverRevoke = resolve)));
+    const h = managedHarness();
+    const outcome = h.transport.connect(PERMISSION_REQUEST).catch((error: unknown) => error);
+    try {
+      if (cause === 'timeout') {
+        jest.useFakeTimers();
+        await jest.advanceTimersByTimeAsync(0);
+      } else {
+        await flush();
+      }
+      expect(mockNativeStep.mock.calls).toEqual([[{ attemptId: 'old-native', step: 'wallet' }]]);
+      if (cause === 'answer') {
+        h.transport.receive(fakeBread(approve).open(mockNativePrepare.mock.calls[0]![0].url));
+      } else if (cause === 'stop') {
+        h.transport.stop();
+      } else {
+        await jest.advanceTimersByTimeAsync(ANSWER_WAIT_MS);
+      }
+      expect(await outcome).toMatchObject(expected);
+      expect(mockNativeRevoke.mock.calls).toEqual([[{ attemptId: 'old-native' }]]);
+      finishWallet({ opened: false, next: 'primaryStore' });
+      if (cause === 'timeout') await jest.advanceTimersByTimeAsync(0);
+      else await flush();
+      expect(mockNativeStep.mock.calls.filter(call => call[0].step === 'primaryStore')).toHaveLength(0);
+      expect(h.storage.getItem('bread-connect:pending')).toBeNull();
+    } finally {
+      finishWallet({ opened: false, next: 'primaryStore' });
+      deliverRevoke();
+      h.transport.stop();
+      jest.useRealTimers();
+      await flush();
+    }
+  });
+
+  it('keeps successful settlement when a later native completion and cleanup both reject', async () => {
+    let failWallet: (error: Error) => void = () => undefined;
+    mockNativeStep.mockImplementationOnce(() => new Promise((_resolve, reject) => (failWallet = reject)));
+    mockNativeRevoke.mockRejectedValueOnce(new Error('cleanup unavailable'));
+    const h = managedHarness();
+    const outcome = h.transport.connect(PERMISSION_REQUEST);
+    try {
+      await flush();
+      h.transport.receive(fakeBread(approve).open(mockNativePrepare.mock.calls[0]![0].url));
+      await expect(outcome).resolves.toEqual(PERMISSION_RESPONSE);
+      failWallet(new Error('late native failure'));
+      await flush();
+      await expect(outcome).resolves.toEqual(PERMISSION_RESPONSE);
+      expect(mockNativeRevoke).toHaveBeenCalledTimes(1);
+      expect(mockNativeStep).toHaveBeenCalledTimes(1);
+    } finally {
+      failWallet(new Error('late native failure'));
+      h.transport.stop();
+      await flush();
+    }
   });
 });

@@ -269,17 +269,17 @@ describe('keptCandidateHoldUntil (#1081)', () => {
     ...overrides
   });
 
-  it('holds until 600 s after the capture of a kept candidate', () => {
-    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW - 100)] }, NOW)).toBe(NOW + 500);
+  it('holds until 1080 s after the capture of a kept candidate (#1644)', () => {
+    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW - 100)] }, NOW)).toBe(NOW + 980);
   });
 
   it('takes the latest clear time across entries, and ignores entries whose candidate is not kept', () => {
     const entries = [kept(NOW - 300), kept(NOW - 50), kept(NOW - 10, { candidateKept: undefined })];
-    expect(keptCandidateHoldUntil({ submitEvidence: entries }, NOW)).toBe(NOW + 550);
+    expect(keptCandidateHoldUntil({ submitEvidence: entries }, NOW)).toBe(NOW + 1030);
   });
 
-  it('holds nothing once 600 s have passed', () => {
-    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW - 600)] }, NOW)).toBeUndefined();
+  it('holds nothing once 1080 s have passed', () => {
+    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW - 1080)] }, NOW)).toBeUndefined();
     expect(keptCandidateHoldUntil({ submitEvidence: [] }, NOW)).toBeUndefined();
   });
 

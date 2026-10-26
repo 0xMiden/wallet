@@ -6,6 +6,7 @@ import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
+import { setOnboardingRegistrationActive } from 'app/templates/onboarding-registration';
 import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
 import { forgetCarriedMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
@@ -14,16 +15,20 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { prepareMainnet, waitForMainnetPreparation } from 'lib/miden/prepare-mainnet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
-import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import { getTestNetworkNameKey, hasDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { hasMainnetLaunched } from 'lib/remote-config/values';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { TelemetryStep } from 'lib/telemetry/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
 import { errorToMessage, isGuardianNotFound, isMainnetAccessCodeRejected } from 'screens/onboarding/error-message';
@@ -151,6 +156,17 @@ const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
   importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
 
+/**
+ * A create reached registration without an access code. Distinct from a code the mainnet node refused,
+ * which clears the code and marks it rejected.
+ */
+class MainnetAccessCodeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MainnetAccessCodeRequiredError';
+  }
+}
+
 function requiresCreateCode(hash: string, type: OnboardingType | null): boolean {
   switch (hash) {
     case '#select-wallet-type':
@@ -159,6 +175,7 @@ function requiresCreateCode(hash: string, type: OnboardingType | null): boolean 
     case '#guardian-intro':
     case '#meet-guardian':
     case '#choose-guardian':
+    case '#reused-phrase':
       return true;
     case '#network-notice':
     case '#setup-passcode':
@@ -181,6 +198,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // others (a wallet file brings its own seed), so register() and back-navigation can branch on which one is live.
   const [keyPairPayload, setKeyPairPayload] = useState<string | null>(null);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
+  // The create flow is running on a phrase the user entered, because no backup was found for it. The phrase is
+  // the user's own, already backed up, so the create flow skips its backup prompt and Back returns to the lookup.
+  const [reusedPhrase, setReusedPhrase] = useState(false);
   // An import is a file restore exactly while it holds the file, so no step can see a restore without its file.
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
@@ -201,6 +221,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // The recovery-method screen's failure text, or null. It keeps its own copy because the page
   // change that reaches that screen clears registrationError.
   const [guardianLookupFailure, setGuardianLookupFailure] = useState<string | null>(null);
+  const [guardianLookupFailureId, setGuardianLookupFailureId] = useState<UserErrorId | null>(null);
   /**
    * A registration failure to show on the confirmation screen.
    *
@@ -211,6 +232,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [registrationErrorId, setRegistrationErrorId] = useState<UserErrorId | null>(null);
   // The identity of the file restore that has landed for the current attempt, or null. Bound to
   // the SAME fileRegistrationBinding() register() keys its own dedup on, so it is the file, not a
   // plain "has anything landed" flag. Only resetFlowState clears it, so it survives a history
@@ -223,6 +245,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   const [accessCode, setAccessCode] = useState<string | undefined>();
   // The node refused the held code at registration, which undid the setup: the code step says so.
   const [accessCodeRejected, setAccessCodeRejected] = useState(false);
+  const resumeCreateRouteRef = useRef<string | null>(null);
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
   // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
@@ -269,9 +292,11 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
   // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
+    resumeCreateRouteRef.current = null;
     setAccessCode(undefined);
     setAccessCodeRejected(false);
     setSeedPhrase(null);
+    setReusedPhrase(false);
     setKeyPairPayload(null);
     setPassword(null);
     setWalletFilePayload(null);
@@ -280,6 +305,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     setConfirmPhase('idle');
     setCommittedFileBinding(null);
     setGuardianLookupFailure(null);
+    setGuardianLookupFailureId(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
     setGuardianEndpoint(undefined);
@@ -385,14 +411,24 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
     if (!skipViaParam && !skipViaGlobal) return;
 
-    // Wallet type for the bypass: explicit `walletType=guardian` creates a
-    // Guardian (co-signed) account; anything else creates a fully-private
-    // (OffChain) account. The default is intentionally NOT the component's
-    // Guardian default — the bypass otherwise inherits it, which silently makes
-    // every bypass-created wallet guardian-backed. Defaulting to OffChain
-    // matches the Chrome E2E's private default and keeps non-guardian specs
-    // independent of a guardian backend.
-    const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
+    // `walletType=guardian` creates a Guardian account, `walletType=on-chain` a
+    // public single-key account, and anything else a private account. The
+    // default stays private: the component's own default is Guardian, and a
+    // bypass that named no type would otherwise create a guardian-backed wallet.
+    const walletTypeParam = params.get('walletType');
+    const bypassWalletType =
+      walletTypeParam === 'guardian'
+        ? WalletType.Guardian
+        : walletTypeParam === 'on-chain'
+          ? WalletType.OnChain
+          : WalletType.OffChain;
+    // One-time mainnet invitation for a create. An import of an account the
+    // node already admitted leaves this off. The harness passes it on the
+    // E2E global so it never appears in the page URL. Never log it.
+    const bypassAccessCode =
+      params.get('accessCode') ||
+      (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__ ||
+      undefined;
     // Guardian endpoint override for the bypass. Production sets this via the
     // MeetGuardian / ImportRecoveryMethod screens, which the bypass skips, so
     // thread it from the `guardianUrl` param the E2E helper passes. register()
@@ -400,11 +436,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     // so fetchGuardianCreateKey (create) and Vault.spawn's recovery scan (import)
     // bind to it. Only meaningful for a Guardian wallet.
     const bypassGuardianUrl = params.get('guardianUrl') || undefined;
-    // Optional `seed` param: a space- or comma-separated mnemonic. When present,
-    // import that exact seed (onboardingType=Import drives registerWallet's
-    // isImport=true) instead of generating a fresh mnemonic + Create. This lets
-    // the harness restore a specific wallet through the bypass.
-    const seedParam = params.get('seed');
+    // Optional seed: a space- or comma-separated mnemonic. When present, import
+    // that exact seed (onboardingType=Import drives registerWallet's isImport)
+    // instead of generating a fresh one. The harness passes it on the E2E global
+    // so a long-lived seed is not put in the page URL. The query param remains
+    // for the bypass unit tests.
+    const seedParam =
+      params.get('seed') || (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__ || null;
     const importedSeed = seedParam
       ? seedParam
           .split(/[\s,]+/)
@@ -435,6 +473,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     setSeedPhrase(testSeed);
     setPassword(testPassword);
     setOnboardingType(bypassOnboardingType);
+    if (bypassAccessCode) setAccessCode(bypassAccessCode);
     setTestBypassTriggered(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -469,8 +508,22 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   );
 
   const register = useCallback(async () => {
-    if (inviteOnly && onboardingType !== OnboardingType.Import && !accessCode) {
-      throw new Error(t('mainnetAccessOnboardingBody'));
+    // Imports keep their network route but join a switch already started by the wrapper.
+    if (onboardingType === OnboardingType.Import) {
+      await waitForMainnetPreparation();
+    } else {
+      // The rendered inviteOnly flag follows a shared sample a wake may not have published. A create
+      // re-reads the document's moment here and ignores that sample.
+      if (!hasDeveloperNetworkChoice() && hasMainnetLaunched(getBridgeConfigSnapshot(), Date.now())) {
+        onUnlockInviteOnly();
+        await prepareMainnet();
+        if (!accessCode) {
+          throw new MainnetAccessCodeRequiredError(t('mainnetAccessOnboardingBody'));
+        }
+      } else if (inviteOnly && !accessCode) {
+        // Seven taps before the moment still stop a code-less create, without a network change.
+        throw new MainnetAccessCodeRequiredError(t('mainnetAccessOnboardingBody'));
+      }
     }
     if (password && keyPairPayload) {
       // The pair stays in this onboarding component, never in wallet state.
@@ -522,7 +575,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       // abandoned while the databases are written and the registration has landed (canLeaveConfirmation
       // covers what happens on a different file).
       if (walletFilePayload) setCommittedFileBinding(JSON.stringify(fileRegistrationBinding(walletFilePayload)));
-      if (!walletFilePayload && onboardingType === OnboardingType.Create) {
+      if (!walletFilePayload && onboardingType === OnboardingType.Create && !reusedPhrase) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
@@ -531,6 +584,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     }
   }, [
     inviteOnly,
+    onUnlockInviteOnly,
     t,
     accessCode,
     password,
@@ -541,6 +595,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     importWalletFromClient,
     registerWalletFromHotKey,
     onboardingType,
+    reusedPhrase,
     walletType,
     guardianEndpoint
   ]);
@@ -553,8 +608,15 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       // Surface it for every path; most used to show nothing. The Guardian import
       // branch below hands off to the recovery-method screen, which retires this
       // message on arrival.
-      const failure = errorToMessage(error) ?? t('smthWentWrong');
+      const ownMessage = errorToMessage(error);
+      const failure = ownMessage ?? t('smthWentWrong');
       setRegistrationError(failure);
+      setRegistrationErrorId(ownMessage ? 'raw_onboarding_recovery_failed' : 'smthWentWrong');
+      if (error instanceof MainnetAccessCodeRequiredError) {
+        // No code was refused. Leave a held code in place and do not mark one rejected.
+        navigate('/#mainnet-access');
+        return true;
+      }
       if (isMainnetAccessCodeRejected(error)) {
         // The backend undid the setup; only another code can start it again.
         setAccessCode(undefined);
@@ -565,18 +627,23 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
         // The page change clears registrationError, so the screen gets its own copy of the reason.
         let lookupFailure: string;
+        let lookupFailureId: UserErrorId;
         if (isGuardianNotFound(error)) {
           // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
           // copy suggests a public import, which a pasted key cannot use (the screen hides it).
           lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
+          lookupFailureId = keyPairPayload ? 'importHotKeyNoAccount' : 'guardianAccountNotFound';
         } else if (isLikelyNetworkError(error)) {
           // A raw "Failed to fetch" / RPC timeout message is not translated; show the
           // operator-unreachable notice instead.
           lookupFailure = t('guardianUrlUnreachable');
+          lookupFailureId = 'guardianUrlUnreachable';
         } else {
           lookupFailure = failure;
+          lookupFailureId = ownMessage ? 'raw_import_recovery_lookup_failed' : 'smthWentWrong';
         }
         setGuardianLookupFailure(lookupFailure);
+        setGuardianLookupFailureId(lookupFailureId);
         navigate('/#import-select-recovery-method');
         return true;
       }
@@ -612,6 +679,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
 
     setConfirmPhase('creating');
     attemptInFlightRef.current = true;
+    setOnboardingRegistrationActive(true);
     setIsLoading(true);
     // A Ready broadcast can land while register() finishes; the mark keeps Home off screen until the handoff.
     const finishMark = markOnboardingFinishing();
@@ -631,11 +699,15 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // next tap retries in the tab. The spinner stops either way, so the failure is said: a quiet screen gives no
         // reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-register failed:', error);
+        // The access step stays on this page. Release the in-flight guard before that navigation,
+        // or the hash effect sends it back to Confirmation.
+        if (error instanceof MainnetAccessCodeRequiredError) attemptInFlightRef.current = false;
         routeRegistrationFailure(error);
         setConfirmPhase('failed');
       } finally {
         finishMark.release();
         attemptInFlightRef.current = false;
+        setOnboardingRegistrationActive(false);
         setIsLoading(false);
       }
     })();
@@ -682,7 +754,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // Keep the code for registration after account setup.
         setAccessCode(action.payload);
         setAccessCodeRejected(false);
-        startCreateFlow();
+        if (resumeCreateRouteRef.current) {
+          const resumeRoute = resumeCreateRouteRef.current;
+          resumeCreateRouteRef.current = null;
+          navigate(resumeRoute);
+        } else {
+          startCreateFlow();
+        }
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
@@ -782,6 +860,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'import-hot-key-submit':
         // A new key retires a Guardian lookup failure raised for the previous credential.
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         setKeyPairPayload(action.payload);
         // The key replaces a seed or a staged file (see the state comment).
         setSeedPhrase(null);
@@ -804,6 +883,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         break;
       case 'import-wallet-file-submit':
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         setOnboardingType(OnboardingType.Import);
         setWalletFilePayload(action.payload);
         setSeedPhrase(action.payload.seedPhrase.split(' '));
@@ -824,6 +904,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'import-seed-phrase-submit':
         // A new seed retires a Guardian lookup failure raised for the previous one.
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         setWalletFilePayload(null);
         setSeedPhrase(action.payload.split(' '));
         setKeyPairPayload(null);
@@ -863,8 +944,20 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'retry-guardian-probe':
         // A new detection run retires the lookup failure shown against the last one.
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         if (keyPairPayload) startGuardianProbeWithKey(keyPairPayload);
         else if (seedPhrase) startGuardianProbe(seedPhrase);
+        break;
+      case 'create-with-phrase':
+        // Offered only from the recovery-method step of a seed-phrase import, where the lookup found no backup.
+        if (!seedPhrase || keyPairPayload || walletFilePayload || inviteOnly) break;
+        setReusedPhrase(true);
+        setOnboardingType(OnboardingType.Create);
+        navigate('/#reused-phrase');
+        break;
+      case 'reused-phrase-acknowledge':
+        if (!reusedPhrase) break;
+        navigate('/#guardian-intro');
         break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
@@ -875,6 +968,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
         );
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         // Arms the auto-register for this resubmit. A routed Guardian failure leaves confirmPhase failed rather than
         // resetting it, since a reset there would re-fire the effect before the route leaves Confirmation.
         setConfirmPhase('idle');
@@ -889,6 +983,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // auto-register. It registers the wallet, then waits for Ready before
         // moving on.
         attemptInFlightRef.current = true;
+        setOnboardingRegistrationActive(true);
         setIsLoading(true);
         // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives
         // outside this component because the app subtree remounts when the wallet turns Ready.
@@ -896,6 +991,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         try {
           setBiometricError(null);
           setRegistrationError(null);
+          setRegistrationErrorId(null);
           await register();
           finishMark.arm();
           // Wait for state to be synced before navigating
@@ -908,6 +1004,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
             // Welcome, so the user lands at the start of onboarding with no
             // idea their wallet may already exist. Stay put and say so.
             setRegistrationError(t('walletSetupDidNotComplete'));
+            setRegistrationErrorId('walletSetupDidNotComplete');
             break;
           }
           settleOnboardingFlow(handle => handle.complete());
@@ -917,6 +1014,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          // The access step stays on this page. Release the in-flight guard before that navigation,
+          // or the hash effect sends it back to Confirmation.
+          if (error instanceof MainnetAccessCodeRequiredError) attemptInFlightRef.current = false;
           // A failure the routine leaves on this screen: the hardware-only path adds its attempt count.
           if (!routeRegistrationFailure(error) && password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
@@ -927,6 +1027,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         } finally {
           finishMark.release();
           attemptInFlightRef.current = false;
+          setOnboardingRegistrationActive(false);
           setIsLoading(false);
         }
         break;
@@ -963,8 +1064,15 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           }
         } else if (step === OnboardingStep.MeetGuardian) {
           navigate('/#guardian-intro');
+        } else if (step === OnboardingStep.ReusedPhrase) {
+          // Back to the lookup, as the import it came from.
+          setReusedPhrase(false);
+          setOnboardingType(OnboardingType.Import);
+          navigate('/#import-select-recovery-method');
         } else if (step === OnboardingStep.GuardianIntro) {
-          if (protectionMethod === 'biometric') {
+          if (reusedPhrase) {
+            navigate('/#reused-phrase');
+          } else if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
             navigate('/#create-password');
@@ -1034,8 +1142,14 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       return;
     }
     if (inviteOnly && !accessCode && requiresCreateCode(hash, onboardingType)) {
-      setStep(OnboardingStep.Welcome);
-      navigate('/');
+      // A draft holding a password or seed keeps them through code entry; before that nothing is lost.
+      if (onboardingType === OnboardingType.Create && (password || seedPhrase)) {
+        resumeCreateRouteRef.current = `/${hash}`;
+        navigate('/#mainnet-access');
+      } else {
+        setStep(OnboardingStep.Welcome);
+        navigate('/');
+      }
       return;
     }
     switch (hash) {
@@ -1103,6 +1217,11 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         else if (hash === '#guardian-intro') setStep(OnboardingStep.GuardianIntro);
         else setStep(OnboardingStep.MeetGuardian);
         break;
+      case '#reused-phrase':
+        // In-memory only, like the create flow's seed: a reload or a history jump has nothing to continue.
+        if (!reusedPhrase || seedPhraseRef.current === null) navigate('/');
+        else setStep(OnboardingStep.ReusedPhrase);
+        break;
       case '#select-import-type':
         // Arriving keeps what the import holds, so Back and Forward resume it; the flow-state effect below says
         // what starts a new import instead.
@@ -1151,12 +1270,14 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   }, [
     hash,
     password,
+    seedPhrase,
     onboardingType,
     isHardwareSecurityAvailable,
     biometricProtectionSupported,
     protectionStepRoute,
     inviteOnly,
-    accessCode
+    accessCode,
+    reusedPhrase
   ]);
 
   // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
@@ -1183,14 +1304,19 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
       // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
       resetFlowState();
+    } else if (hash === '#import-select-recovery-method' && reusedPhrase) {
+      // History returned to the lookup from the create flow it led to: this step is the import's.
+      setReusedPhrase(false);
+      setOnboardingType(OnboardingType.Import);
     }
-  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding, accessCode]);
+  }, [hash, onboardingType, reusedPhrase, resetFlowState, cancelOnLeavingOnboarding, accessCode]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
   useEffect(() => {
     if (step !== OnboardingStep.Confirmation) {
       setRegistrationError(null);
+      setRegistrationErrorId(null);
     }
   }, [step]);
 
@@ -1239,10 +1365,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
           guardianLookupFailure={guardianLookupFailure}
+          guardianLookupFailureId={guardianLookupFailureId}
           recoveryError={registrationError}
+          recoveryErrorId={registrationErrorId}
           guardianProbe={guardianProbeState}
           confirmCreating={confirmPhase === 'creating' || (autoRegisterDue && confirmPhase === 'idle')}
           importViaKey={Boolean(keyPairPayload)}
+          canCreateWithPhrase={!inviteOnly && Boolean(seedPhrase) && !keyPairPayload && !walletFilePayload}
           canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}
           onAction={onAction}

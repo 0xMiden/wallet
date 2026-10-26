@@ -115,6 +115,42 @@ describe('ChoiceCardGroup', () => {
     expect(card.className).not.toMatch(/\bborder\b/);
   });
 
+  it('renders labelled sections in one radiogroup and navigates across them', () => {
+    const currentItem: ChoiceCardItem<Choice> = { id: 'oz', title: 'OpenZeppelin' };
+    const otherItem: ChoiceCardItem<Choice> = { id: 'gateway', title: 'Gateway' };
+    const SectionedOwner: React.FC = () => {
+      const [value, setValue] = useState<Choice | null>('oz');
+      return (
+        <ChoiceCardGroup
+          sections={[
+            { label: 'Current', items: [currentItem] },
+            { label: 'Other', items: [otherItem] }
+          ]}
+          value={value}
+          onChange={setValue}
+          aria-label="Guardians"
+        />
+      );
+    };
+    const { container } = render(<SectionedOwner />);
+    const group = screen.getByRole('radiogroup', { name: 'Guardians' });
+    const current = within(group).getByRole('group', { name: 'Current' });
+    const other = within(group).getByRole('group', { name: 'Other' });
+
+    expect(within(current).getByRole('heading', { name: 'Current' })).toBeInTheDocument();
+    expect(within(other).getByRole('heading', { name: 'Other' })).toBeInTheDocument();
+    expect(within(current).getByRole('radio', { name: 'OpenZeppelin' })).toBeInTheDocument();
+    expect(within(other).getByRole('radio', { name: 'Gateway' })).toBeInTheDocument();
+    expect(group).toHaveClass('flex', 'flex-col', 'gap-5');
+    expect(container.querySelector('.h-px.bg-hairline[aria-hidden="true"]')).toBeInTheDocument();
+
+    const currentRadio = within(current).getByRole('radio', { name: 'OpenZeppelin' });
+    const otherRadio = within(other).getByRole('radio', { name: 'Gateway' });
+    fireEvent.keyDown(currentRadio, { key: 'ArrowDown' });
+    expect(otherRadio).toHaveFocus();
+    expect(otherRadio).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('draws the title, subtitle, leading visual, badge and forwards data attributes', () => {
     renderGroup();
     const card = screen.getByTestId('choice-oz');

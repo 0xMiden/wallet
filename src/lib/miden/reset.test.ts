@@ -33,8 +33,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));
 
+const mockForgetDeveloperNetworkChoice = jest.fn<Promise<void>, []>(async () => {});
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
+  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides',
+  forgetDeveloperNetworkChoice: () => mockForgetDeveloperNetworkChoice()
 }));
 
 const mockBrowserStorageGet = jest.fn();
@@ -56,8 +58,25 @@ jest.mock('webextension-polyfill', () => ({
 }));
 
 const mockReread = jest.fn<Promise<void>, []>(async () => {});
+const mockStorageTurnTails = new Map<string, Promise<void>>();
+const mockStorageTurnObservers = new Set<(name: string) => void>();
+const mockInStorageTurn = jest.fn((name: string, operation: () => Promise<unknown>) => {
+  mockStorageTurnObservers.forEach(observer => observer(name));
+  const run = (mockStorageTurnTails.get(name) ?? Promise.resolve()).then(operation);
+  mockStorageTurnTails.set(
+    name,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
+});
+const mockPutToStorage = jest.fn<Promise<void>, [string, unknown]>(async () => {});
 jest.mock('lib/miden/front/storage', () => ({
-  rereadStorageCache: () => mockReread()
+  rereadStorageCache: () => mockReread(),
+  inStorageTurn: (name: string, operation: () => Promise<unknown>) => mockInStorageTurn(name, operation),
+  putToStorage: (key: string, value: unknown) => mockPutToStorage(key, value)
 }));
 
 jest.mock(
@@ -68,9 +87,12 @@ jest.mock(
   { virtual: true }
 );
 
+import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { CARRIED_MAINNET_CODE_STORAGE_KEY } from 'lib/carried-mainnet-code';
+import { inStorageTurn, putToStorage } from 'lib/miden/front/storage';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 import { onStorageCleared } from 'lib/storage-cleared';
 
@@ -85,6 +107,10 @@ import {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStorageTurnTails.clear();
+  mockStorageTurnObservers.clear();
+  mockInStorageTurn.mockClear();
+  mockPutToStorage.mockReset().mockResolvedValue(undefined);
   localStorage.clear();
   sessionStorage.clear();
   (isMobile as jest.Mock).mockReturnValue(false);
@@ -97,6 +123,7 @@ beforeEach(() => {
     mockTransactionsClear,
     mockSpendingLimitsClear,
     mockBrowserStorageRemove,
+    mockForgetDeveloperNetworkChoice,
     _g.__resetTest.prefStub.remove
   ]) {
     step.mockReset().mockResolvedValue(undefined);
@@ -343,6 +370,41 @@ describe('resetStorageDestructive', () => {
     expect(mockBrowserStorageSet).not.toHaveBeenCalled();
   });
 
+  it('strips the developer marker before the key-value clear and the database delete', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+
+    await resetStorageDestructive();
+
+    expect(mockForgetDeveloperNetworkChoice).toHaveBeenCalledTimes(1);
+    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockBrowserStorageRemove.mock.invocationCallOrder[0]!
+    );
+    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('does not wipe when stripping the developer marker rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    const stripError = new Error('marker write failed');
+    mockForgetDeveloperNetworkChoice.mockRejectedValueOnce(stripError);
+    jest.mocked(resetNativeAssetCache).mockClear();
+
+    await expect(resetStorageDestructive()).rejects.toBe(stripError);
+
+    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
+    expect(jest.mocked(resetNativeAssetCache)).not.toHaveBeenCalled();
+  });
+
+  it('leaves the developer network choice alone when the override goes with the wipe', async () => {
+    await resetStorageDestructive({ keepEndpointOverride: false });
+
+    expect(mockForgetDeveloperNetworkChoice).not.toHaveBeenCalled();
+  });
+
   // The key-value store holds the vault, so clearing it first leaves no wallet to unlock after a
   // later step rejects.
   it('clears the key-value store before it deletes the database', async () => {
@@ -375,6 +437,17 @@ describe('resetStorageDestructive', () => {
 
     expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+    jest.mocked(resetNativeAssetCache).mockClear();
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockForgetDeveloperNetworkChoice).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(resetNativeAssetCache)).not.toHaveBeenCalled();
   });
 
   it('still clears the spending limits and rethrows the delete error when the cleanup steps reject', async () => {
@@ -554,6 +627,131 @@ describe('announcing a storage clear', () => {
     await resetStorageDestructive();
     expect(cleared).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('badge storage reset serialization', () => {
+  it.each(['extension', 'mobile', 'desktop', 'client'] as const)(
+    'removes an in-flight seen write from the reset snapshot (%s)',
+    async mode => {
+      const desktop = mode === 'desktop' || mode === 'client';
+      const values = new Map<string, unknown>([['vault_check', 'v']]);
+      const removed = new Set<string>();
+      const seenDesktopKey = `${DESKTOP_STORAGE_PREFIX}${BADGE_SEEN_STORAGE_KEY}`;
+      const vaultDesktopKey = `${DESKTOP_STORAGE_PREFIX}vault_check`;
+      let releaseWrite!: () => void;
+      const writeGate = new Promise<void>(resolve => {
+        releaseWrite = resolve;
+      });
+      let signalWriteStarted!: () => void;
+      const writeStarted = new Promise<void>(resolve => {
+        signalWriteStarted = resolve;
+      });
+      let signalSnapshotStarted!: () => void;
+      const snapshotStarted = new Promise<void>(resolve => {
+        signalSnapshotStarted = resolve;
+      });
+      let snapshotSignalled = false;
+      const signalSnapshot = () => {
+        if (snapshotSignalled) return;
+        snapshotSignalled = true;
+        signalSnapshotStarted();
+      };
+      let signalResetTurn!: () => void;
+      const resetTurnStarted = new Promise<void>(resolve => {
+        signalResetTurn = resolve;
+      });
+      let resetPromise: Promise<unknown> | undefined;
+      let writer: Promise<unknown> | undefined;
+      let removeSpy: jest.SpyInstance | undefined;
+      const resetTurnObserver = (name: string) => {
+        if (name === BADGE_STORAGE_KEY) signalResetTurn();
+      };
+
+      if (mode === 'extension') {
+        jest.mocked(isExtension).mockReturnValue(true);
+        mockBrowserStorageGet.mockImplementation(async () => {
+          signalSnapshot();
+          return Object.fromEntries(values);
+        });
+        mockBrowserStorageRemove.mockImplementation(async (keys: string[]) => {
+          keys.forEach(key => {
+            removed.add(key);
+            values.delete(key);
+          });
+        });
+      } else if (mode === 'mobile') {
+        jest.mocked(isMobile).mockReturnValue(true);
+        _g.__resetTest.prefStub.keys.mockImplementation(async () => {
+          signalSnapshot();
+          return { keys: [...values.keys()] };
+        });
+        _g.__resetTest.prefStub.remove.mockImplementation(async ({ key }: { key: string }) => {
+          removed.add(key);
+          values.delete(key);
+        });
+      } else {
+        jest.mocked(isDesktop).mockReturnValue(true);
+        localStorage.setItem(vaultDesktopKey, 'v');
+        const originalRemoveItem = Storage.prototype.removeItem;
+        removeSpy = jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+          this: Storage,
+          key: string
+        ) {
+          if (key.startsWith(DESKTOP_STORAGE_PREFIX)) {
+            const name = key.slice(DESKTOP_STORAGE_PREFIX.length);
+            removed.add(name);
+            if (name === 'vault_check') signalSnapshot();
+          }
+          return originalRemoveItem.call(this, key);
+        });
+      }
+
+      mockPutToStorage.mockImplementation(async (key: string, value: unknown) => {
+        signalWriteStarted();
+        await writeGate;
+        if (desktop) localStorage.setItem(`${DESKTOP_STORAGE_PREFIX}${key}`, JSON.stringify(value));
+        else values.set(key, value);
+      });
+
+      try {
+        writer = inStorageTurn(BADGE_STORAGE_KEY, () => putToStorage(BADGE_SEEN_STORAGE_KEY, ['first-send']));
+        await writeStarted;
+        mockStorageTurnObservers.add(resetTurnObserver);
+        resetPromise = mode === 'client' ? clearClientStorage() : clearStorage(false);
+        const resetQueuedBeforeSnapshot = await Promise.race([
+          resetTurnStarted.then(() => true),
+          snapshotStarted.then(() => false)
+        ]);
+        mockStorageTurnObservers.delete(resetTurnObserver);
+        releaseWrite();
+        await Promise.all([writer, resetPromise]);
+
+        const seenRemoved =
+          mode === 'extension'
+            ? mockBrowserStorageRemove.mock.calls.some(
+                ([keys]) => Array.isArray(keys) && keys.includes(BADGE_SEEN_STORAGE_KEY)
+              )
+            : mode === 'mobile'
+              ? (_g.__resetTest.prefStub.remove as jest.Mock).mock.calls.some(
+                  ([arg]) => arg?.key === BADGE_SEEN_STORAGE_KEY
+                )
+              : removed.has(BADGE_SEEN_STORAGE_KEY);
+        const seenLeft =
+          mode === 'extension' || mode === 'mobile'
+            ? values.has(BADGE_SEEN_STORAGE_KEY)
+            : localStorage.getItem(seenDesktopKey) !== null;
+        expect(seenRemoved).toBe(true);
+        expect(seenLeft).toBe(false);
+        expect(resetQueuedBeforeSnapshot).toBe(true);
+      } finally {
+        mockStorageTurnObservers.delete(resetTurnObserver);
+        releaseWrite();
+        await writer?.catch(() => {});
+        await resetPromise?.catch(() => {});
+        removeSpy?.mockRestore();
+      }
+    }
+  );
 });
 
 describe('announcing the platform wipe, once fully settled', () => {

@@ -235,7 +235,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
         className={`${config.container} rounded-10 flex items-center justify-center`}
         style={{ backgroundColor: SLATE_ICON_BG }}
       >
-        <SwapIcon className={config.icon} />
+        <Icon name={IconName.Key} size={size === 'lg' ? 'lg' : 'sm'} fill="currentColor" className="text-pure-white" />
       </div>
     );
   }

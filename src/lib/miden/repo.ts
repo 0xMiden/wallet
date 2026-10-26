@@ -1,4 +1,20 @@
-import Dexie, { Transaction } from 'dexie';
+import Dexie, {
+  DBCore,
+  DBCoreCursor,
+  DBCoreMutateResponse,
+  DBCoreTable,
+  Middleware,
+  Transaction,
+  type Table as TransactionTable
+} from 'dexie';
+
+import {
+  annotateCrash,
+  snapshotCrashDiagnostics,
+  StorageCrashDiagnostics,
+  StorageOperation,
+  StorageOwner
+} from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
@@ -13,6 +29,10 @@ export enum Table {
  * Exported so the migration-proving tests in repo.test.ts seed a database in this
  * EXACT shape rather than a hand-typed duplicate that could silently drift from what
  * `defineSchema` below actually declares.
+ *
+ * `completedAt` and `initiatedAt` are the ordered cursors for a bounded history page.
+ * A nonzero `completedAt` is read from that index; a missing or zero one falls back to
+ * `initiatedAt`, and the two streams merge by `(completedAt || initiatedAt, id)`.
  */
 export const TRANSACTIONS_V17_STORE = indexes(
   'id',
@@ -203,6 +223,8 @@ function defineSchema(target: Dexie): void {
   // `bridged-send` rows every eight seconds, and without an index each ask walked the whole
   // history. No upgrade step: IndexedDB builds a new index over the rows already stored.
   // `spendingLimits` is named again at its 1.9 shape so this version does not drop that table.
+  // Bounded history pages keep walking the existing `completedAt` and `initiatedAt` indexes on
+  // this store. The `type` index does not replace them.
   target.version(2).stores({
     [Table.Transactions]: TRANSACTIONS_V2_STORE,
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
@@ -284,12 +306,197 @@ function defineSchema(target: Dexie): void {
 function buildTridentDb(name: string): Dexie {
   const target = new Dexie(name, { modifyChunkSize: 25 });
   defineSchema(target);
+  installWalletStorageDiagnostics(target);
   return target;
+}
+
+function walletTableOwner(name: string): StorageOwner | undefined {
+  if (name === Table.Transactions) return 'wallet_transactions';
+  if (name === Table.SpendingLimits) return 'wallet_limits';
+  return undefined;
+}
+
+function observeWalletStorage<T>(
+  invoke: () => Promise<T>,
+  owner: StorageOwner,
+  operation: StorageOperation
+): Promise<T> {
+  try {
+    // Keep the invoked promise's chain and Dexie's active transaction zone.
+    return invoke().then(undefined, (error: unknown) => {
+      annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+      throw error;
+    });
+  } catch (error) {
+    annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+    throw error;
+  }
+}
+
+function observeWalletCursor(cursor: DBCoreCursor, owner: StorageOwner): DBCoreCursor {
+  const start = cursor.start;
+  const observedStart: DBCoreCursor['start'] = function (this: DBCoreCursor, ...args) {
+    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor');
+  };
+  // Dexie replaces start on exhaustion; next must keep using that replacement.
+  cursor.start = observedStart;
+  return cursor;
+}
+
+function installWalletStorageDiagnostics(target: Dexie): void {
+  const middleware: Middleware<DBCore> = {
+    stack: 'dbcore',
+    name: 'WalletStorageDiagnostics',
+    level: 11,
+    create: down => {
+      const transaction: DBCore['transaction'] = (...args) => {
+        const [stores] = args;
+        const store = stores.length === 1 ? stores[0] : undefined;
+        const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
+        try {
+          return down.transaction(...args);
+        } catch (error) {
+          annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
+          throw error;
+        }
+      };
+      return {
+        ...down,
+        transaction,
+        table: name => {
+          const table = down.table(name);
+          const owner = walletTableOwner(name);
+          if (owner === undefined) return table;
+          const get: DBCoreTable['get'] = (...args) => observeWalletStorage(() => table.get(...args), owner, 'get');
+          const getMany: DBCoreTable['getMany'] = (...args) =>
+            observeWalletStorage(() => table.getMany(...args), owner, 'get');
+          const query: DBCoreTable['query'] = (...args) =>
+            observeWalletStorage(() => table.query(...args), owner, 'query');
+          const count: DBCoreTable['count'] = (...args) =>
+            observeWalletStorage(() => table.count(...args), owner, 'count');
+          const openCursor: DBCoreTable['openCursor'] = (...args) =>
+            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor').then(cursor =>
+              cursor === null ? null : observeWalletCursor(cursor, owner)
+            );
+          const mutate: DBCoreTable['mutate'] = (...args) =>
+            observeWalletStorage(() => table.mutate(...args), owner, 'mutate').then(
+              (response: DBCoreMutateResponse) => {
+                // DBCore resolves partial failures; Dexie builds the public aggregate later.
+                for (const failure of Object.values(response.failures)) {
+                  annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
+                }
+                return response;
+              }
+            );
+          return { ...table, get, getMany, query, count, openCursor, mutate };
+        }
+      };
+    }
+  };
+  target.use(middleware);
+
+  const open = target.open;
+  const rejectOpen = (error: unknown): never => {
+    // A failed upgrade can already identify a table through Dexie's error links.
+    const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
+    if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
+      annotateCrash(error, { storageOwner: 'wallet_database', storageOperation: 'open' });
+    }
+    throw error;
+  };
+  const observedOpen: Dexie['open'] = function (this: Dexie, ...args) {
+    try {
+      return open.apply(this, args).then(undefined, rejectOpen);
+    } catch (error) {
+      return rejectOpen(error);
+    }
+  };
+  target.open = observedOpen;
 }
 
 export const db = buildTridentDb('TridentMain');
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+
+/** One row of an ordered `completedAt` or `initiatedAt` cursor, plus the step that advances it. */
+export interface HistoryIndexCursor {
+  readonly value: ITransaction;
+  readonly done: boolean;
+  next(): Promise<HistoryIndexCursor>;
+}
+
+/** Inclusive bounds omit `lowerOpen` / `upperOpen`. An absent bound is the whole index. */
+export interface HistoryIndexBound {
+  lower?: number;
+  lowerOpen?: boolean;
+  upper?: number;
+  upperOpen?: boolean;
+}
+
+/**
+ * Opens an ordered cursor on `completedAt` or `initiatedAt`. Caller must already be inside
+ * `table.db.transaction`, which is what keeps the cursor's IndexedDB transaction alive.
+ * Records Dexie does not index (a missing `completedAt`) are not on that cursor.
+ */
+export async function openTransactionIndexCursor(
+  table: TransactionTable<ITransaction, string>,
+  indexName: 'completedAt' | 'initiatedAt',
+  reverse: boolean,
+  bound?: HistoryIndexBound
+): Promise<HistoryIndexCursor | null> {
+  const current = Dexie.currentTransaction;
+  if (current === null) throw new Error('openTransactionIndexCursor requires a transaction');
+  const index = table.core.schema.getIndexByKeyPath(indexName);
+  if (index === undefined) throw new Error(`transactions ${indexName} index is missing`);
+  const cursor = await table.core.openCursor({
+    trans: current.idbtrans,
+    values: true,
+    reverse,
+    query: { index, range: historyIndexRange(bound) }
+  });
+  if (cursor === null) return null;
+  return wrapHistoryIndexCursor(cursor);
+}
+
+function historyIndexRange(bound: HistoryIndexBound | undefined) {
+  // Dexie range kinds are numeric: Any is 3 and Range is 2. The const enum does not exist at runtime.
+  if (bound === undefined || (bound.lower === undefined && bound.upper === undefined)) {
+    return { type: 3, lower: undefined, upper: undefined };
+  }
+  return {
+    type: 2,
+    lower: bound.lower,
+    upper: bound.upper,
+    lowerOpen: bound.lowerOpen === true,
+    upperOpen: bound.upperOpen === true
+  };
+}
+
+function isHistoryIndexRow(value: unknown): value is ITransaction {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('id' in value) || !('status' in value) || !('initiatedAt' in value) || !('accountId' in value)) return false;
+  return typeof value.id === 'string';
+}
+
+function historyRowFromCursor(cursor: DBCoreCursor): ITransaction {
+  const value: unknown = cursor.value;
+  if (!isHistoryIndexRow(value)) throw new Error('history index cursor returned a non-transaction');
+  return value;
+}
+
+function wrapHistoryIndexCursor(cursor: DBCoreCursor): HistoryIndexCursor {
+  return {
+    get value() {
+      return historyRowFromCursor(cursor);
+    },
+    get done() {
+      return cursor.done === true;
+    },
+    next() {
+      return cursor.next().then(advanced => wrapHistoryIndexCursor(advanced));
+    }
+  };
+}
 
 /**
  * Non-negative safe integer: the spending-limit policy's rule for a transaction time it can judge (a

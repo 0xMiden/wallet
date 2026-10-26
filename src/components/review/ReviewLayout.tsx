@@ -6,6 +6,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import { FlowAccent } from 'components/flow/accent';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 export interface ReviewAction {
   label: string;
@@ -21,6 +23,8 @@ export interface ReviewAction {
 }
 
 export interface ReviewLayoutProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
   /** The flow this review belongs to; colours the primary CTA. Defaults to the brand orange. */
@@ -33,6 +37,8 @@ export interface ReviewLayoutProps {
   secondary?: ReviewAction;
   /** Optional message shown just above the CTAs — e.g. a failed bridge submit. */
   error?: React.ReactNode;
+  /** Advisory content shown directly above the action buttons. */
+  beforeActions?: React.ReactNode;
 }
 
 /**
@@ -50,8 +56,11 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   children,
   primary,
   secondary,
-  error
+  error,
+  errorId,
+  beforeActions
 }) => {
+  useUserVisibleError(error ? errorId : null, 'review');
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
   // full-screen routes that render outside TabLayout).
   useHideNavbarWhileOpen();
@@ -68,6 +77,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
 
         <div className="shrink-0 pt-6 flex flex-col gap-y-2">
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
+          {beforeActions}
           <Button
             type={primary.type ?? 'button'}
             title={primary.label}

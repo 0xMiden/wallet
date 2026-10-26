@@ -26,6 +26,7 @@ jest.mock('@reown/appkit/react', () => ({ useAppKitAccount: jest.fn() }));
 jest.mock('./client', () => ({
   buildEpochReadOnlyWalletClient: jest.fn(),
   buildEpochWalletClient: jest.fn(),
+  epochChain: (chainId = 11155111) => ({ id: chainId }),
   getEvmConnection: jest.fn()
 }));
 jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));

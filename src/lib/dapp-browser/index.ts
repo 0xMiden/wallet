@@ -14,11 +14,13 @@ export { rectFromDOMRect, rectsEqual, type WebViewRect } from './webview-rect';
 export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-confirmation';
 export {
   EXPLORE_FILTERS,
+  getExploreCategoryGroup,
   getExploreCatalog,
   localizeExploreCatalog,
   resolveExploreSections,
   searchExploreCatalog,
   type ExploreFilter,
+  type ExploreCategoryGroup,
   type ExploreFilterDescriptor,
   type ExploreItem,
   type ExploreSection,

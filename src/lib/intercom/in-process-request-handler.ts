@@ -225,6 +225,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.ImportHotKeyPairRequest: {
+      await Actions.importHotKeyPair(req.accountPublicKey, req.keyPairPayload);
+      return {
+        type: WalletMessageType.ImportHotKeyPairResponse
+      };
+    }
+
     case WalletMessageType.SetGuardianEndpointRequest: {
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
@@ -254,6 +261,20 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       await Actions.setGuardianSyncStatus(req.accountPublicKey, req.guardianSyncStatus);
       return {
         type: WalletMessageType.SetGuardianSyncStatusResponse
+      };
+    }
+
+    case WalletMessageType.MarkHotKeyRotatedOutRequest: {
+      await Actions.markHotKeyRotatedOut(req.accountPublicKey, req.hotPublicKey, req.onChainHotCommitment);
+      return {
+        type: WalletMessageType.MarkHotKeyRotatedOutResponse
+      };
+    }
+
+    case WalletMessageType.RetireRotatedOutHotKeyRequest: {
+      await Actions.retireRotatedOutHotKey(req.accountPublicKey, req.expectedHotPubKey);
+      return {
+        type: WalletMessageType.RetireRotatedOutHotKeyResponse
       };
     }
 

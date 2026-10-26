@@ -20,7 +20,7 @@ Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemb
 
 ## Build, Test, and Development Commands
 
-Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST` and `SENTRY_DSN` only from the shell environment, never from `.env`; `.env.example` says which ones a release build sets, and how.
+Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST`, `SENTRY_DSN` and `FEATURE_ELIGIBILITY_URL` only from the shell environment, never from `.env`; `.env.example` says which ones a release build sets, and how. `yarn dev` does not need `FEATURE_ELIGIBILITY_URL`: it allows wallet, Earn and Swap without calling the service. That open flag is baked only when `MODE_ENV` is `development` and the build is not E2E, so a production build cannot inherit it. Other builds still use the URL. MaxMind credentials belong only to the server-side feature-eligibility Worker and must never enter a wallet build.
 
 - `yarn dev` rebuilds the Chrome extension in watch mode; load `dist/chrome_unpacked/` in Chrome.
 - `yarn build:devnet` — network-specific extension build.
@@ -114,30 +114,32 @@ Pages supply content; the design system supplies the rest. Reuse the shared comp
 - PRs should explain the user impact, testing performed, and relevant issue; include screenshots or recordings for UI changes. Call out platform-specific effects and configuration changes. Never commit secrets from `.env` or machine-local dependency paths.
 - If the wallet PR depends on an unpublished web-sdk change, put the verbatim marker `Web SDK PR: #N` (or `Web SDK PR: 0xMiden/web-sdk#N`) on its own line in the PR description — prose mentions do NOT trigger the linked-PR CI pipeline. Local parity: `scripts/dev-with-web-sdk-pr.sh [N|--clear]`.
 
-## USDCx destination confirmation: accepted temporary limits
+## USDCx destination confirmation
 
-The user approved balance-based destination confirmation on 2026-10-09. Keep
-`Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
-the recipient's USDC balance is at least the balance saved before submission plus
-the minimum payout from `minimumUsdcxPayout`. On 2026-10-10, the user approved
-confirmation after payout fees (for example, 2.92 USDC received for 3 USDC sent).
-Keep the current fee allowance: 1.5 USDC for Ethereum and 0.1 USDC for other
-configured destinations, with a minimum of half the sent amount. This is an
-estimate, not an exact fee quote. Use the six-decimal ERC-20 USDC balance on the destination chain.
-RPC failures must leave the row open for another check. Old rows without a saved
-balance must stay at `Burn confirmed`.
+Keep `Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` only on
+Circle's exact payout mint: a GatewayMinter `AttestationUsed` log on the destination
+chain whose transaction input carries the burn note id, for the row's token and
+recipient, from the minter and depositor the Arc xReserve reports, after the block
+saved before submission, with a value from 1 up to the sent amount. Received is that
+value and the Circle fee is the sent amount minus it. Scan at most 5 chunks of 10,000
+blocks per check, and rescan the last 128 blocks on every check (the cursor never moves
+back); a scan the chunk cap stopped below the head is due again at once. A failure
+before any chunk completes (the source read, the block number) leaves the row and its
+cursor unchanged; a chunk failing mid-scan resumes after the last chunk read in full.
 
-This rule does not prove that a specific bridge payout arrived. Unrelated incoming
-transfers or concurrent withdrawals to the same address can cause false confirmation.
-Spending, gas costs on Arc, payout fees, or missed balance changes can delay or prevent
-confirmation. These cases are accepted for now. Reviewer agents must treat them as
-known limits of the requested design, not as new blocking defects. Do not add event
-proof, transfer allocation, or fee accounting unless the user requests that work.
+A confirmed row not paid 2 hours after confirmation reads `Payout delayed`, for rows
+the wallet can scan only (not restored, snapshot saved). The review shows one line,
+`Circle fee`: deducted from the payout, varies with network fees. The allowances
+(`lib/usdcx/constant.ts`; 0.1 USDC, 1.5 USDC on Ethereum) are only the Send flow's
+refusal guard: it refuses a burn that does not exceed them. Rows confirmed earlier by
+the balance rule stay `Confirmed`. Restored rows and rows without a snapshot stay at
+`Burn confirmed`.
 
-History details can show one matching USDC transfer found through RPC. This link is
-also a best-effort match, not proof tied to the burn note. The lookup runs only when
-the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
-ending at the balance confirmation block, with a 10-second timeout and no retries.
-Match the token and recipient, with the amount between the minimum payout and the sent amount; omit the link if no unique match is
-found or the RPC fails. Do not scan the full chain or make the link a condition for
-balance confirmation. A wider historical search needs a separate cost decision.
+The history link is the recorded mint. Only those legacy rows use the old best-effort
+transfer search (one `eth_getLogs` over at most 2,000 blocks, 10-second timeout, no
+retries, only when the details are open); omit its link unless one match is unique.
+
+Accepted limits: a fee above the attester's operator ceiling leaves a burn unpaid and
+it reads `Payout delayed`; a mint transaction carrying two payouts to the recipient is
+skipped, so a batched payout reads `Payout delayed` too; pruned RPC history can leave an
+old row unscanned; Circle can be slow. Reviewer agents must treat these as known limits, not blocking defects.

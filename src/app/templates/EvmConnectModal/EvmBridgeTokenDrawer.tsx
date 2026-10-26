@@ -3,15 +3,26 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { UsdValue } from 'components/TokenUsdValue';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { Notice } from 'components/ui/Notice';
+import { evmQuote } from 'lib/prices/evm';
+import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-/**
- * New deposits use Circle USDC or configured native ETH. `USDC` identifies the retired Epoch test token
- * in existing engine states; it is never offered by this picker.
- */
-export type DepositToken = 'ETH' | 'USDC' | 'CIRCLE_USDC';
+import { type DepositToken, depositTokenKey, type OfferedErc20, sameDepositToken } from './deposit-token';
+
+export type { DepositToken, OfferedErc20 } from './deposit-token';
+
+/** An ERC-20 row the host draws: the offered token and the connected wallet's balance of it. */
+export interface DepositErc20Row {
+  token: OfferedErc20;
+  /** The row's title and balance unit; the symbol unless the host names it otherwise. */
+  name: string;
+  balance: string;
+  loading?: boolean;
+}
 
 interface TokenRow {
   token: DepositToken;
@@ -25,6 +36,8 @@ interface TokenRow {
 }
 
 export interface EvmBridgeTokenDrawerProps {
+  chainId?: number;
+  circleUsdcAddress?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selected: DepositToken;
@@ -39,15 +52,24 @@ export interface EvmBridgeTokenDrawerProps {
   /** The Circle USDC row's name: the token's symbol and its network. */
   circleUsdcLabel?: string;
   circleUsdcLoading?: boolean;
+  /**
+   * The ERC-20s the AggLayer bridge registers on the chosen chain, each bridging through AggLayer alone. Drawn after
+   * ETH and Circle USDC, in the registry's order; absent while the host offers no AggLayer chain.
+   */
+  erc20Rows?: DepositErc20Row[];
+  /** True while the registered token list could not be read: the drawer says so instead of showing fewer tokens. */
+  erc20Unavailable?: boolean;
   onSelect: (token: DepositToken) => void;
 }
 
 /**
  * Bottom-sheet picker for the deposit source token. The chosen token drives the
  * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; native ETH
- * uses AggLayer where configured.
+ * and every registered ERC-20 use AggLayer where configured.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
+  chainId,
+  circleUsdcAddress,
   open,
   onOpenChange,
   selected,
@@ -56,9 +78,12 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   circleUsdcBalance,
   circleUsdcLabel,
   circleUsdcLoading,
+  erc20Rows = [],
+  erc20Unavailable = false,
   onSelect
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
 
   const rows: TokenRow[] = [];
   if (ethBalance !== undefined) {
@@ -71,6 +96,15 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
       logoSymbol: 'USDC',
       balance: circleUsdcBalance,
       loading: circleUsdcLoading
+    });
+  }
+  for (const { token, name, balance, loading } of erc20Rows) {
+    rows.push({
+      token: { kind: 'erc20', contractAddress: token.contractAddress },
+      name,
+      logoSymbol: token.symbol,
+      balance,
+      loading
     });
   }
 
@@ -87,16 +121,43 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
           {rows.map(({ token, name, logoSymbol, balance, loading }) => (
             <ListRow
               accent="receive"
-              key={token}
+              key={depositTokenKey(token)}
               title={name}
-              subtitle={loading ? t('loading') : `${balance} ${name}`}
+              subtitle={
+                loading ? (
+                  t('loading')
+                ) : (
+                  <div>
+                    {`${balance} ${name}`}
+                    <div>
+                      <UsdValue
+                        amount={balance}
+                        quote={evmQuote(
+                          prices,
+                          chainId,
+                          typeof token !== 'string'
+                            ? token.contractAddress
+                            : token === 'ETH'
+                              ? '0x0000000000000000000000000000000000000000'
+                              : circleUsdcAddress
+                        )}
+                      />
+                    </div>
+                  </div>
+                )
+              }
               avatar={<TokenLogo symbol={logoSymbol} size="lg" />}
-              checked={token === selected}
+              checked={sameDepositToken(token, selected)}
               onClick={() => onSelect(token)}
-              data-testid={`bridge-token-${token}`}
+              data-testid={`bridge-token-${depositTokenKey(token)}`}
             />
           ))}
         </ListGroup>
+        {erc20Unavailable && (
+          <Notice variant="inline" tone="warning" className="mx-4 mt-4" data-testid="bridge-token-list-unavailable">
+            {t('bridgeDepositTokensUnavailable')}
+          </Notice>
+        )}
       </DrawerContent>
     </Drawer>
   );

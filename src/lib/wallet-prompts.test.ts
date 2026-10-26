@@ -52,14 +52,27 @@ import {
   withFaucetFundingMarkerLock
 } from './wallet-prompts';
 
-// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 const mockPollUsdcxBurn = jest.fn();
-const mockPollUsdcxDestination = jest.fn();
+const mockPollUsdcxDestination = jest.fn(async (..._args: unknown[]) => ({ more: false }));
 jest.mock('lib/usdcx/burn-status', () => ({ pollUsdcxBurn: (...args: unknown[]) => mockPollUsdcxBurn(...args) }));
 jest.mock('lib/usdcx/destination-status', () => ({
   ...jest.requireActual<typeof import('lib/usdcx/destination-status')>('lib/usdcx/destination-status'),
@@ -2009,6 +2022,18 @@ describe('bridge prompts', () => {
 
       expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(1);
       expect(mockPollUsdcxBurn).toHaveBeenCalledTimes(1);
+    });
+
+    // A scan that stopped at its chunk cap is behind the head, so the back-off would only delay its catch-up.
+    it('checks a two-day-old row again at once when its scan stopped below the head', async () => {
+      bridgeRows.push(awaitingPayout('usdcx-catching-up', nowSec() - 2 * 24 * 60 * 60));
+      mockPollUsdcxDestination.mockResolvedValueOnce({ more: true });
+
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+
+      expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(2);
     });
 
     it('checks a row completed a minute ago on every pass', async () => {

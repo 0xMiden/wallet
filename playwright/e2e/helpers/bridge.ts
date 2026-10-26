@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { formatUnits, parseUnits, type Hash } from 'viem';
 
-import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
+import { SEPOLIA_NETWORK, selectSendNetwork, type FieldNetwork } from './contact-network';
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
@@ -173,6 +173,8 @@ export interface BridgeOutSlowOptions {
   amount: string;
   /** Per-step timeout (default 30s). */
   stepTimeoutMs?: number;
+  /** Destination network. The testnet suites leave this unset and stay on Sepolia. */
+  network?: FieldNetwork;
 }
 
 const STEP_TIMEOUT_MS = 30_000;
@@ -194,7 +196,7 @@ export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions):
 
   // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await selectSendNetwork(page, SEPOLIA_NETWORK, step);
+  await selectSendNetwork(page, opts.network ?? SEPOLIA_NETWORK, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
   // Amount: pick the funded token, type the amount.
@@ -298,6 +300,13 @@ export interface UsdcxBalanceSnapshotRow {
   blockNumber: string;
 }
 
+/** Circle's mint that paid a USDCx burn, as the wallet recorded it: base units and the block as decimal strings. */
+export interface UsdcxPayoutRow {
+  transactionHash: string;
+  blockNumber: string;
+  value: string;
+}
+
 export interface UsdcxBurnRow {
   noteId: string;
   destinationDomain: number;
@@ -306,8 +315,12 @@ export interface UsdcxBurnRow {
   lastError?: string;
   /** Read before the burn was queued (usdcx/burn.ts). */
   destinationBalanceBefore?: UsdcxBalanceSnapshotRow;
-  /** The balance that met the expected payout: the wallet's own destination confirmation. */
+  /** The balance that met the expected payout: how the wallet confirmed a burn before it read the payout mint. */
   destinationBalanceConfirmed?: UsdcxBalanceSnapshotRow;
+  /** The payout mint whose transaction carries the burn note id: the wallet's own destination confirmation. */
+  payout?: UsdcxPayoutRow;
+  /** The last payout-chain block the wallet's scan for that mint covered. */
+  payoutScannedBlock?: string;
   attemptCount?: number;
   lastAttemptBlockNum?: number;
 }
@@ -453,6 +466,15 @@ function balanceSnapshotOf(source: JsonObject | undefined): UsdcxBalanceSnapshot
   return balance !== undefined && blockNumber !== undefined ? { balance, blockNumber } : undefined;
 }
 
+function payoutOf(source: JsonObject | undefined): UsdcxPayoutRow | undefined {
+  const transactionHash = stringField(source, 'transactionHash');
+  const blockNumber = stringField(source, 'blockNumber');
+  const value = stringField(source, 'value');
+  return transactionHash !== undefined && blockNumber !== undefined && value !== undefined
+    ? { transactionHash, blockNumber, value }
+    : undefined;
+}
+
 function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
   const noteId = stringField(source, 'noteId');
   const destinationDomain = numberField(source, 'destinationDomain');
@@ -465,6 +487,8 @@ function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
     lastError: stringField(source, 'lastError'),
     destinationBalanceBefore: balanceSnapshotOf(objectField(source, 'destinationBalanceBefore')),
     destinationBalanceConfirmed: balanceSnapshotOf(objectField(source, 'destinationBalanceConfirmed')),
+    payout: payoutOf(objectField(source, 'payout')),
+    payoutScannedBlock: stringField(source, 'payoutScannedBlock'),
     attemptCount: numberField(source, 'attemptCount'),
     lastAttemptBlockNum: numberField(source, 'lastAttemptBlockNum')
   };
@@ -756,14 +780,17 @@ export function burnSubmitFailure(payoutChain: PayoutChain, reviewError: string,
 }
 
 /** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
-function detailRowValue(page: Page, label: string) {
+export function detailRowValue(page: Page, label: string) {
   if (label.includes('"')) throw new Error(`detailRowValue: label ${label} cannot be quoted in XPath`);
   return page.locator(`xpath=//div[span[normalize-space(.)="${label}"]]/div`);
 }
 
-/** The value cell of a payout row, which `DetailRow` renders as a label span beside a value div. */
+/**
+ * The value text of a payout row. `DetailRow` renders a label span beside a column div whose first div is the value and
+ * whose optional second line is the USD equivalent, so the token amount is read apart from that estimate.
+ */
 function payoutRowValue(scope: Page | Locator, testId: string): Locator {
-  return scope.getByTestId(testId).locator(':scope > div');
+  return scope.getByTestId(testId).locator(':scope > div > div:first-child');
 }
 
 function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
@@ -798,33 +825,27 @@ export async function expectArcPreselected(page: Page, timeoutMs: number): Promi
   await page.getByTestId(ARC_CHIP).waitFor({ state: 'hidden', timeout: timeoutMs });
 }
 
-/** What a USDCx burn's payout rows read (`UsdcxPayoutRows`). */
+/** What a USDCx burn's payout row reads (`UsdcxPayoutRows`). */
 export interface UsdcxPayoutRowsText {
-  /** `usdcx-payout-fee`: the most Circle takes. */
+  /** `usdcx-payout-fee`: Circle's fee, which varies and is bounded by nothing the wallet shows. */
   fee: string;
-  /** `usdcx-payout-net`: the least the recipient receives. */
-  net: string;
 }
 
 /**
- * The payout rows a burn of `amount` USDCx to `chainId` shows, from the wallet's own fee allowance table. Throws when
- * the allowance takes the whole amount: the wallet refuses that burn and leaves out its `usdcx-payout-net` row.
+ * The payout row a burn of `amount` USDCx to `chainId` shows. Throws when the destination's fee allowance takes the
+ * whole amount: the wallet still refuses that burn.
  */
 export function usdcxPayoutRowsText(chainId: number, amount: string): UsdcxPayoutRowsText {
   const destination = USDCX_DESTINATIONS.get(chainId);
   if (destination === undefined) throw new Error(`usdcxPayoutRowsText: chain ${chainId} is not a USDCx destination`);
   const allowance = formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS);
-  const payout = minimumUsdcxPayout(chainId, parseUnits(amount, USDCX_DECIMALS));
-  if (payout <= 0n) {
+  if (minimumUsdcxPayout(chainId, parseUnits(amount, USDCX_DECIMALS)) <= 0n) {
     throw new Error(
       `${amount} USDCx does not exceed the ${allowance} USDC payout fee allowance on ${destination.chain.name}, ` +
         'so the wallet refuses the burn'
     );
   }
-  return {
-    fee: enText('usdcxPayoutFeeUpTo', { amount: allowance }),
-    net: enText('usdcxPayoutAtLeast', { amount: formatUnits(payout, USDCX_DECIMALS) })
-  };
+  return { fee: enText('usdcxPayoutFeeVaries') };
 }
 
 /**
@@ -861,7 +882,7 @@ export interface BridgeOutUsdcxOptions {
   stepTimeoutMs?: number;
   /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
   screenshotDir: string;
-  /** Where Circle pays the burn (default Arc Testnet): the network picked, the review's network and the payout rows. */
+  /** Where Circle pays the burn (default Arc Testnet): the network picked, the review's network and the payout row. */
   payoutChain?: PayoutChain;
 }
 
@@ -874,7 +895,7 @@ export interface BridgeOutUsdcxResult {
  * Burn the native USDCx to an address on `opts.payoutChain` (default Arc Testnet) through the real Send UI (spec
  * section 5 step 6), ending on the generating-transaction screen. Checks on the way: exactly the four USDCx
  * destinations in the network sheet with Arc pressed by default, the closed field naming the destination picked, the
- * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
+ * route subtitle and fee row naming the native symbol, the payout fee row and the burn notice on route and review, and
  * the review's network.
  */
 export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
@@ -910,14 +931,9 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
   await expect(route.getByText(routeFees, { exact: true }), 'the route names the native fee asset').toBeVisible({
     timeout: step
   });
-  await expect(payoutRowValue(flow, 'usdcx-payout-fee'), "the route quotes Circle's fee allowance").toHaveText(
-    payout.fee,
-    { timeout: step }
-  );
-  await expect(
-    payoutRowValue(flow, 'usdcx-payout-net'),
-    'the route quotes the least the recipient receives'
-  ).toHaveText(payout.net);
+  await expect(payoutRowValue(flow, 'usdcx-payout-fee'), "the route says Circle's fee varies").toHaveText(payout.fee, {
+    timeout: step
+  });
   await expect(flow.getByTestId('usdcx-burn-notice')).toHaveText(notice, { timeout: step });
   await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-route.png') });
   await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
@@ -931,13 +947,7 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
   await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
     sponsorshipFee
   );
-  await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review quotes Circle's fee allowance").toHaveText(
-    payout.fee
-  );
-  await expect(
-    payoutRowValue(page, 'usdcx-payout-net'),
-    'the review quotes the least the recipient receives'
-  ).toHaveText(payout.net);
+  await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review says Circle's fee varies").toHaveText(payout.fee);
   await expect(page.getByTestId('usdcx-burn-notice')).toHaveText(notice);
   await waitForReviewSubmitEnabled(page, REVIEW_READY_TIMEOUT_MS);
   await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-light.png') });

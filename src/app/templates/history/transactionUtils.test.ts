@@ -13,6 +13,7 @@ import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
@@ -34,6 +35,7 @@ import {
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  networkHasFaucetClaims,
   isReceiveEntry,
   labelHistoryEntry,
   MoneyKind,
@@ -70,6 +72,15 @@ jest.mock('lib/miden/swap/tokens', () => ({
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
 // sync accessor with a steerable jest.fn.
+// The effective network: Testnet unless a case puts the wallet on Mainnet, which has no faucet.
+let mockWalletNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = 'testnet';
+});
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn()
 }));
@@ -350,6 +361,24 @@ describe('isFaucetRequest', () => {
     };
     expect(isFaucetRequest(entry)).toBe(true);
   });
+
+  // On Mainnet the native faucet is the USDCx minter, so a note it sent is a bridge-in: an
+  // ordinary receive, never a faucet claim.
+  it('is never a faucet claim on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'native-id' };
+    expect(isFaucetRequest(entry)).toBe(false);
+  });
+});
+
+describe('networkHasFaucetClaims', () => {
+  it('is false on Mainnet only', () => {
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.MAINNET)).toBe(false);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.TESTNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.DEVNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.LOCALNET)).toBe(true);
+  });
 });
 
 describe('isReceiveEntry', () => {
@@ -380,6 +409,13 @@ describe('isFaucetMintTransaction', () => {
   it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
     const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
     expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+
+  it('is a faucet mint off Mainnet and an ordinary claim on Mainnet', () => {
+    const transaction: any = { type: 'consume', faucetId: 'native', secondaryAccountId: 'native' };
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(true);
+    mockWalletNetwork = 'mainnet';
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(false);
   });
 });
 
@@ -708,6 +744,74 @@ describe('USDCx withdrawal stages', () => {
     };
     expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
     expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
+describe('USDCx payout badge', () => {
+  const HOUR = 3_600_000;
+  const NOW = 1_800_000_000_000;
+  const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+  const burn = (extra: Partial<NonNullable<IHistoryEntry['usdcxBurn']>> = {}): IHistoryEntry =>
+    bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      bridgeSettledAt: NOW - 3 * HOUR,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+        ...extra
+      }
+    });
+
+  it('reads Confirmed on a recorded payout', () => {
+    const paid = burn({ payout });
+    expect(bridgeBadgeStatusOf(paid, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(paid)).toBe('confirmed');
+  });
+
+  it('reads Confirmed on a legacy balance confirmation', () => {
+    const legacy = burn({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(legacy)).toBe('confirmed');
+  });
+
+  it('reads Payout delayed 2 hours after the burn confirmed without a payout', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).toBe('payoutDelayed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).not.toBe('burnConfirmed');
+    // A row confirmed before confirmedAt existed counts from when it settled.
+    expect(bridgeBadgeStatusOf(burn(), NOW)).toBe('payoutDelayed');
+  });
+
+  it('reads Burn confirmed before 2 hours', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR + 1 }), NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: NOW - HOUR }, NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: undefined }, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed on a balance-confirmed row', () => {
+    const legacy = burn({
+      confirmedAt: NOW - 30 * HOUR,
+      destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+    });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 30 * HOUR, payout }), NOW)).toBe('confirmed');
+  });
+
+  it('a restored row never reads Payout delayed', () => {
+    const restored = { ...burn({ confirmedAt: NOW - 30 * HOUR }), restoredFromBackup: true };
+    expect(bridgeBadgeStatusOf(restored, NOW)).toBe('burnConfirmed');
+  });
+
+  it('a row without a saved snapshot never reads Payout delayed', () => {
+    const old = burn({ confirmedAt: NOW - 30 * HOUR, destinationBalanceBefore: undefined });
+    expect(bridgeBadgeStatusOf(old, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed before the burn confirmed', () => {
+    expect(bridgeBadgeStatusOf(burn({ phase: 'consuming' }), NOW)).toBe('burnConsuming');
+    expect(bridgeBadgeStatusOf(burn({ phase: 'pending' }), NOW)).toBe('burnPending');
   });
 });
 
@@ -1074,6 +1178,23 @@ describe('bridge rows testnet bridge USDC label', () => {
       outLabel: 'Test Epoch USDC',
       outAmount: '4.98'
     });
+  });
+
+  // An AggLayer row saves the ERC-20 it deposited: only the bridge's own USDC takes the testnet label.
+  it('names an AggLayer ERC-20 bridge-in by its own symbol unless it is the bridge USDC', () => {
+    const agglayerIn = (symbol: string, token: string) =>
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: symbol,
+          bridgeInSourceToken: token
+        })
+      ).inLabel;
+    expect(agglayerIn('WBTC', '0x00000000000000000000000000000000000000d1')).toBe('WBTC');
+    expect(agglayerIn('USDC', TEST_EVM_USDC.address.toLowerCase())).toBe('Test Epoch USDC');
   });
 
   it.each(['USDC', TEST_EVM_USDC.address])(

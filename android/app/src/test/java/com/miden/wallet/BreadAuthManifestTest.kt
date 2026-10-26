@@ -30,14 +30,16 @@ class BreadAuthManifestTest {
 
     private fun mainActivity(): Element = manifest().elements("activity").single { it.attribute("name") == ".MainActivity" }
 
+    private fun callbackActivity(): Element = manifest().elements("activity").single { it.attribute("name") == ".AuthCallbackActivity" }
+
     @Test
     fun mainActivityIsSingleTask() {
         assertEquals("singleTask", mainActivity().attribute("launchMode"))
     }
 
     @Test
-    fun mainActivityReceivesTheCallbackAddress() {
-        val filters = mainActivity().children("intent-filter").filter { filter ->
+    fun callbackActivityReceivesTheCallbackAddress() {
+        val filters = callbackActivity().children("intent-filter").filter { filter ->
             filter.children("data").any { it.attribute("scheme") == "com.miden.wallet.auth" }
         }
         assertEquals(1, filters.size)
@@ -56,6 +58,36 @@ class BreadAuthManifestTest {
     }
 
     @Test
+    fun mainActivityDoesNotReceiveAuthCallbacks() {
+        assertFalse(mainActivity().children("intent-filter").any { filter ->
+            filter.children("data").any { it.attribute("scheme").equals("com.miden.wallet.auth", ignoreCase = true) }
+        })
+    }
+
+    @Test
+    fun callbackActivityDoesNotDisplayOrKeepHistory() {
+        val callback = callbackActivity()
+        assertEquals("true", callback.attribute("exported"))
+        assertEquals("@android:style/Theme.NoDisplay", callback.attribute("theme"))
+        assertEquals("true", callback.attribute("excludeFromRecents"))
+        assertEquals("true", callback.attribute("noHistory"))
+        assertTrue(callback.attribute("launchMode") in listOf("", "standard"))
+        assertEquals("", callback.attribute("taskAffinity"))
+    }
+
+    @Test
+    fun callbackActivityChecksForwardingAndFinishes() {
+        val source = File("src/main/java/com/miden/wallet/AuthCallbackActivity.java").readText()
+        val onCreate = source.substringAfter("void onCreate(", "").substringBefore("\n    }")
+        val forward = onCreate.indexOf("Intent forward = BreadAuthCallbacks.forwardIntent(this, getIntent(), MainActivity.class);")
+        val start = onCreate.indexOf("if (forward != null) startActivity(forward);")
+        assertTrue("the plugin decides whether to forward", forward >= 0)
+        assertTrue("only a non-null forwarding intent is started", start > forward)
+        assertEquals(1, Regex("\\bstartActivity\\(").findAll(onCreate).count())
+        assertTrue("the receiver finishes after either decision", onCreate.indexOf("finish();") > start)
+    }
+
+    @Test
     fun mainActivityConsumesCallbacksBeforeTheBridge() {
         val source = File("src/main/java/com/miden/wallet/MainActivity.java").readText()
         val onCreate = source.substringAfter("void onCreate(", "").substringBefore("\n    }")
@@ -65,5 +97,25 @@ class BreadAuthManifestTest {
         val onNewIntent = source.substringAfter("void onNewIntent(", "").substringBefore("\n    }")
         assertTrue(onNewIntent.contains("super.onNewIntent(BreadAuthCallbacks.consume(intent));"))
         assertFalse(onNewIntent.contains("super.onNewIntent(intent)"))
+    }
+
+    @Test
+    fun onlyDebugFixtureHostTrustsUserCertificates() {
+        val debug = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/debug/res/xml/network_security_config.xml"))
+        val production = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/main/res/xml/network_security_config.xml"))
+        val fixtureConfigs = debug.elements("domain-config").filter { config ->
+            config.getElementsByTagName("domain").let { domains ->
+                (0 until domains.length).any { domains.item(it).textContent.trim() == "10.0.2.2" }
+            }
+        }
+        assertEquals(1, fixtureConfigs.size)
+        val anchors = fixtureConfigs.single().getElementsByTagName("certificates")
+        val sources = (0 until anchors.length).map { anchors.item(it).attributes.getNamedItem("src")!!.nodeValue }.sorted()
+        assertEquals(listOf("system", "user"), sources)
+        assertFalse(production.getElementsByTagName("certificates").let { certificates ->
+            (0 until certificates.length).any { certificates.item(it).attributes.getNamedItem("src")?.nodeValue == "user" }
+        })
     }
 }

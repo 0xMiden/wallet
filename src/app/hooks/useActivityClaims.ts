@@ -25,6 +25,7 @@ import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes'
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { submissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 
@@ -36,6 +37,7 @@ type FeeSnapshot = {
   balancesLoading: boolean;
 };
 type ClaimAttempt = PendingActivityItem & { feeRefusedAt?: FeeSnapshot };
+type RetryFailure = { message: string } & NonNullable<PendingActivityItem['failure']>;
 type Attempts = ReadonlyMap<string, ClaimAttempt>;
 type ClaimSlot = {
   attempts: Attempts;
@@ -70,6 +72,26 @@ function updateAttempts(key: string, update: (previous: Attempts) => Attempts) {
 
 function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return a.size === b.size && [...a].every(id => b.has(id));
+}
+
+function sameFeedback(
+  left: ReadonlyMap<string, SubmissionFeedback>,
+  right: ReadonlyMap<string, SubmissionFeedback>
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [id, value] of right) {
+    const previous = left.get(id);
+    if (
+      previous === undefined ||
+      previous.kind !== value.kind ||
+      previous.messageKey !== value.messageKey ||
+      previous.rowCopy !== value.rowCopy ||
+      previous.details !== value.details
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sameFeeSnapshot(a: FeeSnapshot, b: FeeSnapshot): boolean {
@@ -168,25 +190,46 @@ export function useActivityClaims() {
     .sort()
     .join(',');
   const [heldTxIds, setHeldTxIds] = useState<ReadonlySet<string>>(new Set());
-  const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, RetryFailure>>(new Map());
+  // Rows the queue put back after a Guardian 409 (#1666), as of the last emission for this slot: another account,
+  // endpoint or network reuses no wait, and nothing watched means none is known.
+  const [guardianWait, setGuardianWait] = useState<{ key: string; txIds: ReadonlySet<string> }>({
+    key,
+    txIds: new Set()
+  });
+  const [submissionByTx, setSubmissionByTx] = useState<ReadonlyMap<string, SubmissionFeedback>>(() => new Map());
 
   useEffect(() => {
-    if (!watchedTxIds) return;
+    if (!watchedTxIds) {
+      setGuardianWait(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
+      setSubmissionByTx(previous => (previous.size === 0 ? previous : new Map()));
+      return;
+    }
     const txIds = watchedTxIds.split(',');
     return subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
       next: rows => {
-        const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt'>>();
+        const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
         const held = new Set<string>();
+        const waiting = new Set<string>();
+        const submissions = new Map<string, SubmissionFeedback>();
         for (const tx of rows) {
-          if (tx.status === ITransactionStatus.Completed) {
-            settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt });
+          const feedback = submissionFeedback(tx);
+          if (feedback !== undefined) submissions.set(tx.id, feedback);
+          if (tx.status === ITransactionStatus.Queued && tx.guardianBusy === true) {
+            waiting.add(tx.id);
+          } else if (tx.status === ITransactionStatus.Completed) {
+            settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt, submission: undefined });
           } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
             if (holdsNotes(tx)) held.add(tx.id);
-            else settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt });
+            else settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt, submission: feedback });
           }
         }
+        setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
         // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
         setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
+        setGuardianWait(previous =>
+          previous.key === key && sameIds(previous.txIds, waiting) ? previous : { key, txIds: waiting }
+        );
         // A refusal describes the hold it met; once the row moves on it must not return with a later hold.
         setRetryErrors(previous => {
           const moved = rows.filter(tx => !held.has(tx.id) && previous.has(tx.id));
@@ -212,13 +255,29 @@ export function useActivityClaims() {
 
   const items = useMemo(() => {
     // A refusal belongs to the held claim whose Retry met it: once the row settles or runs again it no longer applies.
-    const heldFields = (
+    const rowFields = (
       status: PendingActivityStatus,
       txId: string | undefined
-    ): Pick<PendingActivityItem, 'held' | 'retryError'> => {
-      if (status !== 'claiming' || txId === undefined || !heldTxIds.has(txId)) return {};
+    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy' | 'submission'> => {
+      if (status !== 'claiming' || txId === undefined) return {};
+      const submission = submissionByTx.get(txId);
+      if (!heldTxIds.has(txId)) {
+        const guardianBusy = guardianWait.key === key && guardianWait.txIds.has(txId);
+        if (!guardianBusy && submission === undefined) return {};
+        return {
+          ...(guardianBusy ? { guardianBusy: true as const } : {}),
+          ...(submission !== undefined ? { submission } : {})
+        };
+      }
       const retryError = retryErrors.get(txId);
-      return retryError === undefined ? { held: true } : { held: true, retryError };
+      return retryError === undefined
+        ? { held: true, ...(submission !== undefined ? { submission } : {}) }
+        : {
+            held: true,
+            retryError: retryError.message,
+            failure: retryError,
+            ...(submission !== undefined ? { submission } : {})
+          };
     };
     const result = new Map<string, PendingActivityItem>();
     for (const note of claim.safeClaimableNotes) {
@@ -239,7 +298,7 @@ export function useActivityClaims() {
           break;
       }
       const txId = note.claimingTxId;
-      result.set(note.id, { note, status, txId, ...heldFields(status, txId) });
+      result.set(note.id, { note, status, txId, ...rowFields(status, txId) });
     }
     for (const [id, attempt] of attempts) {
       const current = result.get(id);
@@ -255,7 +314,7 @@ export function useActivityClaims() {
       // Claimed receipts and queued claims outlive the note on purpose.
       if (attempt.status === 'failed' && (!current || (current.status !== 'pending' && current.status !== 'failed')))
         continue;
-      result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...heldFields(attempt.status, attempt.txId) });
+      result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...rowFields(attempt.status, attempt.txId) });
     }
     const built = [...result.values()];
     // Each card's Accept claims its note alone, after whatever is already queued.
@@ -281,6 +340,9 @@ export function useActivityClaims() {
     claim.retriableNoteIds,
     attempts,
     heldTxIds,
+    guardianWait,
+    submissionByTx,
+    key,
     retryErrors,
     balances,
     nativeFaucetId,
@@ -326,7 +388,9 @@ export function useActivityClaims() {
         setAttempts(previous => settleFeeRefusal(new Map(previous), note, startedAt));
         return;
       }
-      setAttempts(previous => new Map(previous).set(note.id, { note, status: 'failed' }));
+      setAttempts(previous =>
+        new Map(previous).set(note.id, { note, status: 'failed', failure: { id: 'noteClaimFailedRetry' } })
+      );
       console.error('[activity] Could not queue claim', error);
       return;
     } finally {
@@ -419,7 +483,9 @@ export function useActivityClaims() {
         }
         setAttempts(previous => {
           const next = new Map(previous);
-          for (const note of groupNotes) next.set(note.id, { note, status: 'failed' });
+          for (const note of groupNotes) {
+            next.set(note.id, { note, status: 'failed', failure: { id: 'noteClaimFailedRetry' } });
+          }
           return next;
         });
         console.error('[activity] Could not queue batch claim', error);
@@ -456,7 +522,8 @@ export function useActivityClaims() {
           : error instanceof Error
             ? error.message
             : String(error);
-      setRetryErrors(previous => new Map(previous).set(txId, message));
+      const id = error instanceof ClaimFeeRefusedError ? 'insufficientFeeAsset' : 'raw_pending_activity_retry_failed';
+      setRetryErrors(previous => new Map(previous).set(txId, { message, id }));
       return;
     } finally {
       retrying.delete(txId);

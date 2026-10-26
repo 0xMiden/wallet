@@ -64,6 +64,7 @@ const storeState: {
   persistNewHotKey: jest.Mock;
   swapHotKey: jest.Mock;
   setGuardianEndpoint: jest.Mock;
+  markHotKeyRotatedOut: jest.Mock;
   revertGuardianEndpointAfterDiscard: jest.Mock;
   checkGuardianDrift: jest.Mock;
   signTransaction: jest.Mock;
@@ -74,6 +75,7 @@ const storeState: {
   persistNewHotKey: jest.fn(),
   swapHotKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
+  markHotKeyRotatedOut: jest.fn(),
   revertGuardianEndpointAfterDiscard: jest.fn(async () => 'reverted'),
   checkGuardianDrift: jest.fn(),
   signTransaction: jest.fn()
@@ -201,6 +203,7 @@ const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
 const resolveChosenDefault = (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
 const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
+  getSignerCommitmentsFromAccount: () => [],
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
   getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args),
   // The fuse key carries the endpoint, so the loop resolves it per account per lap.
@@ -1676,6 +1679,46 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     });
     storeState.accounts = [
       { publicKey: 'acct-closed-budget', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+    // The verdict is persisted against the key it was judged on. A repeat from a later heal attempt
+    // (the cold service's adopt is once per service) is a no-op in the vault, so the count is not pinned.
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith(
+      'acct-closed-budget',
+      'hot',
+      '0xsomeotherdeviceshotkey'
+    );
+    nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  });
+
+  // The budget still closes when the verdict cannot be written: the write is a courtesy to the
+  // screen, and a store that throws on it must not turn the permanent answer into a retried heal.
+  it('closes the budget even when the rotated-out verdict cannot be persisted', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // Once: `clearAllMocks` keeps implementations, and later tests expect the write to succeed.
+    storeState.markHotKeyRotatedOut.mockImplementationOnce(() => {
+      throw new Error('no store');
+    });
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-closed-unwritten', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
 
     const start = Date.now();

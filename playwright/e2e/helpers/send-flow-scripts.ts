@@ -10,14 +10,14 @@ export const SEND_FLOW = '[data-testid="send-flow"]';
 // A sheet portals to <body>, outside the flow; one that is closing keeps its rows through the exit, marked closed.
 export const OPEN_SHEET = '[role="dialog"][data-state="open"]';
 
-/** A script body whose lookups all run under `scope`; `text` reads a test id's text, `val` a DetailRow's value div. */
+/** A script body whose lookups all run under `scope`; `text` reads a test id's text, `val` a DetailRow's value div, without the USD line under it. */
 export function scopedJs(scope: string, body: string): string {
   return (
     `var root = document.querySelector(${JSON.stringify(scope)}); if (!root) return null; ` +
     `function text(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
     `return e ? (e.textContent || '').trim() : null; } ` +
     `function val(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
-    `var d = e && e.querySelector(':scope > div'); return d ? (d.textContent || '').trim() : null; } ` +
+    `var d = e && e.querySelector(':scope > div > div:first-child'); return d ? (d.textContent || '').trim() : null; } ` +
     body
   );
 }
@@ -44,7 +44,6 @@ export interface UsdcxRouteView {
   pressed: string | null;
   cardText: string;
   fee: string | null;
-  net: string | null;
   notice: string | null;
 }
 
@@ -58,7 +57,7 @@ export const USDCX_ROUTE_JS = scopedJs(
   SEND_FLOW,
   `var card = root.querySelector('[data-testid="bridge-route-usdcx"]'); if (!card) return null; ` +
     `return { pressed: card.getAttribute('aria-pressed'), cardText: (card.textContent || '').trim(), ` +
-    `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+    `fee: val('usdcx-payout-fee'), notice: text('usdcx-burn-notice') };`
 );
 
 /** What the network pick needs of a page object: a script eval and a click through `el.click()`. */

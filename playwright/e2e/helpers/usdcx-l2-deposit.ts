@@ -8,13 +8,13 @@ import { encodeFunctionData, formatEther, formatGwei, formatUnits, type Address,
 import { privateKeyToAccount } from 'viem/accounts';
 
 import {
-  capPriorityFee,
   chainRead,
   ERC20_ABI,
+  estimateUsdcxFees,
   onFirstEndpoint,
   pickWriteEndpoint,
   pinAfterApprove,
-  readXReserveDomainState,
+  readRemoteDomainRegistered,
   sendSigned,
   simulate,
   startingAt,
@@ -67,7 +67,7 @@ export async function readL2KeyFunds(address: Address, reads: ArcReadDeps): Prom
       functionName: 'balanceOf',
       args: [address]
     }),
-    maxFeePerGas: capPriorityFee(await client.estimateFeesPerGas(), chain.maxPriorityFeeCap).maxFeePerGas
+    maxFeePerGas: (await estimateUsdcxFees(client, chain)).maxFeePerGas
   }));
 }
 
@@ -109,7 +109,7 @@ export function l2KeyShortfall(args: {
     return (
       `${head} ${usdc(args.usdc)} USDC, below the ${usdc(needUsdc)} USDC one bridge-in needs (the ${usdc(args.units)} ` +
       `deposit and twice Circle's ${usdc(args.fee)} fee, which its approve covers); ` +
-      (args.refill ?? 'a green usdcx-burn-l2 run pays it about 0.99 USDC there')
+      (args.refill ?? "a green usdcx-burn-l2 run refills it with that run's payout")
     );
   }
   return undefined;
@@ -236,7 +236,9 @@ export async function submitL2Deposit(
     signer,
     isRemoteDomainRegistered:
       deps.isRemoteDomainRegistered ??
-      (async domain => domain === USDCX_REMOTE_DOMAIN && (await readXReserveDomainState(args.arc)).registered),
+      (async domain =>
+        domain === (l2.source.midenDomain ?? USDCX_REMOTE_DOMAIN) &&
+        readRemoteDomainRegistered(args.arc, l2.source.target.xReserve, domain)),
     readAllowance: spender =>
       chainRead('USDC allowance', endpoints.reads, reads, client =>
         client.readContract({

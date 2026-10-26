@@ -9,12 +9,15 @@ import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
 import { isRotationFundingRow, isRotationRow, RotationFundingSelection } from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { isWalletReadyNow } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import { claimNoteIds, GateRow, RotationFundingReason, RotationFundingStatus } from './HotKeyRotationGate.selectors';
 
@@ -104,13 +107,17 @@ export function useRotationFundingClaim({
       if (running || !latest.current.active || current.batch.length === 0 || rows.some(isLiveTransaction)) return;
       running = true;
       try {
-        // Asked by the queue right before the claim row: a lock that lands meanwhile writes nothing and, through the
-        // catch, asks nothing of the service worker. A retry the user taps stays unguarded.
-        await enqueueRotationFundingClaim(accountPublicKey, [...current.batch], {
-          delegate: isDelegateProofEnabled(),
-          verificationBaseFee: fee,
-          canSign: isWalletReadyNow
-        });
+        // Asked by the queue right before each claim row: a lock that lands meanwhile writes nothing and, through the
+        // catch, asks nothing of the service worker. A retry the user taps stays unguarded. At most
+        // MAX_NOTES_PER_UNATTENDED_CLAIM notes to a claim, like every unattended claimer (#1644): a larger one can prove
+        // past the extension's write deadline on every attempt, and this claim is the gate's only way out.
+        for (const batch of chunkAutoConsumeBatch(current.batch, fee)) {
+          await enqueueRotationFundingClaim(accountPublicKey, batch, {
+            delegate: isDelegateProofEnabled(),
+            verificationBaseFee: fee,
+            canSign: isWalletReadyNow
+          });
+        }
         if (isExtension()) requestSWTransactionProcessing();
       } catch (e) {
         console.warn('[HotKeyRotationGate] funding claim enqueue failed:', e);
@@ -173,6 +180,37 @@ export function useRotationFundingClaim({
   return { retryClaim };
 }
 
+/** Only a failure observed on the same loaded row is live; first reads and row switches are persisted views. */
+export function useWatchedTransactionFailure(
+  row: Pick<ITransaction, 'id' | 'status'> | undefined,
+  loaded: boolean,
+  scope: string,
+  visible: boolean
+): boolean {
+  const previous = useRef<{ scope: string; id: string; status: ITransactionStatus } | null>(null);
+  const [failedId, setFailedId] = useState<string | null>(null);
+  const id = row?.id;
+  const status = row?.status;
+  useEffect(() => {
+    const before = previous.current;
+    const sameRow = before?.scope === scope && before.id === id;
+    if (!loaded || id === undefined || status === undefined) {
+      previous.current = null;
+      setFailedId(null);
+      return;
+    }
+    if (visible && sameRow && before.status !== ITransactionStatus.Failed && status === ITransactionStatus.Failed) {
+      setFailedId(id);
+    } else if (!sameRow || !visible || status !== ITransactionStatus.Failed) {
+      setFailedId(null);
+    }
+    previous.current = { scope, id, status };
+  }, [id, loaded, scope, status, visible]);
+  return (
+    loaded && visible && status === ITransactionStatus.Failed && failedId === id && previous.current?.scope === scope
+  );
+}
+
 const STATUS_KEYS: Record<RotationFundingStatus, string> = {
   waiting: 'hotKeyRotationFundingWaiting',
   'too-small': 'hotKeyRotationFundingTooSmall',
@@ -182,6 +220,7 @@ const STATUS_KEYS: Record<RotationFundingStatus, string> = {
 };
 
 interface PanelProps {
+  errorId?: UserErrorId | null;
   address: string;
   reason: RotationFundingReason;
   status: RotationFundingStatus;
@@ -200,6 +239,8 @@ interface PanelProps {
   noteScan?: string | null;
   onRetryClaim: () => void;
   onCheckAgain: () => void;
+  /** Takes a saved everyday key pair instead of a funded rotation, which that key needs neither fee nor operator for. */
+  onUseKeyPair?: () => void;
 }
 
 /**
@@ -208,6 +249,7 @@ interface PanelProps {
  * local balance cannot prove the account unfunded when another holder funded it.
  */
 export const RotationFundingPanel: FC<PanelProps> = ({
+  errorId,
   address,
   reason,
   status,
@@ -217,9 +259,11 @@ export const RotationFundingPanel: FC<PanelProps> = ({
   claimUnconfirmed,
   noteScan,
   onRetryClaim,
-  onCheckAgain
+  onCheckAgain,
+  onUseKeyPair
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError(status === 'claim-failed' ? errorId : null, 'status_screen');
   return (
     <div
       data-testid="hot-key-rotation-funding"
@@ -276,6 +320,11 @@ export const RotationFundingPanel: FC<PanelProps> = ({
       >
         {t('hotKeyRotationFundingCheckAgain')}
       </Button>
+      {onUseKeyPair && (
+        <Button data-testid="hot-key-rotation-use-key-pair" variant={ButtonVariant.Secondary} onClick={onUseKeyPair}>
+          {t('hotKeyRotationUseKeyPair')}
+        </Button>
+      )}
     </div>
   );
 };

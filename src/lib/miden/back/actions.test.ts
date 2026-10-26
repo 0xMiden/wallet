@@ -1,4 +1,4 @@
-import { MidenDAppMessageType } from 'lib/adapter/types';
+import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -66,7 +66,8 @@ import {
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
-  swapHotKey
+  swapHotKey,
+  importHotKeyPair
 } from './actions';
 import packageJson from '../../../../package.json';
 
@@ -124,6 +125,7 @@ const mockVault = {
   setGuardianSyncStatus: jest.fn(),
   updateGuardianBinding: jest.fn(),
   swapHotKey: jest.fn(),
+  importHotKeyPair: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
@@ -276,12 +278,15 @@ jest.mock('webextension-polyfill', () => {
 // `unlock`'s seed-removal resume and the explicit `removeSeedPhrase` both take
 // the generate-transactions-loop lock. jsdom's `navigator` is non-configurable,
 // so attach `.locks` to whatever object it already is. `lockResult` null models
-// the loop already holding it.
+// the loop already holding it. A request without options (the reset's badge
+// storage turn) waits for its lock, so it is always granted one.
 const installNavigatorLocksMock = (lockResult: unknown = {}) => {
   const nav = (globalThis as unknown as { navigator?: object }).navigator || {};
   Object.defineProperty(nav, 'locks', {
     value: {
-      request: jest.fn(async (_name: string, _opts: unknown, cb: (l: unknown) => unknown) => cb(lockResult))
+      request: jest.fn(async (_name: string, optsOrCb: unknown, cb?: (l: unknown) => unknown) =>
+        typeof optsOrCb === 'function' ? optsOrCb({}) : cb?.(lockResult)
+      )
     },
     writable: true,
     configurable: true
@@ -1579,6 +1584,18 @@ describe('actions', () => {
     });
   });
 
+  describe('importHotKeyPair', () => {
+    it('hands the pair to the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.importHotKeyPair.mockResolvedValueOnce(updated);
+
+      await importHotKeyPair('pk1', 'hot:evm');
+
+      expect(mockVault.importHotKeyPair).toHaveBeenCalledWith('pk1', 'hot:evm');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
   describe('swapHotKey', () => {
     it('passes the expectation to the vault and fires accountsUpdated (#1233)', async () => {
       const updated = { accounts: [], currentAccount: undefined };
@@ -2194,6 +2211,62 @@ describe('actions', () => {
         now.mockRestore();
       }
     });
+
+    it.each([MidenDAppMessageType.LoginKeyRequest, MidenDAppMessageType.LoginSignRequest])(
+      'checks the queue-start deadline for %s after waiting behind another request',
+      async type => {
+        const { requestDisconnect, requestLoginKey, requestLoginSign } = jest.requireMock('./dapp');
+        const isKey = type === MidenDAppMessageType.LoginKeyRequest;
+        const handler = isKey ? requestLoginKey : requestLoginSign;
+        const response = isKey
+          ? { type: MidenDAppMessageType.LoginKeyResponse, loginKey: 'AQID' }
+          : { type: MidenDAppMessageType.LoginSignResponse, signature: 'BAUG' };
+        const request: MidenDAppRequest = isKey
+          ? { type: MidenDAppMessageType.LoginKeyRequest, sourceAccountId: 'acc' }
+          : {
+              type: MidenDAppMessageType.LoginSignRequest,
+              sourceAccountId: 'acc',
+              payload: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+              kind: 'word'
+            };
+        handler.mockReset().mockResolvedValue(response);
+        let releaseQueue = () => {};
+        requestDisconnect.mockReset().mockImplementationOnce(
+          () =>
+            new Promise<void>(resolve => {
+              releaseQueue = resolve;
+            })
+        );
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+        const held = processDApp('https://other.example', { type: MidenDAppMessageType.DisconnectRequest });
+        let settled: Promise<PromiseSettledResult<Awaited<typeof held>>[]> = Promise.allSettled([held]);
+        try {
+          await new Promise(resolve => setTimeout(resolve, 0));
+          expect(requestDisconnect).toHaveBeenCalledTimes(1);
+          const onTime = processDApp('https://example.com', request, 'session-7', 5_000);
+          const late = processDApp('https://example.com', request, 'session-7', 2_000);
+          settled = Promise.allSettled([held, onTime, late]);
+          await new Promise(resolve => setTimeout(resolve, 0));
+          expect(handler).not.toHaveBeenCalled();
+
+          now.mockReturnValue(3_000);
+          releaseQueue();
+
+          const results = await settled;
+          expect(results[0]?.status).toBe('fulfilled');
+          expect(results[1]).toEqual({ status: 'fulfilled', value: response });
+          expect(results[2]).toEqual({ status: 'rejected', reason: expect.any(DAppQueueDeadlineError) });
+          expect(handler).toHaveBeenCalledTimes(1);
+          const expectedCall = isKey ? ['https://example.com', request] : ['https://example.com', request, 'session-7'];
+          expect(handler).toHaveBeenCalledWith(...expectedCall);
+        } finally {
+          // A failed assertion must not leave the shared queue held for later tests.
+          releaseQueue();
+          await settled;
+          now.mockRestore();
+        }
+      }
+    );
 
     it('returns undefined for unknown request type', async () => {
       const result = await processDApp('https://example.com', { type: 'UNKNOWN' } as any);

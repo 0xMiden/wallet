@@ -5,13 +5,15 @@ import { useTranslation } from 'react-i18next';
 import { NetworkLogo } from 'components/NetworkChip';
 import { ReviewLayout } from 'components/review';
 import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue, UsdValue } from 'components/TokenUsdValue';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { IBridgeProvider } from 'lib/miden/db/types';
+import type { TokenPriceInfo } from 'lib/prices/binance';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
-import { approxFiatAmount } from 'screens/send-flow/amount-format';
 
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
@@ -22,6 +24,8 @@ export interface EvmBridgeDepositReviewProps {
   label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
+  sourceQuote?: TokenPriceInfo;
+  outputFaucetId?: string;
   /** Selected bridge route — drives the route label + arrival ETA. */
   route: IBridgeProvider;
   /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
@@ -44,6 +48,7 @@ export interface EvmBridgeDepositReviewProps {
   confirmLabel?: string;
   /** Bridge submit error, shown above the CTAs. */
   error?: string;
+  errorId?: UserErrorId | null;
   onConfirm: () => void;
   onBack: () => void;
 }
@@ -76,7 +81,8 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
   symbol,
   label,
-  fiat,
+  sourceQuote,
+  outputFaucetId,
   route,
   outputAmount,
   fee,
@@ -89,6 +95,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   canConfirm = false,
   confirmLabel,
   error,
+  errorId = 'raw_bridge_deposit_submit_failed',
   onConfirm,
   onBack
 }) => {
@@ -124,7 +131,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
             className="mt-2"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
             value={`${amount} ${name}`}
-            subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
+            subtitle={<UsdValue amount={amount} quote={sourceQuote} />}
           />
         </div>
       }
@@ -132,6 +139,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       // divide-y around a single child would be a no-op — turned off for clarity.
       dividers={false}
       error={error}
+      errorId={errorId}
       primary={{
         label: confirmLabel ?? t('confirmDeposit'),
         onPress: onConfirm,
@@ -157,10 +165,30 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 
         <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
 
-        {fee !== undefined && <DetailRow label={t('usdcxCircleFee')}>{`${fee} ${name}`}</DetailRow>}
+        {fee !== undefined && (
+          <DetailRow label={t('usdcxCircleFee')}>
+            <div>
+              {`${fee} ${name}`}
+              <div>
+                <UsdValue amount={fee} quote={sourceQuote} />
+              </div>
+            </div>
+          </DetailRow>
+        )}
 
         <DetailRow label={t('youReceive')}>
-          {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+          {youReceiveLoading ? (
+            <Skeleton className="h-6 w-28" />
+          ) : (
+            <div>
+              {youReceiveLabel}
+              {outputAmount !== undefined && (
+                <div>
+                  <TokenUsdValue amount={outputAmount} faucetId={outputFaucetId} symbol={receiveName} />
+                </div>
+              )}
+            </div>
+          )}
         </DetailRow>
       </DetailCard>
     </ReviewLayout>

@@ -6,6 +6,7 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { classifyError } from 'lib/telemetry/classify';
+import { logOperationEnd } from 'lib/telemetry/diagnostic-log';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
@@ -301,6 +302,10 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
         ? { errorKind: classifyError(failureTextOf(otherValues)), step: stepOfStage(tx.stage) }
         : {})
     });
+    // Here rather than in the pipeline, so a swap that landed but could not be applied locally still ends.
+    if (tx.type === 'swap' && status === ITransactionStatus.Completed) {
+      logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
+    }
   }
 };
 
@@ -857,6 +862,7 @@ export const recordSubmitCrossing = async (
 ): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
+    const raised = tx.mayHaveSubmitted !== true;
     tx.mayHaveSubmitted = true;
     tx.submitEvidence = upsertEvidenceEntry(
       tx.submitEvidence,
@@ -865,7 +871,8 @@ export const recordSubmitCrossing = async (
         source: 'stage',
         evidence,
         guardianProposalNonce: attempt.guardianProposalNonce,
-        fromExecute: attempt.fromExecute
+        fromExecute: attempt.fromExecute,
+        ...(raised ? { raisedFlag: true } : {})
       },
       nowSec
     );
@@ -1000,11 +1007,14 @@ export const recordKillEnd = async (id: string, attemptId: string | undefined): 
  * A writer is ending this row from outside its pipeline (#1081): a user cancel, the stuck reaper, the cold-start
  * sweep, the force-cancel, the stuck-consume verifier. Only a GeneratingTransaction row has a pipeline that can
  * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good.
+ * `onlyIfRow`, when passed, runs in this modify after that check and before the evidence write. False is Dexie's
+ * skip. Callers that omit it keep the GeneratingTransaction and defined-`attemptId` requirements below.
  */
-export const recordOutOfBandEnd = async (id: string): Promise<void> => {
+export const recordOutOfBandEnd = async (id: string, onlyIfRow?: (row: ITransaction) => boolean): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.GeneratingTransaction || tx.attemptId === undefined) return false;
+    if (onlyIfRow !== undefined && !onlyIfRow(tx)) return false;
     tx.submitEvidence = upsertEvidenceEntry(
       tx.submitEvidence,
       tx.attemptId,

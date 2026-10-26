@@ -58,7 +58,8 @@ import {
 } from '../../helpers/test-dapp';
 import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
 
-const WORD = `0x${'11'.repeat(32)}`;
+// The first limb is below the modulus only in little-endian order; the real SDK must accept the wallet's gate.
+const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
 const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
 // en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
@@ -186,8 +187,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
               { call: 'signBytes', args: [bytesArg(word), 'word'], asPublicKeyHex: OTHER_KEY },
               ctx.deadline
             ),
-          ctx,
-          { refusal: true }
+          ctx
         );
         expect(result).toEqual(
           refusal('NotGrantedMidenWalletError', "NOT_GRANTED: signing key is not the connected account's key")
@@ -218,6 +218,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
           ctx
         );
         const signed = unwrap(result, 'signLoginBytes(word)', ctx);
+        expect(signed.payloadB64).toBe(Buffer.from(WORD.slice(2), 'hex').toString('base64'));
         // A length compared as a number: toHaveLength would print the signature's bytes on a failure.
         expect(Buffer.from(signed.signatureB64, 'base64').length).toBe(66);
         expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
@@ -232,6 +233,18 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         // The key signed the login message the page hashed from its word, as a site checks it, and not the word.
         expect(await verify(signed.messageB64)).toEqual({ verifies: true, commitmentHex: first.loginKeyHex });
         expect(await verify(signed.payloadB64)).toEqual({ verifies: false, commitmentHex: first.loginKeyHex });
+        const modulusWord = Buffer.from(`01000000ffffffff${'00'.repeat(24)}`, 'hex').toString('base64');
+        const refused = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'raw', { call: 'signLoginBytes', args: [bytesArg(modulusWord), 'word'] }, ctx.deadline),
+          ctx
+        );
+        expect(refused).toEqual(
+          refusal(
+            'InvalidParamsMidenWalletError',
+            'INVALID_PARAMS: a login signature signs only a word: 32 bytes holding four little-endian field elements'
+          )
+        );
       }
     },
     // A declined login signature rejects. No adapter wraps these calls, so the provider's own class reaches the dApp.
@@ -675,7 +688,8 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         const { noteId } = unwrap(imported.result, 'import of a note addressed to B', ctx);
-        const { result } = await answerPrompt(
+        // A P2ID note addressed to another account is refused before any sheet opens (#1764).
+        const result = await expectNoPrompt(
           dapp,
           () =>
             callDapp(
@@ -690,12 +704,18 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
               },
               ctx.deadline
             ),
-          { kind: 'consume', decision: 'approve', origin: dapp.origin, whileOpen: () => popupBlock(dapp, ctx) },
-          ctx
+          ctx,
+          { refusal: true }
         );
-        const { txId } = unwrap(result, 'requestConsume of a note addressed to B', ctx);
-        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R10[j.axis.label], ctx);
-        // The failed consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
+        expect(result).toEqual(
+          refusal(
+            'WalletTransactionError',
+            'INVALID_PARAMS: Error: This account can never consume this note - refusing it',
+            'InvalidParamsMidenWalletError'
+          )
+        );
+        await expectNoNewRows(side, baseline);
+        // The refused consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
         await expectReceivedByRecipient(
           j.walletB,
           [{ noteId: toBNote.noteId, faucetId: toBNote.faucetId, amount: toBNote.amount }],

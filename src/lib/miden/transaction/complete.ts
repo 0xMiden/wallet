@@ -27,6 +27,7 @@ import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
+import { annotateCrash, withCompletionStep, type CompletionGuard } from 'lib/telemetry/crash-diagnostics';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
@@ -67,6 +68,7 @@ import {
   INoteDeliveryState,
   ISellExtraInputs,
   ISellPhase,
+  isOpenSettlementClaim,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -270,30 +272,51 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };
 
-export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const inputNotes = result.executedTransaction().inputNotes().notes();
+/**
+ * Whether another claim of the same settlement kind for the same swap order is still open (`isOpenSettlementClaim`).
+ * A whole settlement is one row, but notes that arrive later, or the retry of a failed chunk, can put a second row
+ * beside one still in flight (#1644); the stamp waits for it.
+ */
+const otherSettlementClaimOpen = async (id: string, settle: IConsumeSwapSettleExtraInputs): Promise<boolean> => {
+  const open = await Repo.transactions
+    .where('extraInputs.swapOrderTxId')
+    .equals(settle.swapOrderTxId)
+    .filter(tx => tx.id !== id && isOpenSettlementClaim(tx, settle))
+    .count();
+  return open > 0;
+};
+
+/**
+ * Whether the order has any payback claim. Its settledAt outranks a reclaimedAt (`swapSettlementOf`), and the repair
+ * that writes it for a split settlement runs only while both stamps are absent, so a reclaim of such an order leaves
+ * the stamp to the payback side (#1644).
+ */
+const orderHasSettleClaim = async (swapOrderTxId: string): Promise<boolean> =>
+  (await Repo.transactions
+    .where('extraInputs.swapOrderTxId')
+    .equals(swapOrderTxId)
+    .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapSettleKind !== 'reclaim')
+    .count()) > 0;
+
+const readConsumeResult = (result: TransactionResult) => {
+  const executedTransaction = result.executedTransaction();
+  const inputNotes = executedTransaction.inputNotes().notes();
   const firstInputNote = inputNotes[0];
   if (!firstInputNote) {
-    throw new Error('completeConsumeTransaction: no input notes on executed transaction');
+    throw refusedCompletion('completeConsumeTransaction: no input notes on executed transaction', 'no_input_notes');
   }
   const note = firstInputNote.note();
   const sender = getBech32AddressFromAccountId(note.metadata().sender());
-  const executedTransaction = result.executedTransaction();
-
-  const dbTransaction = await Repo.transactions.where({ id }).first();
-  const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
-  const secondaryAccountId = reclaimed ? undefined : sender;
   const asset = note.assets().fungibleAssets()[0];
   if (!asset) {
-    throw new Error('completeConsumeTransaction: note has no fungible assets');
+    throw refusedCompletion('completeConsumeTransaction: note has no fungible assets', 'no_fungible_assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
   // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
-  // value the `ConsumeTransaction` constructor wrote is only an estimate — its
-  // `ConsumableNote` inputs carry just the first fungible asset per note — so a
+  // value the `ConsumeTransaction` constructor wrote is only an estimate (its
+  // `ConsumableNote` inputs carry just the first fungible asset per note), so a
   // completed row recomputes it here against the executed transaction and stays
-  // consistent with `amount` below (which is this list's `faucetId` entry).
+  // consistent with `amount` (which is this list's `faucetId` entry).
   const totalsByFaucet = new Map<string, bigint>();
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
@@ -305,26 +328,52 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     faucetId: id,
     amount: total
   }));
-  const amount = totalsByFaucet.get(faucetId) ?? 0n;
-
-  // Only a uniform batch has a single answer, matching the constructor's rule —
+  // Only a uniform batch has a single answer, matching the constructor's rule;
   // otherwise the details card would label a mixed claim by its first note alone.
   const noteTypes = inputNotes.map(inputNote => toNoteTypeString(inputNote.note().metadata().noteType()));
   const firstNoteType = noteTypes[0];
-  const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
-
-  await updateTransactionStatus(id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result),
-    displayMessage,
+  return {
+    inputNotes,
+    sender,
     transactionId: executedTransaction.id().toHex(),
-    secondaryAccountId,
     faucetId,
-    amount,
     assetTotals,
-    noteType: uniformNoteType,
-    completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
-    resultBytes: result.serialize()
-  });
+    amount: totalsByFaucet.get(faucetId) ?? 0n,
+    uniformNoteType: noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined,
+    fees: feeFieldsFromResult(result)
+  };
+};
+
+function refusedCompletion(message: string, completionGuard: CompletionGuard): Error {
+  const error = new Error(message);
+  annotateCrash(error, { completionStep: 'result_read', completionGuard });
+  return error;
+}
+
+export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
+  const { inputNotes, sender, transactionId, faucetId, assetTotals, amount, uniformNoteType, fees } =
+    await withCompletionStep('result_read', async () => readConsumeResult(result));
+
+  const dbTransaction = await withCompletionStep('row_read', () => Repo.transactions.where({ id }).first());
+  const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
+  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
+  const secondaryAccountId = reclaimed ? undefined : sender;
+  const resultBytes = await withCompletionStep('result_serialize', async () => result.serialize());
+
+  await withCompletionStep('status_write', () =>
+    updateTransactionStatus(id, ITransactionStatus.Completed, {
+      ...fees,
+      displayMessage,
+      transactionId,
+      secondaryAccountId,
+      faucetId,
+      amount,
+      assetTotals,
+      noteType: uniformNoteType,
+      completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
+      resultBytes
+    })
+  );
 
   // A note parked by an EVM→Miden intent, or minted for a tracked deposit, settles its bridge row. Each executed
   // note goes over by its own first asset: the per-faucet totals above are no single delivery's amount. Must never
@@ -357,7 +406,15 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const settle: IConsumeSwapSettleExtraInputs | undefined =
       dbTransaction?.extraInputs?.swapOrderTxId != null ? dbTransaction.extraInputs : undefined;
-    if (settle) {
+    // One chunk of a split settlement covers only part of the order (#1644): a chunk the fee gate refused has no row
+    // and a failed one is no longer open, so no sibling check can tell that notes are left. The settlement tick's
+    // repair stamps such an order once none of its notes is left to claim.
+    if (
+      settle &&
+      !settle.swapSettlePartial &&
+      !(await otherSettlementClaimOpen(id, settle)) &&
+      !(settle.swapSettleKind === 'reclaim' && (await orderHasSettleClaim(settle.swapOrderTxId)))
+    ) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.
@@ -1503,6 +1560,7 @@ export const updateEarnWithdrawPhase = async (
       stage: settled.stage,
       delegateTransaction: settled.delegateTransaction,
       diagnostics: settled.failureDiagnostics,
+      lastDeferral: settled.lastDeferral,
       error: extra?.error ?? settled.rawError ?? settled.error
     });
   }
@@ -1559,6 +1617,7 @@ export const updateBridgedReceivePhase = async (
       | 'outputSymbol'
       | 'cctp'
       | 'error'
+      | 'errorId'
       | 'usdcxRemoteRecipient'
       | 'epochAllocatorUrl'
     >
@@ -1634,8 +1693,9 @@ export const updateBridgedReceivePhase = async (
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      lastDeferral: failed.lastDeferral,
       error: extra?.error ?? failed.rawError ?? failed.error,
-      bridgeReceive: { route: inputs?.provider, step: source?.step, cause: source?.cause }
+      bridgeReceive: { ...source, route: inputs?.provider }
     });
   }
 
@@ -1982,6 +2042,7 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      lastDeferral: failed.lastDeferral,
       reason: 'never_committed',
       error: failed.error
     });
@@ -2071,6 +2132,7 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
       stage: demoted.stage,
       delegateTransaction: demoted.delegateTransaction,
       diagnostics: demoted.failureDiagnostics,
+      lastDeferral: demoted.lastDeferral,
       error
     });
   }

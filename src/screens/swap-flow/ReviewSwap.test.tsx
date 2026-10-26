@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { SwapEta, SwapQuote } from 'lib/miden/swap/quote';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
@@ -32,12 +33,14 @@ jest.mock('react-i18next', () => ({
 // The fee estimate needs a discovered base fee and a balance; pin it so the Max-network-fee
 // row (and its hint) actually render here.
 jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
-  useNetworkFeeEstimate: () => '0.02 MIDEN'
+  formatNetworkFeeEstimate: () => '0.02 MIDEN',
+  useNetworkFeeEstimateDetails: () => undefined
 }));
 
 // The `SwapToken` type import in the source is erased at compile time; the labels read the
 // registry's id normalizer only.
 jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote,
   normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
 
@@ -391,9 +394,41 @@ describe('ReviewSwap', () => {
   describe('fill row', () => {
     const verdictRow = () => screen.getByTestId('swap-verdict-row');
 
+    it.each<SwapEta['fillStatus']>(['none', 'partial'])(
+      'shows a warning above Swap for %s and still allows submission',
+      fillStatus => {
+        const onSubmit = jest.fn();
+        renderComponent({ quote: quoteAtRate('2', { fillStatus }), onSubmit });
+        const warning = screen.getByTestId('swap-fill-warning');
+        const submit = screen.getByTestId('swap-submit');
+        expect(warning).toHaveAttribute('role', 'status');
+        expect(warning).toHaveTextContent(fillStatus === 'none' ? 'swapNoFillWarning' : 'swapPartialFillWarning');
+        expect(warning.nextElementSibling).toBe(submit);
+        expect(submit).toBeEnabled();
+        fireEvent.click(submit);
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('shows the partial warning even when the price verdict is tolerated', () => {
+      renderComponent({ quote: quoteAtRate('2', { fillStatus: 'partial', priceBand: 'tolerated' }) });
+      expect(screen.getByTestId('swap-fill-warning')).toHaveTextContent('swapPartialFillWarning');
+    });
+
+    it('shows no fill warning for a full fill', () => {
+      renderComponent({ quote: quoteAtRate('2', { fillStatus: 'full', reason: null }) });
+      expect(screen.queryByTestId('swap-fill-warning')).not.toBeInTheDocument();
+    });
+
+    it('does not invite the user to continue when the price blocks submission', () => {
+      renderComponent({ quote: quoteAtRate('2', { priceBand: 'off_market', reason: 'price' }) });
+      expect(screen.queryByTestId('swap-fill-warning')).not.toBeInTheDocument();
+    });
+
     it('renders no verdict without a quote', () => {
       renderComponent();
       expect(screen.queryByTestId('swap-verdict-row')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-fill-warning')).not.toBeInTheDocument();
     });
 
     it('shows the testnet pre-sign answer as advisory, not as a refusal', () => {
@@ -448,11 +483,11 @@ describe('ReviewSwap', () => {
       expect(screen.getByTestId('swap-submit')).toBeDisabled();
     });
 
-    it('is read-only, with its own note, once the user set the receive amount themselves', () => {
+    it('keeps slippage editable to adjust pay while the receive target stays fixed', () => {
       renderComponent({ requestEdited: true });
-      expect(slippageInput()).toBeDisabled();
+      expect(slippageInput()).not.toBeDisabled();
       fireEvent.click(screen.getByTestId('swap-slippage-info'));
-      expect(screen.getByText('swapSlippageEditedNote')).toBeInTheDocument();
+      expect(screen.getByText('swapReceiveSlippageNote')).toBeInTheDocument();
     });
   });
 
@@ -587,5 +622,27 @@ describe('ReviewSwap', () => {
     renderComponent();
 
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible review reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+  it('reports the slippage range field after dwell', () => {
+    renderComponent();
+    fireEvent.change(screen.getByTestId('swap-slippage-percent'), { target: { value: '1.5' } });
+    expect(screen.getByTestId('swap-slippage-percent')).toHaveAttribute('aria-invalid', 'true');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapSlippageRange', 'field']]);
+  });
+  it('does not report valid slippage or an absent submit error', () => {
+    renderComponent({ submitError: null });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

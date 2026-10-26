@@ -1,5 +1,7 @@
 import UIKit
+import WebKit
 import Capacitor
+import InappbrowserPlugin
 import NativeProverPlugin
 
 class AppViewController: CAPBridgeViewController {
@@ -9,6 +11,12 @@ class AppViewController: CAPBridgeViewController {
         let descriptor = super.instanceDescriptor()
         descriptor.errorPath = nil
         return descriptor
+    }
+
+    override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
+        let configuration = super.webViewConfiguration(for: instanceConfiguration)
+        WebKitFeature.disablePreferNear60FPS(in: configuration.preferences)
+        return configuration
     }
 
     override open func capacitorDidLoad() {

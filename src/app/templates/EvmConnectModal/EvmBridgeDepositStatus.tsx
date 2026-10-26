@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -8,16 +8,17 @@ import { Button, ButtonVariant } from 'components/Button';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
-import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer';
 import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { bridgeInSourceLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -30,7 +31,11 @@ import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
 interface EvmBridgeDepositStatusProps {
   txId: string;
+  /** The new row returned by this mounted deposit flow, absent when viewing history. */
+  newSubmissionTxId?: string;
   onDone: () => void;
+  /** The mounted flow is still creating/signing/confirming the source deposit; absent in history views. */
+  submissionPending?: boolean;
   /**
    * The deposit has taken one wallet confirmation and is about to ask for the next. The Slow (AggLayer)
    * and USDCx routes can say this: the screen raises their approve and their bridge, deposit or burn
@@ -122,7 +127,9 @@ function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): st
 /** Bridge-specific post-review progress/failure/success screen. */
 export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   txId,
+  newSubmissionTxId,
   onDone,
+  submissionPending = false,
   awaitingNextConfirmation = false
 }) => {
   const { t } = useTranslation();
@@ -132,8 +139,21 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+  const firstLoadedRow = useRef<{ txId: string; failed?: boolean }>({ txId });
+  if (firstLoadedRow.current.txId !== txId) firstLoadedRow.current = { txId };
+  const matchingRow = loaded && row?.id === txId && inputs !== undefined;
+  if (matchingRow && firstLoadedRow.current.failed === undefined) {
+    firstLoadedRow.current.failed = inputs.phase === 'failed';
+  }
+  const failureIsFresh = newSubmissionTxId === txId || firstLoadedRow.current.failed === false;
+  const failureId = !inputs?.error
+    ? 'transactionErrorDescription'
+    : isUserErrorId(inputs.errorId)
+      ? inputs.errorId
+      : 'raw_bridge_deposit_failed';
+  useUserVisibleError(matchingRow && inputs.phase === 'failed' && failureIsFresh ? failureId : null, 'status_screen');
 
-  if (!loaded || !row || inputs === undefined)
+  if (!loaded || !row || row.id !== txId || inputs === undefined)
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
@@ -146,12 +166,15 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     inputs.provider === 'epoch' ? 'pays' : 'typed',
     inputs.sourceSymbol
   );
-  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
-  const keepsSourceSymbol = inputs.provider === 'usdcx' || inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
-  const sourceSymbol = keepsSourceSymbol ? inputs.sourceSymbol : evmUsdcLabel(bridgeConfig, inputs.sourceSymbol);
+  const sourceSymbol = bridgeInSourceLabel(bridgeConfig, {
+    provider: inputs.provider,
+    symbol: inputs.sourceSymbol,
+    sourceToken: inputs.agglayerDelivery?.originToken
+  });
   const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
+  const dismissalBlocked = inputs.provider === 'usdcx' && submissionPending && !failed;
   // A failure has its own message, and a submitted deposit has left this screen, so the wait only
   // speaks while the deposit is still in flight.
   const waiting = awaitingNextConfirmation && !failed && !submitted;
@@ -225,17 +248,19 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       <FlowLayout
         title={t('transactionProcessingHeader')}
-        onClose={onDone}
+        onClose={dismissalBlocked ? undefined : onDone}
         footer={
-          <Button
-            type="button"
-            accent="receive"
-            variant={ButtonVariant.Primary}
-            onClick={onDone}
-            className="w-full max-w-none"
-          >
-            {failed ? t('done') : t('hide')}
-          </Button>
+          !dismissalBlocked && (
+            <Button
+              type="button"
+              accent="receive"
+              variant={ButtonVariant.Primary}
+              onClick={onDone}
+              className="w-full max-w-none"
+            >
+              {failed ? t('done') : t('hide')}
+            </Button>
+          )
         }
       >
         <section className="flex w-full flex-col items-center pt-5">
@@ -265,7 +290,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
             data-testid="bridge-deposit-processing-description"
           >
             {failed
-              ? (inputs.error ?? t('transactionErrorDescription'))
+              ? inputs.error || t('transactionErrorDescription')
               : waiting
                 ? t('bridgeDepositAwaitingNextConfirmationDescription')
                 : t('bridgeDepositProcessingDescription')}

@@ -144,6 +144,7 @@ export default {
     '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
+    '^@reown/appkit-controllers$': '<rootDir>/__mocks__/reownAppKitControllers.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',
     '^@wagmi/core$': '<rootDir>/__mocks__/wagmiCore.ts',
     '^wagmi$': '<rootDir>/__mocks__/wagmi.ts',

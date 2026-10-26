@@ -1,4 +1,73 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Сделайте резервную копию своей семенной фразы",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Сделайте резервную копию сейчас",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Сумма на вашем кошельке достигла 150 долларов США. Прежде чем продолжить, вам необходимо создать резервную копию семенной фразы. Запишите её, храните в надёжном месте и пройдите проверку, чтобы продолжить использование кошелька.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Не удалось сохранить контрольную копию резервной копии. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Не удалось проверить ваш доступный для расходования баланс. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Дождитесь завершения вашей ожидающей транзакции, прежде чем осуществлять обмен.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Точная сумма выплаты",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Ориентировочная выплата по вашему целевому адресу получения. При полном исполнении выплата может быть выше; при частичном исполнении вы можете получить меньшую сумму по истечении срока действия.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Проскальзывание корректирует рассчитанную сумму выплаты, в то время как запрошенная вами сумма получения остается неизменной.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Этот маршрут недоступен для данного перевода. Вы можете продолжить, выбрав другой доступный маршрут. С этого экрана не было отправлено ни одной транзакции.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Этот маршрут недоступен для данного перевода, и в данный момент нет других доступных маршрутов. С этого экрана не было отправлено ни одной транзакции.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Продолжить через Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Продолжить через Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "Сжигание USDCx",
     "englishSource": "Burn USDCx"
@@ -86,16 +155,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "Сумма ниже минимальной суммы сжигания, установленной «faucet».",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Скрипт сжигания кошелька не соответствует скрипту сжигания USDCx faucet.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "Отправьте не менее $amount$ USDCx.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "Не удалось прочитать политику сжигания токенов USDCx faucet. Возобновите проверку, чтобы повторить попытку.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "faucet USDCx пока неизвестен. Возобновите рассмотрение, чтобы попробовать ещё раз.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "Отправьте более $amount$ USDCx в сеть $network$: комиссия Circle удерживается из выплаты.",
@@ -109,18 +179,25 @@
       }
     }
   },
-  "usdcxPayoutFeeUpTo": {
-    "message": "До $amount$ USDC",
-    "englishSource": "Up to $amount$ USDC",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
+  "usdcxPayoutFeeVaries": {
+    "message": "Вычитается из выплаты. Размер зависит от сетевых комиссий.",
+    "englishSource": "Deducted from the payout. Varies with network fees."
   },
-  "usdcxPayoutAtLeast": {
-    "message": "Не менее $amount$ в USDC",
-    "englishSource": "At least $amount$ USDC",
+  "usdcxPayoutDelayed": {
+    "message": "Задержка выплаты",
+    "englishSource": "Payout delayed"
+  },
+  "usdcxPayoutDelayedNotice": {
+    "message": "Circle ещё не оплатил этот вывод средств. Попытка повторяется автоматически; комиссия, превышающая установленный лимит, может задержать операцию.",
+    "englishSource": "Circle has not paid this withdrawal yet. It is retried automatically; a fee above the service limit can delay it."
+  },
+  "usdcxPayoutReceived": {
+    "message": "Получено",
+    "englishSource": "Received"
+  },
+  "usdcxPayoutAmount": {
+    "message": "$amount$ USDC",
+    "englishSource": "$amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -421,6 +498,18 @@
     "message": "Вывод средств",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "В Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Из Мидена",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Пополнить счет",
     "englishSource": "Deposit more"
@@ -472,6 +561,30 @@
   "earnRiskLabel": {
     "message": "Риск",
     "englishSource": "Risk"
+  },
+  "earnRiskLow": {
+    "message": "Низкий",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "Высокий",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "Депозиты закрыты",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "В данный момент это хранилище не принимает депозиты. Попытайтесь позже или выберите другое хранилище.",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Кошелек Miden приостановил пополнение этого хранилища. Ваши существующие депозиты не затронуты. Выберите другое хранилище.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
   },
   "earnAuditedLabel": {
     "message": "Проверенный",
@@ -648,6 +761,21 @@
       }
     }
   },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ в $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
   "earnCurrentPositionsTitle": {
     "message": "Текущие позиции",
     "englishSource": "Current Positions"
@@ -708,9 +836,33 @@
     "message": "Личные достижения вашего кошелька.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Заработанный",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Заблокирован",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Коллекция значков",
-    "englishSource": "Badge collection"
+    "message": "Все значки",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Только Mainnet",
@@ -721,8 +873,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Значки открываются в Mainnet. Тестовая активность не учитывается.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Бейджи разблокируются в Mainnet. Тестовая активность не учитывается.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, получен",
@@ -852,6 +1004,10 @@
     "message": "Назад",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "Вернуться к свопу",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "Пропустить",
     "englishSource": "Skip"
@@ -907,6 +1063,26 @@
   "transactionRestoredHint": {
     "message": "Восстановление было выполнено из резервной копии, поэтому кошелек не может проверить, прошло ли восстановление, или повторить попытку. Проверьте кошелек, прежде чем повторять операцию.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
+  },
+  "submissionInterrupted": {
+    "message": "Во время отправки этого сообщения произошел сбой соединения. Кошелек не может подтвердить, прошла ли операция. Она может ещё завершиться, поэтому проверьте, прежде чем повторить попытку.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Ваш «Guardian» отклонил эту заявку. Попытайтесь ещё раз.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionBlockedByIssuer": {
+    "message": "Эмитент этого токена заблокировал ваш аккаунт, поэтому токен не может быть отправлен.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "Сеть отклонила эту заявку. Попробуйте ещё раз.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Ответ на эту отправку не поступил. Кошелек не может подтвердить, прошла ли она. Возможно, операция всё ещё завершается, поэтому проверьте, прежде чем повторить попытку.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
   },
   "showFullError": {
     "message": "Показать полный текст ошибки",
@@ -2376,6 +2552,10 @@
     "message": "Прочее",
     "englishSource": "Other"
   },
+  "others": {
+    "message": "Прочее",
+    "englishSource": "Others"
+  },
   "thousandFormat": {
     "message": "$thousand$ k",
     "englishSource": "$thousand$k",
@@ -2484,6 +2664,10 @@
     "message": "Обмен",
     "englishSource": "Swap"
   },
+  "confirmSwap": {
+    "message": "Подтвердить своп",
+    "englishSource": "Confirm swap"
+  },
   "viaInProtocolDex": {
     "message": "Через In Protocol Dex",
     "englishSource": "Via In Protocol Dex"
@@ -2563,6 +2747,14 @@
   "swapVerdictFull": {
     "message": "Исполнение по текущей цене.",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "Этот своп вряд ли будет исполнен с учетом доступной в данный момент ликвидности. Вы можете продолжить, но ваш ордер может остаться неисполненным до истечения срока его действия.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Только часть этого свопа может быть исполнена с использованием доступной в данный момент ликвидности. Вы можете продолжить, но остальная часть может остаться неисполненной до истечения срока действия ордера.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "Вы получаете примерно $amount$ $symbol$.",
@@ -3031,8 +3223,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Для создания учетной записи Miden можно использовать совместимую 12-словную фразу восстановления из другого кошелька. Это не приводит к переносу активов из других сетей.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Импорт с зашифрованным файлом кошелька",
@@ -3183,8 +3375,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "Выберите один из вариантов ниже",
-    "englishSource": "Select an option below"
+    "message": "Ваш Guardian подтверждает каждую транзакцию и может помочь вам восстановить доступ к учетной записи.",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "Проверяю, какой оператор отвечает быстрее всего…",
@@ -3235,8 +3427,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "«Guardian» создает резервную копию ваших личных данных учетной записи и соподписывает ваши транзакции.",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Guardian создает резервную копию данных вашего личного счёта и подтверждает ваши транзакции.",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Восстановление на новом телефоне",
@@ -3251,8 +3443,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Ваш «Guardian» подписывает транзакции совместно с вами. Он никогда не может самостоятельно перемещать средства.",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "Ваш Guardian подтверждает ваши транзакции. Он никогда не может самостоятельно перемещать средства.",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "Смена возможна в любое время",
@@ -3344,16 +3536,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian — это независимый сервис, который <b>подтверждает каждую транзакцию</b> из вашего кошелька, создавая дополнительную защиту без потери самостоятельного хранения.",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Для чего это нужно",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Совершает совместную подпись каждой транзакции — ни ваше устройство, ни «Guardian» не могут перемещать средства самостоятельно. Помогает восстановить доступ к учетной записи в случае потери устройства.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "Принимает к сведению каждую транзакцию; ни ваше устройство, ни Guardian не могут самостоятельно перемещать средства. Помогает восстановить доступ к учетной записи в случае потери устройства.",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Чего он не может делать",
@@ -3368,8 +3560,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Вы можете в любой момент перейти на другой Guardian, используя свою фразу восстановления. Меняется только соавтор; ваш аккаунт и средства остаются прежними.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "Вы можете в любой момент перейти на другого Guardian с помощью своей фразы восстановления. Меняется только лицо, подтверждающее ваши транзакции; ваш аккаунт и средства остаются прежними.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Понял",
@@ -3438,10 +3630,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Введите 12-слововую фразу восстановления вашего кошелька.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Поддерживаются только фразы восстановления формата Miden.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Ваш кошелек готов!",
@@ -3760,8 +3948,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Смена отправлена, но это устройство не смогло подтвердить, что она прошла в сети. Кошелёк не может подтвердить это за вас — и настройки Guardian, и запись этой транзакции в Активности в любом случае покажут нового Guardian. Если следующая транзакция будет отклонена из-за отсутствия соподписи, выполните смену ещё раз.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Запрос на смену был отправлен, но это устройство не смогло подтвердить, что он прошел в цепочке. Ничто в кошельке не может подтвердить это за вас — ваши настройки Guardian и запись об этой транзакции в разделе «Активность» в любом случае будут указывать нового Guardian. Если последующая транзакция будет отклонена из-за невозможности подтверждения, запустите запрос на смену снова.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "Ещё не сохранено на этом устройстве.",
@@ -3788,8 +3976,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "После подтверждения смены ончейн новый Guardian будет совместно подписывать каждую транзакцию, а прежний Guardian больше не сможет подписывать за ваш аккаунт.",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "После подтверждения смены в блокчейне ваш новый Guardian принимает к сведению каждую транзакцию, а прежний Guardian больше не может принимать к сведению транзакции по вашему счету.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Смена подтверждена в блокчейне, но этому устройству не удалось сохранить адрес нового Guardian. Кошелёк проверяет это автоматически и при необходимости предложит ввести его снова — это не начнёт новую смену. Если подсказка не появится, обратитесь в службу поддержки.",
@@ -3800,8 +3988,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не может подписывать транзакции для вашего счёта.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "С этого момента ваш новый Guardian принимает к сведению каждую транзакцию - ваш прежний Guardian больше не может принимать к сведению транзакции по вашему счету.",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "Адрес вашего кошелька, средства и история остаются без изменений. Во время ротации ничего не перемещалось.",
@@ -3814,6 +4002,26 @@
   "guardianSwitchSuccessInfo4": {
     "message": "Вы можете в любой момент снова сменить своего Guardian — храните фразу восстановления в безопасности, она необходима для этого.",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+  },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "Ваш новый Guardian принимает к сведению транзакции",
+    "englishSource": "Your new Guardian acknowledges"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "После подтверждения смены новый Guardian принимает к сведению транзакции",
+    "englishSource": "New Guardian acknowledges once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "Ничего не изменилось",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "Обеспечьте доступность",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "Снова переключитесь в любое время",
+    "englishSource": "Switch again anytime"
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдите аутентификацию, чтобы одобрить переключение Guardian.",
@@ -3830,6 +4038,22 @@
   "recoveryPhraseCold": {
     "message": "Фраза восстановления (холодное хранение)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "С этого момента ваши транзакции подтверждает $newGuardian$ вместо $oldGuardian$. Ваш адрес, средства и история остаются точно такими же.",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "Утвердить с помощью",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "Ваш старый «Guardian» не может заблокировать это",
@@ -3878,6 +4102,46 @@
   "hotKeyRotationFailedGeneric": {
     "message": "При смене вашего повседневного ключа произошла ошибка. Ваши средства в безопасности, и вы можете повторить попытку сейчас.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationStartOver": {
+    "message": "Начать сначала",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Удалить этот кошелек и начать сначала?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Это удаляет кошелек с данного устройства, чтобы вы могли восстановить его позже, например, с другим URL-адресом «guardian». Ваши средства остаются в сети. Для восстановления кошелька вам понадобится ваша фраза восстановления.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
+  "hotKeyRotatedOutTitle": {
+    "message": "Этот счет находится на другом устройстве",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Ежедневный ключ этого аккаунта был перенесён на другое устройство, как правило, путём восстановления кошелька на нём. Это устройство не сможет использовать аккаунт, пока вы не сделаете его основным устройством снова.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Ежедневный ключ этой учетной записи был перенесен на другое устройство, как правило, путем восстановления кошелька на нём. На этом устройстве отсутствует ключ восстановления, поэтому восстановить учетную запись невозможно. Восстановите кошелек с помощью своей фразы восстановления, чтобы использовать его здесь.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Сделать это устройство основным",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Сделать это устройство основным?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Кошелек переносит повседневный ключ на это устройство. Другое устройство теряет доступ к данному счету и видит то же самое уведомление. С счета уплачивается небольшая сетевая комиссия.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Удалить кошелек с этого устройства",
+    "englishSource": "Remove wallet from this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Ежедневная ротация ключей не подтверждена",
@@ -3973,8 +4237,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "Ваш «guardian» не отвечает, поэтому транзакции не могут быть соподписаны.",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "Ваш guardian не отвечает, поэтому транзакции не могут быть подтверждены.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Переключить Guardian",
@@ -4015,6 +4279,27 @@
   "encryptedWalletFileConfirmation": {
     "message": "Я не буду никому предоставлять доступ к своему зашифрованному файлу кошелька, в том числе и компании Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "Состояние счета $accountNames$ находится в этом файле",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Файл содержит вашу фразу восстановления и состояние счёта, которое в ином случае хранит для вас оператор Guardian, поэтому любой, у кого есть этот файл и его пароль, может прочитать и то, и другое. Он не содержит повседневного ключа: после восстановления кошелек заменяет его через вашего оператора Guardian, либо вы можете использовать сохраненную пару повседневных ключей (Настройки → Ключи → Показать закрытый ключ). Файл представляет собой моментальный снимок: после отправки или получения средств сохраните новый файл, поскольку старый файл не сможет восстановить данные, появившиеся после его создания.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "В настоящее время происходит ротация. Дождитесь её завершения, а затем попробуйте ещё раз.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Использовать мою сохраненную пару повседневных ключей",
+    "englishSource": "Use my saved everyday key pair"
   },
   "encryptedWalletFileExcludedTitle": {
     "message": "Не восстановлено из этого файла: $accountNames$",
@@ -4335,8 +4620,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "Используйте «guardian» для восстановления доступа и соподписания действий по данному аккаунту.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "Используйте guardian для восстановления и подтверждения транзакций по данному счету.",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "Импортировать общедоступный аккаунт",
@@ -4379,22 +4664,70 @@
     "message": "Нам не удалось автоматически определить ваш guardian. Выберите тот, который вы использовали, или введите его URL-адрес.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ Не удалось установить связь с guardian, поэтому обнаружение может быть неполным.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
+  "guardianStateBehindChain": {
+    "message": "$name$ знает этот аккаунт, но не хранит информацию о его последнем состоянии. Если вы перенесли аккаунт на другого guardian, введите URL этого guardian.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
     "placeholders": {
-      "count": {
+      "name": {
         "content": "$1"
       }
     }
+  },
+  "importSeedPhraseHint": {
+    "message": "Введите действительную 12-словную фразу восстановления, чтобы восстановить свою учетную запись Miden или создать новую.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Поддерживаются только 12-словные фразы восстановления. Фраза, которую вы вставили, длиннее, поэтому ничего не было введено.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "На проверенных нами Guardians резервных копий обнаружено не было",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "Ничего не удалось восстановить. Если Guardian, который мы не проверяли, хранит резервную копию этой фразы, выберите её ниже. В противном случае вы можете создать новую учётную запись с этой фразой.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "Мы не смогли проверить всех Guardian, поэтому не можем сказать, существует ли резервная копия. Попробуйте ещё раз или выберите того Guardian, которым вы пользовались.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Создайте новый аккаунт с помощью этой фразы",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "Создать новый аккаунт с этой фразой?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Это создает новый аккаунт. Это не восстанавливает существующий аккаунт.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "Мы не можем гарантировать, как именно возникла эта фраза и насколько она надежна. Если она когда-либо станет известной, это может повлиять на каждый кошелек, который её использует.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Ваша фраза восстановления остается на этом устройстве.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Я понимаю риск и хочу использовать эту фразу для нового счёта",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Если для этой фразы ещё не существует публичного аккаунта, при импорте на её основе создаётся новый.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Попробуйте выполнить обнаружение еще раз",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "Мы не смогли найти ваш аккаунт по этой ссылке: guardian. Проверьте URL-адрес или импортируйте его как публичный аккаунт.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "Мы не смогли найти резервную копию на этом Guardian. Проверьте URL-адрес или выберите другого Guardian.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Этот «guardian» работает в другой сети Miden, поэтому он не может восстановить аккаунт здесь.",
@@ -4451,6 +4784,18 @@
   "assetChanges": {
     "message": "Изменения в активах",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Эта транзакция также перемещает актив, который кошелек не может отобразить, например NFT. Продолжайте только в том случае, если доверяете ей.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "Неизвестно",
@@ -4597,6 +4942,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "Этот внешний сервис в настоящее время недоступен. Пожалуйста, попробуйте позже.",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "Функция обмена (Swap) в этой сети недоступна",
@@ -5226,6 +5579,18 @@
     "message": "Faucet Запрос",
     "englishSource": "Faucet Request"
   },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
+  },
   "activity": {
     "message": "Деятельность",
     "englishSource": "Activity"
@@ -5421,6 +5786,30 @@
   "swapReclaiming": {
     "message": "Возврат средств",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "Застрявшая выплата",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Выплата по этому свопу постоянно завершается неудачей, поскольку данный аккаунт не может оплатить сетевую комиссию для её получения. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку прямо сейчас.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Выплата по этому свопу постоянно завершается сбоем на вашем Guardian. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку сейчас.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Выплата по этому свопу постоянно завершается сбоем, поскольку не удалось установить соединение с сетью. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку прямо сейчас.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Выплата по этому свопу постоянно завершается неудачей. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку сейчас.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Повторная попытка выплаты",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "Вернуто · $time$",
@@ -5716,6 +6105,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "На этом счете может храниться не более $cap$ долларов США. На нем находится $held$ долларов США, и этот депозит добавляет $deposit$ долларов США. Введите меньшую сумму.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "На этом счете может храниться не более $cap$ долларов США, а у $token$ в данный момент нет цены, поэтому невозможно проверить соответствие депозита по нему. Попробуйте позже.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Мост запущен!",
     "englishSource": "Bridge initiated!"
@@ -5808,8 +6224,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "~20 мин",
-    "englishSource": "~20 min"
+    "message": "~2 мин",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1 мин",
@@ -6401,8 +6817,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Подключайте только тестовый кошелек",
-    "englishSource": "Connect a test wallet only"
+    "message": "Используйте только тестовый кошелек",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Только тестовые средства",
@@ -7028,6 +7444,22 @@
       }
     }
   },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "Другие доступные Guardians",
+    "englishSource": "Other Guardians available"
+  },
   "couldNotCheckUnlockMethod": {
     "message": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",
     "englishSource": "Couldn't check this wallet's unlock method. Try again."
@@ -7369,29 +7801,41 @@
     "message": "Мост в",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Не удалось загрузить список токенов моста, поэтому некоторые токены могут отсутствовать. Попробуйте позже.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Бридж не листирует этот токен в этой сети.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Подключите свой кошелек",
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Подключите кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Подключить кошелек",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Внешний кошелек",
-    "englishSource": "External wallet"
+    "message": "Ваш кошелек",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Пока не подключено",
-    "englishSource": "Not connected yet"
+    "message": "Не подключено",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "После подключения",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow или любой кошелек WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Выберите тип перевода",
@@ -7406,12 +7850,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Проверьте маршрут и комиссии, а затем подтвердите перевод в своём кошельке.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Проверьте маршрут и комиссии, а затем подтвердите операцию в своём кошельке.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Используйте отдельный кошелек, содержащий исключительно тестовые токены. Ни в коем случае не подключайте кошелек, в котором хранятся реальные средства.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Никогда не подключайте кошелек, на котором хранятся реальные средства.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Выберите маршрут",
@@ -7559,6 +8003,27 @@
     "message": "Stays invested",
     "englishSource": "Stays invested"
   },
+  "earnWithdrawArrivesOn": {
+    "message": "Поступает",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 мин",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Газ",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Реклама",
+    "englishSource": "Sponsored"
+  },
   "earnWithdrawAll": {
     "message": "Full balance",
     "englishSource": "Full balance"
@@ -7602,5 +8067,666 @@
   "webViewStartFailedAction": {
     "message": "Попробуйте ещё раз",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Проверка доступности",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Подождите, пока мы проверяем, доступен ли кошелёк в вашем регионе.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Кошелёк недоступен в вашем регионе",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Кошелёк недоступен в вашем текущем местоположении.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Не удалось проверить доступность",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Этот браузер или устройство не поддерживает работу кошелька",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "oneClickSelectAsset": {
+    "message": "Выберите токен в $network$",
+    "englishSource": "Select a token on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickNoAssets": {
+    "message": "В этой сети отсутствуют верифицированные токены.",
+    "englishSource": "No verified tokens are available on this network."
+  },
+  "oneClickRecipientSection": {
+    "message": "Получатель",
+    "englishSource": "Recipient"
+  },
+  "oneClickRefundSection": {
+    "message": "Счёт для возврата средств",
+    "englishSource": "Refund account"
+  },
+  "oneClickRecipientAddress": {
+    "message": "Адрес получателя",
+    "englishSource": "Recipient address"
+  },
+  "oneClickRefundAddress": {
+    "message": "Адрес возврата средств в исходной сети",
+    "englishSource": "Refund address on the origin network"
+  },
+  "oneClickRefundAccount": {
+    "message": "Счёт для возврата средств",
+    "englishSource": "Refund account"
+  },
+  "oneClickConnectOriginWallet": {
+    "message": "Подключить кошелек $network$",
+    "englishSource": "Connect $network$ wallet",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickChooseForeignNetwork": {
+    "message": "Выберите сеть отправления или назначения за пределами Miden.",
+    "englishSource": "Choose an origin or destination network outside Miden."
+  },
+  "oneClickDifferentNetworksRequired": {
+    "message": "Выберите две разные сети.",
+    "englishSource": "Choose two different networks."
+  },
+  "oneClickMidenAssetRequired": {
+    "message": "Выберите проверенный токен Miden для одной из сторон этого маршрута.",
+    "englishSource": "Choose a verified Miden token for one side of this route."
+  },
+  "oneClickSameUnderlyingBridge": {
+    "message": "Это перевод через мост. Используйте существующий поток моста для данного актива.",
+    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
+  },
+  "oneClickQuoteUnavailable": {
+    "message": "Котировка для этого маршрута недоступна. Проверьте адреса и попробуйте ещё раз.",
+    "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
+  },
+  "oneClickQuoteExpiresAt": {
+    "message": "Срок действия котировки истек",
+    "englishSource": "Quote expires"
+  },
+  "oneClickQuoteExpired": {
+    "message": "Срок действия истек. Обновите страницу, прежде чем продолжить.",
+    "englishSource": "Expired. Refresh before continuing."
+  },
+  "oneClickConfirmMidenDeposit": {
+    "message": "Подтвердите этот депозит в Miden",
+    "englishSource": "Confirm this Miden deposit"
+  },
+  "oneClickSubmitFailed": {
+    "message": "Не удалось отправить депозит. Проверьте маршрут и попробуйте ещё раз.",
+    "englishSource": "The deposit could not be submitted. Review the route and try again."
+  },
+  "oneClickRouteChanged": {
+    "message": "Маршрут изменился. Перед продолжением запросите новую котировку.",
+    "englishSource": "The route changed. Request a new quote before continuing."
+  },
+  "oneClickArrivalEstimate": {
+    "message": "Около $minutes$ минут",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefreshQuote": {
+    "message": "Обновить котировку",
+    "englishSource": "Refresh quote"
+  },
+  "oneClickMinimumReceived": {
+    "message": "Минимальная сумма поступления",
+    "englishSource": "Minimum received"
+  },
+  "oneClickMinimumOutput": {
+    "message": "Минимальный объем вывода",
+    "englishSource": "Minimum output"
+  },
+  "oneClickRefundAmount": {
+    "message": "Сумма возврата",
+    "englishSource": "Refund amount"
+  },
+  "oneClickNativeFee": {
+    "message": "Ориентировочная комиссия сети Miden",
+    "englishSource": "Estimated Miden network fee"
+  },
+  "oneClickAvailableBalance": {
+    "message": "Доступный внешний баланс",
+    "englishSource": "Available external balance"
+  },
+  "oneClickBalanceChecking": {
+    "message": "Проверка внешнего баланса",
+    "englishSource": "Checking external balance"
+  },
+  "oneClickBalanceCheckingBody": {
+    "message": "Проверка подключённого счёта и резервирование суммы, достаточной для оплаты сетевой комиссии.",
+    "englishSource": "Checking the connected account and reserving enough for the network fee."
+  },
+  "oneClickBalanceUnavailable": {
+    "message": "Внешний баланс недоступен",
+    "englishSource": "External balance unavailable"
+  },
+  "oneClickBalanceUnavailableBody": {
+    "message": "Кошелек не смог проверить баланс подключённого счёта и сетевую комиссию. Перед продолжением попробуйте подключиться заново или повторите попытку.",
+    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
+  },
+  "oneClickGasReserve": {
+    "message": "Зарезервировано для сетевых комиссий: $amount$ $symbol$",
+    "englishSource": "Reserved for network fees: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "oneClickInsufficientTokenBalance": {
+    "message": "Недостаточный баланс токенов",
+    "englishSource": "Insufficient token balance"
+  },
+  "oneClickInsufficientTokenBalanceBody": {
+    "message": "На связанном счёте недостаточно данного токена для указанного депозита.",
+    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
+  },
+  "oneClickInsufficientGasBalance": {
+    "message": "Недостаточный баланс комиссии за сетевые операции",
+    "englishSource": "Insufficient network fee balance"
+  },
+  "oneClickInsufficientGasBalanceBody": {
+    "message": "На связанном счёте требуется больше $symbol$ для покрытия предполагаемой комиссии сети.",
+    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickArrival": {
+    "message": "Ориентировочное время прибытия",
+    "englishSource": "Estimated arrival"
+  },
+  "oneClickRecipient": {
+    "message": "Получатель",
+    "englishSource": "Recipient"
+  },
+  "oneClickRoute": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "oneClickYouPayFrom": {
+    "message": "Вы платите в $network$",
+    "englishSource": "You pay on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickYouReceiveOn": {
+    "message": "Вы получаете на $network$",
+    "englishSource": "You receive on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefundFee": {
+    "message": "Комиссия за возврат средств",
+    "englishSource": "Refund fee"
+  },
+  "oneClickWithdrawFee": {
+    "message": "Комиссия за снятие средств",
+    "englishSource": "Withdrawal fee"
+  },
+  "oneClickDepositInstructions": {
+    "message": "Инструкции по депозиту",
+    "englishSource": "Deposit instructions"
+  },
+  "oneClickManualDepositNotice": {
+    "message": "Отправьте точно указанную ниже сумму через выбранную сеть. Обмен начнется только после того, как перевод поступит на адрес пополнения.",
+    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
+  },
+  "oneClickNetwork": {
+    "message": "Сеть",
+    "englishSource": "Network"
+  },
+  "oneClickOriginNetwork": {
+    "message": "Сеть Origin",
+    "englishSource": "Origin network"
+  },
+  "oneClickDestinationNetwork": {
+    "message": "Сеть назначения",
+    "englishSource": "Destination network"
+  },
+  "oneClickAmount": {
+    "message": "Сумма",
+    "englishSource": "Amount"
+  },
+  "oneClickDepositAddress": {
+    "message": "Адрес депозита",
+    "englishSource": "Deposit address"
+  },
+  "oneClickDepositMemo": {
+    "message": "Примечание",
+    "englishSource": "Memo"
+  },
+  "oneClickOriginTransaction": {
+    "message": "Транзакция-источник",
+    "englishSource": "Origin transaction"
+  },
+  "oneClickTrackingSaved": {
+    "message": "Этот маршрут сохраняется в разделе «Активность», чтобы вы могли отследить его позже.",
+    "englishSource": "This route is saved in Activity so you can track it later."
+  },
+  "oneClickBroadcastTrackingPending": {
+    "message": "Кошелек отправил этот депозит, но пока не смог сохранить транзакцию. Не отправляйте её повторно. Хеш транзакции указан ниже.",
+    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
+  },
+  "oneClickRefreshingExpiredQuote": {
+    "message": "Обновление просроченной котировки",
+    "englishSource": "Refreshing expired quote"
+  },
+  "oneClickRecoveryUnavailable": {
+    "message": "Этот маршрут не может быть обновлён",
+    "englishSource": "This route cannot be refreshed"
+  },
+  "oneClickRecoveryUnavailableBody": {
+    "message": "Изменился аккаунт, сеть или проверенный маршрут. Вернитесь к транзакции и при необходимости запустите новый маршрут.",
+    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
+  },
+  "oneClickExpiredRefreshFailed": {
+    "message": "Котировка с истекшим сроком не может быть обновлена. Попытайтесь получить новую котировку перед отправкой.",
+    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
+  },
+  "oneClickQuoteRefreshed": {
+    "message": "Котировка обновлена",
+    "englishSource": "Quote refreshed"
+  },
+  "oneClickExpiredRefreshNotice": {
+    "message": "Срок действия предыдущей котировки истек до отправки вашего депозита. Ознакомьтесь с этим обновлённым маршрутом и подтвердите, чтобы продолжить.",
+    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
+  },
+  "oneClickDepositSubmitted": {
+    "message": "Депозит отправлен",
+    "englishSource": "Deposit submitted"
+  },
+  "oneClickStatusKnownDepositTx": {
+    "message": "Обнаружена транзакция по депозиту",
+    "englishSource": "Deposit transaction found"
+  },
+  "oneClickStatusPendingDeposit": {
+    "message": "Ожидание поступления депозита",
+    "englishSource": "Waiting for deposit"
+  },
+  "oneClickStatusIncompleteDeposit": {
+    "message": "Сумма депозита указана неполностью",
+    "englishSource": "Deposit amount is incomplete"
+  },
+  "oneClickStatusProcessing": {
+    "message": "Обработка свопов",
+    "englishSource": "Swap processing"
+  },
+  "oneClickStatusSuccess": {
+    "message": "Своп выполнен провайдером",
+    "englishSource": "Swap completed by provider"
+  },
+  "oneClickStatusRefunded": {
+    "message": "Возвращённые средства",
+    "englishSource": "Funds refunded"
+  },
+  "oneClickStatusFailed": {
+    "message": "Своп не удался",
+    "englishSource": "Swap failed"
+  },
+  "oneClickProviderStatus": {
+    "message": "Статус провайдера",
+    "englishSource": "Provider status"
+  },
+  "oneClickDeliveryStatus": {
+    "message": "Доставка кошелька",
+    "englishSource": "Wallet delivery"
+  },
+  "oneClickStatusDelivered": {
+    "message": "Получено в кошельке",
+    "englishSource": "Received in wallet"
+  },
+  "oneClickDeliveryArriving": {
+    "message": "Поступление в кошелек Miden",
+    "englishSource": "Arriving in Miden wallet"
+  },
+  "oneClickDepositAmount": {
+    "message": "Сумма депозита",
+    "englishSource": "Deposit amount"
+  },
+  "oneClickOutputAmount": {
+    "message": "Приведенный результат",
+    "englishSource": "Quoted output"
+  },
+  "oneClickFailureReason": {
+    "message": "Причина возврата или сбоя",
+    "englishSource": "Refund or failure reason"
+  },
+  "oneClickNetworkMiden": {
+    "message": "Miden",
+    "englishSource": "Miden"
+  },
+  "oneClickNetworkEthereum": {
+    "message": "Ethereum",
+    "englishSource": "Ethereum"
+  },
+  "oneClickNetworkBase": {
+    "message": "Base",
+    "englishSource": "Base"
+  },
+  "oneClickNetworkArbitrum": {
+    "message": "Arbitrum",
+    "englishSource": "Arbitrum"
+  },
+  "oneClickNetworkOptimism": {
+    "message": "Optimism",
+    "englishSource": "Optimism"
+  },
+  "oneClickNetworkArc": {
+    "message": "Arc",
+    "englishSource": "Arc"
+  },
+  "availableAmount": {
+    "message": "Доступно: $amount$ $symbol$",
+    "englishSource": "Available: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "В этой сумме больше десятичных знаков, чем допускает данный токен.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
+  "amountUsdUnavailable": {
+    "message": "Оценка в долларах США недоступна",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "Срок действия котировки в долларах США истек. Обновление цены…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Сумма в $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "Введите $unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "Загрузка цены в долларах США…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "Цена в долларах США не может быть обновлена",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "Оценка в долларах США",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Предварительный просмотр",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Выход",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Примерные данные предназначены исключительно для предварительного просмотра дизайна. Это не средства вашего кошелька и не реальные рейтинги игроков. Ничто не публикуется.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Пример игрока",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Только для предварительного просмотра",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Применить обновление образца",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Ваш рейтинг",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Представленный баланс",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "Рейтинг GC",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Образец моментального снимка обновлён локально. Ничего не было отправлено.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Откройте для себя игры в Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Исследуйте Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Рекомендуемые игры",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Игры, которые стоит попробовать",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Сокращения в Arcade",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Рейтинги",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Игровые монеты",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Моя активность",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Открытая игра",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Игры недоступны",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Игры появятся здесь, когда станут доступны в этой сети.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Запуск игры не приведет к подключению вашего кошелька. Bread сначала спросит у вас разрешения.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "Рейтинги GC",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Проверить баланс GC",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "Баланс GC",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Не прочитано",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Отправить баланс",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Обновить баланс",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Отправка моментального снимка баланса означает передачу в таблицу лидеров идентификатора вашего счёта, баланса GC, сети и времени создания снимка. Балансы ваших других активов не включаются.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "Считывание баланса GC и отправка данных в таблицу лидеров пока не связаны между собой. Баланс не считывался и не отправлялся.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Рейтинги будут отображаться здесь",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Рейтинги в этой сети пока не доступны.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Ваш баланс будет отображаться здесь",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Игровые монеты пока не доступны в этой сети.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Включены только игры, перечисленные в разделе «Arcade».",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Финансы",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Другое",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "Монеты",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Активность",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Просмотр игр",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ваш баланс остается конфиденциальным.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Ранжируются только те балансы, которыми вы решили поделиться.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Игровой активности пока нет",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Здесь отображаются транзакции, которые вы совершаете в играх Arcade.",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1 000 GC за 1 USDCx плюс сетевые комиссии.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Покупка GC пока недоступна в Bread.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Купить ещё GC",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Баланс недоступен",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Игровые монеты",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

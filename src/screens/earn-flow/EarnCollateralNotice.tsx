@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 /** Why an Earn deposit's CTA waits on its collateral: still being read, not to be had, or not the one reviewed. */
 export type EarnCollateralReason = 'loading' | 'unavailable' | 'mismatch';
@@ -17,6 +18,7 @@ export function EarnCollateralNotice({
   className?: string;
 }): JSX.Element | null {
   const { t } = useTranslation();
+  useUserVisibleError(reason === 'unavailable' ? 'earnCollateralUnavailable' : null, 'notice');
   if (!reason) return null;
   return (
     <Notice

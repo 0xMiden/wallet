@@ -16,7 +16,10 @@ jest.mock('lib/i18n', () => ({
 }));
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : `t:${key}`) })
+  useTranslation: () => ({
+    t: (key: string, options?: { amount?: string }) =>
+      key === 'insufficientFeeAsset' ? mockFeeCopy : options?.amount ? `t:${key}|${options.amount}` : `t:${key}`
+  })
 }));
 
 // Only ITransactionStatus (the enum) is used at runtime.
@@ -162,8 +165,14 @@ function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
  * only place the default is written, so a restored-row case has to opt in
  * explicitly rather than inherit a fixture's silence.
  */
-const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean }) =>
-  render(<BridgeClaimSection entry={props.entry} restoredFromBackup={props.restoredFromBackup ?? false} />);
+const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean; sentAmount?: bigint }) =>
+  render(
+    <BridgeClaimSection
+      entry={props.entry}
+      restoredFromBackup={props.restoredFromBackup ?? false}
+      sentAmount={props.sentAmount}
+    />
+  );
 
 const agglayer = (o: Partial<IHistoryEntry> = {}) =>
   entry({
@@ -517,6 +526,123 @@ describe('BridgeClaimSection', () => {
       });
       expect(screen.getByText('t:confirmed')).toBeInTheDocument();
       expect(screen.getByText('t:usdcxBurnTitlet:usdcxBurnConfirmed')).toBeInTheDocument();
+    });
+
+    describe('payout proof', () => {
+      const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+      const burnRow = (burn: Partial<NonNullable<IHistoryEntry['usdcxBurn']>>, extra: Partial<IHistoryEntry> = {}) =>
+        entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          bridgeDestinationNetwork: 5042002,
+          status: 2,
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+            ...burn
+          },
+          ...extra
+        });
+
+      it('shows Received and Circle fee from the recorded payout', () => {
+        renderSection({ entry: burnRow({ payout }), sentAmount: 5_000_000n });
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.5635')).toBeInTheDocument();
+      });
+
+      it('shows neither row for a legacy balance-confirmed row', () => {
+        renderSection({
+          entry: burnRow({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } }),
+          sentAmount: 5_000_000n
+        });
+        expect(screen.queryByText(/usdcxPayoutReceived/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+        expect(screen.getByText('t:confirmed')).toBeInTheDocument();
+      });
+
+      it('shows no fee row when the paid amount is not below the sent amount', () => {
+        renderSection({ entry: burnRow({ payout }), sentAmount: 2_436_500n });
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+      });
+
+      it('links the recorded payout transaction', () => {
+        render(
+          <BridgeClaimSection
+            entry={burnRow({ payout })}
+            restoredFromBackup={false}
+            sentAmount={5_000_000n}
+            destinationTxHash={payout.transactionHash}
+          />
+        );
+        expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
+          `https://explorer.testnet.arc.io/tx/${payout.transactionHash}`
+        );
+        expect(screen.getByText('t:receivingTx')).toBeInTheDocument();
+      });
+
+      it('shows the delayed notice on a delayed row', () => {
+        const settled = Date.now() - 3 * 3_600_000;
+        renderSection({ entry: burnRow({ confirmedAt: settled }, { bridgeSettledAt: settled }) });
+        expect(screen.getByText('t:usdcxPayoutDelayed')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutDelayedNotice')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxWithdrawalNotice')).toBeInTheDocument();
+      });
+
+      it('shows no delayed notice on a restored row or one without a saved snapshot', () => {
+        const old = Date.now() - 30 * 3_600_000;
+        const { unmount } = render(
+          <BridgeClaimSection entry={burnRow({ confirmedAt: old }, { bridgeSettledAt: old })} restoredFromBackup />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        renderSection({
+          entry: burnRow({ confirmedAt: old, destinationBalanceBefore: undefined }, { bridgeSettledAt: old })
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
+
+      it('shows no delayed notice on a failed or unconfirmed row', () => {
+        const old = Date.now() - 30 * 3_600_000;
+        const { unmount } = render(
+          <BridgeClaimSection
+            entry={burnRow({ confirmedAt: old }, { bridgeSettledAt: old, status: FAILED })}
+            restoredFromBackup={false}
+          />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        renderSection({
+          entry: burnRow({ confirmedAt: old }, { bridgeSettledAt: old, isUnconfirmed: true, status: UNCONFIRMED })
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
+
+      it('shows Received and Circle fee only while the burn reads confirmed', () => {
+        renderSection({ entry: burnRow({ phase: 'consuming', payout }), sentAmount: 5_000_000n });
+        expect(screen.queryByText(/usdcxPayoutReceived/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+      });
+
+      it('shows no delayed notice before 2 hours or on a paid row', () => {
+        const recent = Date.now() - 60_000;
+        const { unmount } = render(
+          <BridgeClaimSection
+            entry={burnRow({ confirmedAt: recent }, { bridgeSettledAt: recent })}
+            restoredFromBackup={false}
+          />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        const old = Date.now() - 30 * 3_600_000;
+        renderSection({
+          entry: burnRow({ confirmedAt: old, payout }, { bridgeSettledAt: old }),
+          sentAmount: 5_000_000n
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
     });
 
     it('keeps a sender-completed row pending until the faucet consumes its note', () => {
@@ -1026,5 +1152,155 @@ describe('BridgeClaimSection', () => {
       });
       expect(screen.getByText('t:receivingTx')).toBeInTheDocument();
     });
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible bridge action errors', () => {
+  const settle = () =>
+    act(async () => {
+      for (let tick = 0; tick < 30; tick++) {
+        await Promise.resolve();
+      }
+    });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockGetCurrentMidenBlock.mockReset().mockResolvedValue(1200);
+    mockFindExitDeposit.mockReset().mockResolvedValue(READY);
+    mockClaimAgglayer.mockReset().mockResolvedValue({ wait: async () => undefined, hash: 'synthetic-claim' });
+    mockInitiateConsumeFromId.mockReset().mockResolvedValue('synthetic-reclaim');
+    mockTrackerPolls.length = 0;
+    mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+    mockFeeCopy = 'Visible claim fee refusal';
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports a live claim raw producer as raw_bridge_claim_failed', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('private claim 42 at https://synthetic.invalid'));
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private claim 42 at https://synthetic.invalid');
+    await expectErrorAfterDwell('raw_bridge_claim_failed', 'inline');
+  });
+
+  it('reports the actual translated session refusal as evmChainNotApproved', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(
+      new Error('private wrapper', { cause: new NativeSessionChainNotApprovedError(11155111, 'Synthetic') })
+    );
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('t:evmChainNotApproved');
+    await expectErrorAfterDwell('evmChainNotApproved', 'inline');
+  });
+
+  it('reports a live reclaim raw producer as raw_bridge_reclaim_failed', async () => {
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 42'));
+    renderSection({ entry: entry() });
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private reclaim amount 42');
+    await expectErrorAfterDwell('raw_bridge_reclaim_failed', 'inline');
+  });
+
+  it('reports the actual reclaim fee refusal as insufficientFeeAsset', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    renderSection({ entry: entry() });
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible claim fee refusal');
+    await expectErrorAfterDwell('insufficientFeeAsset', 'inline');
+  });
+
+  it.each(['retry', 'unmount'])('cancels a live claim error on %s before dwell', async control => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('short claim failure'));
+    const view = renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('short claim failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByText('t:claimAsset'));
+      await settle();
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps the destination-wallet mismatch caution silent', async () => {
+    mockEvm.address = '0xother';
+    renderSection({ entry: agglayer() });
+    await settle();
+    expect(screen.getByText('t:connectDestinationWalletToClaim')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps a raced but successfully recovered claim silent', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('private already claimed'));
+    mockFindExitDeposit
+      .mockResolvedValueOnce(READY)
+      .mockResolvedValueOnce({ ...READY, claim_tx_hash: 'synthetic-recovered' });
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps a persisted failed bridge status and reclaim-height helper silent', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValue(500);
+    renderSection({ entry: entry() });
+    await settle();
+    expect(screen.getByText(/t:bridgeFailed/)).toBeInTheDocument();
+    expect(screen.getByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

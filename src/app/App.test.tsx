@@ -21,10 +21,10 @@
 
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
-import { WindowType } from 'app/env';
-import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { type AppEnvironment, WindowType } from 'app/env';
+import { initFeatureEligibility } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 import { initCrashReporting } from 'lib/telemetry/crash';
@@ -33,8 +33,7 @@ import { recordRelaySurface } from 'lib/telemetry/relay-diagnostics';
 // NOTE: App is required lazily (not statically imported) because App.tsx calls
 // `isExtension()` at module scope, and the mock control fns below must be
 // initialized before that runs. See `beforeAll`.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let App: React.ComponentType<any>;
+let App: React.ComponentType<{ env: AppEnvironment }>;
 
 // ---------------------------------------------------------------------------
 // Platform predicates — the only real inputs that steer App's branching.
@@ -82,9 +81,20 @@ jest.mock('lib/walletconnect/appkit', () => ({
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
-  initBridgeConfig: jest.fn(() => Promise.resolve()),
+  initFeatureEligibility: jest.fn(async () => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn: true, swap: true }
+  })),
   subscribeBridgeConfig: () => () => undefined,
   getBridgeConfigSnapshot: () => ({ network: 'testnet', config: null })
+}));
+
+const mockLoadEndpointOverrides = jest.fn<Promise<void>, []>(async () => undefined);
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  loadEndpointOverrides: () => mockLoadEndpointOverrides(),
+  getEffectiveNetworkName: () => 'testnet'
 }));
 
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
@@ -213,6 +223,9 @@ jest.mock('app/templates/PinExtensionPrompt', () => ({
 jest.mock('app/templates/HotKeyRotationGate', () => ({
   HotKeyRotationGate: () => null
 }));
+jest.mock('app/templates/HotKeyRotatedOutGate', () => ({
+  HotKeyRotatedOutGate: () => null
+}));
 
 jest.mock('app/templates/OpenLinkPrompt', () => ({
   OpenLinkPrompt: () => <div data-testid="open-link-prompt" />
@@ -233,6 +246,14 @@ jest.mock('lib/desktop/DesktopDappHandler', () => ({
   default: () => <div data-testid="desktop-dapp-handler" />
 }));
 
+let mockBackupRequired = false;
+jest.mock('app/templates/SeedBackupGate', () => ({
+  SeedBackupGate: ({ children }: { children: React.ReactNode }) => {
+    if (mockBackupRequired) return <div data-testid="required-backup" />;
+    return <>{children}</>;
+  }
+}));
+
 jest.mock('lib/desktop/DesktopDappConfirmationModal', () => ({
   __esModule: true,
   DesktopDappConfirmationModal: () => <div data-testid="desktop-confirm-modal" />
@@ -241,11 +262,13 @@ jest.mock('lib/desktop/DesktopDappConfirmationModal', () => ({
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
-type Env = { windowType: string; confirmWindow?: boolean };
+type Env = AppEnvironment;
 
-const renderApp = (env: Env) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  render(<App env={env as any} />);
+const renderApp = async (env: Env) => {
+  const view = render(<App env={env} />);
+  await act(async () => undefined);
+  return view;
+};
 
 describe('app/App', () => {
   beforeAll(() => {
@@ -257,6 +280,7 @@ describe('app/App', () => {
   });
 
   beforeEach(() => {
+    mockBackupRequired = false;
     // Silence the diagnostic `[AppProvider] Rendering ...` log.
     jest.spyOn(console, 'log').mockImplementation(() => {});
     // Reset to the "extension, not mobile, not desktop" baseline; each test
@@ -267,19 +291,45 @@ describe('app/App', () => {
     // Consent is off until the user opts in — the baseline for the startup
     // telemetry assertions below.
     mockIsTelemetryEnabled.mockReturnValue(false);
+    mockLoadEndpointOverrides.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
+  it.each(['extension', 'mobile', 'desktop', 'confirmation'])(
+    'blocks %s controls during required backup',
+    async surface => {
+      mockBackupRequired = true;
+      mockIsExtension.mockReturnValue(surface === 'extension' || surface === 'confirmation');
+      mockIsMobile.mockReturnValue(surface === 'mobile');
+      mockIsDesktop.mockReturnValue(surface === 'desktop');
+      const view = await renderApp({ windowType: WindowType.FullPage, confirmWindow: surface === 'confirmation' });
+      expect(view.getByTestId('required-backup')).toBeInTheDocument();
+      if (surface === 'desktop') await view.findByTestId('desktop-dapp-handler');
+      for (const id of [
+        'page-router',
+        'confirm-page',
+        'desktop-confirm-modal',
+        'dapp-browser-provider',
+        'pin-extension-prompt',
+        'dialogs',
+        'open-link-prompt',
+        'bread-connect-prompt'
+      ]) {
+        expect(view.queryByTestId(id)).not.toBeInTheDocument();
+      }
+    }
+  );
+
   describe('extension surface (not mobile, not desktop, not confirm)', () => {
-    it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', () => {
+    it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', async () => {
       mockIsExtension.mockReturnValue(true);
       mockIsMobile.mockReturnValue(false);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       // Main content -> PageRouter (the default branch).
       expect(getByTestId('page-router')).toBeInTheDocument();
@@ -305,10 +355,10 @@ describe('app/App', () => {
 
   describe('motion config', () => {
     it.each([
-      ['extension', { windowType: 'FullPage', confirmWindow: false }, 'page-router'],
-      ['confirm window', { windowType: 'Popup', confirmWindow: true }, 'confirm-page']
-    ])('follows the OS reduced-motion setting around the whole %s tree', (_label, env, leaf) => {
-      const { getByTestId } = renderApp(env);
+      ['extension', { windowType: WindowType.FullPage, confirmWindow: false }, 'page-router'],
+      ['confirm window', { windowType: WindowType.Popup, confirmWindow: true }, 'confirm-page']
+    ])('follows the OS reduced-motion setting around the whole %s tree', async (_label, env, leaf) => {
+      const { getByTestId } = await renderApp(env);
 
       const config = getByTestId('motion-config');
       expect(config).toHaveAttribute('data-reduced-motion', 'user');
@@ -318,12 +368,12 @@ describe('app/App', () => {
   });
 
   describe('mobile surface (not extension, not desktop, not confirm)', () => {
-    it('wraps PageRouter in the DappBrowserProvider and mounts the mobile back bridge and page-failure notice', () => {
+    it('wraps PageRouter in the DappBrowserProvider and mounts the mobile back bridge and page-failure notice', async () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       const dappHost = getByTestId('dapp-browser-provider');
       expect(dappHost).toBeInTheDocument();
@@ -345,12 +395,12 @@ describe('app/App', () => {
   });
 
   describe('confirm window surface', () => {
-    it('renders ConfirmPage and no router / dApp host', () => {
+    it('renders ConfirmPage and no router / dApp host', async () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(false);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: true });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('page-router')).not.toBeInTheDocument();
@@ -358,13 +408,13 @@ describe('app/App', () => {
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
     });
 
-    it('prefers ConfirmPage over the mobile surface when both env.confirmWindow and isMobile are set', () => {
+    it('prefers ConfirmPage over the mobile surface when both env.confirmWindow and isMobile are set', async () => {
       // confirmWindow short-circuits the ternary before the isMobile check.
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: true });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
@@ -379,8 +429,8 @@ describe('app/App', () => {
       mockIsMobile.mockReturnValue(false);
       mockIsDesktop.mockReturnValue(true);
 
-      const { getByTestId, findByTestId, queryByTestId } = renderApp({
-        windowType: 'FullPage',
+      const { getByTestId, findByTestId, queryByTestId } = await renderApp({
+        windowType: WindowType.FullPage,
         confirmWindow: false
       });
 
@@ -399,8 +449,8 @@ describe('app/App', () => {
   });
 
   describe('telemetry startup', () => {
-    it('clears the legacy analytics identifier on mount, whatever the consent', () => {
-      renderApp({ windowType: 'FullPage', confirmWindow: false });
+    it('clears the legacy analytics identifier on mount, whatever the consent', async () => {
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       // The dormant `localStorage['analytics']` userId is data we hold with no
       // basis, so deleting it is unconditional — not something the user has to
@@ -408,38 +458,38 @@ describe('app/App', () => {
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting when usage sharing is disabled', () => {
+    it('starts crash reporting when usage sharing is disabled', async () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
-      renderApp({ windowType: 'FullPage', confirmWindow: false });
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       expect(mockIsTelemetryEnabled).not.toHaveBeenCalled();
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting when usage sharing is enabled', () => {
+    it('starts crash reporting when usage sharing is enabled', async () => {
       mockIsTelemetryEnabled.mockReturnValue(true);
 
-      renderApp({ windowType: 'FullPage', confirmWindow: false });
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting once per mount, not once per render', () => {
+    it('starts crash reporting once per mount, not once per render', async () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
-      const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
-      rerender(<App env={{ windowType: 'FullPage', confirmWindow: false } as any} />);
+      const { rerender } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
+      rerender(<App env={{ windowType: WindowType.FullPage, confirmWindow: false }} />);
 
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting on the confirm-window surface with usage sharing disabled', () => {
+    it('starts crash reporting on the confirm-window surface with usage sharing disabled', async () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
-      renderApp({ windowType: 'FullPage', confirmWindow: true });
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
       // A dApp confirmation is where a crash is most costly to a user, so it is
       // not a surface to leave unreported.
@@ -452,35 +502,35 @@ describe('app/App', () => {
       ['fullpage', { windowType: WindowType.FullPage }],
       ['sidepanel', { windowType: WindowType.SidePanel }],
       ['confirm', { windowType: WindowType.Popup, confirmWindow: true }]
-    ])('records the window as %s for relay failure reports', (surface, env) => {
-      render(<App env={env} />);
+    ])('records the window as %s for relay failure reports', async (surface, env) => {
+      await renderApp(env);
 
       expect(jest.mocked(recordRelaySurface)).toHaveBeenCalledWith(surface);
     });
   });
 
-  describe('remote bridge config', () => {
-    it('loads the config once per mount, whatever screen opens first', () => {
-      const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
-      rerender(<App env={{ windowType: 'FullPage', confirmWindow: false }} />);
+  describe('startup eligibility', () => {
+    it('initializes eligibility once per mount, whatever screen opens first', async () => {
+      const { rerender } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
+      rerender(<App env={{ windowType: WindowType.FullPage, confirmWindow: false }} />);
 
-      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(initFeatureEligibility)).toHaveBeenCalledTimes(1);
     });
 
-    it('loads it on the mobile and confirm-window surfaces too', () => {
+    it('loads it on the mobile and confirm-window surfaces too', async () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
-      const { unmount } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      const { unmount } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
       unmount();
 
-      renderApp({ windowType: 'Popup', confirmWindow: true });
+      await renderApp({ windowType: WindowType.Popup, confirmWindow: true });
 
-      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(2);
+      expect(jest.mocked(initFeatureEligibility)).toHaveBeenCalledTimes(2);
     });
   });
 
   describe('module-load lock-up check', () => {
-    it('skips the lock-up import when not running as an extension (false branch)', () => {
+    it('skips the lock-up import when not running as an extension (false branch)', async () => {
       // Re-evaluate the module with isExtension() === false to cover the
       // FALSE branch of the top-level `if (isExtension())`. The TRUE branch is
       // already covered by the static `import App from './App'` at file load

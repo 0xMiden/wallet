@@ -13,10 +13,17 @@ import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } fro
 import { cn } from 'lib/ui/util';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle, MetricCard } from './components';
+import {
+  EarnAssetMark,
+  EarnHero,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnVaultClosedNotice,
+  MetricCard
+} from './components';
 import { EARN_PLACEHOLDER, formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
-import { ChartDotProps, EarnVault } from './types';
+import { ChartDotProps, EarnRiskLevel, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnVaultDetailProps {
@@ -25,10 +32,11 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { t } = useTranslation();
-  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
+  // The vaults come from the derivation's catalogue, which can settle after the positions read.
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading: isLoading || vaultsPending, error: loadError });
   // Neither the pending nor the vault-less failed branch draws the Deposit control or its notice.
   const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
 
@@ -55,7 +63,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
             title={t('earnDeposit')}
             variant={ButtonVariant.Primary}
             accent="earn"
-            disabled={!vault.id || isFeatureBlocked(earnDeposit)}
+            disabled={!vault.id || vault.canOpen === false || isFeatureBlocked(earnDeposit)}
             onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
             className="max-w-none"
           />
@@ -65,11 +73,22 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       {/* A failed load never draws the placeholder vault as if it were real; with the vault in
           hand from an earlier load, it is still shown, under a notice that it may be stale. */}
       {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
+        <EarnLoadError
+          onRetry={refetch}
+          message={t('earnVaultLoadError')}
+          errorId="earnVaultLoadError"
+          className="mt-10"
+        />
       ) : pending ? null : (
         <>
-          {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
+          {loadFailed && (
+            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+          )}
           <FeatureUnavailableNotice availability={earnDeposit} />
+          {/* One reason at a time: when Earn deposits are down, that notice already says why Deposit is off. */}
+          {earnDeposit.state !== 'unavailable' && (
+            <EarnVaultClosedNotice canOpen={vault.canOpen} depositsEnabled={vault.depositsEnabled} />
+          )}
           <EarnHero
             layout="label-first"
             labelId="earn-vault-apy-title"
@@ -162,13 +181,47 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
   );
 };
 
+/** The status ink of each known risk level. A risk without a known level stays in the card's own ink. */
+function riskInk(level: EarnRiskLevel | undefined): string | undefined {
+  switch (level) {
+    case 'low':
+      return 'text-positive-tint-ink';
+    case 'medium':
+      return 'text-pending-tint-ink';
+    case 'high':
+      return 'text-negative-tint-ink';
+    default:
+      return undefined;
+  }
+}
+
+/** The i18n key of each known risk level. */
+function riskKey(level: EarnRiskLevel | undefined): string | undefined {
+  switch (level) {
+    case 'low':
+      return 'earnRiskLow';
+    case 'medium':
+      return 'earnRiskMedium';
+    case 'high':
+      return 'earnRiskHigh';
+    default:
+      return undefined;
+  }
+}
+
 const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
+  // A known level shows in the user's language. Another label shows as the service gives it.
+  const key = riskKey(vault.riskLevel);
 
   return (
     <div className="grid grid-cols-3 gap-2">
       <MetricCard label={t('earnTvlLabel')} value={vault.tvl} />
-      <MetricCard label={t('earnRiskLabel')} value={vault.risk} valueClassName="text-positive-tint-ink" />
+      <MetricCard
+        label={t('earnRiskLabel')}
+        value={key ? t(key) : vault.risk}
+        valueClassName={riskInk(vault.riskLevel)}
+      />
       <MetricCard
         label={t('earnAuditedLabel')}
         value={vault.audited ? `✓ ${t('yes')}` : t('no')}

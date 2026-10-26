@@ -58,6 +58,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
         // Miden patch (PR-4 chunk 4): multi-instance management methods.
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "morph", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setMorphTarget", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareMorph", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
         // Miden patch: retained native navbar overlay API. A caller can render a
@@ -885,11 +888,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 // so iOS handles both visual compositing and
                 // hit-testing natively. The wallet frontend does not
                 // currently call it; its navigation is React BottomNav.
-                let window = UIWindow(windowScene: scene)
-                window.frame = CGRect(x: x, y: y, width: w, height: h)
-                window.windowLevel = UIWindow.Level.normal + 100
-                window.backgroundColor = .clear
-                window.rootViewController = instance.navigationController
+                let window = Self.makeContainerWindow(scene: scene, rect: CGRect(x: x, y: y, width: w, height: h), instance: instance)
                 instance.installContainerWindow(window, hostWindow: self.bridge?.viewController?.view?.window)
                 presentedInWindow = true
             }
@@ -1357,6 +1356,76 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Miden plugin method (#1817): run one native minimize or maximize morph on an
+    /// instance's live page. Resolves `{ accepted }`; progress arrives as
+    /// `presentationMorph` events carrying the caller's `morphId`.
+    @objc func morph(_ call: CAPPluginCall) {
+        // Guards and the morph run in this one main-queue hop, so the frame-rate link starts on arrival.
+        DispatchQueue.main.async { call.resolve(["accepted": self.acceptMorph(call)]) }
+    }
+
+    private func acceptMorph(_ call: CAPPluginCall) -> Bool {
+        guard let id = call.getString("id"), let instance = WebViewRegistry.shared.get(id: id),
+              let presentation = instance.controller.breadPresentation, let window = instance.containerWindow,
+              instance.morphContainer != nil, let target = call.getString("to").flatMap(BreadMorphTarget.init(rawValue:)),
+              let morphId = call.getString("morphId"), !morphId.isEmpty,
+              call.getString("managedHostCloseToken") == instance.managedClose?.token,
+              instance.managedClose?.closing != true,
+              instance.managedClose == nil || call.getInt("visibilitySequence") != nil else { return false }
+        let origin = presentation.slotFrame()?.origin ?? window.frame.origin
+        let card = Self.morphCard(from: call.options["card"]).map {
+            BreadMorphCard(rect: $0.rect.offsetBy(dx: -origin.x, dy: -origin.y), cornerRadius: $0.cornerRadius)
+        }
+        let velocity = call.options["velocity"] as? [String: Any]
+        let accepted = presentation.morph(to: target, card: card,
+            velocity: CGPoint(x: Self.morphNumber(velocity?["x"]) ?? 0, y: Self.morphNumber(velocity?["y"]) ?? 0),
+            morphId: morphId, policyRevision: target == .expanded ? call.getInt("policyRevision") : nil,
+            sequence: call.getInt("visibilitySequence"))
+        instance.isVisible = presentation.state.desiredVisibility
+        return accepted
+    }
+
+    static func morphCard(from value: Any?) -> BreadMorphCard? {
+        guard let values = value as? [String: Any], let x = morphNumber(values["x"]), let y = morphNumber(values["y"]),
+              let width = morphNumber(values["width"]), let height = morphNumber(values["height"]),
+              let radius = morphNumber(values["cornerRadius"]), width > 0, height > 0, radius >= 0 else { return nil }
+        // The shadow renderer sizes a bitmap from the radius, so no corner may exceed the card it rounds.
+        return BreadMorphCard(rect: CGRect(x: x, y: y, width: width, height: height),
+                              cornerRadius: CGFloat(min(radius, min(width, height) / 2)))
+    }
+
+    private static func morphNumber(_ value: Any?) -> Double? {
+        guard let number = (value as? NSNumber)?.doubleValue, number.isFinite else { return nil }
+        return number
+    }
+
+    /// Miden plugin method (#1817): publish the landing card, in host viewport
+    /// points, that the native Bread button collapses toward. `card: null` clears it.
+    @objc func setMorphTarget(_ call: CAPPluginCall) {
+        let card = Self.morphCard(from: call.options["card"])
+        DispatchQueue.main.async {
+            WebViewRegistry.shared.morphCard = card
+            call.resolve()
+        }
+    }
+
+    /// Miden plugin method (#1817): hold the full frame rate from a touch-down on a
+    /// control that can start a morph, so the display is at speed when it moves.
+    /// A morph that starts takes the request over; without one it lapses after `durationMs`.
+    /// A shown page also takes its collapse proxy here, off the collapse's frames; the parked page named by `id`
+    /// shows its window unseen, so its expand's first frame is not the unhide.
+    @objc func prepareMorph(_ call: CAPPluginCall) {
+        let duration = min(2, max(0, Double(call.getInt("durationMs") ?? 600) / 1000))
+        let named = call.getString("id")
+        DispatchQueue.main.async {
+            BreadFrameRateBoost.shared.hold(for: duration)
+            for id in WebViewRegistry.shared.allIds() {
+                WebViewRegistry.shared.get(id: id)?.controller.breadPresentation?.prepareMorph(warm: id == named)
+            }
+            call.resolve()
+        }
+    }
+
     /// Miden plugin method (PR-4 chunk 4): list all currently registered
     /// instance ids. Used by the wallet's PR-6 cold-bubble restore logic and
     /// the LRU eviction in PR-4 §memory-budget. The order is unspecified;
@@ -1509,6 +1578,17 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             overlay.windowScene = nil
         }
         navbarOverlay = nil
+    }
+
+    static func makeContainerWindow(scene: UIWindowScene, rect: CGRect, instance: WKWebViewInstance) -> UIWindow {
+        let window = UIWindow(windowScene: scene)
+        window.frame = rect
+        window.windowLevel = UIWindow.Level.normal + 100
+        window.backgroundColor = .clear
+        let container = BreadMorphContainerViewController(child: instance.navigationController)
+        instance.morphContainer = container
+        window.rootViewController = container
+        return window
     }
 
     /// Shared teardown for Architecture A dApp container windows.

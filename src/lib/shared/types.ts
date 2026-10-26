@@ -89,6 +89,8 @@ export enum WalletMessageType {
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
+  ImportHotKeyPairRequest = 'IMPORT_HOT_KEY_PAIR_REQUEST',
+  ImportHotKeyPairResponse = 'IMPORT_HOT_KEY_PAIR_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
   RevertGuardianEndpointRequest = 'REVERT_GUARDIAN_ENDPOINT_REQUEST',
@@ -97,6 +99,10 @@ export enum WalletMessageType {
   SetGuardianOperatorCommitmentResponse = 'SET_GUARDIAN_OPERATOR_COMMITMENT_RESPONSE',
   SetGuardianSyncStatusRequest = 'SET_GUARDIAN_SYNC_STATUS_REQUEST',
   SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
+  MarkHotKeyRotatedOutRequest = 'MARK_HOT_KEY_ROTATED_OUT_REQUEST',
+  MarkHotKeyRotatedOutResponse = 'MARK_HOT_KEY_ROTATED_OUT_RESPONSE',
+  RetireRotatedOutHotKeyRequest = 'RETIRE_ROTATED_OUT_HOT_KEY_REQUEST',
+  RetireRotatedOutHotKeyResponse = 'RETIRE_ROTATED_OUT_HOT_KEY_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
@@ -463,6 +469,23 @@ export type KeyDerivation = 'v1';
  */
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
 
+/**
+ * Persisted finding that the account's on-chain hot signer (signer slot 0) is
+ * not the hot key this device holds: another device, most often a seed
+ * recovery, rotated the key and holds the account now. The verdict names the
+ * local key it was judged against, so it binds to that key alone: a record
+ * whose `hotPublicKey` has moved on carries a verdict about a key it no longer
+ * uses, and the predicate ignores it.
+ */
+export interface HotKeyRotatedOutVerdict {
+  /** This device's hot key at the time of the check (`WalletAccount.hotPublicKey`). */
+  hotPublicKey: string;
+  /** The hot-signer commitment the chain named instead. */
+  onChainHotCommitment: string;
+  /** Wall-clock time of the check, ms since the epoch. */
+  detectedAt: number;
+}
+
 /** Built-in guardian provider identity, reverse-mapped from the endpoint. */
 export type GuardianProvider = 'open-zeppelin' | 'gateway' | 'lambda-class' | 'custom';
 
@@ -521,6 +544,15 @@ export interface WalletAccount {
   guardianEpoch?: number;
   /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */
   guardianSyncStatus?: GuardianSyncStatus;
+  /**
+   * The verdict that another device rotated the account's hot key. See
+   * {@link HotKeyRotatedOutVerdict}. Set by the cold-signed signer check in the
+   * guardian sync's self-heal and by the direct guardian switch; cleared when
+   * this device's key is installed again (`swapHotKey`) or when the stale key is
+   * retired for a rotation to this device. Read only through
+   * `isHotKeyRotatedOut` in `lib/miden/guardian/sync-guard`.
+   */
+  hotKeyRotatedOut?: HotKeyRotatedOutVerdict;
   /** Auth scheme this account was created with. See {@link AuthScheme}. */
   authScheme: AuthScheme;
   /**
@@ -981,6 +1013,16 @@ export interface SwapHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyResponse;
 }
 
+export interface ImportHotKeyPairRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairRequest;
+  accountPublicKey: string;
+  keyPairPayload: string;
+}
+
+export interface ImportHotKeyPairResponse extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairResponse;
+}
+
 export interface SetGuardianEndpointRequest extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointRequest;
   accountPublicKey: string;
@@ -1028,6 +1070,37 @@ export interface SetGuardianSyncStatusRequest extends WalletMessageBase {
 
 export interface SetGuardianSyncStatusResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianSyncStatusResponse;
+}
+
+/**
+ * Persist the rotated-out verdict (see {@link HotKeyRotatedOutVerdict}). The
+ * write lands only while the stored `hotPublicKey` is still `hotPublicKey`.
+ */
+export interface MarkHotKeyRotatedOutRequest extends WalletMessageBase {
+  type: WalletMessageType.MarkHotKeyRotatedOutRequest;
+  accountPublicKey: string;
+  hotPublicKey: string;
+  onChainHotCommitment: string;
+}
+
+export interface MarkHotKeyRotatedOutResponse extends WalletMessageBase {
+  type: WalletMessageType.MarkHotKeyRotatedOutResponse;
+}
+
+/**
+ * Make this device the account's main one again: drop the rotated-out hot key
+ * and flag the account for a hot-key rotation (`requiresHotKeyRotation`), which
+ * `HotKeyRotationGate` then runs. Refused unless the stored `hotPublicKey` is
+ * still `expectedHotPubKey`.
+ */
+export interface RetireRotatedOutHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.RetireRotatedOutHotKeyRequest;
+  accountPublicKey: string;
+  expectedHotPubKey: string;
+}
+
+export interface RetireRotatedOutHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.RetireRotatedOutHotKeyResponse;
 }
 
 export interface CheckGuardianDriftRequest extends WalletMessageBase {
@@ -1298,10 +1371,13 @@ export type WalletRequest =
   | SignEvmRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
+  | ImportHotKeyPairRequest
   | SetGuardianEndpointRequest
   | RevertGuardianEndpointRequest
   | SetGuardianOperatorCommitmentRequest
   | SetGuardianSyncStatusRequest
+  | MarkHotKeyRotatedOutRequest
+  | RetireRotatedOutHotKeyRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
   | StartGuardianRecoveryRequest
@@ -1373,10 +1449,13 @@ export type WalletResponse =
   | SignEvmResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
+  | ImportHotKeyPairResponse
   | SetGuardianEndpointResponse
   | RevertGuardianEndpointResponse
   | SetGuardianOperatorCommitmentResponse
   | SetGuardianSyncStatusResponse
+  | MarkHotKeyRotatedOutResponse
+  | RetireRotatedOutHotKeyResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
   | StartGuardianRecoveryResponse

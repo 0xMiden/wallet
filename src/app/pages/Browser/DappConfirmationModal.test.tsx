@@ -15,9 +15,12 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { truncateAddress } from 'utils/string';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The wallet-adapter package ships as ESM and is not transformed by jest, so the
 // repo-level manual mock (`__mocks__/@miden-sdk/miden-wallet-adapter-base.ts`)
@@ -48,6 +51,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 jest.mock('lib/animation', () => ({
+  installSheetKeyframes: () => {},
+  sheetMotionVars: {},
   useSprings: () => ({ overlay: {}, modal: {}, reduceMotion: false })
 }));
 
@@ -474,6 +479,10 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     expect(onResolve).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(expect.any(Error));
     expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent('protector check failed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_dapp_approval_failed', 'inline');
 
     confirmMock.mockResolvedValue(true);
     await act(async () => {
@@ -910,6 +919,42 @@ describe('DappConfirmationModal network', () => {
     );
 
     expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+  });
+});
+
+describe('DappConfirmationModal test ids', () => {
+  // The mobile dApp E2E driver (playwright/e2e/helpers/dapp-mobile-sheet.ts) finds the sheet from its origin and reads
+  // these ids; a renamed one leaves every mobile cell waiting on a sheet it cannot see.
+  it('marks every message line, Deny and Approve inside the dialog its origin titles', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'transaction',
+          sourcePublicKey: FULL_ACCOUNT_ID,
+          transactionMessages: ['Simulated effects:', 'Notes created, 1']
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+    const dialog = screen.getByTestId('dapp-confirmation-origin').closest('[role="dialog"]');
+    if (!(dialog instanceof HTMLElement)) throw new Error('the origin is not inside a dialog');
+    const sheet = within(dialog);
+    expect(sheet.getAllByTestId('dapp-confirmation-message').map(line => line.textContent)).toEqual([
+      'Simulated effects:',
+      'Notes created, 1'
+    ]);
+    expect(sheet.getByTestId('dapp-confirmation-approve').textContent).toBe('confirm');
+    fireEvent.click(sheet.getByTestId('dapp-confirmation-deny'));
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+
+  it('approves a connect through the Approve test id', () => {
+    const onResolve = jest.fn();
+    render(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+    fireEvent.click(screen.getByTestId('dapp-confirmation-approve'));
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }), 'req-1');
   });
 });
 

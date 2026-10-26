@@ -1,12 +1,13 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
 
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
@@ -89,8 +90,28 @@ jest.mock('components/Button', () => ({
 //     mapped UIToken is serialized to `data-token` so we can assert the
 //     swapTokenToUIToken transformation, and two buttons surface the
 //     onAmountChange / onSelectToken callbacks.
+let mockRealAmountDisplay = false;
+let mockCapturePrecision = false;
+jest.mock('components/AmountInput', () => ({
+  ...jest.requireActual('components/AmountInput'),
+  AmountInput: (props: any) => {
+    if (mockCapturePrecision) {
+      return (
+        <div data-testid="captured-amount-input" data-label={props.label} data-decimals-limit={props.decimalsLimit} />
+      );
+    }
+    const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
+    return <AmountInput {...props} />;
+  }
+}));
 jest.mock('../send-flow/SelectAmount', () => ({
   SelectAmount: (props: any) => {
+    if (mockRealAmountDisplay) {
+      const { SelectAmount } = jest.requireActual<typeof import('screens/send-flow/SelectAmount')>(
+        'screens/send-flow/SelectAmount'
+      );
+      return <SelectAmount {...props} />;
+    }
     // The label is a styled node now; its text is still 'youPay' / 'youReceive'.
     const key = typeof props.label === 'string' ? props.label : props.label?.props?.children;
     return (
@@ -168,6 +189,27 @@ describe('SwapAmounts', () => {
   });
 
   describe('layout & token mapping', () => {
+    it('passes each selected token precision to its amount input', () => {
+      mockRealAmountDisplay = true;
+      mockCapturePrecision = true;
+      try {
+        renderComponent({
+          offerToken: { ...offerToken, decimals: 9 },
+          requestToken: { ...requestToken, decimals: 2 }
+        });
+
+        const inputs = screen.getAllByTestId('captured-amount-input');
+        expect(inputs).toHaveLength(2);
+        expect(inputs[0]).toHaveAttribute('data-label', 'youPay');
+        expect(inputs[0]).toHaveAttribute('data-decimals-limit', '9');
+        expect(inputs[1]).toHaveAttribute('data-label', 'youReceive');
+        expect(inputs[1]).toHaveAttribute('data-decimals-limit', '2');
+      } finally {
+        mockCapturePrecision = false;
+        mockRealAmountDisplay = false;
+      }
+    });
+
     it('renders both stacked SelectAmount fields (You Pay / You Receive), embedded', () => {
       renderComponent();
 
@@ -274,6 +316,28 @@ describe('SwapAmounts', () => {
       expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
     });
 
+    it('rejects a typed base unit above an 18-decimal offer balance', () => {
+      renderComponent({
+        offerToken: { ...offerToken, decimals: 18 },
+        offerAmount: '1.000000000000000001',
+        offerBalance: 1
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-valid', 'false');
+      expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
+    });
+
+    it('shows the precision error before the offer balance error', () => {
+      renderComponent({
+        offerToken: { ...offerToken, decimals: 2 },
+        offerAmount: '1.001',
+        offerBalance: 1
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-valid', 'false');
+      expect(pay).toHaveAttribute('data-error', 'amountExceedsTokenDecimals');
+    });
+
     it('is invalid with no error when the amount is zero (fails the > 0 check first)', () => {
       renderComponent({ offerAmount: '0', offerBalance: 100 });
       const pay = screen.getByTestId('select-amount-youPay');
@@ -330,6 +394,13 @@ describe('SwapAmounts', () => {
     it('is invalid when the request amount is zero/empty', () => {
       renderComponent({ requestAmount: '0' });
       expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-valid', 'false');
+    });
+
+    it('shows a precision error for a request amount the token cannot represent', () => {
+      renderComponent({ requestToken: { ...requestToken, decimals: 2 }, requestAmount: '1.001' });
+      const receive = screen.getByTestId('select-amount-youReceive');
+      expect(receive).toHaveAttribute('data-valid', 'false');
+      expect(receive).toHaveAttribute('data-error', 'amountExceedsTokenDecimals');
     });
   });
 
@@ -533,3 +604,37 @@ describe('SwapAmounts — CTA', () => {
     expect(quoteStatus()).toBeNull();
   });
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible swap amount reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockRealAmountDisplay = true;
+  });
+  afterEach(() => {
+    mockRealAmountDisplay = false;
+    jest.useRealTimers();
+  });
+  it('reports an over-balance offer on the real amount field', () => {
+    renderComponent({ offerAmount: '150', offerBalance: 100 });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['amountMustBeLessThanBalance', 'field']]);
+  });
+  it('reports the visible fee line once rather than its hidden field error', () => {
+    renderComponent({ feeAssetMissing: true, offerAmount: '' });
+    expect(screen.getByTestId('swap-fee-notice')).toHaveTextContent('insufficientFeeAssetShort');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['insufficientFeeAssetShort', 'inline']]);
+  });
+  it('does not report calculating status copy', () => {
+    renderComponent({ offerAmount: '1', offerBalance: 100, statusMessage: 'swapCalculating', statusIsError: false });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+jest.mock('components/ui/AnimatedNumber', () => ({
+  AnimatedNumber: ({ value }: { value: number }) => <span>{value}</span>
+}));

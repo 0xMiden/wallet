@@ -2,16 +2,21 @@
  * Only an origin a row lists may wait on its result (#1416), so each dApp creation path writes the origin in the write
  * that creates the row, and the wallet's own paths write none.
  */
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import {
+  buildNetworkChoiceOverride,
+  getEffectiveNetworkName,
+  type EndpointOverride
+} from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction, requestCustomTransaction } from './initiate';
 
-let mockBadgeOverride = false;
+let mockBadgeOverride: EndpointOverride | null = null;
 let mockBadgeNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getActiveOverride: () => (mockBadgeOverride ? { rpcUrl: 'https://custom-chain.example' } : null),
+  getActiveOverride: () => mockBadgeOverride,
   getEffectiveNetworkName: () => mockBadgeNetwork
 }));
 
@@ -72,13 +77,22 @@ const custom = (spent?: typeof SPENT, dappOrigin?: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockBadgeOverride = false;
+  mockBadgeOverride = null;
   mockBadgeNetwork = 'testnet';
 });
 
 describe('the origin a dApp row is created for', () => {
+  it('stamps an ordinary Mainnet onboarding network choice for later badge recognition', async () => {
+    mockBadgeNetwork = 'mainnet';
+    mockBadgeOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    await send();
+    expect(insertedRow()).toEqual(expect.objectContaining({ badgeNetwork: 'mainnet' }));
+  });
   it('does not preserve a Mainnet-looking developer override as future badge evidence', async () => {
-    mockBadgeOverride = true;
+    mockBadgeOverride = {
+      ...buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET),
+      rpcUrl: 'https://custom-chain.example'
+    };
     mockBadgeNetwork = 'mainnet';
     await send();
     expect(insertedRow()).toEqual(expect.objectContaining({ badgeNetwork: undefined }));

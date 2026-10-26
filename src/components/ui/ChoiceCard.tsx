@@ -10,8 +10,8 @@ import { cn } from 'lib/ui/util';
 
 import { CheckboxIndicator } from './Checkbox';
 import { radioGroupKeyTarget } from './radio-group-keys';
+import { SectionHeader } from './SectionHeader';
 import { SelectionCheck } from './SelectionCheck';
-import { outlineSurfaceClassName } from './surfaces';
 
 /** `data-*` attributes forwarded to an option's `button`, e.g. an E2E hook keyed on its value. */
 export type ChoiceCardDataAttributes = Partial<Record<`data-${string}`, string>>;
@@ -37,9 +37,15 @@ export interface ChoiceCardItem<T extends string = string> {
 }
 
 export interface ChoiceCardGroupProps<T extends string = string> {
-  items: readonly ChoiceCardItem<T>[];
+  items?: readonly ChoiceCardItem<T>[];
+  sections?: readonly {
+    label: string;
+    items: readonly ChoiceCardItem<T>[];
+  }[];
   /** Optional flow color for selection; omitted keeps the standard brand treatment. */
   accent?: FlowAccent;
+  /** `fill` (default): every card on `fill`. `outline`: unchosen cards on `page` with a hairline edge. */
+  surface?: 'fill' | 'outline';
   /** The chosen option, or `null` when none is (every option offline, a choice made elsewhere). */
   value: T | null;
   /** Called once per real change: never for a tap on the option that is already chosen. */
@@ -52,7 +58,6 @@ export interface ChoiceCardGroupProps<T extends string = string> {
    * acts at once (a sheet that closes on it), so arrowing past an option does not choose it.
    */
   arrowKeys?: 'select' | 'focus';
-  surface?: 'fill' | 'outline';
   'aria-label'?: string;
   'aria-labelledby'?: string;
   /** Layout only (margins). */
@@ -71,15 +76,27 @@ const card = cva(
   {
     variants: {
       layout: { row: '', detail: 'flex-col items-stretch' },
-      surface: {
-        fill: 'bg-fill',
-        outline: outlineSurfaceClassName
-      },
+      // `outline`: an unchosen card is `page` inside a hairline edge, so only the chosen one is a filled block.
+      surface: { fill: 'bg-fill', outline: 'border' },
       selected: {
         true: 'ring-2 ring-inset ring-accent-primary',
-        false: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
+        false: ''
       }
     },
+    compoundVariants: [
+      {
+        surface: 'fill',
+        selected: false,
+        class: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
+      },
+      {
+        surface: 'outline',
+        selected: false,
+        class: 'border-hairline bg-page hover:bg-fill active:bg-fill disabled:hover:bg-page disabled:active:bg-page'
+      },
+      // The edge stays as a transparent border so choosing a card does not move its content by 1px.
+      { surface: 'outline', selected: true, class: 'border-transparent bg-fill' }
+    ],
     defaultVariants: { selected: false, layout: 'row', surface: 'fill' }
   }
 );
@@ -96,12 +113,12 @@ interface OptionProps<T extends string> {
   item: ChoiceCardItem<T>;
   selected: boolean;
   accent?: FlowAccent;
+  surface: 'fill' | 'outline';
   focusable: boolean;
   onSelect: (id: T) => void;
-  surface?: 'fill' | 'outline';
 }
 
-function ChoiceCardOption<T extends string>({ item, selected, accent, focusable, onSelect, surface }: OptionProps<T>) {
+function ChoiceCardOption<T extends string>({ item, selected, accent, surface, focusable, onSelect }: OptionProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(selected);
   const id = useId();
@@ -172,7 +189,7 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, focusable,
       onClick={() => onSelect(item.id)}
       {...(item.disabled ? {} : motionTokens.press)}
       className={cn(
-        card({ selected, layout: item.details ? 'detail' : 'row', surface }),
+        card({ selected, surface, layout: item.details ? 'detail' : 'row' }),
         selected && accent && FLOW_RING[accent]
       )}
     >
@@ -209,27 +226,29 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, focusable,
  * value, while a card group with nothing to choose shows nothing chosen.
  */
 export function ChoiceCardGroup<T extends string>({
-  items,
+  items = [],
+  sections,
   accent,
+  surface = 'fill',
   value,
   onChange,
   onReselect,
   arrowKeys = 'select',
-  surface,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   className,
   'data-testid': dataTestId
 }: ChoiceCardGroupProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
+  const groupItems = sections === undefined ? items : sections.flatMap(section => section.items);
 
   // A disabled option can never be the answer, so it is not reported as one: `value` is normalised
   // against the options the user can actually choose, and that one value feeds the check, the tab
   // stop and the keyboard. Reading it raw let a disabled card render `aria-checked` while focus sat
   // on a different card - a selection with no visible reason, reported to assistive tech as the
   // answer.
-  const selectedIndex = items.findIndex(item => item.id === value && !item.disabled);
-  const focusIndex = selectedIndex >= 0 ? selectedIndex : items.findIndex(item => !item.disabled);
+  const selectedIndex = groupItems.findIndex(item => item.id === value && !item.disabled);
+  const focusIndex = selectedIndex >= 0 ? selectedIndex : groupItems.findIndex(item => !item.disabled);
 
   const select = (id: T) => {
     if (id === value) {
@@ -240,16 +259,12 @@ export function ChoiceCardGroup<T extends string>({
     onChange(id);
   };
 
-  // The options are the grid's own children, one per item and in item order - the group renders
-  // nothing else inside it. A divider, a section label or a per-row wrapper would break that, and
-  // focus would then land on a different card than the one selected, silently.
-  const buttonAt = (index: number): HTMLElement | null => {
-    const node = groupRef.current?.children[index];
-    return node instanceof HTMLElement ? node : null;
-  };
+  // Index the radios themselves because section headings and dividers also live inside this group.
+  const buttonAt = (index: number): HTMLElement | null =>
+    groupRef.current?.querySelectorAll<HTMLElement>('[role="radio"]')[index] ?? null;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const enabled = items.map((item, index) => ({ item, index })).filter(({ item }) => !item.disabled);
+    const enabled = groupItems.map((item, index) => ({ item, index })).filter(({ item }) => !item.disabled);
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
@@ -267,6 +282,24 @@ export function ChoiceCardGroup<T extends string>({
     if (arrowKeys === 'select') select(target.item.id);
   };
 
+  const renderOption = (item: ChoiceCardItem<T>, index: number) => (
+    <ChoiceCardOption
+      key={item.id}
+      item={item}
+      accent={accent}
+      surface={surface}
+      selected={index === selectedIndex}
+      focusable={index === focusIndex}
+      onSelect={select}
+    />
+  );
+
+  let sectionOffset = 0;
+  const indexedSections = (sections ?? []).map(section => {
+    const indexedItems = section.items.map(item => ({ item, index: sectionOffset++ }));
+    return { section, items: indexedItems };
+  });
+
   return (
     <div
       ref={groupRef}
@@ -276,21 +309,24 @@ export function ChoiceCardGroup<T extends string>({
       aria-orientation="vertical"
       data-testid={dataTestId}
       onKeyDown={handleKeyDown}
-      // One column of equal rows: every card is as tall as the tallest, so a provider with a longer
-      // meta line does not leave its neighbours looking shorter.
-      className={cn('grid auto-rows-fr grid-cols-1 gap-3', className)}
+      // The flat render keeps its cards as direct children; sections add headings and dividers.
+      className={cn(sections === undefined ? 'grid auto-rows-fr grid-cols-1 gap-3' : 'flex flex-col gap-5', className)}
     >
-      {items.map((item, index) => (
-        <ChoiceCardOption
-          key={item.id}
-          item={item}
-          accent={accent}
-          selected={index === selectedIndex}
-          focusable={index === focusIndex}
-          onSelect={select}
-          surface={surface}
-        />
-      ))}
+      {sections === undefined
+        ? groupItems.map(renderOption)
+        : indexedSections.map(({ section, items: sectionItems }, sectionIndex) => (
+            <React.Fragment key={`${section.label}-${sectionIndex}`}>
+              {sectionIndex > 0 && <div aria-hidden="true" className="h-px shrink-0 bg-hairline" />}
+              <div role="group" aria-label={section.label}>
+                <SectionHeader as="h3" size="md">
+                  {section.label}
+                </SectionHeader>
+                <div className="grid auto-rows-fr grid-cols-1 gap-3">
+                  {sectionItems.map(({ item, index }) => renderOption(item, index))}
+                </div>
+              </div>
+            </React.Fragment>
+          ))}
     </div>
   );
 }

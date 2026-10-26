@@ -19,15 +19,16 @@ import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
 import { BreadConnectPrompt } from 'app/templates/BreadConnectPrompt';
+import { HotKeyRotatedOutGate } from 'app/templates/HotKeyRotatedOutGate';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
+import { SeedBackupGate } from 'app/templates/SeedBackupGate';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
-import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { WalletMessageType } from 'lib/shared/types';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 // Deep import: the barrel deliberately does not re-export `crash`, so that
@@ -41,6 +42,8 @@ import * as Woozie from 'lib/woozie';
 import '../i18n';
 
 import ConfirmPage from './ConfirmPage';
+import { RuntimeSupportGate } from './RuntimeSupportGate';
+import { WalletAccessGate } from './WalletAccessGate';
 // Lock-up checks are extension-only (uses webextension-polyfill)
 if (isExtension()) {
   import('lib/lock-up/run-checks');
@@ -76,10 +79,6 @@ const App: FC<AppProps> = ({ env }) => {
     // Crash reports are independent of usage sharing. Capture and transport
     // still check the browser's data-collection permission before sending.
     initCrashReporting();
-    // Display prices and the other synchronous readers use the bridge config snapshot, so every page realm loads it at
-    // boot instead of whenever a bridge screen mounts, then follows every change of the effective network through
-    // `followEffectiveNetwork`. The first load also starts this realm's poll. It never rejects.
-    void initBridgeConfig();
   }, []);
 
   return (
@@ -89,47 +88,59 @@ const App: FC<AppProps> = ({ env }) => {
       <ErrorBoundary whileMessage="booting a wallet" className="min-h-screen" windowType={env.windowType}>
         <DialogsProvider>
           <Suspense fallback={<RootSuspenseFallback />}>
-            <AppProvider env={env}>
-              <Dialogs />
+            <AwaitI18N />
+            <RuntimeSupportGate>
+              <WalletAccessGate>
+                <AppProvider env={env}>
+                  <DisableOutlinesForClick />
 
-              <DisableOutlinesForClick />
-
-              <AwaitI18N />
-
-              <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
-                <BootAnimation>
-                  {/* Vaul's shouldScaleBackground scales the element carrying
-                    data-vaul-drawer-wrapper while a bottom sheet is open
-                    (transform + transient border-radius/overflow, all managed
-                    by vaul). Must wrap the whole app surface. */}
-                  <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
-                    {env.confirmWindow ? (
-                      <ConfirmPage />
-                    ) : checkIsMobile() ? (
-                      // The DappBrowserProvider owns the embedded dApp webview lifecycle
-                      // and the bubble host. It must live ABOVE PageRouter so it survives
-                      // tab navigation - a parked dApp's bubble stays interactive even
-                      // when the user moves to a different tab.
-                      <DappBrowserProvider>
-                        <UpdateNotificationProvider>
-                          <HotKeyRotationGate />
-                          <GuardianRecoveryProvider />
-                          <OpenLinkPrompt />
-                          <BreadConnectPrompt />
-                          <PageRouter />
-                        </UpdateNotificationProvider>
-                      </DappBrowserProvider>
-                    ) : (
-                      <UpdateNotificationProvider>
-                        <HotKeyRotationGate />
-                        <GuardianRecoveryProvider />
-                        <PageRouter />
-                      </UpdateNotificationProvider>
-                    )}
-                  </div>
-                </BootAnimation>
-              </AwaitFonts>
-            </AppProvider>
+                  <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
+                    <BootAnimation>
+                      {/* Vaul's shouldScaleBackground scales the element carrying
+                      data-vaul-drawer-wrapper while a bottom sheet is open
+                      (transform + transient border-radius/overflow, all managed
+                      by vaul). Must wrap the whole app surface. */}
+                      <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
+                        <SeedBackupGate>
+                          <Dialogs />
+                          {isExtension() && <PinExtensionPrompt />}
+                          {checkIsDesktop() && (
+                            <Suspense fallback={null}>
+                              <DesktopDappConfirmationModal />
+                            </Suspense>
+                          )}
+                          {env.confirmWindow ? (
+                            <ConfirmPage />
+                          ) : checkIsMobile() ? (
+                            // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                            // and the bubble host. It must live ABOVE PageRouter so it survives
+                            // tab navigation - a parked dApp's bubble stays interactive even
+                            // when the user moves to a different tab.
+                            <DappBrowserProvider>
+                              <UpdateNotificationProvider>
+                                <HotKeyRotationGate />
+                                <HotKeyRotatedOutGate />
+                                <GuardianRecoveryProvider />
+                                <OpenLinkPrompt />
+                                <BreadConnectPrompt />
+                                <PageRouter />
+                              </UpdateNotificationProvider>
+                            </DappBrowserProvider>
+                          ) : (
+                            <UpdateNotificationProvider>
+                              <HotKeyRotationGate />
+                              <HotKeyRotatedOutGate />
+                              <GuardianRecoveryProvider />
+                              <PageRouter />
+                            </UpdateNotificationProvider>
+                          )}
+                        </SeedBackupGate>
+                      </div>
+                    </BootAnimation>
+                  </AwaitFonts>
+                </AppProvider>
+              </WalletAccessGate>
+            </RuntimeSupportGate>
           </Suspense>
         </DialogsProvider>
       </ErrorBoundary>
@@ -152,13 +163,11 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
       <Woozie.Provider>
         <ExtensionMessageListener />
         <ScreenKeyPublisher />
-        {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
         {checkIsMobile() && <ExternalPageFailedNotice />}
         {checkIsDesktop() && (
           <Suspense fallback={null}>
             <DesktopDappHandler />
-            <DesktopDappConfirmationModal />
           </Suspense>
         )}
         <AppKitProvider>

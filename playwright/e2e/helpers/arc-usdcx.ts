@@ -81,13 +81,14 @@ export const XRESERVE_HARNESS_ABI = parseAbi([
   'error ZeroValue()'
 ]);
 
-const GATEWAY_MINTER_ABI = parseAbi([
+export const GATEWAY_MINTER_ABI = parseAbi([
   'event AttestationUsed(address indexed token, address indexed recipient, bytes32 indexed transferSpecHash, uint32 sourceDomain, bytes32 sourceDepositor, bytes32 sourceSigner, uint256 value)'
 ]);
 
 const PAYOUT_POLL_MS = 5_000;
 const HEAD_LAG_BUDGET_MS = 60_000;
 const RECEIPT_TIMEOUT_MS = 120_000;
+const ETHEREUM_MAINNET_RECEIPT_TIMEOUT_MS = 600_000;
 const RECEIPT_POLL_MS = 1_000;
 /**
  * A deposit leg's call is asked again at most this often, 2, 4 and 8 s apart, after a transient error or, when it is
@@ -219,10 +220,15 @@ export interface ArcReadDeps {
 /** Writes sign locally with the key and send raw through the read client, so they need nothing more. */
 export type ArcWriteDeps = ArcReadDeps;
 
+function feeChain(chain: Chain): Chain {
+  // Mainnet fee spikes can outlast Circle's block-bound quote before a 1.2x bid becomes eligible again.
+  return chain.id === 1 ? { ...chain, fees: { ...chain.fees, baseFeeMultiplier: 2 } } : chain;
+}
+
 function defaultPublicClient(endpoint: string, chain: Chain): PublicClient {
   // cacheTime 0: viem caches eth_blockNumber for its polling interval, and every payout cycle needs a fresh head.
   return createPublicClient({
-    chain,
+    chain: feeChain(chain),
     cacheTime: 0,
     transport: http(endpoint, { retryCount: 0, timeout: ARC_RPC_TIMEOUT_MS })
   });
@@ -302,6 +308,22 @@ export interface XReserveDomainState {
   /** `getRemoteDomainDepositor(10007)` padded to a lowercase bytes32, the payout's `sourceDepositor`. */
   depositor: Hex;
   gatewayMinter: Address;
+}
+
+/** Whether `xReserve` has `domain` registered. The caller names the address, so mainnet Arc is not read at the testnet one. */
+export async function readRemoteDomainRegistered(
+  deps: ArcReadDeps,
+  xReserve: Address,
+  domain: number
+): Promise<boolean> {
+  return onFirstEndpoint(deps, 'xReserve domain registration', client =>
+    client.readContract({
+      address: xReserve,
+      abi: XRESERVE_HARNESS_ABI,
+      functionName: 'isRemoteDomainRegistered',
+      args: [domain]
+    })
+  );
 }
 
 /** Miden's domain on Arc's xReserve, all reads on one endpoint. */
@@ -485,8 +507,6 @@ export interface GatewayPayoutArgs {
   deadlineMs: number;
   /** `readXReserveDomainState().depositor`. */
   depositor: Hex;
-  /** `minimumUsdcxPayout(<payout chain id>, burnUnits)`, the floor the wallet's own confirmation uses. */
-  minimumValue: bigint;
 }
 
 interface PayoutState {
@@ -582,6 +602,10 @@ async function payoutCycle(
   if (sourceDepositor.toLowerCase() !== args.depositor.toLowerCase()) {
     throw uncorrelated(`sourceDepositor ${sourceDepositor}, expected ${args.depositor}`);
   }
+  // Circle's fee is whatever it kept, so the only bound is the burn: a zero or larger mint is not this payout.
+  if (value <= 0n || value > args.burnUnits) {
+    throw uncorrelated(`log value ${value} is not between 1 and the burn's ${args.burnUnits}`);
+  }
   if (value !== balance - before) {
     throw uncorrelated(
       `log value ${value} differs from the balance ${balance} at ${balanceBlock} less ${before} at ${args.fromBlock}`
@@ -590,9 +614,6 @@ async function payoutCycle(
   const transaction = await client.getTransaction({ hash: log.transactionHash });
   if (!transaction.input.toLowerCase().includes(args.burnNoteId.slice(2).toLowerCase())) {
     throw uncorrelated(`gatewayMint ${log.transactionHash} calldata lacks the burn note id ${args.burnNoteId}`);
-  }
-  if (value < args.minimumValue) {
-    throw uncorrelated(`value ${value} is below the wallet's minimum payout ${args.minimumValue}`);
   }
   return {
     endpoint,
@@ -613,8 +634,9 @@ async function payoutCycle(
  * Spec 5 step 8 (D3), the hard payout gate. Every 5 s reads the key's USDC balance at an explicit head B; once it rises
  * above `balanceBefore` (R20(d); 0n, an empty key, by default), scans GatewayMinter's AttestationUsed logs for the key
  * after `fromBlock` up to B on the same endpoint and requires exactly one, from Arc's xReserve depositor, of exactly
- * that rise, whose gatewayMint calldata carries the burn note id. A balance below `balanceBefore` fails key-moved at
- * once. An endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at `deadlineMs`.
+ * that rise and at most the burn, whose gatewayMint calldata carries the burn note id. A balance below `balanceBefore`
+ * fails key-moved at once. An endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at
+ * `deadlineMs`.
  */
 export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcReadDeps): Promise<GatewayPayout> {
   const chain = chainOf(deps);
@@ -697,7 +719,7 @@ async function acceptsRawTransactions(client: PublicClient): Promise<boolean> {
   } catch (error) {
     const code = rpcCode(error);
     const text = errorText(error);
-    if (code === -32602 || /decode|rlp|typed transaction/i.test(text)) return true;
+    if (code === -32602 || /decode|rlp|typed transaction|reading transaction object failed/i.test(text)) return true;
     if (code === -32601 || /not (supported|available|allowed)|method not found/i.test(text)) return false;
     throw error;
   }
@@ -849,6 +871,10 @@ export function capPriorityFee(
   return { maxFeePerGas: headroom + cap, maxPriorityFeePerGas: cap };
 }
 
+export async function estimateUsdcxFees(client: PublicClient, chain: PayoutChain) {
+  return capPriorityFee(await client.estimateFeesPerGas({ chain: feeChain(chain.chain) }), chain.maxPriorityFeeCap);
+}
+
 /**
  * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas. The estimate executes the
  * call, so one that depends on an approve runs at `tx.atBlock`, the block its simulation ran at; the signed transaction
@@ -863,7 +889,8 @@ export async function sendSigned(
   tx: { what: string; to: Address; data: Hex; nonce: number; atBlock?: bigint },
   signal: AbortSignal | undefined
 ): Promise<Hash> {
-  const { chainId, label, maxPriorityFeeCap } = chainOf(deps);
+  const chain = chainOf(deps);
+  const { chainId, label } = chain;
   const gas = await chainRead(
     `${label} gas estimate`,
     [endpoints.write],
@@ -871,9 +898,8 @@ export async function sendSigned(
     (client, blockNumber) => client.estimateGas({ account: account.address, to: tx.to, data: tx.data, blockNumber }),
     tx.atBlock
   );
-  const fees = capPriorityFee(
-    await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas()),
-    maxPriorityFeeCap
+  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client =>
+    estimateUsdcxFees(client, chain)
   );
   const serializedTransaction = await account.signTransaction({
     chainId,
@@ -912,8 +938,8 @@ export async function sendSigned(
 }
 
 /**
- * Polls `hash`'s receipt from `endpoints[0]` for RECEIPT_TIMEOUT_MS. A transient error counts as no receipt yet and
- * moves the poll to the next endpoint; a revert, or any other error, fails at once.
+ * Polls `hash`'s receipt for up to ten minutes on Ethereum mainnet, two minutes elsewhere. A transient error counts
+ * as no receipt yet and moves the poll to the next endpoint; a revert, or any other error, fails at once.
  * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
  */
 export async function waitForReceipt(
@@ -921,9 +947,10 @@ export async function waitForReceipt(
   deps: ArcReadDeps,
   hash: Hash
 ): Promise<TransactionReceipt> {
-  const { label } = chainOf(deps);
+  const { chainId, label } = chainOf(deps);
+  const timeoutMs = chainId === 1 ? ETHEREUM_MAINNET_RECEIPT_TIMEOUT_MS : RECEIPT_TIMEOUT_MS;
   const clock = deps.clock ?? realArcClock;
-  const deadline = clock.now() + RECEIPT_TIMEOUT_MS;
+  const deadline = clock.now() + timeoutMs;
   let index = 0;
   let lastTransient = 'none';
   for (;;) {
@@ -948,7 +975,7 @@ export async function waitForReceipt(
     }
     if (clock.now() >= deadline) {
       throw new Error(
-        `${label} transaction ${hash} has no receipt after ${RECEIPT_TIMEOUT_MS} ms (last transient error: ${lastTransient})`
+        `${label} transaction ${hash} has no receipt after ${timeoutMs} ms (last transient error: ${lastTransient})`
       );
     }
     await clock.sleep(RECEIPT_POLL_MS);

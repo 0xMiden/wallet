@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from '@playwright/test';
 
-import { PUBLISHED_BRIDGE_CONFIG_URL } from './fake-bridge-config';
 import { hexFaucetToBech32 } from './faucet-address';
+import { forgetFixtureConfig, setEligibilityFixtureConfig } from './feature-eligibility';
 import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -39,7 +39,7 @@ const isStubQuoteHost = (url: URL): boolean => url.origin === STUB_QUOTE_URL || 
 const STUB_LOCALNET_DOCUMENT = {
   network: 'localnet',
   version: 1,
-  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
   swap: { etaUrl: STUB_QUOTE_URL }
 };
 
@@ -150,21 +150,17 @@ function answerQuote(route: Route, decimalsOf: (faucetHex: string | null) => num
 }
 
 /**
- * Route the stub document and quote service, then reload: the page realm that read localnet's 404 waits out a
- * backoff before it asks again, and a fresh one reads the document at once. On localnet this waits for that
- * realm's read of the stub's pairs, which follows only an accepted document naming the stub.
+ * Share the localnet policy with every realm and the eligibility endpoint, then reload this page with quote
+ * routes installed. Reading the stub's pairs confirms the page accepted the configured solver.
  */
 async function serveStubQuoteService(
   page: Page,
   decimalsOf: (faucetHex: string | null) => number | undefined
 ): Promise<void> {
-  await page.route(`${PUBLISHED_BRIDGE_CONFIG_URL}/localnet.json`, route =>
-    route.fulfill({
-      contentType: 'application/json',
-      headers: { 'access-control-allow-origin': '*' },
-      body: JSON.stringify(STUB_LOCALNET_DOCUMENT)
-    })
-  );
+  if (IS_LOCALNET) {
+    await setEligibilityFixtureConfig(STUB_LOCALNET_DOCUMENT);
+    await forgetFixtureConfig(page, 'localnet');
+  }
   await page.route(isStubQuoteHost, route => answerQuote(route, decimalsOf));
   const pairsRead: Promise<unknown> = IS_LOCALNET
     ? page
@@ -252,7 +248,9 @@ export async function fundSwapPair(
 export interface CreateOrderOptions {
   offerSymbol: string;
   requestSymbol: string;
-  /** human amounts as typed in the UI, e.g. '10'. */
+  /** Only this side is typed; the opposite side must match its quoted expected amount. */
+  amountAnchor: 'pay' | 'receive';
+  /** Expected human amounts, e.g. '10'. */
   payAmount: string;
   receiveAmount: string;
 }
@@ -269,10 +267,14 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
 
   await page.getByTestId('send-token-selector').first().click();
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();
-  await page.getByTestId('send-amount-input').first().fill(opts.payAmount);
   await page.getByTestId('send-token-selector').nth(1).click();
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
-  await page.getByTestId('send-amount-input').nth(1).fill(opts.receiveAmount);
+  const payInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
+  const receiveInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
+  if (opts.amountAnchor === 'pay') await payInput.fill(opts.payAmount);
+  else await receiveInput.fill(opts.receiveAmount);
+  await expect(payInput).toHaveValue(opts.payAmount);
+  await expect(receiveInput).toHaveValue(opts.receiveAmount);
 
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').click();

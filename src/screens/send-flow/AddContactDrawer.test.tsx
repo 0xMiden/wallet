@@ -2,9 +2,13 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { AddContactDrawer } from './AddContactDrawer';
 
 const addContactMock = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 // The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
@@ -178,4 +182,65 @@ it('can still be dismissed after a successful save', async () => {
   rerender(<AddContactDrawer open address={EVM} onOpenChange={onOpenChange} />);
   fireEvent.click(screen.getByTestId('drawer-dismiss'));
   expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+describe('AddContactDrawer user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  const saveContact = async () => {
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('address-book-add-contact'));
+    });
+  };
+
+  const expectReport = async (id: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it.each([
+    new Error('Contact Alice at mtst1private failed: https://contacts.invalid/save?amount=123.45'),
+    'Contact Alice at mtst1private failed: https://contacts.invalid/save?amount=123.45'
+  ])('reports a raw save rejection by its site code while retaining the display text (%s)', async reason => {
+    addContactMock.mockRejectedValueOnce(reason);
+    const onOpenChange = renderSheet();
+    await saveContact();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(reason instanceof Error ? reason.message : reason);
+    expect(screen.getByTestId('address-book-add-contact')).toBeEnabled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await expectReport('raw_contact_save_failed');
+  });
+
+  it('reports invalidAddress instead of treating the validation refusal as a raw save failure', async () => {
+    renderSheet('mtst1bad');
+    await saveContact();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('invalidAddress');
+    expect(addContactMock).not.toHaveBeenCalled();
+    await expectReport('invalidAddress');
+  });
+
+  it('does not report a save rejection that editing the name clears before 1000 ms', async () => {
+    addContactMock.mockRejectedValueOnce(new Error('contact store unavailable'));
+    renderSheet();
+    await saveContact();
+    expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice corrected' } });
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

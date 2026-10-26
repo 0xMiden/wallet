@@ -3,11 +3,14 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
-import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { TokenAmountInput } from 'components/TokenAmountInput';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { withdrawalAmountError } from 'lib/epoch/withdraw-amount';
+import { evmQuote } from 'lib/prices/evm';
+import { useWalletStore } from 'lib/store';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle } from './components';
@@ -16,6 +19,7 @@ import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
   const [amount, setAmount] = useState('');
   const [fullBalanceSelected, setFullBalanceSelected] = useState(false);
   const { positions, isLoading, error, refetch } = useEarnPositions();
@@ -55,12 +59,17 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
           position && (
             <>
               {error && <EarnLoadError onRetry={refetch} />}
-              <AmountInput
-                value={fullBalanceSelected ? formatMoneyAmount(amount, 'receives', position.asset) : amount}
-                onValueChange={value => {
-                  setFullBalanceSelected(false);
-                  setAmount(value ?? '');
-                }}
+              <TokenAmountInput
+                assetId={`${position.chainId}:${position.underlyingAddress}`}
+                symbol={position.asset}
+                decimals={position.decimals}
+                scaleIsKnown
+                externalAsset
+                quote={evmQuote(prices, Number(position.chainId), position.underlyingAddress)}
+                value={amount}
+                tokenIntentKey={fullBalanceSelected}
+                onUserEdit={() => setFullBalanceSelected(false)}
+                onValueChange={value => setAmount(value ?? '')}
                 label={<span className="text-row-title text-muted">{t('earnWithdrawAmount')}</span>}
                 aria-label={t('earnWithdrawAmount')}
                 accent="earn"
@@ -69,6 +78,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 maxLength={116}
                 allowNegativeValue
                 formatValueOnBlur={false}
+                errorId={validation && isUserErrorId(validation) ? validation : null}
                 error={amount && validation ? t(validation, { decimals: position.decimals }) : undefined}
                 tokenSelector={
                   <div className="flex flex-wrap items-center justify-between gap-2">

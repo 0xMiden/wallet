@@ -1,15 +1,21 @@
+import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
+import { assertSwapQueueAvailable } from 'lib/miden/swap/admission';
+import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
 import {
   getActiveOverride,
   getEffectiveNetworkName,
+  hasCustomEndpointOverride,
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { cacheScope, getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { assertOneClickQuoteBinding } from 'lib/one-click/client';
+import { assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -28,9 +34,11 @@ import {
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
+  IAgglayerDelivery,
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
+  IConsumeSwapSettleExtraInputs,
   ISellExtraInputs,
   ISellOrderLink,
   isLiveTransaction,
@@ -66,8 +74,8 @@ import { holdsNotes } from './verdict-rules';
 
 export { ClaimFeeRefusedError } from './claim-fee';
 
-// An override's preset name is not evidence of the chain it actually points to.
-const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
+// A network-only onboarding choice uses canonical endpoints; a developer override does not prove a chain.
+const badgeNetwork = () => (hasCustomEndpointOverride(getActiveOverride()) ? undefined : getEffectiveNetworkName());
 
 /** A worker claim refused at a row write because its caller can no longer sign it; the call's rows are rolled back. */
 export class ClaimInsertRefusedError extends Error {
@@ -272,6 +280,9 @@ export interface ConsumeNotesQueueResult {
  * a stable "this note already has a tx" response. `coveringTxIdByNoteId` names the
  * row covering EACH note, because a partly deduplicated batch's id covers only the
  * notes that joined it.
+ *
+ * `settlementLink` is swap settlement's: the order a row settles, written in the insert that creates the row, so
+ * no running processor ever sees a settlement claim without it (#1644).
  */
 export const queueConsumeNotes = async (
   accountId: string,
@@ -281,7 +292,8 @@ export const queueConsumeNotes = async (
   isolateNotesWithFailedBatch?: boolean,
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  settlementLink?: IConsumeSwapSettleExtraInputs
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -292,7 +304,11 @@ export const queueConsumeNotes = async (
     verificationBaseFee,
     undefined,
     undefined,
-    undefined,
+    settlementLink
+      ? row => {
+          row.extraInputs = { ...(row.extraInputs ?? {}), ...settlementLink };
+        }
+      : undefined,
     entryPoint,
     canSign
   );
@@ -789,6 +805,8 @@ export const initiateSwapTransaction = async (
   slippageBps?: number,
   spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
+  const scope = cacheScope();
+  await assertSwapVaultBalance(accountId, offeredFaucetId, offeredAmount, scope);
   const dbTransaction = new SwapTransaction(
     accountId,
     offeredFaucetId,
@@ -800,10 +818,13 @@ export const initiateSwapTransaction = async (
     autoConsume,
     slippageBps
   );
+  dbTransaction.extraInputs.balanceScope = scope;
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),
-    spendingLimitAuthorization
+    spendingLimitAuthorization,
+    undefined,
+    () => assertSwapQueueAvailable(accountId, scope)
   );
 
   return dbTransaction.id;
@@ -837,7 +858,8 @@ export const initiateSendTransaction = async (
   delegateTransaction?: boolean,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  oneClick?: IOneClickTrackingData
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -848,6 +870,33 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
+
+  if (oneClick) {
+    assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
+    const fundingDeadline = assertOneClickFundingDeadlineMatches(
+      oneClick.fundingDeadline,
+      oneClick.request.deadline,
+      oneClick.quote.quote.deadline
+    );
+    oneClick = { ...oneClick, fundingDeadline };
+    const midenAsset = oneClick.originAsset;
+    const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
+    if (
+      oneClick.direction !== 'miden-to-evm' ||
+      midenAsset.blockchain !== 'miden' ||
+      oneClick.destinationAsset.blockchain === 'miden' ||
+      oneClick.accountId !== senderAccountId ||
+      !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
+      !sameWalletAccountId(oneClick.accountAddress, senderAccountId) ||
+      oneClick.quote.quote.depositAddress !== recipientAccountId ||
+      oneClick.quote.quote.amountIn !== amount.toString() ||
+      oneClick.faucetId !== faucetId ||
+      !configuredAsset ||
+      configuredAsset.faucetId !== faucetId
+    ) {
+      throw new Error('The 1Click send does not match the signed Miden route.');
+    }
+  }
 
   if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
     throw new Error(
@@ -864,6 +913,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
@@ -949,7 +999,9 @@ export const initiateEarnDepositTransaction = async (
   delegateTransaction: boolean,
   requestBytes: Uint8Array,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  protocol?: '1delta' | 'dummy-lending',
+  chainId?: number
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
@@ -960,7 +1012,9 @@ export const initiateEarnDepositTransaction = async (
     faucetId,
     sendParams,
     delegateTransaction,
-    requestBytes
+    requestBytes,
+    protocol,
+    chainId
   );
   dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
@@ -982,7 +1036,9 @@ export const initiateEarnWithdrawTransaction = async (
   sourceSymbol = 'USDC',
   submissionAttemptId?: string,
   attemptStartedAt?: number,
-  sourceDecimals?: number
+  sourceDecimals?: number,
+  protocol?: '1delta' | 'dummy-lending',
+  chainId?: number
 ): Promise<string> => {
   const dbTransaction = new EarnWithdrawTransaction(
     accountId,
@@ -994,7 +1050,9 @@ export const initiateEarnWithdrawTransaction = async (
     sourceSymbol,
     submissionAttemptId,
     attemptStartedAt,
-    sourceDecimals
+    sourceDecimals,
+    protocol,
+    chainId
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
@@ -1009,6 +1067,8 @@ export const initiateBridgedReceiveTransaction = async (args: {
   sourceAddress: string;
   sourceChainId?: number;
   agglayerRoute?: AgglayerRecoveryConfig;
+  /** agglayer: the deposited ERC-20's delivery faucet; absent on a native-ETH deposit. */
+  agglayerDelivery?: IAgglayerDelivery;
   usdcxSource?: UsdcxSourceChain;
   epochAllocatorUrl?: string;
   sourceAmount: string;
@@ -1031,6 +1091,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   if (args.provider === 'agglayer') {
     if (!args.agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = args.agglayerRoute;
+    if (args.agglayerDelivery) dbTransaction.extraInputs.agglayerDelivery = args.agglayerDelivery;
   }
   if (args.provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = args.epochAllocatorUrl;
   if (args.provider === 'usdcx' && args.sourceChainId !== undefined) {

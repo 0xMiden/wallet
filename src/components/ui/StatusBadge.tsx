@@ -19,6 +19,8 @@ export type Status =
   | 'burnConsuming'
   | 'burnConfirmed'
   | 'burnDiscarded'
+  // A confirmed burn Circle has not paid out after 2 hours
+  | 'payoutDelayed'
   | 'failed'
   | 'cancelled'
   | 'unconfirmed'
@@ -37,6 +39,8 @@ export type Status =
   // Its own word, not `reclaimed`: several locales translate the order's state differently
   | 'orderReclaimed'
   | 'reclaiming'
+  // A swap whose payout claim keeps failing
+  | 'paybackStuck'
   | 'loading'
   | 'unavailable'
   // A guardian switch whose commit was submitted but never confirmed
@@ -78,6 +82,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
   burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
+  payoutDelayed: { labelKey: 'usdcxPayoutDelayed', tone: 'pending' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
@@ -93,6 +98,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   partiallyFilledReclaimed: { labelKey: 'orderStatusPartiallyFilledReclaimed', tone: 'neutral' },
   orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
   reclaiming: { labelKey: 'swapReclaiming', tone: 'pending' },
+  paybackStuck: { labelKey: 'swapPaybackStuck', tone: 'negative' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
   guardianSwitchSubmitted: { labelKey: 'guardianSwitchSubmittedChip', tone: 'pending' },

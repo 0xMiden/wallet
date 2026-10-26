@@ -10,7 +10,9 @@ import { swapAvailability, useSwapPickerTokens } from './use-swap-tokens';
 jest.mock('./tokens', () => ({
   getDefaultSwapPair: jest.fn(),
   getSwapPartners: jest.fn(() => []),
-  getSwapTokens: jest.fn(() => [])
+  getSwapTokens: jest.fn(() => []),
+  getSwapTokensVersion: () => 0,
+  subscribeSwapTokens: () => () => undefined
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(() => Promise.resolve()) }));
@@ -84,5 +86,39 @@ describe('swapAvailability', () => {
     const notConfigured = { state: 'unavailable', reason: 'not-configured', detail: 'the swap solver lists no pair' };
     expect(swapAvailability(withPairsProbe({ state: 'skipped' }))).toEqual(notConfigured);
     expect(swapAvailability(testSnapshotWithSwapPairs({ tokens: [], pairs: [] }))).toEqual(notConfigured);
+  });
+
+  it('reads the startup Swap boolean before offering a ready pair', () => {
+    mockDefaultPair.mockReturnValue({ offer: TEST_TOKEN_IETH, request: TEST_TOKEN_IUSDT });
+    const snapshot = testSnapshotWithSwapPairs({ tokens: [], pairs: [] });
+    expect(snapshot.config?.geo).toBeUndefined();
+    expect(swapAvailability(snapshot)).toEqual({ state: 'available' });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'loading' } })).toEqual({ state: 'loading' });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'failed' } })).toMatchObject({ reason: 'service-down' });
+    expect(
+      swapAvailability({
+        ...snapshot,
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: false } }
+      })
+    ).toMatchObject({ reason: 'restricted' });
+  });
+
+  it('keeps the startup Swap decision when the accepted config version changes', () => {
+    mockDefaultPair.mockReturnValue({ offer: TEST_TOKEN_IETH, request: TEST_TOKEN_IUSDT });
+    const snapshot: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT };
+    if (!snapshot.config) throw new Error('Missing test configuration');
+    snapshot.config = { ...snapshot.config, version: snapshot.config.version + 1 };
+    expect(
+      swapAvailability({
+        ...snapshot,
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: false } }
+      })
+    ).toMatchObject({ reason: 'restricted' });
+    expect(
+      swapAvailability({
+        ...snapshot,
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: true } }
+      })
+    ).toEqual({ state: 'available' });
   });
 });

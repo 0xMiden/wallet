@@ -31,10 +31,14 @@ export default defineConfig({
     '**/swap/**',
     '**/bridge/**',
     '**/earn/**',
+    '**/one-click/**',
     '**/resilience/**',
     '**/dapp/**',
     '**/usdcx/**',
-    '**/stored-override/**'
+    '**/stored-override/**',
+    // Mainnet nightly spends funded accounts. It runs only through
+    // playwright.mainnet.config.ts, never on a testnet or localhost blockchain run.
+    '**/mainnet/**'
   ],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {

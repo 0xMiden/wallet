@@ -8,10 +8,25 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { SelectAmount, SelectAmountProps } from './SelectAmount';
 import { UIToken } from './types';
+const mockQuotePrices: Record<string, number> = {};
+let mockQuoteObservedAt: number | undefined;
+jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: (_prices: unknown, id: string) =>
+    (mockQuotePrices[id] ?? 0) > 0
+      ? {
+          price: mockQuotePrices[id],
+          observedAt: mockQuoteObservedAt ?? Date.now(),
+          change24h: 0,
+          percentageChange24h: 0
+        }
+      : undefined
+}));
 
 // Hex -> the `rgb(r, g, b)` form jsdom normalizes an inline `style.backgroundColor` to.
 const asRgb = (hex: string): string => {
@@ -20,6 +35,8 @@ const asRgb = (hex: string): string => {
 };
 
 // --- i18n: interpolate the `{ value }` option so approxFiatValue is assertable.
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
@@ -29,7 +46,10 @@ jest.mock('react-i18next', () => ({
 
 // --- Platform / haptics.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isExtension: () => false,
+  isIOS: () => false,
+  isAndroid: () => false
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -89,15 +109,19 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 // Callback fixtures separate canonical amounts from localized display text.
-type OnValueChange = (value: string | undefined, name?: string, values?: { formatted?: string }) => void;
+type OnValueChange = NonNullable<
+  React.ComponentProps<typeof import('components/AmountInput').AmountInput>['onValueChange']
+>;
 
-jest.mock('components/AmountInput', () => ({
-  AmountInput: ({
+let mockUseRealAmountInput = false;
+jest.mock('components/AmountInput', () => {
+  const StubAmountInput = ({
     label,
     value,
     error,
     invalid,
     helper,
+    secondary,
     tokenSelector,
     showDivider,
     onValueChange,
@@ -108,6 +132,7 @@ jest.mock('components/AmountInput', () => ({
     error?: string;
     invalid?: boolean;
     helper?: React.ReactNode;
+    secondary?: React.ReactNode;
     tokenSelector?: React.ReactNode;
     showDivider?: boolean;
     onValueChange?: OnValueChange;
@@ -121,16 +146,31 @@ jest.mock('components/AmountInput', () => ({
     >
       <div data-testid="ai-label">{label}</div>
       {error !== undefined && <div data-testid="ai-error">{error}</div>}
+      {secondary}
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
       <div data-testid="ai-token-selector">{tokenSelector}</div>
       <div data-testid="ai-value">{value}</div>
-      <button data-testid="ai-change-formatted" onClick={() => onValueChange?.('1.5', 'n', { formatted: '۱.۵' })} />
-      <button data-testid="ai-change-value" onClick={() => onValueChange?.('rawVal', 'n', { formatted: '' })} />
+      <button
+        data-testid="ai-change-formatted"
+        onClick={() => onValueChange?.('1.5', 'n', { formatted: '۱.۵', value: '1.5', float: 1.5 })}
+      />
+      <button
+        data-testid="ai-change-value"
+        onClick={() => onValueChange?.('rawVal', 'n', { formatted: '', value: 'rawVal', float: null })}
+      />
       <button data-testid="ai-change-value-novalues" onClick={() => onValueChange?.('rawVal2', 'n', undefined)} />
       <button data-testid="ai-change-empty" onClick={() => onValueChange?.(undefined, 'n', undefined)} />
     </div>
-  )
-}));
+  );
+  return {
+    AmountInput: (props: React.ComponentProps<typeof import('components/AmountInput').AmountInput>) => {
+      const Component = mockUseRealAmountInput
+        ? jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput').AmountInput
+        : StubAmountInput;
+      return <Component {...props} />;
+    }
+  };
+});
 
 const baseToken = (overrides: Partial<UIToken> = {}): UIToken => ({
   id: 't1',
@@ -151,12 +191,15 @@ const renderComponent = (props: Partial<SelectAmountProps> = {}) => {
     onSelectToken: jest.fn(),
     onConfirm: jest.fn()
   };
+  const token = props.token ?? defaults.token;
+  if (token) mockQuotePrices[token.id] = token.fiatPrice ?? 0;
   return render(<SelectAmount {...defaults} {...props} />);
 };
 
 describe('SelectAmount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockQuoteObservedAt = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
   });
 
@@ -168,6 +211,25 @@ describe('SelectAmount', () => {
     expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
     expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 USDC');
     expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+  });
+
+  it('expires the available-balance USD estimate without a store update', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    mockQuotePrices.t1 = 0.2;
+    mockQuoteObservedAt = Date.now();
+    try {
+      renderComponent();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+
+      act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS));
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+      act(() => jest.advanceTimersByTime(1));
+
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   describe('page variant', () => {
@@ -676,6 +738,8 @@ describe('SelectAmount', () => {
         onSelectToken: jest.fn(),
         onConfirm: jest.fn()
       };
+      mockQuotePrices[from.id] = from.fiatPrice ?? 0;
+      mockQuotePrices[to.id] = to.fiatPrice ?? 0;
       const { rerender } = render(<SelectAmount {...props} token={from} />);
       const helper = screen.getByTestId('ai-helper');
       const frames: Figures[] = [];
@@ -721,5 +785,71 @@ describe('SelectAmount', () => {
       expect(frames.some(frame => amountOf(frame.fiat) > 2400 && amountOf(frame.fiat) < 3000)).toBe(true);
       expect(amountOf(frames[frames.length - 1]?.fiat ?? '')).toBe(3000);
     });
+  });
+});
+
+describe('SelectAmount user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockUseRealAmountInput = true;
+  });
+
+  afterEach(() => {
+    mockUseRealAmountInput = false;
+    jest.useRealTimers();
+  });
+
+  it.each(['invalidAmount', 'amountMustBeLessThanBalance'])(
+    'reports the visible %s key on the real amount field after 1000 ms',
+    async error => {
+      renderComponent({ amount: '99', error });
+      expect(screen.getByText(error)).toBeVisible();
+      expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'true');
+
+      await act(async () => jest.advanceTimersByTimeAsync(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTimeAsync(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[error, 'field']]);
+      await act(async () => jest.advanceTimersByTimeAsync(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not report a hidden amount message even while its field stays invalid', async () => {
+    renderComponent({ amount: '99', error: 'amountMustBeLessThanBalance', hideErrorText: true });
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText('amountMustBeLessThanBalance')).not.toBeInTheDocument();
+
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports unknown token scale while its confirmation remains disabled', async () => {
+    renderComponent({ token: baseToken({ scaleIsKnown: false }) });
+    expect(screen.getByText('unknownTokenScale')).toBeVisible();
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports only the visible amount error when it hides the unknown-scale balance helper', async () => {
+    renderComponent({ token: baseToken({ scaleIsKnown: false }), amount: '99', error: 'invalidAmount' });
+    expect(screen.getByText('invalidAmount')).toBeVisible();
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toContainEqual(['invalidAmount', 'field']);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['invalidAmount', 'field']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
 });

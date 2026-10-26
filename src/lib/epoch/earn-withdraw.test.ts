@@ -21,6 +21,7 @@ import {
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
+  type GaslessEarnWithdrawalArgs,
   gaslessEarnWithdrawalToMiden,
   pollEarnWithdrawDelivery,
   reconcileEarnWithdrawals,
@@ -35,6 +36,7 @@ import {
 } from './earn-withdraw-policy';
 import { assertWithdrawalReviewCurrent, quoteEarnWithdrawal } from './earn-withdraw-quote';
 import type { EarnWithdrawalQuote } from './earn-withdraw-quote';
+import { buildVaultEvmWalletClient } from './evm-account';
 import { matchesEarnWithdrawIntent } from './intent-key';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
@@ -142,13 +144,14 @@ const EVM_OWNER = '0x1111111111111111111111111111111111111111';
 const UNDERLYING = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
 const MARKET_UID = `DUMMY_LENDING:11155111:${UNDERLYING}`;
 
-const validArgs = () => ({
+const validArgs = (): GaslessEarnWithdrawalArgs => ({
   midenAccountPublicKey: PREPARED_RECIPIENT,
   evmAddress: EVM_OWNER,
   marketUid: MARKET_UID,
   underlyingAddress: UNDERLYING,
   amount: '10',
-  underlyingDecimals: 6
+  underlyingDecimals: 6,
+  protocol: 'dummy-lending'
 });
 
 const reviewed = (): EarnWithdrawalQuote => ({
@@ -267,7 +270,9 @@ describe('gaslessEarnWithdrawalToMiden', () => {
       'USDC',
       expect.any(String),
       expect.any(Number),
-      6
+      6,
+      'dummy-lending',
+      11155111
     );
     const row = await Repo.transactions.where({ id: 'TX1' }).first();
     expect(row?.extraInputs).toMatchObject({
@@ -311,6 +316,48 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     expect(row?.extraInputs.sourceDecimals).toBe(6);
   });
 
+  it('withdraws a Base position with its protocol, chain, and market uid', async () => {
+    const marketUid = `AAVE_V3:8453:${UNDERLYING}`;
+    const prepared = preparedExecution();
+    const executeActions = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
+    const deps = baseDeps({
+      sdk: fakeSdk(executeActions, {
+        chainId: 8453,
+        allocations: prepared.allocations.map(allocation => ({
+          ...allocation,
+          requestJson: allocation.requestJson.split('11155111').join('8453')
+        }))
+      })
+    });
+
+    await expect(
+      gaslessEarnWithdrawalToMiden({ ...validArgs(), marketUid, protocol: '1delta', chainId: 8453 }, deps)
+    ).resolves.toMatchObject({ txId: 'TX1' });
+
+    expect(buildVaultEvmWalletClient).toHaveBeenCalledWith(
+      PREPARED_RECIPIENT,
+      EVM_OWNER,
+      undefined,
+      expect.objectContaining({ id: 8453 })
+    );
+    expect(deps.ensureSmartAccount).toHaveBeenCalledWith(PREPARED_RECIPIENT, EVM_OWNER, expect.anything(), 8453);
+    expect(executeActions).toHaveBeenCalledWith(
+      expect.objectContaining({ protocol: '1delta', chainId: 8453, marketUid })
+    );
+  });
+
+  it('refuses a withdrawal when its explicit chain disagrees with the market uid', async () => {
+    const executeActions = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+
+    await expect(
+      gaslessEarnWithdrawalToMiden({ ...validArgs(), protocol: '1delta', chainId: 8453 }, deps)
+    ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(executeActions).not.toHaveBeenCalled();
+  });
+
   it('rejects validation failures before creating any row', async () => {
     const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
 
@@ -348,6 +395,22 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
     expect(findEpochUsdcAddress).toHaveBeenCalledWith(11155111);
     expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('refuses a market on a chain the config names no Epoch route on, and accepts any route chain', async () => {
+    // Base is a route in the document, Sepolia is not: the chain is never fixed in the code.
+    jest.mocked(findEpochUsdcAddress).mockImplementation(chainId => (chainId === 8453 ? UNDERLYING : null));
+    jest.mocked(findEvmUsdc).mockImplementation(chainId => (chainId === 8453 ? TEST_EVM_USDC : null));
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+    try {
+      await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
+        'Gasless withdrawal only supports a chain the wallet configuration names an Epoch route on.'
+      );
+      expect(deps.initiateRow).not.toHaveBeenCalled();
+    } finally {
+      jest.mocked(findEpochUsdcAddress).mockReturnValue(TEST_EVM_USDC.address);
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    }
   });
 
   it("checks the position decimals against the market chain's USDC, not the first listed chain's", async () => {
@@ -390,7 +453,9 @@ describe('gaslessEarnWithdrawalToMiden', () => {
         'USDC',
         expect.any(String),
         expect.any(Number),
-        6
+        6,
+        'dummy-lending',
+        11155111
       );
       deps.initiateRow.mockClear();
       await expect(
@@ -839,6 +904,7 @@ describe('resubmitEarnWithdrawal', () => {
       phase: 'failed',
       submissionState: 'preparing',
       error: 'Withdrawal setup failed before execution.',
+      protocol: 'dummy-lending',
       ...extraInputs
     });
 
@@ -863,6 +929,28 @@ describe('resubmitEarnWithdrawal', () => {
     const deps = baseDeps({ sdk: fakeSdk(executeActions) });
     await Promise.allSettled([resubmitEarnWithdrawal('TX1', deps), resubmitEarnWithdrawal('TX1', deps)]);
     expect(executeActions).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a legacy source row with no protocol before quote, account setup, or execution', async () => {
+    const row = liveWithdrawal('TX1', {
+      phase: 'failed',
+      submissionState: 'preparing',
+      error: 'Withdrawal setup failed before execution.',
+      reviewedMinimumReceivedAtomic: '1',
+      protocol: undefined
+    });
+    mockRow(row);
+    const executeActions = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+
+    await expect(resubmitEarnWithdrawal('TX1', deps)).rejects.toThrow(
+      'Gasless withdrawal only supports the configured USDC Earn market.'
+    );
+    expect(fetchEarnPositions).not.toHaveBeenCalled();
+    expect(quoteEarnWithdrawal).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(executeActions).not.toHaveBeenCalled();
+    expect(row.extraInputs.phase).toBe('failed');
   });
 
   it('refuses a row restored from a backup', async () => {
@@ -919,7 +1007,6 @@ describe('resubmitEarnWithdrawal', () => {
     jest.mocked(fetchEarnPositions).mockResolvedValue({
       positions: [retryPosition],
       owners: [EVM_OWNER],
-      vaults: [],
       totalDepositsUSD: 20,
       errors: []
     });
@@ -966,6 +1053,10 @@ describe('resubmitEarnWithdrawal', () => {
       expect(result).toBe(worse ? REVIEW_CHANGED : 'submitted');
       expect(deps.ensureSmartAccount).toHaveBeenCalledTimes(worse ? 0 : 1);
       expect(execute).toHaveBeenCalledTimes(worse ? 0 : 1);
+      expect(fetchEarnPositions).toHaveBeenCalledWith({
+        accountId: row.accountId,
+        owners: [EVM_OWNER]
+      });
       expect(quoteEarnWithdrawal).toHaveBeenCalledWith(expect.objectContaining({ amount: '1' }));
       expect(row.extraInputs.reviewedMinimumReceivedAtomic).toBe(worse ? '5' : '6');
     }
@@ -1182,6 +1273,7 @@ function liveWithdrawal(id: string, inputs: Partial<IEarnWithdrawExtraInputs> = 
       destinationFaucetId: PREPARED_FAUCET,
       sourceAmount: '10',
       sourceSymbol: 'USDC',
+      protocol: 'dummy-lending',
       ...inputs
     }
   };

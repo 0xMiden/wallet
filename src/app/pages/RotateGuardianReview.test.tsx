@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { checkBiometricAvailability } from 'lib/biometric';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RotateGuardianReview from './RotateGuardianReview';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
@@ -51,6 +54,7 @@ let mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
 let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
+  ...jest.requireActual('app/hooks/useCurrentGuardianEndpoint'),
   useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint })
 }));
 
@@ -105,24 +109,41 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div data-testid="passcode-entry">
-      {error ? <span role="alert">{error}</span> : null}
-      <button disabled={isSubmitting} data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div data-testid="passcode-entry">
+        {error ? <span role="alert">{error}</span> : null}
+        <button disabled={isSubmitting} data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: React.ReactNode }) => <div>{title}</div>,
@@ -192,6 +213,7 @@ jest.mock('lib/woozie', () => ({
 }));
 
 beforeEach(() => {
+  mockRenderActualPasscode = false;
   jest.clearAllMocks();
   mobileBackHandler = undefined;
   mockCurrentEndpoint = 'https://old.example';
@@ -242,13 +264,15 @@ it('renders the current and destination endpoints in the shared transition hero'
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
-it('draws the rotation warning as a warning Notice in theme-aware tokens', async () => {
+it('states the old Guardian cannot block the rotation as a reassuring fact, not a warning', async () => {
   render(<RotateGuardianReview />);
 
-  const notice = screen.getByText('oldGuardianCantBlockBody').closest('[role="note"]');
-  expect(notice).toHaveAttribute('data-tone', 'warning');
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-pending-ink');
-  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-ink');
+  // A fact row with a sage shield on a `fill` card, as the switch's success screen states its facts.
+  const fact = screen.getByText('oldGuardianCantBlockBody').closest('[data-slot="fact-row"]');
+  expect(fact).not.toBeNull();
+  expect(fact).toHaveTextContent('oldGuardianCantBlockTitle');
+  expect(fact?.querySelector('[data-slot="icon"]')).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
+  expect(screen.queryByText('oldGuardianCantBlockBody')?.closest('[role="note"]')).toBeNull();
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
@@ -342,6 +366,10 @@ it('password authentication gates the extension flow and retries with fresh auth
   fireEvent.change(password, { target: { value: 'correct-password' } });
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
   expect(await screen.findByText('queue failed')).toBeInTheDocument();
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'field');
   expect(mockUnlock).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
@@ -727,6 +755,10 @@ it('shows a serialized error message rather than stringifying the object', async
   fireEvent.click(confirm);
 
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('the node refused the request'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'notice');
 });
 
 it('allows a retry after a hang, which created no row', async () => {
@@ -974,4 +1006,20 @@ describe('hot-key label (face / fingerprint)', () => {
     expect(screen.getByText('password')).toBeInTheDocument();
     expect(mockCheckBiometricAvailability).not.toHaveBeenCalled();
   });
+});
+
+it('reports a rejected mobile credential on the real passcode display', async () => {
+  mockRenderActualPasscode = true;
+  mockIsMobile.mockReturnValue(true);
+  mockUnlock.mockRejectedValue(new Error('private credential failure'));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  fireEvent.click(await screen.findByTestId('passcode-submit'));
+  await screen.findAllByText('private credential failure');
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'passcode');
 });

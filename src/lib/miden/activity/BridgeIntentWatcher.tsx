@@ -18,24 +18,26 @@ export interface BridgeWatcherDocument {
  *   readiness, through `reconcileBridgedReceives`.
  * - Miden→EVM (`bridged-send`): Epoch fill status and AggLayer claimability,
  *   through `reconcileBridgedSends`.
+ * - 1Click swaps: persisted 1Click status and exact Miden delivery, through
+ *   `reconcileOneClickSwaps`.
  *
  * Before this watcher the polling lived on the Home, Explore and Activity pages,
  * so a bridge started from the deposit screen was not tracked until the user
  * opened one of them. Each direction has its own in-flight guard: a pass must
- * not overlap itself (`reconcileBridgedReceives` can wait on an EVM receipt, and
- * an overlapping tick would poll the same rows twice), but a slow pass in one
+ * not overlap itself (`reconcileBridgedReceives` can spend a while on EVM receipt reads and
+ * indexer polls, and an overlapping tick would poll the same rows twice), but a slow pass in one
  * direction must not skip the other direction's ticks.
  *
  * The extension mounts a root per open window (popup, full page, side panel, dApp
  * confirmation), and the rows are shared by all of them, so one visible root
  * polls for the origin: it holds `bridge-intent-watcher` while it stays visible.
  * A root gives the lease up as soon as it is hidden or unmounted, without waiting
- * for a pass it already started: a receive pass can wait minutes on an EVM
- * receipt, and every visible root would stop polling behind it. That pass can
+ * for a pass it already started: a receive pass can spend minutes on receipt reads
+ * and indexer polls, and every visible root would stop polling behind it. That pass can
  * overlap another root's first one, no more than every open root did before the
  * lease. A root never overlaps its own pass: one that leads again resumes a
  * direction once its earlier pass settles, and every wait in a pass times out
- * (the EVM receipt, the AggLayer indexer, the Epoch allocator). Web Locks are
+ * (the EVM receipt read, the AggLayer indexer, the Epoch allocator). Web Locks are
  * released when a page dies; without them the realm polls on its own.
  *
  * Both reconcilers are imported lazily: the provider mounts this watcher, and
@@ -72,10 +74,15 @@ export function startBridgeIntentPolling({
     const { reconcileBridgedSends } = await import('lib/wallet-prompts');
     if (!disposed) await reconcileBridgedSends();
   });
+  const pollOneClick = guarded('one-click', async () => {
+    const { reconcileOneClickSwaps } = await import('lib/one-click/tracking');
+    if (!disposed) await reconcileOneClickSwaps();
+  });
   const startTicking = () => {
     const tick = () => {
       pollReceives();
       pollSends();
+      pollOneClick();
     };
     tick();
     const timer = setInterval(tick, POLL_INTERVAL_MS);

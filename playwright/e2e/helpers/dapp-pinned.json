@@ -4,6 +4,15 @@
   "guardianCommitmentComparable": true,
   "summarySigningInputs": "twin-preview",
   "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "sheet": {
+    "simulatedEffects": "Simulated effects:",
+    "notSimulated": "This transaction could not be simulated, so its effects are unknown.",
+    "reasonPrefix": "Reason, ",
+    "leaves": "Leaves this account",
+    "fee": "Network fee, ",
+    "notesConsumed": "Notes consumed, ",
+    "notesCreated": "Notes created, "
+  },
   "texts": {
     "R5": {
       "offchain": {
@@ -13,16 +22,6 @@
       "guardian": {
         "stage": "creating-proposal",
         "error": "failed to execute transaction: asset error: subtracting"
-      }
-    },
-    "R10": {
-      "offchain": {
-        "stage": "sending",
-        "error": "assertion failed with error code: 9127845879078954504"
-      },
-      "guardian": {
-        "stage": "creating-proposal",
-        "error": "assertion failed with error code: 9127845879078954504"
       }
     },
     "MF3": {

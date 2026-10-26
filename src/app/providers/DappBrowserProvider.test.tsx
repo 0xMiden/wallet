@@ -43,6 +43,7 @@ const mockSetRect: jest.Mock = jest.fn(() => Promise.resolve());
 const mockExecuteScript: jest.Mock = jest.fn(() => Promise.resolve());
 const mockInstanceClose: jest.Mock = jest.fn(() => Promise.resolve());
 const mockNativeClose = jest.fn(async (_options: unknown) => {});
+const mockMorph: jest.Mock = jest.fn(async () => ({ accepted: false }));
 
 function makeInstance(id: string) {
   return {
@@ -50,6 +51,7 @@ function makeInstance(id: string) {
     setVisible: (...args: unknown[]) => mockSetVisible(id, ...args),
     setRect: (...args: unknown[]) => mockSetRect(id, ...args),
     executeScript: (...args: unknown[]) => mockExecuteScript(id, ...args),
+    morph: (...args: unknown[]) => mockMorph(id, ...args),
     close: () => mockInstanceClose(id)
   };
 }
@@ -71,6 +73,11 @@ jest.mock('@miden/dapp-browser', () => ({
       return makeInstance(opts.id);
     }
   }
+}));
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
 }));
 
 // ── isMobile must be true so the provider runs its full lifecycle ──
@@ -472,7 +479,8 @@ describe('park / restore lifecycle', () => {
     );
 
     let parking: Promise<void> = Promise.resolve();
-    act(() => {
+    // Async: the park asks native for the morph first, and starts the snapshot once that is refused.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
     // DappActive re-measures the slot on timers after it mounts, so a minimize right after opening can land one
@@ -496,6 +504,82 @@ describe('park / restore lifecycle', () => {
     act(() => hook.result.current.setSlotRect(SLOT_RECT));
     await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', true));
     expect(hook.result.current.session?.id).toBe('dapp-a');
+  });
+});
+
+describe('bridge traffic', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const LANDSCAPE = { x: 0, y: 0, width: 667, height: 375 };
+  const flush = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  const hides = (id: string) =>
+    mockSetVisible.mock.calls.filter(([callId, visible]) => callId === id && !visible).length;
+  const injections = (id: string) =>
+    mockExecuteScript.mock.calls.filter(([callId, code]) => callId === id && code === 'INJECTED;').length;
+
+  async function openTwo() {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    act(() => hook.result.current.open(makeSession('dapp-b')));
+    await flush();
+    return hook;
+  }
+
+  it('keeps the same slotRect object for an equal rect', () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    const first = hook.result.current.slotRect;
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    expect(hook.result.current.slotRect).toBe(first);
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    expect(hook.result.current.slotRect).toEqual(LANDSCAPE);
+  });
+
+  it('does not re-send hides to other instances when the slot rect value repeats', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('does not re-send hides to other instances when the slot rect changes', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('injects the bridge once per foreground change, not per rect change', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+    await act(async () => loaded?.({ id: 'dapp-a' }));
+    mockExecuteScript.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    expect(injections('dapp-a')).toBe(0);
+
+    await act(async () => hook.result.current.park('dapp-a'));
+    await act(async () => hook.result.current.restore('dapp-a'));
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+    expect(injections('dapp-a')).toBe(1);
   });
 });
 
@@ -954,6 +1038,26 @@ describe('E2E screen-key publishing', () => {
     expect(probe.hasPendingConfirmation('probe')).toBe(false);
   });
 
+  it('publishes the motion while one runs', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+    const probe = () => Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')?.value.motion;
+    expect(probe()).toBeNull();
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+
+    act(() => void hook.result.current.park('dapp-a'));
+    await flush();
+
+    expect(probe()).toEqual({
+      id: 'dapp-a',
+      target: 'collapsed',
+      started: false,
+      acknowledging: false,
+      progress: 1,
+      tracking: false
+    });
+  });
+
   it('stays on the bare route while the dApp is still loading', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     act(() => hook.result.current.open(makeSession('dapp-a')));
@@ -1206,8 +1310,22 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.setSlotRect(LANDSCAPE));
       await settle();
 
-      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 1]);
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 0]);
       expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+    });
+
+    it('on the bridge injection of a warm restore', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+      await act(async () => loaded?.({ id: 'dapp-a' }));
+      await act(async () => hook.result.current.park('dapp-a'));
+      failNative();
+
+      await act(async () => hook.result.current.restore('dapp-a'));
+      await settle();
+
+      expect(warned('executeScript')).toBe(1);
     });
 
     it('when the switcher opens', async () => {
@@ -1440,9 +1558,11 @@ describe('native presentation lifecycle', () => {
     });
     await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
     let parking: Promise<void> | undefined;
-    act(() => {
+    // Async, so the refused morph hands over to the legacy park and its snapshot starts before the close.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
+    expect(finishSnapshot).toBeDefined();
     await act(async () => {
       await listenerFor('closeEvent')({
         id: 'dapp-a',
@@ -1509,7 +1629,7 @@ describe('native presentation lifecycle', () => {
           finish = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1563,7 +1683,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1616,7 +1736,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1666,5 +1786,143 @@ describe('native presentation lifecycle', () => {
       errorLabel: 'breadPresentationError',
       readinessTimeoutMs: 30000
     });
+  });
+});
+
+describe('native permission-denied toast reporting', () => {
+  type Listener = { callback: (payload: unknown) => unknown; remove: jest.Mock; active: boolean };
+  let listeners: Map<string, Listener[]>;
+
+  beforeEach(() => {
+    listeners = new Map();
+    mockReportUserVisibleError.mockClear();
+    mockAddListener.mockImplementation((event: string, callback: Listener['callback']) => {
+      const listener: Listener = {
+        callback,
+        active: true,
+        remove: jest.fn(() => {
+          listener.active = false;
+        })
+      };
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+      return Promise.resolve({ remove: listener.remove });
+    });
+  });
+
+  afterEach(() => {
+    mockAddListener.mockImplementation(() => Promise.resolve({ remove: jest.fn() }));
+  });
+
+  async function registered() {
+    await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1));
+    return listeners.get('permissionDeniedToast')![0]!;
+  }
+
+  async function emit(event: string, payload: unknown) {
+    await act(async () => {
+      for (const listener of listeners.get(event) ?? []) {
+        if (listener.active) await listener.callback(payload);
+      }
+    });
+  }
+
+  it('reports exactly the fixed pair only after an empty native event arrives', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+  });
+
+  it('reports each native display once across rerenders without duplicate listeners', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    hook.rerender();
+    hook.rerender();
+    expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1);
+    await emit('permissionDeniedToast', {});
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([
+      ['raw_dapp_permission_denied', 'native_toast'],
+      ['raw_dapp_permission_denied', 'native_toast']
+    ]);
+  });
+
+  it('removes the listener on unmount and leaves only the remounted provider active', async () => {
+    const first = renderHook(() => useDappBrowser(), { wrapper });
+    const old = await registered();
+    first.unmount();
+    expect(old.remove).toHaveBeenCalledTimes(1);
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+    const second = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(2));
+    expect(listeners.get('permissionDeniedToast')!.filter(listener => listener.active)).toHaveLength(1);
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+    second.unmount();
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores callbacks delivered after provider disposal', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    const listener = await registered();
+    hook.unmount();
+    await act(async () => {
+      await listener.callback({});
+    });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('removes a permission listener whose registration resolves after unmount', async () => {
+    const register = mockAddListener.getMockImplementation()!;
+    let finishRegistration: (() => void) | undefined;
+    mockAddListener.mockImplementation((event: string, callback: Listener['callback']) => {
+      const handle = register(event, callback);
+      if (event !== 'permissionDeniedToast') return handle;
+      return new Promise(resolve => {
+        finishRegistration = () => resolve(handle);
+      });
+    });
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    const listener = await registered();
+    hook.unmount();
+    await act(async () => {
+      finishRegistration?.();
+    });
+    await waitFor(() => expect(listener.remove).toHaveBeenCalledTimes(1));
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('forwards no raw payload fields or values to the final reporter boundary', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    await emit('permissionDeniedToast', {
+      id: 'private-instance',
+      url: 'https://private.fixture.example/path?secret=value',
+      origin: 'https://private.fixture.example',
+      permission: 'private-permission',
+      message: 'private denial text',
+      errorId: 'raw_startup_init_failed',
+      surface: 'inline'
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+  });
+
+  it('keeps unrelated successful native events silent', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(listeners.get('closeEvent')).toHaveLength(1));
+    await emit('browserPageLoaded', { id: 'absent' });
+    await emit('urlChangeEvent', { id: 'absent', url: 'https://private.fixture.example' });
+    await emit('presentationChanged', {
+      id: 'absent',
+      display: 'browser',
+      policyResolved: true,
+      policyRevision: 1
+    });
+    await emit('closeEvent', { id: 'absent' });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
   });
 });

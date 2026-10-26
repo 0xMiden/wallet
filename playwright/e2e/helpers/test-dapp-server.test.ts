@@ -5,6 +5,7 @@ import type React from 'react';
 
 import type { BrowserContext } from '@playwright/test';
 import { JSDOM } from 'jsdom';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
@@ -204,12 +205,17 @@ describe('test dApp server', () => {
   it('routes the origins it is given, dApps one and two by default', async () => {
     const patterns = async (origins?: readonly string[]): Promise<unknown[]> => {
       const route = jest.fn(async (_pattern: string, _handler: unknown) => undefined);
-      await installTestDapp(
-        { route } as unknown as BrowserContext,
-        createDappServer({ pageDir: pageFixture(), roots }),
-        origins
-      );
-      return route.mock.calls.map(call => call[0]);
+      const context = Object.assign(new EventEmitter(), { route });
+      try {
+        await installTestDapp(
+          context as unknown as BrowserContext,
+          createDappServer({ pageDir: pageFixture(), roots }),
+          origins
+        );
+        return route.mock.calls.map(call => call[0]);
+      } finally {
+        context.emit('close');
+      }
     };
     expect(REACT_DAPP_ORIGIN).toBe(`http://localhost:${DAPP_PORT + 1}`);
     expect(await patterns()).toEqual([`${DAPP_ORIGINS.one}/**`, `${DAPP_ORIGINS.two}/**`]);
@@ -228,6 +234,47 @@ describe('test dApp server', () => {
     // A listener left on the other address would fail this second bind with EADDRINUSE and keep Jest alive.
     const stop = await serveTestDappOnLoopback(server, port);
     await stop();
+  });
+
+  it.each(['EADDRNOTAVAIL', 'EAFNOSUPPORT'])('serves 127.0.0.1 alone when ::1 refuses with %s', async code => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const listen = net.Server.prototype.listen;
+    const refuseIpv6 = jest.spyOn(net.Server.prototype, 'listen').mockImplementation(function (
+      this: net.Server,
+      ...args: unknown[]
+    ) {
+      if (args[1] !== '::1') return Reflect.apply(listen, this, args);
+      process.nextTick(() => this.emit('error', Object.assign(new Error(`listen ${code} ::1`), { code })));
+      return this;
+    });
+    try {
+      const stop = await serveTestDappOnLoopback(server, port);
+      try {
+        expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+      } finally {
+        await stop();
+      }
+    } finally {
+      refuseIpv6.mockRestore();
+    }
+  });
+
+  it('lets the routes it is given answer first, and serves the rest', async () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const stop = await serveTestDappOnLoopback(server, port, (request, response) => {
+      if (request.url !== '/ping') return false;
+      response.writeHead(204);
+      response.end();
+      return true;
+    });
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/ping`)).status).toBe(204);
+      expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    } finally {
+      await stop();
+    }
   });
 });
 

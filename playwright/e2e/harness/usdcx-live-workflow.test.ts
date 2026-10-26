@@ -36,12 +36,10 @@ describe('E2E USDCx Bridge-IN (live) workflow', () => {
     expect(body).toMatch(/if \[ -z "\$USDCX_LIVE_EVM_PRIVATE_KEY" \]; then[\s\S]*::error[\s\S]*exit 1/);
   });
 
-  // Every push to main runs it as well as the nightly and a dispatch, and runs queue: a cancelled run can leave a
-  // deposit that no relayer mints.
-  it('runs after every push to main, nightly and by dispatch, one run at a time', () => {
-    expect(workflow).toMatch(
-      /\non:\n {2}push:\n {4}branches:\n {6}- main\n {2}schedule:\n {4}- cron: '17 3 \* \* \*'\n {2}workflow_dispatch:\n/
-    );
+  // The nightly and a dispatch run it, never a push, and runs queue: a cancelled run can leave a deposit that no
+  // relayer mints.
+  it('runs nightly and by dispatch, one run at a time', () => {
+    expect(workflow).toMatch(/\non:\n {2}schedule:\n {4}- cron: '17 3 \* \* \*'\n {2}workflow_dispatch:\n/);
     expect(workflow).toMatch(
       /\nconcurrency:\n {2}group: \$\{\{ github\.workflow \}\}\n(?: {2}#.*\n)* {2}cancel-in-progress: false\n/
     );
@@ -91,6 +89,21 @@ describe('E2E USDCx Bridge-IN (live) workflow', () => {
     );
     expect(stepsOf(EXECUTOR_JOB)).toContain(`\n          USDCX_LIVE_SOURCE: \${{ matrix.source }}\n`);
   });
+
+  it.each([ARC_JOB, EXECUTOR_JOB])(
+    "adds the return burn's payout fee to the summary of %s, whatever the run did",
+    job => {
+      expect(stepsOf(job)).toContain(
+        '\n      - name: Add the payout fees to the job summary\n' +
+          '        if: always()\n' +
+          '        continue-on-error: true\n' +
+          '        run: |\n' +
+          '          if [ -f test-results/usdcx-payout-fees.md ]; then\n' +
+          '            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"\n' +
+          '          fi\n'
+      );
+    }
+  );
 
   // Both specs match the config's usdcx-live-* glob, and a retry sends a second real deposit.
   it("runs each spec in its own jobs, with no retries, and keeps each source chain's artifact", () => {
