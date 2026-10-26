@@ -4,7 +4,7 @@ import { appendFile, mkdir, open, readdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { validateReleaseNotes } from './apple.mjs';
+import { DEFAULT_RELEASE_NOTES, validateReleaseNotes } from './apple.mjs';
 import { safeStoreFailure } from './auth.mjs';
 import { validateRolloverSession, validateUploadSession } from './chrome.mjs';
 import { androidVersionCode, verifyReleaseSource } from './create-receipt.mjs';
@@ -92,7 +92,7 @@ export function validatePublishRequest(input) {
     buildNumber,
     editId,
     acknowledgement,
-    ...(releaseNotes !== undefined ? { releaseNotes } : {}),
+    ...(platform === 'ios' && action === 'submit' ? { releaseNotes: releaseNotes ?? DEFAULT_RELEASE_NOTES } : {}),
     needsProducer,
     needsState,
     ...(platform === 'android' && buildNumber ? { versionCode: androidVersionCode(version, buildNumber) } : {})

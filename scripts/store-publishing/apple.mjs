@@ -98,6 +98,8 @@ function buildsPath(options) {
 
 const stateOf = version => version.attributes?.appVersionState ?? version.attributes?.appStoreState;
 
+export const DEFAULT_RELEASE_NOTES = 'Various Fixes & Improvements';
+
 export function validateReleaseNotes(value) {
   if (value === undefined || value === '') return undefined;
   if (
@@ -303,7 +305,7 @@ export async function upload(client, options) {
 /** Submit one existing draft/build while preserving its release policy unless an explicit change is requested. */
 export async function submit(client, options) {
   requireTarget(options, true);
-  const notes = validateReleaseNotes(options.releaseNotes);
+  const notes = validateReleaseNotes(options.releaseNotes) ?? DEFAULT_RELEASE_NOTES;
   client = submitClient(client);
   const policy = options.releasePolicy ?? 'after-approval';
   if (!['preserve-existing', 'manual', 'after-approval'].includes(policy))

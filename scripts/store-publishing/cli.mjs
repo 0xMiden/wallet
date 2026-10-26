@@ -70,7 +70,8 @@ export function parseArgs(argv) {
     if (flags.has(name)) result[flags.get(name)] = true;
     else if (values.has(name)) {
       const value = rest[++index];
-      if (!value || value.startsWith('--')) throw new Error('A publishing option is missing its value');
+      if (value === undefined || (!value && name !== 'release-notes') || value.startsWith('--'))
+        throw new Error('A publishing option is missing its value');
       result[values.get(name)] = value;
     } else throw new Error('Unknown publishing option; store identities can only come from private configuration');
   }
@@ -141,7 +142,7 @@ function planFor(args, config) {
     Object.assign(options, { appId: section.appId, bundleId: identity });
     if (action === 'submit') {
       options.releasePolicy = args.releasePolicy ?? 'after-approval';
-      if (releaseNotes !== undefined) options.releaseNotes = releaseNotes;
+      options.releaseNotes = releaseNotes ?? apple.DEFAULT_RELEASE_NOTES;
     }
     if ((mutation && action !== 'prepare') || args.buildNumber !== undefined) {
       if (!/^\d+(?:\.\d+){0,2}$/.test(args.buildNumber ?? ''))

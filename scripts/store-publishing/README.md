@@ -147,7 +147,7 @@ node scripts/store-publishing/cli.mjs ios release \
 
 Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to `--release-policy after-approval`. The existing `1.17.7` draft uses `AFTER_APPROVAL`, so submitting it preserves automatic publication after Apple's approval. It does not require a separate release command. Future skeletons created by `prepare` also use `AFTER_APPROVAL` and publish automatically after approval. Continue monitoring until the store reports public distribution.
 
-iOS submit retains explicit `--release-policy manual` and `--release-policy preserve-existing` opt-ins. The standard publishing workflow uses automatic publication after approval. Optional `--release-notes` (workflow `release_notes`) fills only an empty existing en-US What's New field; existing nonempty text is preserved. Missing text without explicit notes stops before build attachment or review creation. A unique empty review draft may be resumed only after its app relationship, target build and exclusive contents are verified.
+iOS submit retains explicit `--release-policy manual` and `--release-policy preserve-existing` opt-ins. The standard publishing workflow uses automatic publication after approval. Optional `--release-notes` (workflow `release_notes`) fills only an empty existing en-US What's New field; existing nonempty text is preserved. Omitted or empty notes use exactly `Various Fixes & Improvements` for iOS submit; other operations receive no notes default. A unique empty review draft may be resumed only after its app relationship, target build and exclusive contents are verified.
 
 ### Android
 
