@@ -735,6 +735,10 @@ export async function checkpointFinancialRecovery(
   return withUnlocked(({ vault }) => vault.checkpointFinancialRecovery(accountId, entry));
 }
 
+export async function recoverWalletStorage(_operation: 'check' | 'rebuild', _expectedEpoch: number): Promise<boolean> {
+  throw new StorageUnavailableError();
+}
+
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
   const configuration = await readStoredSpendingLimit(accountId);
   return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
