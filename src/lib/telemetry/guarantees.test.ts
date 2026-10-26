@@ -1152,6 +1152,7 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
       'src/lib/telemetry/sink.ts',
+      'src/lib/telemetry/transaction-execution-diagnostics.ts',
       'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts',

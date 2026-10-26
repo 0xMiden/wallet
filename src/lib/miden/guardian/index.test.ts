@@ -965,6 +965,51 @@ describe('MultisigService', () => {
       expect(wasmLockOptionsSeen).toEqual([ceiling, undefined]);
     });
 
+    it('post-create lock failure is local and preserves the original rejection', async () => {
+      const original = new Error('private lock wait failure');
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      beforeWasmHold = () => {
+        throw original;
+      };
+      try {
+        await expect(service.signAndCreateTransactionRequest('p')).rejects.toBe(original);
+        expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });
+        expect(multisig.signProposal).not.toHaveBeenCalled();
+      } finally {
+        beforeWasmHold = undefined;
+      }
+    });
+
+    it.each(['proposal_sign', 'custom_advice', 'custom_request_build', 'proposal_request'])(
+      'post-create %s annotates the original rejection and makes no extra service call',
+      async step => {
+        const original = new Error('private post-create account 0xabcdef amount 987654321');
+        const custom = step === 'custom_advice' || step === 'custom_request_build';
+        const multisig = makeMultisig({
+          signProposal: jest.fn(async () => {
+            if (step === 'proposal_sign') throw original;
+            return { metadata: { proposalType: custom ? 'custom' : 'send' } };
+          }),
+          prepareCustomExecution: jest.fn(async () => {
+            if (step === 'custom_advice') throw original;
+            return { kind: 'advice' };
+          }),
+          createTransactionProposalRequest: jest.fn(async () => {
+            throw original;
+          })
+        });
+        mockTransactionRequestDeserialize.mockImplementation(() => {
+          throw original;
+        });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        await expect(service.signAndCreateTransactionRequest('p', new Uint8Array([1, 2]))).rejects.toBe(original);
+        expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: step });
+        expect(multisig.signProposal).toHaveBeenCalledTimes(1);
+        expect(multisig.executeProposal).not.toHaveBeenCalled();
+      }
+    );
+
     it('signAndExecuteProposal signs then executes a given proposal', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
