@@ -273,9 +273,6 @@ jobs:
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
 
-      - name: Install native action and screenshot tools
-        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 gsettings-desktop-schemas
-
       - name: Install Playwright Browsers
         # `--with-deps` shells out to apt, and the browser download itself has
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
@@ -303,31 +300,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Run native toolbar regressions
-        run: |
-          curl --fail --silent --show-error http://127.0.0.1:8551/testnet.json > "$RUNNER_TEMP/toolbar-fixture-config.json"
-          trap 'curl --fail --silent --show-error -X POST -H "Content-Type: application/json" --data-binary @"$RUNNER_TEMP/toolbar-fixture-config.json" http://127.0.0.1:8551/_fixture/config' EXIT
-          node --input-type=module <<'JS'
-          const response = await fetch('http://127.0.0.1:8551/testnet.json');
-          if (!response.ok) throw new Error('Fixture config unavailable');
-          const document = await response.json();
-          document.mainnetCountdown = { enabled: true, launchAt: '2099-01-01T00:00:00Z' };
-          const saved = await fetch('http://127.0.0.1:8551/_fixture/config', {
-            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document)
-          });
-          if (!saved.ok) throw new Error('Fixture config refused');
-          JS
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn test:e2e:toolbar'
-
-      - name: Upload native toolbar evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-toolbar-evidence
-          path: test-results/
-          retention-days: 7
-          if-no-files-found: warn
-
       - name: Run 1Click visual acceptance
         timeout-minutes: 5
         run: yarn playwright test --config playwright.one-click-visual.config.ts
@@ -341,12 +313,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  native-toolbar:
+    needs: translations
+    uses: ./.github/workflows/native-toolbar.yml
+    secrets: inherit
+
   # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
   # one job (~42m sequential). They now run in parallel; this gate keeps the
-  # required name and fails if either side failed or was skipped.
+  # required name and fails if any job failed or was skipped.
   ci:
     name: Test
-    needs: [unit, mock-e2e]
+    needs: [unit, mock-e2e, native-toolbar]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
@@ -355,7 +332,9 @@ jobs:
             echo "unit ${{ needs.unit.result }}"; exit 1; fi
           if [ "${{ needs.mock-e2e.result }}" != "success" ]; then
             echo "mock-e2e ${{ needs.mock-e2e.result }}"; exit 1; fi
-          echo "unit and mock-e2e ok"
+          if [ "${{ needs.native-toolbar.result }}" != "success" ]; then
+            echo "native-toolbar ${{ needs.native-toolbar.result }}"; exit 1; fi
+          echo "unit, mock-e2e and native-toolbar ok"
 
   # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
   # one ubuntu-latest). Three shards keep billed minutes about the same and cut
