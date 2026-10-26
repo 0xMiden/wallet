@@ -5272,7 +5272,7 @@
     }
   },
   "swapOfferedAmount": {
-    "message": "Ofrecido$amount$",
+    "message": "Ofrecido $amount$",
     "englishSource": "Offered $amount$",
     "placeholders": {
       "amount": {
@@ -7112,7 +7112,7 @@
     "englishSource": "Edited"
   },
   "tokenNameInvalid": {
-    "message": "Introduce un nombre de entre 1 y$max$es de caracteres.",
+    "message": "Introduce un nombre de entre 1 y $max$ caracteres.",
     "englishSource": "Enter a name of 1 to $max$ characters.",
     "placeholders": {
       "max": {
@@ -7121,7 +7121,7 @@
     }
   },
   "tokenSymbolInvalid": {
-    "message": "Introduce un símbolo de entre 1 y$max$es caracteres.",
+    "message": "Introduce un símbolo de entre 1 y $max$ caracteres.",
     "englishSource": "Enter a symbol of 1 to $max$ characters.",
     "placeholders": {
       "max": {
