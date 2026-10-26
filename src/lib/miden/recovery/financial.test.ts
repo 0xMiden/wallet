@@ -1,4 +1,7 @@
-import { readFinancialRecoveryBaseline, historyWithRecoveryDebits, recoveryDebit } from './financial';
+import { readFinancialRecoveryBaseline, historyWithRecoveryDebits, recoveryDebit, readRetainedFinancialEntries, verifyFinancialRecoveryEntries } from './financial';
+import { verifyRetainedTransactionRows } from './transaction-continuity';
+import { projectRecoveryTransaction } from './transaction-record';
+import type { RecoveryEntry } from './types';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import * as Repo from '../repo';
 
@@ -69,4 +72,29 @@ it('keeps the debit at the exact rolling-window boundary', async () => {
     initiatedAt: now - 86400,
     spentUsd: 3n
   });
+});
+
+it('Task4C1 financial and critical continuity accept the exact old and acknowledged retry rows', async () => {
+  const old = row('transition', {
+    initiatedAt: now - 90000, spentUsd: 7n, spendingLimitAuthorizationId: 'used', mayHaveSubmitted: true,
+    attemptId: 'old', requestBytes: new Uint8Array([1]),
+    submitEvidence: [{ attemptId: 'old', capturedAt: 1, source: 'stage', transactionId: 'transaction', preSubmitEnd: true }]
+  });
+  await Repo.transactions.add(old);
+  const entries: RecoveryEntry[] = [
+    { kind: 'debit', id: old.id, accountId: old.accountId, initiatedAt: now, spentUsd: 7n, authorizationId: 'used',
+      retry: { previous: { initiatedAt: old.initiatedAt, spentUsd: 7n, authorizationId: 'used' }, queuedSeq: 9 } },
+    { kind: 'transaction', id: old.id, accountId: old.accountId, requestBytes: new Uint8Array([1]),
+      mayHaveSubmitted: true, evidence: {}, row: projectRecoveryTransaction(old) }
+  ];
+  const verify = async () => {
+    verifyFinancialRecoveryEntries(entries, await readRetainedFinancialEntries(entries, now), now);
+    await verifyRetainedTransactionRows(entries);
+  };
+  await expect(verify()).resolves.toBeUndefined();
+  await Repo.transactions.update(old.id, { initiatedAt: now, queuedSeq: 9, status: ITransactionStatus.Queued,
+    attemptId: undefined, mayHaveSubmitted: undefined });
+  await expect(verify()).resolves.toBeUndefined();
+  await Repo.transactions.update(old.id, { spentUsd: 8n });
+  await expect(verify()).rejects.toThrow();
 });

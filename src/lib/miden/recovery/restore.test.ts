@@ -119,6 +119,23 @@ it('restores policy and the original debit while every submitted row stays inert
   });
 });
 
+it('Task4C1 restores an unresolved retry as one inert reservation preserving its future debit and used grant', async () => {
+  const snapshot = source();
+  const future = Math.floor(Date.now() / 1000) + 100000;
+  const debit = snapshot.entries.find(entry => entry.kind === 'debit');
+  if (!debit || debit.kind !== 'debit') throw new Error('fixture');
+  debit.retry = { previous: { initiatedAt: future, spentUsd: 7n, authorizationId: 'used' }, queuedSeq: 9 };
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await expect(withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+    restoreWalletRecoveryRows(snapshot, capability))).resolves.toBeUndefined();
+  expect(await Repo.recoveryDebits.count()).toBe(1);
+  const retained = await Repo.recoveryDebits.get('tx-a');
+  expect(retained?.initiatedAt).toBe(future);
+  expect(retained?.authorizationId).toBe('used');
+  expect((await Repo.transactions.get('tx-a'))?.status).toBe(ITransactionStatus.Unconfirmed);
+  expect((await Repo.transactions.get('tx-a'))?.restoredFromJournal).toBe(true);
+});
+
 it('refuses to overwrite a surviving cap with a different journal policy', async () => {
   await Repo.spendingLimits.put({ accountId: 'account-a', limit: '2', revision: 'newer', createdAt: 1, updatedAt: 2 });
   markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
