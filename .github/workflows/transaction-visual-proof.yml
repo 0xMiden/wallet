@@ -1,0 +1,40 @@
+name: Transaction confirmation visual proof
+
+on:
+  push:
+    branches:
+      - ci/transaction-visual-*
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Capture transaction confirmation
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.one-click-visual.config.ts
+      - name: Require transaction captures
+        run: |
+          count=$(find test-results/one-click-visual -name 'transaction-*.png' -type f | wc -l)
+          echo "Transaction screenshots: $count"
+          test "$count" -ge 36
+      - name: Upload visual artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transaction-visual-proof
+          path: test-results/one-click-visual/
+          if-no-files-found: warn
+          retention-days: 7
