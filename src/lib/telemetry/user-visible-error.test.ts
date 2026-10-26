@@ -201,3 +201,22 @@ it.each(uiCases)('carries exact UI producer evidence for %s through the reportin
   expect(root).toBeInstanceOf(Error);
   expect((root as Error).message).toBe(`User-visible error: ${id}; surface ${surface}`);
 });
+
+it.each(uiCases)('rejects UI evidence on another pair without changing the report identity for %s', (_id, _surface, evidence) => {
+  Reflect.apply(reportUserVisibleError, undefined, ['invalidAmount', 'field', evidence]);
+  expect(captureCrash).toHaveBeenCalledTimes(1);
+  expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({userErrorId:'invalidAmount',userErrorSurface:'field'});
+});
+it('rejects partial or unknown feature evidence and never reads getters', () => {
+  const getter = jest.fn(() => 'earnDeposit');
+  for (const value of [
+    {kind:'feature_unavailable',featureUnavailableFeature:'earnDeposit'},
+    {kind:'feature_unavailable',featureUnavailableFeature:'private',featureUnavailableReason:'off'},
+    Object.defineProperty({kind:'feature_unavailable',featureUnavailableReason:'off'},'featureUnavailableFeature',{get:getter})
+  ]) {
+    _resetUserVisibleErrorLimitsForTest();
+    Reflect.apply(reportUserVisibleError, undefined, ['bridgeFeatureUnavailableBody','notice',value]);
+    expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).not.toHaveProperty('featureUnavailableFeature');
+  }
+  expect(getter).not.toHaveBeenCalled();
+});
