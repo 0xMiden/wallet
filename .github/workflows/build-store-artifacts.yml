@@ -361,6 +361,7 @@ jobs:
           subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', os.environ['KEYCHAIN_PATH'], *original], check=True)
           PY
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" > "$RUNNER_TEMP/wallet-store-signing/identities.txt"
+          security find-certificate -a -Z "$KEYCHAIN_PATH" > "$RUNNER_TEMP/wallet-store-signing/certificate-fingerprints.txt"
           grep 'Apple Distribution:' "$RUNNER_TEMP/wallet-store-signing/identities.txt" | grep -q '(LHU7B7J5WL)'
           python3 automation/scripts/store-publishing/apple-profile.py install \
             --directory "$RUNNER_TEMP/wallet-store-signing" \
@@ -387,10 +388,9 @@ jobs:
           python3 <<'PY'
           import os, plistlib
           from pathlib import Path
-          # Select existing distribution assets instead of requesting cloud-signing permission.
+          # The installed Store profile is Xcode-managed and must use automatic export signing.
           options = {'method': 'app-store-connect', 'destination': 'export', 'teamID': 'LHU7B7J5WL',
-                     'signingStyle': 'manual', 'signingCertificate': 'Apple Distribution',
-                     'provisioningProfiles': {'com.miden.bread': 'iOS Team Store Provisioning Profile: com.miden.bread'},
+                     'signingStyle': 'automatic',
                      'manageAppVersionAndBuildNumber': False}
           with Path(os.environ['RUNNER_TEMP'], 'wallet-store-export.plist').open('wb') as target:
               plistlib.dump(options, target)
