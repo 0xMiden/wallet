@@ -7,6 +7,7 @@
 ### Changes
 
 - [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
+- [FIX][all] Shed eligibility floods before durable objects and cache decisions per colo while preserving the global query budget.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 

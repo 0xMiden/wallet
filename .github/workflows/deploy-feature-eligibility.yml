@@ -100,7 +100,6 @@ jobs:
           CALLER_HASH_SECRET: ${{ secrets.FEATURE_ELIGIBILITY_CALLER_HASH_SECRET }}
           ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
           MAXMIND_DAILY_QUERY_LIMIT: ${{ vars.MAXMIND_DAILY_QUERY_LIMIT || '0' }}
-          CALLER_REQUESTS_PER_MINUTE: ${{ vars.CALLER_REQUESTS_PER_MINUTE || '60' }}
           FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
           DEPLOYMENT_REVISION: ${{ steps.revision.outputs.sha }}
         shell: bash
@@ -114,7 +113,7 @@ jobs:
             if (!process.env[key]) throw new Error(`Missing production setting: ${key}`);
           }
           if (process.env.CALLER_HASH_SECRET.length < 32) throw new Error('CALLER_HASH_SECRET must have at least 32 characters');
-          for (const [key, maximum] of [['MAXMIND_DAILY_QUERY_LIMIT', 1_000_000], ['CALLER_REQUESTS_PER_MINUTE', 10_000]]) {
+          for (const [key, maximum] of [['MAXMIND_DAILY_QUERY_LIMIT', 1_000_000]]) {
             if (!/^[1-9][0-9]*$/.test(process.env[key]) || !Number.isSafeInteger(Number(process.env[key])) || Number(process.env[key]) > maximum) {
               throw new Error(`Set an explicit positive production limit: ${key}`);
             }
@@ -126,9 +125,16 @@ jobs:
           validateEndpoint(process.env.FEATURE_ELIGIBILITY_URL);
           const service = resolve('services/feature-eligibility');
           const config = JSON.parse(readFileSync(join(service, 'wrangler.jsonc'), 'utf8'));
+          const callerLimit = config.ratelimits?.find(binding => binding.name === 'CALLER_RATE_LIMIT');
+          const coloLimit = config.ratelimits?.find(binding => binding.name === 'COLO_RATE_LIMIT');
+          if (callerLimit?.simple?.limit !== 60 || callerLimit.simple.period !== 60 ||
+            coloLimit?.simple?.limit !== 5000 || coloLimit.simple.period !== 10 ||
+            callerLimit.namespace_id === coloLimit.namespace_id) {
+            throw new Error('Missing or invalid eligibility rate limit bindings');
+          }
           config.main = resolve(service, config.main);
           config.vars = Object.fromEntries(['ALLOWED_ORIGINS', 'MAXMIND_DAILY_QUERY_LIMIT',
-            'CALLER_REQUESTS_PER_MINUTE', 'DEPLOYMENT_REVISION'].map(key => [key, process.env[key]]));
+            'DEPLOYMENT_REVISION'].map(key => [key, process.env[key]]));
           writeFileSync(join(process.env.RUNNER_TEMP, 'feature-eligibility-release.json'), JSON.stringify(config), { mode: 0o600 });
           const secrets = Object.fromEntries(['MAXMIND_ACCOUNT_ID', 'MAXMIND_LICENSE_KEY', 'CALLER_HASH_SECRET']
             .map(key => [key, process.env[key]]));
