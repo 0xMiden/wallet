@@ -133,3 +133,14 @@ it('latches provider quota failures without classifying authentication failures 
     await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
   }
 });
+
+it('does not persist pending account flags when recovery expires during encryption', async () => {
+  const key = await makeVaultKey();
+  let current = true;
+  const write = encryptAndSaveMany([['accounts', [{ guardianNoteRecoveryPending: true }]]], key, () => {
+    if (!current) throw new Error('expired recovery');
+  });
+  current = false;
+  await expect(write).rejects.toThrow('expired recovery');
+  expect(mockProvider.set).not.toHaveBeenCalled();
+});

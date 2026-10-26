@@ -222,13 +222,22 @@ export async function dismissGuardianNoteRecoveryProgress(accountId: string, upd
 }
 
 /** Drop one account's record, leaving every other account's untouched. */
-export async function clearGuardianNoteRecoveryProgress(accountId: string): Promise<void> {
+export async function clearGuardianNoteRecoveryProgress(accountId: string, assertCurrent?: () => void): Promise<void> {
   try {
+    assertCurrent?.();
     const entries = await fetchMap();
+    assertCurrent?.();
     if (!(accountId in entries)) return;
     delete entries[accountId];
     await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, Object.keys(entries).length === 0 ? null : entries);
+    assertCurrent?.();
+    if (assertCurrent) {
+      const retained = await fetchMap();
+      assertCurrent();
+      if (accountId in retained) throw new Error('Guardian progress cutover readback failed');
+    }
   } catch (error) {
+    if (assertCurrent) throw error;
     console.warn('[GuardianRecovery] Failed to clear recovery progress:', error);
   }
 }

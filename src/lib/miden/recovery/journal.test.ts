@@ -1,6 +1,7 @@
 import { importVaultKey } from '../passworder';
 import { RecoveryJournal, RECOVERY_JOURNAL_KEYS, JOURNAL_MAX_ENTRIES, type RecoveryStorage } from './journal';
 import type { RecoveryJournalData } from './types';
+import { getStorageHealth, withStorageRecoveryAccess } from '../storage-health';
 
 class DisposableStorage implements RecoveryStorage {
   values: Record<string, unknown> = {};
@@ -95,6 +96,47 @@ it('reads the last verified good slot after active ciphertext corruption', async
   }));
   storage.values[RECOVERY_JOURNAL_KEYS[1]!] = 'broken';
   expect(await journal.read()).toEqual(first);
+});
+
+it('repairs a missing pointer only to the exact independently verified generation', async () => {
+  const retained = await journal.update(data);
+  const ciphertext = storage.values[RECOVERY_JOURNAL_KEYS[0]!];
+  delete storage.values[RECOVERY_JOURNAL_KEYS[2]!];
+  await withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, async capability => {
+    await expect(journal.repair(retained, capability)).resolves.toEqual(retained);
+  });
+  expect(storage.values[RECOVERY_JOURNAL_KEYS[0]!]).toBe(ciphertext);
+  expect(await journal.update(data)).toEqual(retained);
+});
+
+it('refuses journal repair from a surviving slot older than the independent continuity floor', async () => {
+  const first = await journal.update(data);
+  const latest = await journal.update(() => ({
+    ...data(),
+    accounts: [{ accountId: 'account-1', nonce: '4', commitment: 'commitment-4' }]
+  }));
+  storage.values[RECOVERY_JOURNAL_KEYS[1]!] = 'broken';
+  const writes = storage.writes;
+  await expect(
+    withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+      journal.repair(latest, capability)
+    )
+  ).rejects.toThrow();
+  expect(storage.writes).toBe(writes);
+  expect(await journal.read()).toEqual(first);
+});
+
+it('does not accept a repair whose pointer readback was corrupted', async () => {
+  const retained = await journal.update(data);
+  delete storage.values[RECOVERY_JOURNAL_KEYS[2]!];
+  storage.corruptReadback = true;
+  await expect(
+    withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+      journal.repair(retained, capability)
+    )
+  ).rejects.toThrow();
+  storage.corruptReadback = false;
+  expect(await journal.read()).toEqual(retained);
 });
 
 it('refuses to initialize over unreadable retained ciphertext', async () => {

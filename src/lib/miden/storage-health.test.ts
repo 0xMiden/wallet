@@ -15,6 +15,20 @@ describe('storage health', () => {
     for (const key of Object.keys(persisted)) delete persisted[key];
   });
 
+  it('keeps a staged recovery read current only until another incident or lifecycle replaces it', async () => {
+    const health = await import('./storage-health');
+    health.markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    const check = health.captureStorageRecoveryGuard();
+    expect(check).not.toThrow();
+    health.reportStorageFailure(new DOMException('cancelled', 'AbortError'), { backend: 'sdk', operation: 'get' });
+    expect(check).not.toThrow();
+    health.markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    expect(check).toThrow('StorageUnavailableError');
+    const replacement = health.captureStorageRecoveryGuard();
+    await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+    expect(replacement).toThrow('StorageUnavailableError');
+  });
+
   it('latches contextual backing-store failure and preserves first diagnostic through restart', async () => {
     const health = await import('./storage-health');
     await health.initializeStorageHealth();

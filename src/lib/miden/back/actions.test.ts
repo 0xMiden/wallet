@@ -65,6 +65,7 @@ import {
   getSpendingLimit,
   saveSpendingLimit,
   checkpointFinancialRecovery,
+  recoverWalletStorage,
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
@@ -109,6 +110,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 const mockVault = {
+  recoverStorage: jest.fn().mockResolvedValue(true),
+  checkStorageRecovery: jest.fn().mockResolvedValue(true),
   checkpointFinancialRecovery: jest.fn().mockResolvedValue(undefined),
   verifyStorageContinuity: jest.fn().mockResolvedValue(true),
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
@@ -2679,6 +2682,36 @@ describe('actions', () => {
         outcome
       });
     });
+  });
+
+  it('runs explicit reconstruction only on the currently retained Vault and incident', async () => {
+    Object.assign(mockStoreState, { vault: mockVault });
+    const progress = {
+      phase: 'complete',
+      verifiedAccounts: 1,
+      expectedAccounts: 1,
+      verifiedInputs: 2,
+      expectedInputs: 2
+    };
+    mockVault.recoverStorage.mockImplementationOnce(async publish => {
+      publish(progress);
+      return true;
+    });
+    mockVault.fetchAccounts.mockResolvedValue([]);
+    mockVault.getCurrentAccount.mockResolvedValue(undefined);
+    await expect(recoverWalletStorage('rebuild', getStorageHealth().epoch)).resolves.toEqual({
+      recovered: true,
+      progress
+    });
+    expect(mockVault.recoverStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a reconstruction request captured before reset', async () => {
+    mockVault.recoverStorage.mockClear();
+    const epoch = getStorageHealth().epoch;
+    await resetStorageHealthForLifecycle(epoch);
+    await expect(recoverWalletStorage('rebuild', epoch)).rejects.toThrow('StorageUnavailableError');
+    expect(mockVault.recoverStorage).not.toHaveBeenCalled();
   });
 
   // The lazy `getVault()` accessor in actions.ts has a `typeof init_vault === 'function'`
