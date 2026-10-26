@@ -14,6 +14,8 @@ jobs:
           node-version: 22
       - name: Store publishing unit and workflow contracts without store access
         run: node --test scripts/store-publishing/*.test.mjs
+      - name: Validate retained iOS profile handling without signing
+        run: python3 scripts/store-publishing/apple-profile.test.py
       - uses: ./.github/actions/yarn-install
       - name: Existing build and release workflow contracts
         run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/build-scripts.test.ts src/lib/update/release-workflows.test.ts
