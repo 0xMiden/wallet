@@ -31,6 +31,8 @@ test('callers cannot mutate the standard registry or its entries', () => {
   assert.equal(Object.isFrozen(targets.STORE_TARGETS), true);
   for (const target of targets.STORE_TARGETS) {
     assert.equal(Object.isFrozen(target), true);
-    assert.throws(() => { target.network = 'mainnet'; }, TypeError);
+    assert.throws(() => {
+      target.network = 'mainnet';
+    }, TypeError);
   }
 });

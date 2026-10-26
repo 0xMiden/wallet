@@ -17,9 +17,15 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const validToken = value => typeof value === 'string' && /^[A-Za-z0-9-]{1,100}$/.test(value);
 const validRunId = value => Number.isSafeInteger(value) && value > 0;
 const operationKey = (stage, id) => `${stage}:${id}`;
-const intentFields = intent => JSON.stringify({ targetId: intent.targetId, workflowPath: intent.workflowPath, inputs: {
-  ...intent.inputs, request_token: undefined
-} });
+const intentFields = intent =>
+  JSON.stringify({
+    targetId: intent.targetId,
+    workflowPath: intent.workflowPath,
+    inputs: {
+      ...intent.inputs,
+      request_token: undefined
+    }
+  });
 
 export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
   if (!object(plan) || plan.schemaVersion !== 1 || !object(plan.targets)) throw new Error('Invalid release plan');
@@ -29,7 +35,10 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
   const targets = selectStoreTargets(target);
   for (const [id, entry] of Object.entries(plan.targets)) {
     if (!STORE_TARGETS.some(value => value.id === id)) throw new Error('Unknown release plan target');
-    if (!object(entry) || Object.keys(entry).some(key => !['producerRunId', 'stateRunId', 'editId', 'acknowledgement'].includes(key)))
+    if (
+      !object(entry) ||
+      Object.keys(entry).some(key => !['producerRunId', 'stateRunId', 'editId', 'acknowledgement'].includes(key))
+    )
       throw new Error('Unsupported target field or identity override');
   }
   return targets.map(store => {
@@ -44,14 +53,18 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
     };
     const mutation = ['upload', 'submit', 'release'].includes(stage);
     const edits = store.platform === 'android' && ['upload', 'submit'].includes(stage);
-    const request = stage === 'build' ? validateBuildRequest(common) : validatePublishRequest({
-      ...common,
-      action: stage,
-      producerRunId: mutation ? entry.producerRunId : '',
-      stateRunId: mutation ? entry.stateRunId : '',
-      editId: edits ? entry.editId : '',
-      acknowledgement: store.platform === 'android' && ['begin-edit', 'submit'].includes(stage) ? entry.acknowledgement : 'none'
-    });
+    const request =
+      stage === 'build'
+        ? validateBuildRequest(common)
+        : validatePublishRequest({
+            ...common,
+            action: stage,
+            producerRunId: mutation ? entry.producerRunId : '',
+            stateRunId: mutation ? entry.stateRunId : '',
+            editId: edits ? entry.editId : '',
+            acknowledgement:
+              store.platform === 'android' && ['begin-edit', 'submit'].includes(stage) ? entry.acknowledgement : 'none'
+          });
     const inputs = {
       release_tag: request.releaseTag,
       source_sha: request.sourceSha,
@@ -59,13 +72,14 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
       network: store.network,
       build_number: request.buildNumber ?? ''
     };
-    if (stage !== 'build') Object.assign(inputs, {
-      action: stage,
-      producer_run_id: request.producerRunId ?? '',
-      state_run_id: request.stateRunId ?? '',
-      edit_id: request.editId ?? '',
-      acknowledgement: request.acknowledgement
-    });
+    if (stage !== 'build')
+      Object.assign(inputs, {
+        action: stage,
+        producer_run_id: request.producerRunId ?? '',
+        state_run_id: request.stateRunId ?? '',
+        edit_id: request.editId ?? '',
+        acknowledgement: request.acknowledgement
+      });
     return {
       targetId: store.id,
       workflowPath: `.github/workflows/${stage === 'build' ? 'build-store-artifacts' : 'publish-stores'}.yml`,
@@ -77,31 +91,56 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
 export function matchDispatchedRun(runs, intent) {
   if (!Array.isArray(runs) || !validToken(intent.token)) throw new Error('Invalid dispatch correlation');
   const matches = runs.filter(run => run?.display_title === `Store request ${intent.token}`);
-  if (matches.length !== 1) throw new Error('Cannot correlate exactly one trusted run (missing or multiple matches); inspect uncertain dispatch');
+  if (matches.length !== 1)
+    throw new Error(
+      'Cannot correlate exactly one trusted run (missing or multiple matches); inspect uncertain dispatch'
+    );
   const run = matches[0];
   if (
-    !validRunId(run.id) || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 ||
-    run.path !== intent.workflowPath || run.event !== 'workflow_dispatch' || run.head_branch !== 'main' ||
+    !validRunId(run.id) ||
+    !Number.isSafeInteger(run.run_attempt) ||
+    run.run_attempt < 1 ||
+    run.path !== intent.workflowPath ||
+    run.event !== 'workflow_dispatch' ||
+    run.head_branch !== 'main' ||
     !/^[a-f0-9]{40}$/.test(run.head_sha ?? '') ||
-    run.repository?.full_name !== repository || run.head_repository?.full_name !== repository
-  ) throw new Error('Correlated run is not from the trusted main workflow');
+    run.repository?.full_name !== repository ||
+    run.head_repository?.full_name !== repository
+  )
+    throw new Error('Correlated run is not from the trusted main workflow');
   return run;
 }
 
 function checkpointFor(plan, intents, stage, previous) {
-  const checkpoint = previous === undefined ? {
-    schemaVersion: 1, releaseTag: plan.releaseTag, sourceSha: plan.sourceSha.toLowerCase(), operations: {}
-  } : structuredClone(previous);
-  if (!object(checkpoint) || checkpoint.schemaVersion !== 1 || checkpoint.releaseTag !== plan.releaseTag ||
-    checkpoint.sourceSha !== plan.sourceSha.toLowerCase() || !object(checkpoint.operations))
+  const checkpoint =
+    previous === undefined
+      ? {
+          schemaVersion: 1,
+          releaseTag: plan.releaseTag,
+          sourceSha: plan.sourceSha.toLowerCase(),
+          operations: {}
+        }
+      : structuredClone(previous);
+  if (
+    !object(checkpoint) ||
+    checkpoint.schemaVersion !== 1 ||
+    checkpoint.releaseTag !== plan.releaseTag ||
+    checkpoint.sourceSha !== plan.sourceSha.toLowerCase() ||
+    !object(checkpoint.operations)
+  )
     throw new Error('Journal source or release does not match the plan');
   for (const intent of intents) {
     const saved = checkpoint.operations[operationKey(stage, intent.targetId)];
     if (!saved) continue;
-    if (!object(saved) || !object(saved.intent) || !validToken(saved.intent.token) ||
-      saved.intent.inputs?.request_token !== saved.intent.token || intentFields(saved.intent) !== intentFields(intent) ||
+    if (
+      !object(saved) ||
+      !object(saved.intent) ||
+      !validToken(saved.intent.token) ||
+      saved.intent.inputs?.request_token !== saved.intent.token ||
+      intentFields(saved.intent) !== intentFields(intent) ||
       !['dispatch-started', 'watching', 'success', 'failure'].includes(saved.status) ||
-      (saved.status !== 'dispatch-started' && !validRunId(saved.runId)))
+      (saved.status !== 'dispatch-started' && !validRunId(saved.runId))
+    )
       throw new Error('Saved child intent or build does not match the plan');
   }
   return checkpoint;
@@ -122,9 +161,14 @@ export async function executeReleaseStage(plan, options = {}) {
       if (!validToken(requestToken)) throw new Error('Invalid request correlation token');
       if (Object.values(checkpoint.operations).some(value => value.intent?.token === requestToken))
         throw new Error('Duplicate request correlation token');
-      operation = { status: 'dispatch-started', intent: {
-        ...selected, token: requestToken, inputs: { ...selected.inputs, request_token: requestToken }
-      } };
+      operation = {
+        status: 'dispatch-started',
+        intent: {
+          ...selected,
+          token: requestToken,
+          inputs: { ...selected.inputs, request_token: requestToken }
+        }
+      };
       checkpoint.operations[key] = operation;
       // Persist uncertainty before sending; a restart must never repeat a possibly accepted dispatch.
       await save(checkpoint);
@@ -145,9 +189,14 @@ export async function executeReleaseStage(plan, options = {}) {
         throw new Error('Previously successful child is no longer a successful completed run');
       continue;
     }
-    try { await watch(operation.runId); } catch { /* The terminal API result below is authoritative. */ }
+    try {
+      await watch(operation.runId);
+    } catch {
+      /* The terminal API result below is authoritative. */
+    }
     run = matchDispatchedRun([await readRun(operation.runId)], operation.intent);
-    if (run.id !== operation.runId || run.status !== 'completed') throw new Error('Child run is not terminal or completed');
+    if (run.id !== operation.runId || run.status !== 'completed')
+      throw new Error('Child run is not terminal or completed');
     operation.status = run.conclusion === 'success' ? 'success' : 'failure';
     operation.conclusion = run.conclusion;
     await save(checkpoint);
@@ -162,23 +211,43 @@ function command(args, { inherit = false } = {}) {
     let stdout = '';
     let stderr = '';
     if (!inherit) {
-      child.stdout.on('data', chunk => { stdout += chunk; });
-      child.stderr.on('data', chunk => { stderr += chunk; });
+      child.stdout.on('data', chunk => {
+        stdout += chunk;
+      });
+      child.stderr.on('data', chunk => {
+        stderr += chunk;
+      });
     }
     child.on('error', reject);
-    child.on('close', code => code === 0 ? accept(stdout) : reject(new Error(`GitHub command failed (${code}): ${stderr}`)));
+    child.on('close', code =>
+      code === 0 ? accept(stdout) : reject(new Error(`GitHub command failed (${code}): ${stderr}`))
+    );
   });
 }
 
 function githubTransport() {
   return {
-    dispatch: intent => command(['workflow', 'run', intent.workflowPath, '--repo', repository, '--ref', 'main',
-      ...Object.entries(intent.inputs).flatMap(([key, value]) => ['-f', `${key}=${value}`])]),
+    dispatch: intent =>
+      command([
+        'workflow',
+        'run',
+        intent.workflowPath,
+        '--repo',
+        repository,
+        '--ref',
+        'main',
+        ...Object.entries(intent.inputs).flatMap(([key, value]) => ['-f', `${key}=${value}`])
+      ]),
     findRuns: async intent => {
       const path = intent.workflowPath.split('/').at(-1);
       // This bounded lookup discovers one dispatch, never polls a store or sends a replacement request.
       for (let attempt = 0; attempt < 6; attempt++) {
-        const data = JSON.parse(await command(['api', `repos/${repository}/actions/workflows/${path}/runs?event=workflow_dispatch&branch=main&per_page=100`]));
+        const data = JSON.parse(
+          await command([
+            'api',
+            `repos/${repository}/actions/workflows/${path}/runs?event=workflow_dispatch&branch=main&per_page=100`
+          ])
+        );
         const runs = data.workflow_runs;
         if (!Array.isArray(runs)) throw new Error('Invalid dispatch run inventory');
         if (runs.some(run => run.display_title === `Store request ${intent.token}`)) return runs;
@@ -186,7 +255,10 @@ function githubTransport() {
       }
       throw new Error('Dispatch acceptance is uncertain; inspect the saved request token before further action');
     },
-    watch: id => command(['run', 'watch', String(id), '--repo', repository, '--interval', '30', '--exit-status'], { inherit: true }),
+    watch: id =>
+      command(['run', 'watch', String(id), '--repo', repository, '--interval', '30', '--exit-status'], {
+        inherit: true
+      }),
     readRun: async id => JSON.parse(await command(['api', `repos/${repository}/actions/runs/${id}`]))
   };
 }
@@ -194,7 +266,11 @@ function githubTransport() {
 async function privateDirectory(path) {
   await mkdir(path, { recursive: true, mode: 0o700 });
   const info = await stat(path);
-  if (!info.isDirectory() || (info.mode & 0o077) !== 0 || (typeof process.getuid === 'function' && info.uid !== process.getuid()))
+  if (
+    !info.isDirectory() ||
+    (info.mode & 0o077) !== 0 ||
+    (typeof process.getuid === 'function' && info.uid !== process.getuid())
+  )
     throw new Error('A caller-owned private journal directory is required');
 }
 
@@ -202,23 +278,40 @@ async function saveJournal(path, checkpoint) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   let file;
   try {
-    file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    file = await open(
+      temporary,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600
+    );
     await file.writeFile(`${JSON.stringify(checkpoint, null, 2)}\n`);
     await file.sync();
-    await file.close(); file = undefined;
+    await file.close();
+    file = undefined;
     await rename(temporary, path);
     const directory = await open(dirname(path), constants.O_RDONLY);
-    try { await directory.sync(); } finally { await directory.close(); }
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   } finally {
     await file?.close();
-    await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    await unlink(temporary).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
   }
 }
 
 export async function main(args = process.argv.slice(2)) {
-  const { values } = parseArgs({ args, options: {
-    plan: { type: 'string' }, journal: { type: 'string' }, stage: { type: 'string' }, target: { type: 'string', default: 'all' }
-  } });
+  const { values } = parseArgs({
+    args,
+    options: {
+      plan: { type: 'string' },
+      journal: { type: 'string' },
+      stage: { type: 'string' },
+      target: { type: 'string', default: 'all' }
+    }
+  });
   if (!values.plan || !values.journal) throw new Error('Explicit private --plan and --journal files are required');
   const planPath = resolve(values.plan);
   const journalPath = resolve(values.journal);
@@ -227,13 +320,25 @@ export async function main(args = process.argv.slice(2)) {
   validateReleasePlan(plan, { stage: values.stage, target: values.target });
   await privateDirectory(dirname(journalPath));
   const lockPath = `${journalPath}.lock`;
-  const lock = await open(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  const lock = await open(
+    lockPath,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600
+  );
   try {
     let checkpoint;
-    try { await stat(journalPath); checkpoint = await loadPrivateJson(journalPath); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    try {
+      await stat(journalPath);
+      checkpoint = await loadPrivateJson(journalPath);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
     const result = await executeReleaseStage(plan, {
-      stage: values.stage, target: values.target, checkpoint, save: value => saveJournal(journalPath, value), ...githubTransport()
+      stage: values.stage,
+      target: values.target,
+      checkpoint,
+      save: value => saveJournal(journalPath, value),
+      ...githubTransport()
     });
     console.log(JSON.stringify(result));
     return result;
@@ -244,5 +349,8 @@ export async function main(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(error => { console.error(error.message); process.exitCode = 1; });
+  main().catch(error => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
 }

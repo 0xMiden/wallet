@@ -4,16 +4,25 @@ import { readFileSync } from 'node:fs';
 import { validateBuildRequest } from './create-receipt.mjs';
 
 const root = new URL('../../', import.meta.url);
-const request = { releaseTag: 'v1.17.7', sourceSha: 'b'.repeat(40), platform: 'all', network: 'testnet', buildNumber: '7' };
+const request = {
+  releaseTag: 'v1.17.7',
+  sourceSha: 'b'.repeat(40),
+  platform: 'all',
+  network: 'testnet',
+  buildNumber: '7'
+};
 
 test('standard signed build request includes official Chrome Devnet after the production stores', () => {
   const plan = validateBuildRequest(request);
-  assert.deepEqual(plan.targets?.map(target => [target.platform, target.network, target.identity]), [
-    ['chrome', 'testnet', 'coajhopfooegmaifelglfboehacldcbo'],
-    ['ios', 'testnet', 'com.miden.bread'],
-    ['android', 'testnet', 'com.miden.wallet'],
-    ['chrome', 'devnet', 'eeghndabgeicdpkbcohgglidpfpiafnb']
-  ]);
+  assert.deepEqual(
+    plan.targets?.map(target => [target.platform, target.network, target.identity]),
+    [
+      ['chrome', 'testnet', 'coajhopfooegmaifelglfboehacldcbo'],
+      ['ios', 'testnet', 'com.miden.bread'],
+      ['android', 'testnet', 'com.miden.wallet'],
+      ['chrome', 'devnet', 'eeghndabgeicdpkbcohgglidpfpiafnb']
+    ]
+  );
 });
 
 test('all-target build delegates to independent existing child producers instead of sharing their result', () => {

@@ -38,8 +38,10 @@ For staged publication, keep a private release plan and a separate durable journ
     "chrome-testnet": { "producerRunId": "<successful producer>", "stateRunId": "<latest state>" },
     "ios-testnet": { "producerRunId": "<successful producer>", "stateRunId": "<latest state>" },
     "android-testnet": {
-      "producerRunId": "<successful producer>", "stateRunId": "<caller-owned edit state>",
-      "editId": "<caller-owned edit>", "acknowledgement": "submit-pending-play-changes"
+      "producerRunId": "<successful producer>",
+      "stateRunId": "<caller-owned edit state>",
+      "editId": "<caller-owned edit>",
+      "acknowledgement": "submit-pending-play-changes"
     },
     "chrome-devnet": { "producerRunId": "<successful producer>", "stateRunId": "<latest state>" }
   }
