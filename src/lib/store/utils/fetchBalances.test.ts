@@ -321,7 +321,12 @@ describe('fetchBalances', () => {
   it('storage-loss regression: rejects an absent SDK account instead of fabricating a native zero balance', async () => {
     mockGetAccount.mockResolvedValueOnce(null);
 
-    await expect(fetchBalances('unknown-address', {})).rejects.toBeInstanceOf(Error);
+    try {
+      await expect(fetchBalances('unknown-address', {})).rejects.toThrow('StorageUnavailableError');
+    } finally {
+      const health = await import('lib/miden/storage-health');
+      await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+    }
   });
 
   it('storage-loss regression: preserves a genuine zero balance for a present SDK account', async () => {
@@ -369,7 +374,12 @@ describe('fetchBalances', () => {
     mockGetAccount.mockResolvedValueOnce(null);
 
     try {
-      await expect(fetchBalances('unknown-address', {})).rejects.toBeInstanceOf(Error);
+      try {
+        await expect(fetchBalances('unknown-address', {})).rejects.toThrow('StorageUnavailableError');
+      } finally {
+        const health = await import('lib/miden/storage-health');
+        await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+      }
     } finally {
       getFaucetIdSetting.mockReturnValue('miden-faucet-id');
     }
