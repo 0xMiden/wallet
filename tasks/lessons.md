@@ -94,3 +94,8 @@ When a browser debugging connection is unavailable, inspect the requested browse
 - Bound diagnostic attempts with visible progress and a concrete recovery decision. Record failed, refused and interrupted attempts in [upstream issue #62](https://github.com/WiktorStarczewski/review-council/issues/62), and keep infrastructure causes unconfirmed until evidence establishes them.
 - When a user's explicit global rule excludes a P3, record exactly `DEFERRED (P3, ignored by user rule)`. Do not fix it, open a plan, blocker or follow-up, or keep it as open carryover. Only a later explicit request naming it reopens that item.
 - For exact-value regression tests, inspect global Jest manual mocks as well as suite-local mocks. A global mock can bypass production conversion, so bind the assertion to an existing path that exercises the real conversion.
+
+
+## Swap amount locators during loading
+
+Quote loading removes the derived amount input while keeping the opposite input mounted. A global first/nth locator can then edit the wrong side. Scope each amount locator to the existing pay/receive container and cover the missing-input state in its behavioral regression.

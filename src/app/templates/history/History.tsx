@@ -1051,6 +1051,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
+      bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
@@ -1199,6 +1200,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
+      bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus

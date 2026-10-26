@@ -469,6 +469,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   // anchored draft keeps its target and stays blocked while the pair is unsupported.
   const onTokenSelected = useCallback(
     (token: SwapToken) => {
+      const currentToken = selectingSide === 'offer' ? offerToken : requestToken;
+      if (token.faucetId === currentToken.faucetId) return;
       const flipsPair =
         (selectingSide === 'offer' && token.faucetId === requestToken.faucetId) ||
         (selectingSide === 'request' && token.faucetId === offerToken.faucetId);

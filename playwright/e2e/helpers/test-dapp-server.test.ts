@@ -5,6 +5,7 @@ import type React from 'react';
 
 import type { BrowserContext } from '@playwright/test';
 import { JSDOM } from 'jsdom';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
@@ -212,12 +213,17 @@ describe('test dApp server', () => {
   it('routes the origins it is given, dApps one and two by default', async () => {
     const patterns = async (origins?: readonly string[]): Promise<unknown[]> => {
       const route = jest.fn(async (_pattern: string, _handler: unknown) => undefined);
-      await installTestDapp(
-        { route } as unknown as BrowserContext,
-        createDappServer({ pageDir: pageFixture(), roots }),
-        origins
-      );
-      return route.mock.calls.map(call => call[0]);
+      const context = Object.assign(new EventEmitter(), { route });
+      try {
+        await installTestDapp(
+          context as unknown as BrowserContext,
+          createDappServer({ pageDir: pageFixture(), roots }),
+          origins
+        );
+        return route.mock.calls.map(call => call[0]);
+      } finally {
+        context.emit('close');
+      }
     };
     expect(REACT_DAPP_ORIGIN).toBe(`http://localhost:${DAPP_PORT + 1}`);
     expect(await patterns()).toEqual([`${DAPP_ORIGINS.one}/**`, `${DAPP_ORIGINS.two}/**`]);

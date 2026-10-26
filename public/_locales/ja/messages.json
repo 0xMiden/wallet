@@ -179,18 +179,25 @@
       }
     }
   },
-  "usdcxPayoutFeeUpTo": {
-    "message": "最大$amount$のUSDC",
-    "englishSource": "Up to $amount$ USDC",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
+  "usdcxPayoutFeeVaries": {
+    "message": "支払額から差し引かれます。ネットワーク手数料によって異なります。",
+    "englishSource": "Deducted from the payout. Varies with network fees."
   },
-  "usdcxPayoutAtLeast": {
-    "message": "少なくとも$amount$のUSDC",
-    "englishSource": "At least $amount$ USDC",
+  "usdcxPayoutDelayed": {
+    "message": "支払いの遅延",
+    "englishSource": "Payout delayed"
+  },
+  "usdcxPayoutDelayedNotice": {
+    "message": "Circleはまだこの出金を処理していません。自動的に再試行されますが、サービス上限を超える手数料がかかると処理が遅れる可能性があります。",
+    "englishSource": "Circle has not paid this withdrawal yet. It is retried automatically; a fee above the service limit can delay it."
+  },
+  "usdcxPayoutReceived": {
+    "message": "受信済み",
+    "englishSource": "Received"
+  },
+  "usdcxPayoutAmount": {
+    "message": "$amount$ USDC",
+    "englishSource": "$amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2810,8 +2817,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "以下のオプションから選択してください",
-    "englishSource": "Select an option below"
+    "message": "Guardianはすべての取引を確認し、アカウントの復旧を支援します。",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
@@ -2862,8 +2869,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Guardianは、ユーザーのプライベートアカウントデータをバックアップし、取引に共同署名を行います。",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Guardianは、ユーザーのプライベートアカウントデータをバックアップし、取引を承認します。",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "新しいスマートフォンでの復元",
@@ -2878,8 +2885,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Guardianはあなたと共に署名を行います。Guardian単独で資金を移動させることは決してできません。",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "Guardianは、ユーザーの取引を承認するものです。Guardianが独自に資金を移動させることは決してありません。",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "いつでも切り替え可能",
@@ -2971,16 +2978,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を放棄することなく安全網を追加します。",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardianは、<b>あなたのウォレットからのすべての取引</b>を承認する独立したサービスであり、自己管理を放棄することなくセーフティネットを提供します。",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "機能の説明",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "すべての取引に共同署名を行います。ユーザー自身のデバイスもGuardianも、単独で資金を移動させることはできません。デバイスを紛失した場合のアカウント復旧を支援します。",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "すべての取引を確認します。ユーザー自身のデバイスもGuardianも、単独で資金を移動させることはできません。デバイスを紛失した場合に、アカウントの復旧を支援します。",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "できないこと",
@@ -2995,8 +3002,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "リカバリーフレーズがあれば、いつでも別のGuardianに切り替えることができます。変更されるのは共同署名者のみであり、アカウントや資金はそのまま維持されます。",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "リカバリーフレーズがあれば、いつでも別のGuardianに切り替えることができます。変更されるのは、あなたの取引を承認する相手のみであり、アカウントや資金は変わりません。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "了解しました",
@@ -3383,8 +3390,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "変更は送信されましたが、このデバイスではオンチェーンで成立したことを確認できませんでした。ウォレット側では確認できません。Guardian の設定もこのトランザクションのアクティビティ項目も、いずれの場合も新しい Guardian を表示します。以降のトランザクションが共同署名できずに拒否された場合は、変更をやり直してください。",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "切り替えは送信されましたが、このデバイスではチェーン上で処理されたことを確認できませんでした。ウォレット内のどの機能もこれを確認することはできません。いずれにせよ、Guardianの設定とこの取引の「アクティビティ」エントリには、新しいGuardianの名前が表示されます。後で、承認されなかったために取引が拒否された場合は、切り替えを再度実行してください。",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "このデバイスにはまだ保存されていません。",
@@ -3411,8 +3418,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "変更がオンチェーンで確認されると、新しい Guardian がすべてのトランザクションに共同署名し、以前の Guardian はあなたのアカウントに対して共同署名できなくなります。",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "チェーン上で切り替えが確認されると、新しいGuardianがすべての取引を受領確認するようになり、以前のGuardianはあなたのアカウントの取引を受領確認できなくなります。",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "切り替えはオンチェーンで確認されましたが、このデバイスでは新しいGuardianのアドレスを保存できませんでした。ウォレットが自動的に確認し、必要に応じて再入力を求めます。これによって別の切り替えが開始されることはありません。表示されない場合は、サポートにお問い合わせください。",
@@ -3423,8 +3430,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "新しいGuardianは今後、すべての取引に共同署名を行います。以前のGuardianは、もはやお客様のアカウントの取引に共同署名できません。",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "新しいGuardianは、今後すべての取引を受領確認します。以前のGuardianは、あなたのアカウントの取引を受領確認できなくなります。",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "ウォレットアドレス、資金、取引履歴に変更はありません。ローテーション中に移動されたものは一切ありません。",
@@ -3439,12 +3446,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "新しいGuardianが共同署名を行います",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "新しいGuardianは以下を確認します",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "新しいGuardianは、確認後、1回共同署名を行います",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "新しいGuardianは、切り替えの確定後に取引を確認します",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "何も移動していない",
@@ -3473,6 +3480,22 @@
   "recoveryPhraseCold": {
     "message": "リカバリーフレーズ（コールド）",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "今後、$newGuardian$が$oldGuardian$に代わって、あなたの取引を承認します。あなたのアドレス、資金、および取引履歴は、これまでと全く変わりません。",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "承認するには",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "以前のGuardianではこれをブロックすることはできません",
@@ -3656,8 +3679,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "guardianが応答していないため、取引の共同署名を行うことができません。",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "guardianが応答していないため、取引の承認が行えません。",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Guardian を切り替える",
@@ -4039,8 +4062,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "このアカウントの復旧および共同署名を行うには、guardian をご利用ください。",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "このアカウントの取引を復元および承認するには、guardianを使用してください。",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "公開アカウントをインポートする",
@@ -6862,6 +6885,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "利用可能なその他のGuardians",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "このウォレットのロック解除方法を確認できませんでした。もう一度お試しください。",

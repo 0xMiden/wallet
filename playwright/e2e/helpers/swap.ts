@@ -248,7 +248,9 @@ export async function fundSwapPair(
 export interface CreateOrderOptions {
   offerSymbol: string;
   requestSymbol: string;
-  /** human amounts as typed in the UI, e.g. '10'. */
+  /** Only this side is typed; the opposite side must match its quoted expected amount. */
+  amountAnchor: 'pay' | 'receive';
+  /** Expected human amounts, e.g. '10'. */
   payAmount: string;
   receiveAmount: string;
 }
@@ -265,10 +267,14 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
 
   await page.getByTestId('send-token-selector').first().click();
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();
-  await page.getByTestId('send-amount-input').first().fill(opts.payAmount);
   await page.getByTestId('send-token-selector').nth(1).click();
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
-  await page.getByTestId('send-amount-input').nth(1).fill(opts.receiveAmount);
+  const payInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
+  const receiveInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
+  if (opts.amountAnchor === 'pay') await payInput.fill(opts.payAmount);
+  else await receiveInput.fill(opts.receiveAmount);
+  await expect(payInput).toHaveValue(opts.payAmount);
+  await expect(receiveInput).toHaveValue(opts.receiveAmount);
 
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').click();

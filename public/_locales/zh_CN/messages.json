@@ -179,18 +179,25 @@
       }
     }
   },
-  "usdcxPayoutFeeUpTo": {
-    "message": "最高$amount$ USDC",
-    "englishSource": "Up to $amount$ USDC",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
+  "usdcxPayoutFeeVaries": {
+    "message": "从收益中扣除。具体金额因网络手续费而异。",
+    "englishSource": "Deducted from the payout. Varies with network fees."
   },
-  "usdcxPayoutAtLeast": {
-    "message": "至少$amount$ USDC",
-    "englishSource": "At least $amount$ USDC",
+  "usdcxPayoutDelayed": {
+    "message": "支付延迟",
+    "englishSource": "Payout delayed"
+  },
+  "usdcxPayoutDelayedNotice": {
+    "message": "Circle 尚未支付这笔提现。系统会自动重试；若手续费超过服务限额，可能会导致延迟。",
+    "englishSource": "Circle has not paid this withdrawal yet. It is retried automatically; a fee above the service limit can delay it."
+  },
+  "usdcxPayoutReceived": {
+    "message": "已收到",
+    "englishSource": "Received"
+  },
+  "usdcxPayoutAmount": {
+    "message": "$amount$ USDC",
+    "englishSource": "$amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2810,8 +2817,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "请从以下选项中选择一项",
-    "englishSource": "Select an option below"
+    "message": "您的Guardian会确认每笔交易，并可协助您恢复账户。",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "正在测试哪位客服响应最快……",
@@ -2862,8 +2869,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "“Guardian”会备份您的私人账户数据，并对您的交易进行联署。",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Guardian会备份您的私人账户数据并确认您的交易。",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "在新手机上恢复",
@@ -2878,8 +2885,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "您的“Guardian”将与您共同签署交易。它绝不能自行转移资金。",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "您的Guardian会确认您的交易。它绝不会自行转移资金。",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "随时切换",
@@ -2971,16 +2978,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian 是一项独立服务，<b>对您钱包中的每笔交易</b>进行联署，在无需放弃自主托管的前提下提供安全保障。",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian 是一项独立服务，<b>确认您钱包中的每笔交易</b>，在您无需放弃自主托管的情况下，为您增添了一层安全保障。",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "功能说明",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "对每笔交易进行共同签名——无论是您的设备还是Guardian，均无法单独转移资金。若您丢失设备，可协助您找回账户。",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "确认每笔交易——无论是您的设备还是Guardian，均无法单独转移资金。若您丢失设备，该功能可协助您恢复账户。",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "它无法做什么",
@@ -2995,8 +3002,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可以随时使用恢复短语切换至另一个Guardian。仅共同签名人会发生变更；您的账户和资金保持不变。",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "您可以随时使用恢复短语切换至另一位Guardian。仅确认您交易的对象发生变化；您的账户和资金保持不变。",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "明白了",
@@ -3383,8 +3390,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "切换已提交，但本设备无法确认它已在链上生效。钱包无法为你确认——无论结果如何，Guardian 设置和该交易的活动记录都会显示新的 Guardian。如果后续交易因无法联合签名而被拒绝，请重新执行切换。",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "切换请求已提交，但该设备无法确认其是否已在链上完成。钱包内没有任何内容能为您确认这一点——无论结果如何，您的Guardian设置和该交易的“活动”条目都会显示新的Guardian。如果后续交易因无法确认而被拒绝，请重新执行切换操作。",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "尚未保存在此设备上。",
@@ -3411,8 +3418,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "更换在链上确认后，新的 Guardian 将联合签名你的每一笔交易，原先的 Guardian 将无法再为你的账户联合签名。",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "一旦链上确认了切换，您的新Guardian将确认每笔交易，而您的旧Guardian将无法再确认该账户的任何交易。",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "切换已在链上确认，但此设备无法保存新 Guardian 的地址。钱包会自动检查，并在需要时提示您重新输入；这不会发起另一次切换。如果没有出现提示，请联系支持团队。",
@@ -3423,8 +3430,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "从即日起，您的新 Guardian 将对每笔交易进行联署——您旧的 Guardian 将无法再对您账户的交易进行联署。",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "从现在起，您的新Guardian将确认每一笔交易——您的旧Guardian将无法再确认该账户的任何交易。",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "您的钱包地址、资金及交易记录均保持不变。轮换过程中没有任何资产被转移。",
@@ -3439,12 +3446,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "您的新Guardian将进行共同签名",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "您的新Guardian确认",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "新“Guardian”在确认后进行联署",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "新Guardian在确认后即生效",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "没有任何内容被移动",
@@ -3473,6 +3480,22 @@
   "recoveryPhraseCold": {
     "message": "恢复短语（冷存储）",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "从现在起，$newGuardian$ 将取代 $oldGuardian$ 确认您的交易。您的地址、资金和交易记录完全保持不变。",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "通过以下方式批准：",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "您的旧 Guardian 无法阻止此操作",
@@ -3656,8 +3679,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "您的 guardian 未响应，因此无法对交易进行联署。",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "您的guardian未作响应，因此无法确认交易。",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "切换 Guardian",
@@ -4039,8 +4062,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "请使用guardian来恢复并为该账户进行共同签名。",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "请使用guardian来恢复并确认该账户的交易。",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "导入公共账号",
@@ -6862,6 +6885,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "其他可用的Guardians",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "无法验证此钱包的解锁方式。请重试。",

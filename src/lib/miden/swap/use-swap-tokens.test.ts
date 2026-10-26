@@ -10,7 +10,9 @@ import { swapAvailability, useSwapPickerTokens } from './use-swap-tokens';
 jest.mock('./tokens', () => ({
   getDefaultSwapPair: jest.fn(),
   getSwapPartners: jest.fn(() => []),
-  getSwapTokens: jest.fn(() => [])
+  getSwapTokens: jest.fn(() => []),
+  getSwapTokensVersion: () => 0,
+  subscribeSwapTokens: () => () => undefined
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(() => Promise.resolve()) }));

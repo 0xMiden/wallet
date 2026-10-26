@@ -455,8 +455,8 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
 
       const payout = await waitForPayout(burn, xreserve.depositor);
 
-      // Before the deposit, which spends from the key: the wallet's confirmed balance must be exactly the pre-burn
-      // read plus the payout.
+      // Before the deposit, which spends from the key: the wallet must record this mint's transactionHash,
+      // blockNumber and value.
       const walletConfirmedAt = await step('wallet_payout_confirmed', BUDGET.walletPayoutConfirmed, () =>
         walletConfirmsPayout(walletA, burn, payout, key, arc, ARC_PAYOUT, where, evidence)
       );

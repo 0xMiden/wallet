@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'rc/1.17.7'
 
 permissions:
   contents: read

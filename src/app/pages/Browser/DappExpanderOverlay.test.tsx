@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 
 import { act, render } from '@testing-library/react';
 
+import { springKeyframeStops, springs } from 'lib/animation';
+
 import { DappExpanderOverlay } from './DappExpanderOverlay';
 
 type Keyframe = Record<string, string | number>;
@@ -71,7 +73,13 @@ it('animates only transform and opacity', () => {
     offset: 0
   });
   expect(animation?.keyframes.at(-1)).toEqual({ transform: 'none', opacity: 1, offset: 1 });
-  expect(animation?.options).toMatchObject({ easing: expect.stringMatching(/^linear\(/), fill: 'forwards' });
+  const sampled = springKeyframeStops(springs.morphExpand, { distance: -1000 })!;
+  expect(animation?.keyframes).toHaveLength(sampled.stops.length);
+  expect(animation?.options).toMatchObject({ easing: 'linear', fill: 'forwards' });
+  const faded = sampled.stops.findIndex(stop => stop.progress >= 0.25);
+  expect(sampled.stops[faded]).toMatchObject({ offset: 0.10126582278481013, progress: 0.2627166493878269 });
+  expect(animation?.keyframes[faded]).toMatchObject({ opacity: 1, offset: 0.10126582278481013 });
+  expect(Number(animation?.keyframes[faded - 1]?.opacity)).toBeLessThan(1);
 });
 
 it('paints between the peek tray and the host modal', () => {

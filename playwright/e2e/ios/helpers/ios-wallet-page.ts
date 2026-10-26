@@ -119,7 +119,7 @@ function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: 
   return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
-// The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
+// The review slides over the retained Send layer, whose route step holds the same payout row and burn notice.
 const SEND_REVIEW = '[data-page-layer="/send/review"]';
 // Mobile mounts the app as a full page, so the in-progress route is the -full variant.
 const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
@@ -138,7 +138,7 @@ function usdcxReviewJs(networkLabel: string, networkFeeLabel: string): string {
       `return (x.textContent || '').trim() === label && x.nextElementSibling && x.nextElementSibling.tagName === 'DIV'; }); ` +
       `return s ? (s.nextElementSibling.textContent || '').trim() : null; } ` +
       `return { network: row(${JSON.stringify(networkLabel)}), networkFee: row(${JSON.stringify(networkFeeLabel)}), ` +
-      `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+      `fee: val('usdcx-payout-fee'), notice: text('usdcx-burn-notice') };`
   );
 }
 
@@ -162,7 +162,6 @@ interface UsdcxReviewView {
   network: string | null;
   networkFee: string | null;
   fee: string | null;
-  net: string | null;
   notice: string | null;
 }
 
@@ -544,7 +543,7 @@ export class IosWalletPage implements WalletPage {
    * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
    * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
    * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
-   * route card, the payout rows and the notice on the route and the review, and the review's network and fee rows; a
+   * route card, the payout fee row and the notice on the route and the review, and the review's network and fee rows; a
    * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
    */
   async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
@@ -596,14 +595,13 @@ export class IosWalletPage implements WalletPage {
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-amount-confirm"]`, 45_000);
 
     await this.pollEval<UsdcxRouteView | null>(
-      'the USDCx route card, payout rows and burn notice',
+      'the USDCx route card, payout fee row and burn notice',
       USDCX_ROUTE_JS,
       view =>
         view !== null &&
         view.pressed === 'true' &&
         view.cardText.includes(routeFees) &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       30_000
     );
@@ -635,7 +633,6 @@ export class IosWalletPage implements WalletPage {
         view.network === chain.networkName &&
         view.networkFee === sponsorshipFee &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       15_000
     );

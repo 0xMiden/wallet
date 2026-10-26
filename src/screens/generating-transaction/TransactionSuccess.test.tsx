@@ -362,6 +362,34 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('titles a paid burn Confirmed', async () => {
+    const transaction = baseTransaction({
+      type: 'bridged-send',
+      status: 2,
+      amount: 5_000_000n,
+      extraInputs: {
+        provider: 'usdcx',
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        destinationNetwork: 11155111,
+        usdcxBurn: {
+          noteId: 'burn-note',
+          destinationDomain: 26,
+          phase: 'confirmed',
+          payout: { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' }
+        }
+      }
+    });
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={transaction} onDoneClick={() => {}} />
+    );
+    try {
+      expect(container.textContent).toContain('confirmed');
+      expect(container.textContent).not.toContain('usdcxBurnConfirmed');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('labels a USDCx receipt as submitted until the faucet confirms consumption', async () => {
     const transaction = baseTransaction({
       type: 'bridged-send',
