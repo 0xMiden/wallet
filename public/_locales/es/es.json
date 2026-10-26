@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "WalletConnect puede mostrar el ID de la extensión de Chrome de Bread en lugar de su nombre en las siguientes solicitudes:",
   "bridgeWalletPromptEpochApprove": "Si es necesario, aprueba $amount$ $token$ para The Compact. Algunos tokens requieren primero un restablecimiento a asignación cero.",
   "bridgeWalletPromptEpochDeposit": "Deposita $amount$ $token$ en The Compact para realizar un puente hacia Miden en $network$ (depositERC20AndRegister).",
-  "bridgeWalletPromptEpochExistingCollateral": "Esta cita utiliza términos que ya figuran en «The Compact». Revisa cada objetivo de transacción de monedero citado a continuación. Es posible que tu monedero los combine.",
+  "bridgeWalletPromptEpochExistingCollateral": "Este puente usa garantías ya depositadas en The Compact. Revisa cada objetivo de transacción de monedero indicado abajo. Es posible que tu monedero los combine.",
   "bridgeWalletPromptEpochNoTransactions": "Esta cotización utiliza garantías que ya figuran en «The Compact» y no requiere ninguna nueva transacción de monedero.",
   "bridgeWalletPromptQuotedCall": "La transacción $number$ en la cadena $chainId$ tiene como objetivo:",
   "bridgeWalletPromptNativeValue": "Valor nativo (unidades base):",

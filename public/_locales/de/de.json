@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "WalletConnect zeigt bei späteren Abfragen möglicherweise die Chrome-Erweiterungs-ID von Bread anstelle des Namens an:",
   "bridgeWalletPromptEpochApprove": "Genehmigen Sie bei Bedarf $amount$ $token$ für „The Compact“. Bei einigen Token ist zunächst eine Zurücksetzung auf eine Null-Zuteilung erforderlich.",
   "bridgeWalletPromptEpochDeposit": "Zahle $amount$ $token$ in The Compact ein, um eine Brücke zu Miden auf $network$ zu schlagen (depositERC20AndRegister).",
-  "bridgeWalletPromptEpochExistingCollateral": "Dieses Zitat verwendet Sicherheiten, die bereits in „The Compact“ enthalten sind. Überprüfen Sie jedes der unten aufgeführten Ziele für Wallet-Transaktionen. Ihre Wallet kombiniert diese möglicherweise.",
+  "bridgeWalletPromptEpochExistingCollateral": "Diese Brücke verwendet bereits in The Compact hinterlegte Sicherheiten. Überprüfen Sie jedes unten aufgeführte Ziel einer Wallet-Transaktion. Ihre Wallet kombiniert diese möglicherweise.",
   "bridgeWalletPromptEpochNoTransactions": "Dieses Zitat bezieht sich auf Sicherheiten, die bereits in „The Compact“ hinterlegt sind, und erfordert keine neue Wallet-Transaktion.",
   "bridgeWalletPromptQuotedCall": "Transaktion $number$ auf der Blockchain $chainId$ zielt auf:",
   "bridgeWalletPromptNativeValue": "Nativer Wert (Basiseinheiten):",

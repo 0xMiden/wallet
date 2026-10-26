@@ -334,8 +334,8 @@
     }
   },
   "bridgeWalletPromptEpochExistingCollateral": {
-    "message": "이 인용문은 이미 ‘The Compact’에 포함된 담보를 사용합니다. 아래에 인용된 각 지갑 거래 대상을 검토하십시오. 귀하의 지갑에서는 이들이 결합되어 있을 수 있습니다.",
-    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+    "message": "이 브리지는 이미 The Compact에 예치된 담보를 사용합니다. 아래에 표시된 각 지갑 거래 대상을 검토하십시오. 귀하의 지갑에서는 이들이 결합되어 있을 수 있습니다.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
   },
   "bridgeWalletPromptEpochNoTransactions": {
     "message": "이 인용문은 이미 ‘The Compact’에 있는 담보를 사용하며, 새로운 지갑 거래를 요구하지 않습니다.",

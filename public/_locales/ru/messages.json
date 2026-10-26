@@ -334,8 +334,8 @@
     }
   },
   "bridgeWalletPromptEpochExistingCollateral": {
-    "message": "В этой цитате используется терминология, уже присутствующая в «Договоре». Ознакомьтесь с каждым приведенным ниже объектом транзакции кошелька. Ваш кошелек может объединять их.",
-    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+    "message": "Этот мост использует залог, уже внесенный в The Compact. Ознакомьтесь с каждой целью транзакции кошелька, указанной ниже. Ваш кошелек может объединять их.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
   },
   "bridgeWalletPromptEpochNoTransactions": {
     "message": "В данной цитате используется залог, уже находящийся в «Договоре», и не требуется никаких новых транзакций с кошельком.",

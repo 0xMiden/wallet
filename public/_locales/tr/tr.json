@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "WalletConnect, sonraki istemlerde Bread'in adı yerine Chrome uzantı kimliğini gösterebilir:",
   "bridgeWalletPromptEpochApprove": "Gerekirse, The Compact için $amount$ $token$ tutarını onaylayın. Bazı tokenlar için önce sıfır izin sınırına sıfırlama yapılması gerekir.",
   "bridgeWalletPromptEpochDeposit": "$amount$ tutarındaki $token$'i The Compact'a yatırarak $network$ üzerindeki Miden'e köprü kurun (depositERC20AndRegister).",
-  "bridgeWalletPromptEpochExistingCollateral": "Bu alıntı, The Compact’ta halihazırda bulunan teminatları kullanmaktadır. Aşağıda alıntılanan her bir cüzdan işlem hedefini gözden geçirin. Cüzdanınız bunları birleştirebilir.",
+  "bridgeWalletPromptEpochExistingCollateral": "Bu köprü, halihazırda The Compact'ta bulunan teminatları kullanır. Aşağıda listelenen her bir cüzdan işlem hedefini gözden geçirin. Cüzdanınız bunları birleştirebilir.",
   "bridgeWalletPromptEpochNoTransactions": "Bu alıntı, halihazırda The Compact’ta bulunan teminatı kullanır ve yeni bir cüzdan işlemi gerektirmez.",
   "bridgeWalletPromptQuotedCall": "$number$ numaralı işlem, $chainId$ numaralı zincirde şunları hedefler:",
   "bridgeWalletPromptNativeValue": "Yerel değer (temel birimler):",
