@@ -145,9 +145,9 @@ node scripts/store-publishing/cli.mjs ios release \
 
 `prepare` reuses an existing matching version without editing its metadata. In particular, reuse the existing `1.17.7` draft and its screenshots untouched. For a future missing version, it creates a manual-release draft skeleton only if no other unreleased version conflicts. Complete and verify required metadata, screenshots, privacy, export compliance and review information in App Store Connect before submission. Preparation does not copy or invent those fields.
 
-Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to `--release-policy preserve-existing`. The existing `1.17.7` draft uses `AFTER_APPROVAL`, so submitting it preserves automatic publication after Apple's approval. It does not require a separate release command. Future skeletons created by `prepare` use `MANUAL`, so their approved versions require `release`. Continue monitoring until the store reports public distribution.
+Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to `--release-policy after-approval`. The existing `1.17.7` draft uses `AFTER_APPROVAL`, so submitting it preserves automatic publication after Apple's approval. It does not require a separate release command. Future skeletons created by `prepare` also use `AFTER_APPROVAL` and publish automatically after approval. Continue monitoring until the store reports public distribution.
 
-Only iOS submit accepts `--release-policy manual` or `--release-policy after-approval` to explicitly change that behavior. Do not override the existing draft policy unless that policy change is authorized. The publishing workflow uses the preserve-existing default.
+iOS submit retains explicit `--release-policy manual` and `--release-policy preserve-existing` opt-ins. The standard publishing workflow uses automatic publication after approval. Optional `--release-notes` (workflow `release_notes`) fills only an empty existing en-US What's New field; existing nonempty text is preserved. Missing text without explicit notes stops before build attachment or review creation. A unique empty review draft may be resumed only after its app relationship, target build and exclusive contents are verified.
 
 ### Android
 

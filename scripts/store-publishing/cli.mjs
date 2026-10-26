@@ -140,7 +140,7 @@ function planFor(args, config) {
     storeId = section.appId;
     Object.assign(options, { appId: section.appId, bundleId: identity });
     if (action === 'submit') {
-      options.releasePolicy = args.releasePolicy ?? 'preserve-existing';
+      options.releasePolicy = args.releasePolicy ?? 'after-approval';
       if (releaseNotes !== undefined) options.releaseNotes = releaseNotes;
     }
     if ((mutation && action !== 'prepare') || args.buildNumber !== undefined) {
