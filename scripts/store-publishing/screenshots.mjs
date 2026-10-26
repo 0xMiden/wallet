@@ -164,12 +164,15 @@ function appleImage(resource) {
     }
     url = candidate.href;
   }
+  // A missing state must not read as the stateless Play case and match by checksum.
+  const state = attributes.assetDeliveryState?.state;
+  if (typeof state !== 'string' || !state) throw new ScreenshotError('Apple screenshot delivery state is missing');
   return {
     assetId: resource.id,
     ...(attributes.sourceFileChecksum
       ? { checksum: checksum({ algorithm: 'md5', value: attributes.sourceFileChecksum }) }
       : {}),
-    state: attributes.assetDeliveryState?.state,
+    state,
     ...(url ? { url, width: imageAsset.width, height: imageAsset.height } : {})
   };
 }

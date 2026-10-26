@@ -399,6 +399,25 @@ test('Apple screenshot processing waits out the old twenty-poll ceiling by defau
   assert.equal(c.calls.filter(call => call.method === 'GET' && call.path === '/v1/appScreenshots/new').length, 21);
   assert.deepEqual(sleeps, Array(20).fill(5000));
 });
+test('an Apple screenshot with no delivery state cannot verify by checksum', async () => {
+  for (const shape of [undefined, {}]) {
+    const shot = remote();
+    if (shape) shot.attributes.assetDeliveryState = shape;
+    else delete shot.attributes.assetDeliveryState;
+    const c = appleClient({ shots: [shot] });
+    await assert.rejects(() => verifyScreenshots(c.client, ios()), /delivery state/i);
+  }
+});
+test('an Apple screenshot with no delivery state is not treated as a kept match', async () => {
+  const shot = remote();
+  delete shot.attributes.assetDeliveryState;
+  const c = appleClient({ shots: [shot] });
+  await assert.rejects(() => syncScreenshots(c.client, { ...ios(), allowWrites: true }), /delivery state/i);
+  assert.equal(
+    c.calls.some(call => call.method !== 'GET'),
+    false
+  );
+});
 test('an explicit poll count above the old cap of 30 is a legal bounded wait', async () => {
   const c = appleClient({ shots: [] });
   const result = await syncScreenshots(c.client, {
