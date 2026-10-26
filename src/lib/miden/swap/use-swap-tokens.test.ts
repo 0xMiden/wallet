@@ -98,7 +98,7 @@ describe('swapAvailability', () => {
       reason: 'pending',
       detail: 'startup feature eligibility is pending'
     });
-    expect(swapAvailability({ ...snapshot, geo: { state: 'failed', reason: 'timeout' } })).toMatchObject({
+    expect(swapAvailability({ ...snapshot, geo: { state: 'failed' } })).toMatchObject({
       reason: 'service-down'
     });
     expect(

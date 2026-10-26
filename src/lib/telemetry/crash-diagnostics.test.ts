@@ -2,7 +2,6 @@ import { runInNewContext } from 'node:vm';
 
 import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 import { MidenMessageType } from 'lib/miden/types';
-import { ELIGIBILITY_FAILURES } from 'lib/remote-config/eligibility-failure';
 import { WalletMessageType } from 'lib/shared/types';
 
 import {
@@ -585,19 +584,6 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(invalid)).toEqual({});
   });
 
-  it('accepts every listed startup eligibility failure reason and drops anything else', () => {
-    for (const eligibilityFailure of ELIGIBILITY_FAILURES) {
-      const error = new Error('failure');
-      annotateCrash(error, { eligibilityFailure });
-      expect(snapshotCrashDiagnostics(error)).toEqual({ eligibilityFailure });
-    }
-    for (const eligibilityFailure of ['colo_FRA', 'TIMEOUT', 503, { toString: () => 'timeout' }]) {
-      const error = new Error('failure');
-      annotateCrash(error, { eligibilityFailure });
-      expect(snapshotCrashDiagnostics(error)).toEqual({});
-    }
-  });
-
   it('keeps diagnostics on the exact failure rather than the latest operation', () => {
     const first = new Error('first');
     const second = new Error('second');
@@ -1029,3 +1015,61 @@ it('reannotationNeverMixesNativeGroups', () => {
   });
   expect(snapshotCrashDiagnostics(outer)).toEqual(publicationGroup);
 });
+
+test('startup evidence is closed and bound to the eligibility startup identity', () => {
+  const error = new Error('private seed alpha bravo account=0x123 amount=12 https://private.example');
+  annotateCrash(error, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_retry',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'retry_failed'
+  });
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    startupEligibilityStage: 'eligibility_retry',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'retry_failed'
+  });
+  const hostile = new Error('other');
+  annotateCrash(hostile, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'https://private.example',
+    startupEligibilityReason: '0x123',
+    startupEligibilityRetry: 'seed alpha bravo'
+  });
+  expect(snapshotCrashDiagnostics(hostile)).toEqual({
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup'
+  });
+});
+
+test('reannotating an error for a different display cannot retain a startup attempt', () => {
+  const error = new Error('failed');
+  annotateCrash(error, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'not_attempted'
+  });
+  annotateCrash(error, { userErrorId: 'usdcxFaucetUnavailable', userErrorSurface: 'review' });
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('startupEligibilityStage');
+});
+
+it.each(['walletAccessUnavailableBody', 'usdcxFaucetUnavailable'])(
+  'never inherits another startup attempt through a cause for %s',
+  userErrorId => {
+    const inner = new Error('old attempt');
+    annotateCrash(inner, {
+      userErrorId: 'walletAccessUnavailableBody',
+      userErrorSurface: 'startup',
+      startupEligibilityStage: 'eligibility_lookup',
+      startupEligibilityReason: 'version_mismatch',
+      startupEligibilityRetry: 'not_attempted'
+    });
+    const outer = new Error('new display', { cause: inner });
+    annotateCrash(outer, { userErrorId, userErrorSurface: 'startup' });
+    expect(snapshotCrashDiagnostics(outer)).not.toHaveProperty('startupEligibilityStage');
+  }
+);

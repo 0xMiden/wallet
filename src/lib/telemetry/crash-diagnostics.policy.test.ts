@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ELIGIBILITY_FAILURES } from 'lib/remote-config/eligibility-failure';
+import {
+  STARTUP_ELIGIBILITY_STAGES,
+  STARTUP_ELIGIBILITY_REASONS,
+  STARTUP_ELIGIBILITY_RETRIES
+} from 'lib/remote-config/geo';
 import {
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
@@ -66,13 +70,15 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],
+  ['startup eligibility reason', STARTUP_ELIGIBILITY_REASONS],
+  ['startup eligibility retry', STARTUP_ELIGIBILITY_RETRIES],
   ["the node's consume verdict", CONSUME_VERDICTS],
   ['storage owner', STORAGE_OWNERS],
   ['storage operation', STORAGE_OPERATIONS],
   ['page visibility', PAGE_VISIBILITY],
   ['which message it was', USER_ERROR_IDS],
   ['which kind of display showed it', USER_ERROR_SURFACES],
-  ['why the startup eligibility check failed', ELIGIBILITY_FAILURES],
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],

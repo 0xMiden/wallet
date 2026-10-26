@@ -37,10 +37,7 @@ describe('lookupFeatureEligibility', () => {
 
   it('requests only the network and returns the decisions without retaining geo or sending credentials', async () => {
     const fetchImpl = jest.fn().mockResolvedValue(jsonResponse({ ...answer, country: 'US', region: 'NY' }));
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'ready',
-      ...answer
-    });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual(answer);
     expect(fetchImpl).toHaveBeenCalledWith('https://eligibility.example/v1/eligibility?network=testnet', {
       cache: 'no-store',
       credentials: 'omit',
@@ -56,10 +53,7 @@ describe('lookupFeatureEligibility', () => {
     async endpoint => {
       process.env.FEATURE_ELIGIBILITY_URL = endpoint;
       const fetchImpl = jest.fn();
-      await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-        state: 'failed',
-        reason: 'not_configured'
-      });
+      await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
       expect(fetchImpl).not.toHaveBeenCalled();
     }
   );
@@ -75,19 +69,14 @@ describe('lookupFeatureEligibility', () => {
     process.env.MIDEN_E2E_TEST = String(e2e);
     process.env.FEATURE_ELIGIBILITY_URL = String(endpoint);
     const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(answer));
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual(
-      allowed ? { state: 'ready', ...answer } : { state: 'failed', reason: 'not_configured' }
-    );
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual(allowed ? answer : null);
     expect(fetchImpl).toHaveBeenCalledTimes(allowed ? 1 : 0);
   });
 
   it('does not send a request when the build has no endpoint', async () => {
     delete process.env.FEATURE_ELIGIBILITY_URL;
     const fetchImpl = jest.fn();
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'failed',
-      reason: 'not_configured'
-    });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -97,7 +86,6 @@ describe('lookupFeatureEligibility', () => {
     delete process.env.FEATURE_ELIGIBILITY_URL;
     const fetchImpl = jest.fn();
     await expect(lookupFeatureEligibility('devnet', 4, { fetchImpl })).resolves.toEqual({
-      state: 'ready',
       network: 'devnet',
       version: 4,
       allowed: { wallet: true, earn: true, swap: true }
@@ -110,7 +98,6 @@ describe('lookupFeatureEligibility', () => {
     process.env.MIDEN_ELIGIBILITY_OPEN = 'true';
     const fetchImpl = jest.fn();
     await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'ready',
       network: 'testnet',
       version: 13,
       allowed: { wallet: true, earn: true, swap: true }
@@ -142,10 +129,7 @@ describe('lookupFeatureEligibility', () => {
     delete process.env.FEATURE_ELIGIBILITY_URL;
     const fetchImpl = jest.fn();
     try {
-      await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-        state: 'failed',
-        reason: 'not_configured'
-      });
+      await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
       if (savedMode === undefined) delete process.env.MODE_ENV;
@@ -154,33 +138,23 @@ describe('lookupFeatureEligibility', () => {
   });
 
   it.each([
-    ['another network', { ...answer, network: 'mainnet' }, 'version_mismatch'],
-    ['an older policy', { ...answer, version: 12 }, 'version_mismatch'],
-    ['a newer policy', { ...answer, version: 14 }, 'version_mismatch'],
-    ['a string policy', { ...answer, version: '13' }, 'bad_body'],
-    ['an empty object', {}, 'bad_body'],
-    ['another network with a bad decision', { ...answer, network: 'mainnet', allowed: { wallet: 'yes' } }, 'bad_body'],
-    ['a missing wallet decision', { ...answer, allowed: { earn: true, swap: false } }, 'bad_body'],
-    ['a nonboolean wallet decision', { ...answer, allowed: { wallet: 'yes', earn: true, swap: false } }, 'bad_body'],
-    ['a missing Earn decision', { ...answer, allowed: { wallet: true, swap: true } }, 'bad_body'],
-    ['a missing Swap decision', { ...answer, allowed: { wallet: true, earn: true } }, 'bad_body'],
-    ['a truthy Earn decision', { ...answer, allowed: { wallet: true, earn: 'yes', swap: true } }, 'bad_body'],
-    ['a numeric Swap decision', { ...answer, allowed: { wallet: true, earn: true, swap: 1 } }, 'bad_body'],
-    ['an array of decisions', { ...answer, allowed: [true, false] }, 'bad_body'],
-    ['an absent body', null, 'bad_body'],
-    ['an array body', [answer], 'bad_body']
-  ])('fails closed for %s', async (_name, body, reason) => {
+    ['another network', { ...answer, network: 'mainnet' }],
+    ['an older policy', { ...answer, version: 12 }],
+    ['a newer policy', { ...answer, version: 14 }],
+    ['a string policy', { ...answer, version: '13' }],
+    ['a missing wallet decision', { ...answer, allowed: { earn: true, swap: false } }],
+    ['a nonboolean wallet decision', { ...answer, allowed: { wallet: 'yes', earn: true, swap: false } }],
+    ['a missing Earn decision', { ...answer, allowed: { wallet: true, swap: true } }],
+    ['a missing Swap decision', { ...answer, allowed: { wallet: true, earn: true } }],
+    ['a truthy Earn decision', { ...answer, allowed: { wallet: true, earn: 'yes', swap: true } }],
+    ['a numeric Swap decision', { ...answer, allowed: { wallet: true, earn: true, swap: 1 } }],
+    ['an array of decisions', { ...answer, allowed: [true, false] }],
+    ['an absent body', null],
+    ['an array body', [answer]]
+  ])('fails closed for %s', async (_name, body) => {
     const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(body));
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({ state: 'failed', reason });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(jest.getTimerCount()).toBe(0);
-  });
-
-  it('reports a body that is not JSON as a bad body', async () => {
-    const fetchImpl = jest.fn().mockResolvedValue({ ok: true, text: async () => '<html>', json: jest.fn() });
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'failed',
-      reason: 'bad_body'
-    });
   });
 
   it('rejects a non-2xx response without reading its body and aborts any unread stream', async () => {
@@ -190,71 +164,15 @@ describe('lookupFeatureEligibility', () => {
       requestSignal = init.signal ?? undefined;
       return { ok: false, status: 503, json };
     });
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'failed',
-      reason: 'http_5xx'
-    });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(json).not.toHaveBeenCalled();
     expect(requestSignal?.aborted).toBe(true);
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it.each([
-    [404, 'http_4xx'],
-    [400, 'http_4xx'],
-    [500, 'http_5xx'],
-    [503, 'http_5xx'],
-    [302, 'http_other'],
-    [undefined, 'http_other']
-  ])('reports a non-2xx response with status %s by its status class', async (status, reason) => {
-    const fetchImpl = jest.fn().mockResolvedValue({ ok: false, status, json: async () => answer });
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({ state: 'failed', reason });
-  });
-
-  it.each([
-    ['a network failure', new TypeError('Failed to fetch'), 'network'],
-    ['an aborted request', new DOMException('x', 'AbortError'), 'timeout'],
-    ['a timed-out request', new DOMException('x', 'TimeoutError'), 'timeout']
-  ])('reports %s before any response', async (_name, error, reason) => {
-    const fetchImpl = jest.fn().mockRejectedValue(error);
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({ state: 'failed', reason });
-  });
-
-  it.each([
-    ['a dropped connection', new TypeError('network error'), 'network'],
-    ['an aborted read', new DOMException('x', 'AbortError'), 'timeout']
-  ])('reports %s while reading the body of a 200', async (_name, error, reason) => {
-    let requestSignal: AbortSignal | undefined;
-    const fetchImpl = jest.fn(async (_url: string, init: RequestInit): Promise<JsonResponse> => {
-      requestSignal = init.signal ?? undefined;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => {
-          throw error;
-        }
-      };
-    });
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({ state: 'failed', reason });
-    expect(requestSignal?.reason?.name).not.toBe('TimeoutError');
-  });
-
-  it('answers a failed lookup when the realm has no fetch', async () => {
-    const saved = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
-    Reflect.deleteProperty(globalThis, 'fetch');
-    try {
-      await expect(lookupFeatureEligibility('testnet', 13)).resolves.toEqual({ state: 'failed', reason: 'network' });
-    } finally {
-      if (saved) Object.defineProperty(globalThis, 'fetch', saved);
-    }
-  });
-
   it('fails closed on network and body errors with no immediate paid-service retries', async () => {
-    const fetchImpl = jest.fn().mockRejectedValue(new TypeError('Failed to fetch'));
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'failed',
-      reason: 'network'
-    });
+    const fetchImpl = jest.fn().mockRejectedValue(new Error('offline'));
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     fetchImpl.mockResolvedValueOnce({
       ok: true,
@@ -262,10 +180,7 @@ describe('lookupFeatureEligibility', () => {
         throw new Error('invalid JSON');
       }
     });
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'failed',
-      reason: 'bad_body'
-    });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(jest.getTimerCount()).toBe(0);
   });
 
@@ -288,7 +203,7 @@ describe('lookupFeatureEligibility', () => {
     await jest.advanceTimersByTimeAsync(9_999);
     expect(requestSignal?.aborted).toBe(false);
     await jest.advanceTimersByTimeAsync(1);
-    await expect(pending).resolves.toEqual({ state: 'failed', reason: 'timeout' });
+    await expect(pending).resolves.toBeNull();
     expect(requestSignal?.aborted).toBe(true);
     expect(jest.getTimerCount()).toBe(0);
   });
@@ -300,11 +215,40 @@ describe('lookupFeatureEligibility', () => {
       requestSignal = init.signal ?? undefined;
       return { ok: true, headers: { get: () => '1000000' }, json };
     });
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
-      state: 'failed',
-      reason: 'bad_body'
-    });
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(json).not.toHaveBeenCalled();
     expect(requestSignal?.aborted).toBe(true);
+  });
+  it.each([
+    ['endpoint_missing', '', answer],
+    ['endpoint_invalid', 'not a URL', answer],
+    ['response_invalid', 'https://eligibility.example', { allowed: {} }],
+    ['network_mismatch', 'https://eligibility.example', { ...answer, network: 'other' }],
+    ['version_mismatch', 'https://eligibility.example', { ...answer, version: 14 }]
+  ])('records only the closed %s cause without changing the failed decision', async (reason, endpoint, body) => {
+    process.env.FEATURE_ELIGIBILITY_URL = String(endpoint);
+    const onFailure = jest.fn();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(body));
+    const options = { fetchImpl, onFailure };
+    await expect(lookupFeatureEligibility('testnet', 13, options)).resolves.toBeNull();
+    expect(onFailure).toHaveBeenCalledWith(reason);
+    expect(fetchImpl).toHaveBeenCalledTimes(String(reason).startsWith('endpoint_') ? 0 : 1);
+  });
+
+  it('records request failure without forwarding a hostile transport error', async () => {
+    const onFailure = jest.fn();
+    const fetchImpl = jest
+      .fn()
+      .mockRejectedValue(new Error('seed alpha bravo https://private.example amount=123 account=0x123456'));
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl, onFailure })).resolves.toBeNull();
+    expect(onFailure.mock.calls).toEqual([['request_failed']]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+  it('ignores a diagnostic observer failure while preserving the failed decision', async () => {
+    delete process.env.FEATURE_ELIGIBILITY_URL;
+    const onFailure = () => {
+      throw new Error('observer failed');
+    };
+    await expect(lookupFeatureEligibility('testnet', 13, { onFailure })).resolves.toBeNull();
   });
 });

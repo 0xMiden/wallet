@@ -17,7 +17,13 @@
     "DEPLOYMENT_REVISION": "unknown"
   },
   "durable_objects": {
-    "bindings": [{ "name": "ELIGIBILITY_GUARD", "class_name": "EligibilityGuard" }]
+    "bindings": [
+      { "name": "ELIGIBILITY_GUARD", "class_name": "EligibilityGuard" },
+      { "name": "CALLER_GUARD", "class_name": "CallerEligibilityGuard" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EligibilityGuard"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["EligibilityGuard"] },
+    { "tag": "v2", "new_sqlite_classes": ["CallerEligibilityGuard"] }
+  ]
 }

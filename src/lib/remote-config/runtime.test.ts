@@ -5,7 +5,7 @@ import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 import type { FeatureAvailability, UnavailableReason } from './availability';
 import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { failedDerivation } from './derived-snapshot';
-import type { EligibilityAnswer } from './geo';
+import type { FeatureEligibility } from './geo';
 import {
   _resetBridgeConfigRuntimeForTest,
   type BridgeConfigSnapshot,
@@ -26,12 +26,8 @@ import type { SwapPairs } from './swap-pairs';
 import { selectEarnVaultCatalog, selectNativeEthFaucet, selectSwapPairs } from './values';
 
 let mockNetwork = 'testnet';
-let mockNetworkFailure: Error | null = null;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getEffectiveNetworkName: () => {
-    if (mockNetworkFailure) throw mockNetworkFailure;
-    return mockNetwork;
-  },
+  getEffectiveNetworkName: () => mockNetwork,
   getEffectiveRpcUrl: () => `https://rpc.${mockNetwork}.example`
 }));
 
@@ -74,9 +70,13 @@ jest.mock('./derive', () => ({
   }
 }));
 
-const mockLookup = jest.fn<Promise<EligibilityAnswer>, [string, number]>();
+const mockLookup = jest.fn<
+  Promise<FeatureEligibility | null>,
+  [string, number, { onFailure?: (reason: string) => void }?]
+>();
 jest.mock('./geo-lookup', () => ({
-  lookupFeatureEligibility: (network: string, version: number) => mockLookup(network, version)
+  lookupFeatureEligibility: (network: string, version: number, options?: { onFailure?: (reason: string) => void }) =>
+    mockLookup(network, version, options)
 }));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
@@ -196,10 +196,8 @@ beforeEach(() => {
   _resetBridgeConfigRuntimeForTest();
   jest.useFakeTimers({ now: NOW });
   mockNetwork = 'testnet';
-  mockNetworkFailure = null;
   mockStorage.clear();
   mockLookup.mockReset().mockImplementation(async (network, version) => ({
-    state: 'ready',
     network,
     version,
     allowed: { wallet: true, earn: false, swap: true }
@@ -1325,14 +1323,18 @@ describe('startup eligibility', () => {
     const pending = gate();
     mockLookup.mockImplementationOnce(async (network, version) => {
       await pending.opened;
-      return { state: 'ready', network, version, allowed: { wallet: true, earn: false, swap: true } };
+      return { network, version, allowed: { wallet: true, earn: false, swap: true } };
     });
     const first = initFeatureEligibility();
     const second = initFeatureEligibility();
     expect(second).toBe(first);
     await flush();
     expect(mockLookup).toHaveBeenCalledTimes(1);
-    expect(mockLookup).toHaveBeenCalledWith('testnet', 13);
+    expect(mockLookup).toHaveBeenCalledWith(
+      'testnet',
+      13,
+      expect.objectContaining({ onFailure: expect.any(Function) })
+    );
     expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'loading' });
     pending.release();
     const result = await first;
@@ -1350,7 +1352,7 @@ describe('startup eligibility', () => {
     { wallet: false, earn: true, swap: false }
   ])('retains the independent startup feature decisions $wallet/$earn/$swap', async allowed => {
     seed(13);
-    mockLookup.mockResolvedValueOnce({ state: 'ready', network: 'testnet', version: 13, allowed });
+    mockLookup.mockResolvedValueOnce({ network: 'testnet', version: 13, allowed });
     const result = await initFeatureEligibility();
     expect(result).toEqual({ state: 'ready', network: 'testnet', version: 13, allowed });
     expect(await initFeatureEligibility()).toBe(result);
@@ -1360,14 +1362,11 @@ describe('startup eligibility', () => {
   it('retries startup eligibility when refresh replaces the document after a version mismatch', async () => {
     seed(13);
     serve(14);
-    mockLookup
-      .mockResolvedValueOnce({ state: 'failed', reason: 'version_mismatch' })
-      .mockImplementationOnce(async (network, version) => ({
-        state: 'ready',
-        network,
-        version,
-        allowed: { wallet: true, earn: true, swap: true }
-      }));
+    mockLookup.mockResolvedValueOnce(null).mockImplementationOnce(async (network, version) => ({
+      network,
+      version,
+      allowed: { wallet: true, earn: true, swap: true }
+    }));
 
     const result = await initFeatureEligibility();
 
@@ -1377,8 +1376,18 @@ describe('startup eligibility', () => {
       version: 14,
       allowed: { wallet: true, earn: true, swap: true }
     });
-    expect(mockLookup).toHaveBeenNthCalledWith(1, 'testnet', 13);
-    expect(mockLookup).toHaveBeenNthCalledWith(2, 'testnet', 14);
+    expect(mockLookup).toHaveBeenNthCalledWith(
+      1,
+      'testnet',
+      13,
+      expect.objectContaining({ onFailure: expect.any(Function) })
+    );
+    expect(mockLookup).toHaveBeenNthCalledWith(
+      2,
+      'testnet',
+      14,
+      expect.objectContaining({ onFailure: expect.any(Function) })
+    );
     expect(getBridgeConfigSnapshot().config?.version).toBe(14);
   });
 
@@ -1422,10 +1431,10 @@ describe('startup eligibility', () => {
 
   it('keeps an unavailable startup result without retrying when later initialization recovers', async () => {
     seed(13);
-    mockLookup.mockResolvedValueOnce({ state: 'failed', reason: 'http_5xx' });
+    mockLookup.mockResolvedValueOnce(null);
     const result = await initFeatureEligibility();
     await initBridgeConfig();
-    expect(result).toEqual({ state: 'failed', reason: 'http_5xx' });
+    expect(result).toMatchObject({ state: 'failed' });
     expect(await initFeatureEligibility()).toBe(result);
     expect(mockLookup).toHaveBeenCalledTimes(1);
   });
@@ -1433,7 +1442,7 @@ describe('startup eligibility', () => {
   it('fails closed when startup has no accepted document without sending an unversioned lookup', async () => {
     failFetch();
     const result = await initFeatureEligibility();
-    expect(result).toEqual({ state: 'failed', reason: 'no_document' });
+    expect(result).toMatchObject({ state: 'failed' });
     expect(mockLookup).not.toHaveBeenCalled();
     serve(13);
     await _refreshBridgeConfigForTest();
@@ -1444,31 +1453,97 @@ describe('startup eligibility', () => {
   it('settles a rejected startup lookup as unavailable once', async () => {
     seed(13);
     mockLookup.mockRejectedValueOnce(new Error('network unavailable'));
-    expect(await initFeatureEligibility()).toEqual({ state: 'failed', reason: 'error' });
-    expect(await initFeatureEligibility()).toEqual({ state: 'failed', reason: 'error' });
+    expect(await initFeatureEligibility()).toMatchObject({ state: 'failed' });
+    expect(await initFeatureEligibility()).toMatchObject({ state: 'failed' });
     expect(mockLookup).toHaveBeenCalledTimes(1);
   });
-
-  it('settles as an error when the config runtime itself rejects', async () => {
-    mockNetworkFailure = new Error('endpoint unavailable');
-    expect(await initFeatureEligibility()).toEqual({ state: 'failed', reason: 'error' });
+  it('binds an unavailable-config failure to the startup attempt without guessing a parse cause', async () => {
+    failFetch();
+    expect(await initFeatureEligibility()).toEqual({
+      state: 'failed',
+      diagnostics: {
+        startupEligibilityStage: 'config_initialization',
+        startupEligibilityReason: 'config_unavailable',
+        startupEligibilityRetry: 'not_attempted'
+      }
+    });
     expect(mockLookup).not.toHaveBeenCalled();
   });
 
-  it('reports the second answer when the refreshed document also fails the lookup', async () => {
+  it('records the second lookup failure against the refreshed startup attempt and never retries again', async () => {
     seed(13);
     serve(14);
     mockLookup
-      .mockResolvedValueOnce({ state: 'failed', reason: 'version_mismatch' })
-      .mockResolvedValueOnce({ state: 'failed', reason: 'timeout' });
-    expect(await initFeatureEligibility()).toEqual({ state: 'failed', reason: 'timeout' });
+      .mockImplementationOnce(async (_network, _version, options) => {
+        options?.onFailure?.('version_mismatch');
+        return null;
+      })
+      .mockImplementationOnce(async (_network, _version, options) => {
+        options?.onFailure?.('request_failed');
+        return null;
+      });
+    const result = await initFeatureEligibility();
+    expect(result).toEqual({
+      state: 'failed',
+      diagnostics: {
+        startupEligibilityStage: 'eligibility_retry',
+        startupEligibilityReason: 'request_failed',
+        startupEligibilityRetry: 'retry_failed'
+      }
+    });
+    expect(await initFeatureEligibility()).toBe(result);
     expect(mockLookup).toHaveBeenCalledTimes(2);
   });
 
-  it('reports the first answer when the refresh yields no newer document', async () => {
+  it('keeps a failed refresh distinct from the initial eligibility response and does not borrow a later failure', async () => {
     seed(13);
-    mockLookup.mockResolvedValueOnce({ state: 'failed', reason: 'version_mismatch' });
-    expect(await initFeatureEligibility()).toEqual({ state: 'failed', reason: 'version_mismatch' });
+    failFetch();
+    let observed: ((reason: string) => void) | undefined;
+    mockLookup.mockImplementationOnce(async (_network, _version, options) => {
+      observed = options?.onFailure;
+      observed?.('version_mismatch');
+      return null;
+    });
+    const result = await initFeatureEligibility();
+    expect(result).toEqual({
+      state: 'failed',
+      diagnostics: {
+        startupEligibilityStage: 'config_refresh',
+        startupEligibilityReason: 'config_unavailable',
+        startupEligibilityRetry: 'refresh_failed'
+      }
+    });
+    observed?.('endpoint_missing');
+    expect(result).toMatchObject({ diagnostics: { startupEligibilityReason: 'config_unavailable' } });
+  });
+
+  it('preserves the original reason when a successful refresh does not advance the config', async () => {
+    seed(13);
+    serve(13);
+    mockLookup.mockImplementationOnce(async (_network, _version, options) => {
+      options?.onFailure?.('version_mismatch');
+      return null;
+    });
+    expect(await initFeatureEligibility()).toEqual({
+      state: 'failed',
+      diagnostics: {
+        startupEligibilityStage: 'eligibility_lookup',
+        startupEligibilityReason: 'version_mismatch',
+        startupEligibilityRetry: 'config_not_advanced'
+      }
+    });
     expect(mockLookup).toHaveBeenCalledTimes(1);
+  });
+  it('names a rejected configuration initialization without forwarding its error', async () => {
+    mockReadStored.mockRejectedValueOnce(new Error('private state failed'));
+    expect(await initFeatureEligibility()).toEqual({
+      state: 'failed',
+      diagnostics: {
+        startupEligibilityStage: 'config_initialization',
+        startupEligibilityReason: 'config_initialization_failed',
+        startupEligibilityRetry: 'not_attempted'
+      }
+    });
+    expect(mockLookup).not.toHaveBeenCalled();
   });
 });

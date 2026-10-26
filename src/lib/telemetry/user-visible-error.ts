@@ -1,4 +1,4 @@
-import type { EligibilityFailure } from 'lib/remote-config/eligibility-failure';
+import type { StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
 
 import { captureCrash } from './crash';
 import { annotateCrash } from './crash-diagnostics';
@@ -23,8 +23,6 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set(
   [...USER_ERROR_IDS, ...USER_ERROR_SURFACES].flatMap(value => [value, ...value.split('_')])
 );
 
-export type UserErrorDiagnostics = { eligibilityFailure?: EligibilityFailure };
-
 const PAIR_INTERVAL_MS = 60_000;
 const REALM_WINDOW_MS = 600_000;
 const REALM_LIMIT = 30;
@@ -38,7 +36,7 @@ function isUserErrorSurface(value: unknown): value is UserErrorSurface {
 export function reportUserVisibleError(
   id: UserErrorId,
   surface: UserErrorSurface,
-  diagnostics?: UserErrorDiagnostics
+  diagnostics?: StartupEligibilityDiagnostics
 ): void {
   try {
     if (!isUserErrorId(id) || !isUserErrorSurface(surface)) return;
@@ -54,9 +52,9 @@ export function reportUserVisibleError(
     // A reporter stack identifies this call site, not the failure, and can contain private paths.
     report.stack = undefined;
     annotateCrash(report, {
+      ...(id === 'walletAccessUnavailableBody' && surface === 'startup' ? diagnostics : {}),
       userErrorId: id,
-      userErrorSurface: surface,
-      eligibilityFailure: diagnostics?.eligibilityFailure
+      userErrorSurface: surface
     });
     lastSentByPair.set(pair, now);
     sentAt.push(now);

@@ -310,7 +310,7 @@ describe('startup feature eligibility', () => {
       reason: 'pending',
       detail: 'startup feature eligibility is pending'
     });
-    expect(featureAvailability('earnDeposit', withDecision({ state: 'failed', reason: 'timeout' }))).toMatchObject({
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'failed' }))).toMatchObject({
       reason: 'service-down'
     });
   });
@@ -334,8 +334,6 @@ describe('startup feature eligibility', () => {
 
   it('does not apply the Earn decision to withdrawals or other features', () => {
     expect(featureAvailability('fastBridgeOut', withDecision(decision(false)))).toEqual(AVAILABLE);
-    expect(featureAvailability('fastBridgeOut', withDecision({ state: 'failed', reason: 'timeout' }))).toEqual(
-      AVAILABLE
-    );
+    expect(featureAvailability('fastBridgeOut', withDecision({ state: 'failed' }))).toEqual(AVAILABLE);
   });
 });

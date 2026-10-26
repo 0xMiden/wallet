@@ -792,7 +792,7 @@ describe('SwapFlow / SwapManager', () => {
 
     it.each<[string, GeoLookup, string]>([
       ['pending', { state: 'loading' }, 'pending'],
-      ['failed', { state: 'failed', reason: 'timeout' }, 'service-down'],
+      ['failed', { state: 'failed' }, 'service-down'],
       ['restricted', decision(false), 'restricted']
     ])('keeps the form closed while the decision is %s', async (_label, geo, reason) => {
       withOneClickRouteOnly();

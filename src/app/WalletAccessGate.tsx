@@ -4,9 +4,24 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
-import type { GeoLookup } from 'lib/remote-config/geo';
+import type { GeoLookup, StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
 import { initFeatureEligibility } from 'lib/remote-config/runtime';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+
+const OVERRIDE_LOAD_FAILED: StartupEligibilityDiagnostics = {
+  startupEligibilityStage: 'endpoint_overrides',
+  startupEligibilityReason: 'override_load_failed',
+  startupEligibilityRetry: 'not_attempted'
+};
+
+const INITIALIZATION_FAILED: GeoLookup = {
+  state: 'failed',
+  diagnostics: {
+    startupEligibilityStage: 'config_initialization',
+    startupEligibilityReason: 'config_initialization_failed',
+    startupEligibilityRetry: 'not_attempted'
+  }
+};
 
 export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
@@ -15,24 +30,30 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
   useUserVisibleError(
     geo.state === 'failed' ? 'walletAccessUnavailableBody' : null,
     'startup',
-    undefined,
-    geo.state === 'failed' ? { eligibilityFailure: geo.reason } : undefined
+    geo,
+    geo.state === 'failed' ? geo.diagnostics : undefined
   );
 
   useEffect(() => {
     let mounted = true;
     void loadEndpointOverrides()
-      .catch(() => undefined)
-      .then(() => {
-        const decision = initFeatureEligibility();
+      .then(
+        () => undefined,
+        () => OVERRIDE_LOAD_FAILED
+      )
+      .then(overrideFailure => {
+        // The executor runs now, so the lookup starts before the wallet mounts; a synchronous throw still settles.
+        const decision = new Promise<GeoLookup>(resolve => resolve(initFeatureEligibility())).catch(
+          () => INITIALIZATION_FAILED
+        );
         if (mounted) setEndpointsReady(true);
-        return decision;
+        return decision.then(
+          (result): GeoLookup =>
+            result.state === 'failed' && overrideFailure ? { state: 'failed', diagnostics: overrideFailure } : result
+        );
       })
       .then(result => {
         if (mounted) setGeo(result);
-      })
-      .catch(() => {
-        if (mounted) setGeo({ state: 'failed', reason: 'error' });
       });
     return () => {
       mounted = false;
