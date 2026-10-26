@@ -220,8 +220,8 @@ jobs:
         working-directory: android
         run: ./gradlew --stop || true
 
-      # The wallet fails closed on its startup eligibility check, so the emulator must
-      # reach the host fixture (the E2E harness reverses the same port) or onboarding never renders.
+      # The host fixture keeps the startup eligibility decision deterministic (without it Earn and Swap
+      # read unavailable), so the emulator must reach it; the E2E harness reverses the same port.
       - name: Run native Reown bridge smoke
         id: reown-native-smoke
         timeout-minutes: 10

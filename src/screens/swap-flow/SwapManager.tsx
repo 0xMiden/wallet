@@ -34,6 +34,7 @@ import { createMidenAssetMetadataResolver, fetchOneClickAssets } from 'lib/one-c
 import { useOneClickConfig } from 'lib/one-click/config';
 import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
+import { geoFeatureGate } from 'lib/remote-config/availability';
 import { readMidenFaucetMetadata } from 'lib/remote-config/derive';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -959,7 +960,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
 
 /**
  * Keeps the tab frame when startup eligibility or the token registry disables Swap.
- * Loading shows no notice while the initial decision or registry is being read.
+ * Loading shows no notice while the registry is being read; a pending startup decision shows one.
  */
 const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailability> }> = ({ availability }) => {
   const { t } = useTranslation();
@@ -967,12 +968,13 @@ const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailabili
   return (
     <HomeGroupPaneRoot testId="swap-flow">
       <HomeGroupPaneBody title={t('swap')}>
-        {availability.state !== 'loading' && (
+        {availability.state === 'unavailable' && (
           <Notice
             tone="warning"
             icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
             title={t(restricted ? 'geoRestrictedTitle' : 'swapUnavailableTitle')}
             data-testid="swap-unavailable-notice"
+            data-reason={availability.reason}
           >
             {t(restricted ? 'geoRestrictedBody' : 'swapUnavailableBody')}
           </Notice>
@@ -991,6 +993,7 @@ const SwapFlowGate: React.FC = () => {
   const tokens = useSwapTokens();
   const snapshot = useBridgeConfigSnapshot();
   const availability = swapAvailability(snapshot);
+  const geoGate = geoFeatureGate('swap', snapshot.geo);
   const oneClickConfig = useOneClickConfig();
   const [oneClickAssets, setOneClickAssets] = useState<OneClickAsset[]>([]);
   useEffect(() => {
@@ -1060,6 +1063,8 @@ const SwapFlowGate: React.FC = () => {
   if (!busyRef.current && activeRegistry.key !== registryKey) {
     setActiveRegistry({ key: registryKey, defaultPair });
   }
+  // The startup decision covers every swap route, the 1Click one included.
+  if (geoGate && !busyRef.current) return <SwapUnavailable availability={geoGate} />;
   if (
     activeRegistry.defaultPair === null ||
     (!busyRef.current && availability.state !== 'available' && !hasOneClickRoute)
