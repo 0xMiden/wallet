@@ -1,4 +1,4 @@
-name: Transaction confirmation import diagnostic
+name: Transaction confirmation full visual proof
 
 on:
   push:
@@ -11,13 +11,13 @@ permissions:
 jobs:
   visual:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 8
       - name: Verify exact source parent
-        run: test "$(git rev-parse --short=9 HEAD^)" = "f37a89b0e"
+        run: git diff --exit-code f37a89b0e HEAD -- . ':!.github/workflows/transaction-visual-proof.yml'
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -27,13 +27,20 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Capture transaction confirmation
-        timeout-minutes: 5
-        run: yarn playwright test --config playwright.one-click-visual.config.ts --project mobile-light --grep "captures production transaction modal with zero inputs and three outputs"
+        timeout-minutes: 10
+        run: yarn playwright test --config playwright.one-click-visual.config.ts
+      - name: Verify transaction captures
+        run: |
+          python3 - <<'CHECK'
+          from pathlib import Path
+          captures = [p for p in Path('test-results/one-click-visual').glob('*/transaction-*.png')]
+          assert len(captures) == 36, f'expected 36 transaction captures, got {len(captures)}'
+          CHECK
       - name: Upload visual artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: transaction-import-diagnostic
+          name: transaction-full-visual-proof
           path: test-results/one-click-visual/
           if-no-files-found: warn
           retention-days: 7
