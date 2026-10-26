@@ -94,7 +94,9 @@ describe('swapAvailability', () => {
     expect(snapshot.config?.geo).toBeUndefined();
     expect(swapAvailability(snapshot)).toEqual({ state: 'available' });
     expect(swapAvailability({ ...snapshot, geo: { state: 'loading' } })).toEqual({ state: 'loading' });
-    expect(swapAvailability({ ...snapshot, geo: { state: 'failed' } })).toMatchObject({ reason: 'service-down' });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'failed', reason: 'timeout' } })).toMatchObject({
+      reason: 'service-down'
+    });
     expect(
       swapAvailability({
         ...snapshot,
