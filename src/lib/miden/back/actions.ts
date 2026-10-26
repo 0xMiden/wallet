@@ -52,7 +52,12 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
-import { assertStorageHealthy, initializeStorageHealth, StorageUnavailableError } from 'lib/miden/storage-health';
+import {
+  assertStorageHealthy,
+  getStorageHealth,
+  initializeStorageHealth,
+  StorageUnavailableError
+} from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
   getEffectiveNetworkName,
@@ -733,6 +738,35 @@ export async function checkpointFinancialRecovery(
   if (!Number.isSafeInteger(expectedEpoch)) throw new StorageUnavailableError();
   assertStorageHealthy(expectedEpoch);
   return withUnlocked(({ vault }) => vault.checkpointFinancialRecovery(accountId, entry));
+}
+
+export async function recoverWalletStorage(
+  operation: 'check' | 'rebuild',
+  expectedEpoch: number
+): Promise<import('../recovery/types').StorageRecoveryResult> {
+  if (
+    !Number.isSafeInteger(expectedEpoch) ||
+    getStorageHealth().epoch !== expectedEpoch ||
+    (operation !== 'check' && operation !== 'rebuild')
+  )
+    throw new StorageUnavailableError();
+  return withUnlocked(async ({ vault }) => {
+    let progress: import('../recovery/types').StorageRecoveryProgress | undefined;
+    const recovered = await (operation === 'check'
+      ? vault.checkStorageRecovery()
+      : vault.recoverStorage(value => {
+          progress = value;
+        }));
+    if (store.getState().vault !== vault) throw new StorageUnavailableError();
+    if (recovered) {
+      const accounts = await vault.fetchAccounts();
+      if (store.getState().vault !== vault) throw new StorageUnavailableError();
+      const currentAccount = await vault.getCurrentAccount();
+      if (store.getState().vault !== vault) throw new StorageUnavailableError();
+      accountsUpdated({ accounts, currentAccount });
+    }
+    return { recovered, ...(progress === undefined ? {} : { progress }) };
+  });
 }
 
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {

@@ -1,13 +1,20 @@
+import type Dexie from 'dexie';
+
 import { StorageContinuityError } from './continuity';
 import type { RecoveryEntry } from './types';
+import type { ITransaction } from '../db/types';
 import * as Repo from '../repo';
 import { sameWalletAccountId } from '../sdk/helpers';
 
-export async function verifyRetainedTransactionRows(entries: RecoveryEntry[]): Promise<void> {
-  await Repo.db.transaction('r', Repo.transactions, async () => {
+export async function verifyRetainedTransactionRows(
+  entries: RecoveryEntry[],
+  database: Dexie = Repo.db
+): Promise<void> {
+  const transactions = database.table<ITransaction>('transactions');
+  await database.transaction('r', transactions, async () => {
     for (const entry of entries) {
       if (entry.kind !== 'transaction') continue;
-      const row = await Repo.transactions.get(entry.id);
+      const row = await transactions.get(entry.id);
       if (!row || !sameWalletAccountId(row.accountId, entry.accountId)) throw new StorageContinuityError();
       const expected = entry.row?.submitEvidence ?? [];
       for (const attempt of expected) {

@@ -66,9 +66,20 @@ export async function saveGuardianHistoryCheckpoint(
   return true;
 }
 
-export async function clearGuardianHistoryCheckpoints(): Promise<void> {
+export async function clearGuardianHistoryCheckpoints(assertCurrent?: () => void): Promise<void> {
+  assertCurrent?.();
   const generation = uuid();
   // A late cursor write cannot change this separate import marker.
   await putToStorage(GUARDIAN_HISTORY_GENERATION_KEY, generation);
+  assertCurrent?.();
   await putToStorage(GUARDIAN_HISTORY_STORAGE_KEY, { generation, checkpoints: {} });
+  assertCurrent?.();
+  if (assertCurrent) {
+    const stored = await fetchFromStorage(GUARDIAN_HISTORY_GENERATION_KEY);
+    assertCurrent();
+    const state = stateSchema.parse(await fetchFromStorage(GUARDIAN_HISTORY_STORAGE_KEY));
+    assertCurrent();
+    if (stored !== generation || state.generation !== generation || Object.keys(state.checkpoints).length !== 0)
+      throw new Error('Guardian history cutover readback failed');
+  }
 }

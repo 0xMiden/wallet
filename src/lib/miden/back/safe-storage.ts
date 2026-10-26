@@ -40,16 +40,21 @@ export async function fetchAndDecryptOne<T>(storageKey: string, key: CryptoKey) 
 }
 
 /** Encrypt and save several items under the vault key, each as iv (32 hex) + ciphertext. */
-export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey) {
+export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey, assertCurrent?: () => void) {
+  assertCurrent?.();
   const encItems = await Promise.all(
     items.map(async ([storageKey, stuff]) => {
       storageKey = await wrapStorageKey(storageKey);
+      assertCurrent?.();
       const { dt, iv } = await Passworder.encrypt(stuff, key);
+      assertCurrent?.();
       return [storageKey, iv + dt] as [string, string];
     })
   );
 
+  assertCurrent?.();
   await saveEncrypted(encItems);
+  assertCurrent?.();
 }
 
 export async function removeMany(keys: string[]) {

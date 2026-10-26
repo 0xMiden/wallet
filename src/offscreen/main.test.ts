@@ -1097,6 +1097,52 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.clientSyncState).not.toHaveBeenCalled();
   });
 
+  it('passes only a validated recovery command with a live capability and hold to the client', async () => {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    const { MidenClientInterface } = jest.requireMock('lib/miden/sdk/miden-client-interface');
+    const restored: unknown[] = [];
+    MidenClientInterface.createForRecovery = jest.fn(async () => ({
+      restoreStorageRecovery: async (
+        command: unknown,
+        capability: import('lib/miden/storage-health').StorageRecoveryCapability,
+        assertLive: () => void
+      ) => {
+        health.assertStorageRecoveryAllowed(capability);
+        assertLive();
+        restored.push(command);
+      }
+    }));
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const command = { kind: 'generation', generation: 'retained-sdk' };
+    const request = (expiresAt: number, value: unknown) =>
+      callReq({
+        method: 'restoreStorageRecovery',
+        argsB64: [encodeArg(value)],
+        recoveryAccess: { epoch: health.getStorageHealth().epoch, expiresAt }
+      });
+    const response = jest.fn();
+    capturedListener!(request(Date.now() + 1000, command), { id: 'wallet-extension' }, response);
+    await flush();
+    expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(restored).toEqual([command]);
+    const expired = jest.fn();
+    capturedListener!(request(Date.now() - 1, command), { id: 'wallet-extension' }, expired);
+    await flush();
+    expect(expired).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+    const malformed = jest.fn();
+    capturedListener!(
+      request(Date.now() + 1000, { kind: 'generation', generation: 'x'.repeat(129) }),
+      { id: 'wallet-extension' },
+      malformed
+    );
+    await flush();
+    expect(malformed).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+    expect(restored).toEqual([command]);
+    expect(health.getStorageHealth().status).toBe('unavailable');
+  });
+
   it('dispatches getAccount, serializes the Account, and echoes op_id (ok:true)', async () => {
     await loadModule();
     const sendResponse = jest.fn();

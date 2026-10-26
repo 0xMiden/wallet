@@ -66,3 +66,16 @@ export interface RecoveryJournalSnapshot extends RecoveryJournalData {
   version: 1;
   sequence: number;
 }
+
+export interface StorageRecoveryProgress {
+  phase: 'accounts' | 'notes' | 'validation' | 'complete';
+  verifiedAccounts: number;
+  expectedAccounts: number;
+  verifiedInputs: number;
+  expectedInputs: number;
+}
+
+export interface StorageRecoveryResult {
+  recovered: boolean;
+  progress?: StorageRecoveryProgress;
+}
