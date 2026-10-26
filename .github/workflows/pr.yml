@@ -276,6 +276,19 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Check Unlock responsive layout
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.unlock-visual.config.ts
+
+      - name: Upload Unlock layout screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unlock-layout
+          path: test-results/unlock-visual/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
 

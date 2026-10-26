@@ -559,7 +559,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             </p>
           </div>
 
-          <form className="w-full flex flex-col gap-6 mt-4" onSubmit={onPasswordSubmit}>
+          <form className="w-full max-w-92.5 flex flex-col gap-6 mt-4" onSubmit={onPasswordSubmit}>
             <Input
               id="unlock-password"
               enterKeyHint="go"
