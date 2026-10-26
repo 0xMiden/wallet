@@ -470,12 +470,15 @@ test('unsupported existing or requested policies refuse before any mutation', as
   }
 });
 
-test('missing release notes fail before attaching a build or creating a review', async () => {
-  const { client, state, version, calls } = fixture();
-  state.localizations[0].attributes.whatsNew = null;
-  version.relationships.build = { data: null };
-  await assert.rejects(submit(client, options), /release notes|What's New/i);
-  assert.deepEqual(mutations(calls), []);
+test('omitted or empty notes fill the exact default before attaching a build or creating a review', async () => {
+  for (const releaseNotes of [undefined, '']) {
+    const { client, state, version, calls } = fixture();
+    state.localizations[0].attributes.whatsNew = null;
+    version.relationships.build = { data: null };
+    await submit(client, { ...options, releaseNotes });
+    assert.equal(state.localizations[0].attributes.whatsNew, 'Various Fixes & Improvements');
+    assert.equal(mutations(calls)[0].path, '/v1/appStoreVersionLocalizations/locale-1');
+  }
 });
 
 test('explicit notes fill only missing en-US text before review mutations', async () => {

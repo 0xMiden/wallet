@@ -883,3 +883,12 @@ test('explicit iOS submit notes pass through unchanged and reject other operatio
     assert.equal(other.calls.length, 0);
   }
 });
+
+
+test('iOS submit uses the exact notes fallback when omitted or empty', async () => {
+  for (const extra of [[], ['--release-notes', '']]) {
+    const c = context('ios');
+    await run(['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', ...extra], c.deps);
+    assert.equal(c.calls.find(call => call[0] === 'operation')[3].releaseNotes, 'Various Fixes & Improvements');
+  }
+});
