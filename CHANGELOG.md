@@ -6,6 +6,8 @@
 
 - [CHANGE][ci] Standard store builds and explicit publication stages include Bread Devnet for Chrome after production Chrome, iOS and Android, with separate source-bound run evidence for each target.
 - [CHANGE][all] Unavailable startup reports name only the closed eligibility stage, failure category and existing retry outcome, without location, response data or identifiers.
+- [FIX][service] Isolate eligibility caller state while preserving the shared paid-query cap; this mitigates the singleton bottleneck but does not remove the Free invocation quota (#1888).
+
 - [FIX][ci] Submit only the desired new Play full rollout and refuse ambiguous sibling releases.
 - [FIX][ci] Preserve sanitized Play submission failure stages and support read-only inspection of an existing release edit.
 - [CHANGE][ios] JavaScript-driven animations (requestAnimationFrame and the springs, layout animations and drags built on it) run at up to 120 fps on ProMotion iPhones and iPads, in the wallet and in dApps opened in the in-app browser: both WebViews turn off WebKit's preference for rendering near 60 fps, and keep it when an iOS version lacks the setting (#1864).
