@@ -448,26 +448,12 @@ function quoteRemoteShellArgument(value: string): string {
   return `${quoted}'`;
 }
 
+/**
+ * One `input text` call per character keeps each injected burst short: the dApp WebView was seen mid-string seconds
+ * after one long burst returned. A space is `%s`; a literal `%` and `s` stay separate calls, so they never read as one.
+ */
 function encodeAndroidInputText(value: string): string[] {
-  const arguments_: string[] = [];
-  let encoded = '';
-  const flush = () => {
-    if (encoded !== '') arguments_.push(quoteRemoteShellArgument(encoded));
-    encoded = '';
-  };
-
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value.charAt(index);
-    if (character === '%' && value.charAt(index + 1) === 's') {
-      flush();
-      arguments_.push(quoteRemoteShellArgument('%'), quoteRemoteShellArgument('s'));
-      index += 1;
-    } else {
-      encoded += /\s/.test(character) ? '%s' : character;
-    }
-  }
-  flush();
-  return arguments_;
+  return Array.from(value, character => quoteRemoteShellArgument(/\s/.test(character) ? '%s' : character));
 }
 
 /** `adb reverse --list`'s rules. With none it prints a bare newline, which a line count reads as one rule. */
