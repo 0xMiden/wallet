@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './playwright/toolbar',
-  timeout: 120000,
+  timeout: 180000,
   workers: 1,
   retries: 0,
   reporter: [['list']],

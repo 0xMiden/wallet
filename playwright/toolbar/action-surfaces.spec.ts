@@ -32,7 +32,9 @@ for (const theme of ['light', 'dark'] as const) {
       });
     let context = await launch();
     const capture = async (name: string) => {
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve =>
+        setTimeout(resolve, name.includes('onboarding') || name.includes('closed') ? 250 : 7000)
+      );
       const path = testInfo.outputPath(`${theme}-${name}.png`);
       execFileSync('import', ['-window', 'root', path]);
       execFileSync('convert', [path, '-resize', '1800x1800>', path]);
@@ -200,18 +202,25 @@ for (const theme of ['light', 'dark'] as const) {
       activate();
       await expect.poll(panelCount).toBe(0);
       const id = new URL(worker.url()).host;
+      for (const extensionPage of context.pages().filter(item => item.url().startsWith(`chrome-extension://${id}/`)))
+        await extensionPage.close();
       const protocol = await context.newCDPSession(ordinary);
-      let runningStatus = '';
+      let versionId = '';
+      let sawStopped = false;
       protocol.on('ServiceWorker.workerVersionUpdated', event => {
         for (const version of event.versions) {
-          if (version.scriptURL === worker.url()) runningStatus = version.runningStatus;
+          if (version.scriptURL === worker.url()) {
+            versionId = version.versionId;
+            if (version.runningStatus === 'stopped') sawStopped = true;
+          }
         }
       });
       await protocol.send('ServiceWorker.enable');
-      await expect.poll(() => runningStatus).toBe('running');
-      await protocol.send('ServiceWorker.stopAllWorkers');
-      await expect.poll(() => runningStatus).toBe('stopped');
+      await expect.poll(() => versionId).not.toBe('');
       const restarted = context.waitForEvent('serviceworker', { timeout: 30000 });
+      void restarted.catch(() => undefined);
+      await protocol.send('ServiceWorker.stopWorker', { versionId });
+      await expect.poll(() => sawStopped).toBe(true);
       const control = await context.newPage();
       await control.goto(`chrome-extension://${id}/fullpage.html`);
       worker = await restarted;
