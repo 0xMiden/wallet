@@ -19,6 +19,7 @@ test('standard signed build request includes official Chrome Devnet after the pr
 test('all-target build delegates to independent existing child producers instead of sharing their result', () => {
   const workflow = readFileSync(new URL('.github/workflows/build-store-artifacts.yml', root), 'utf8');
   assert.match(workflow, /release-plan\.mjs[^\n]*--stage build/);
+  assert.match(workflow, /platform:[\s\S]*?default: all/);
   assert.match(workflow, /request_token:/);
   assert.match(workflow, /actions: write/);
   assert.match(workflow, /inputs\.platform != 'all'/);
