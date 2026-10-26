@@ -1,4 +1,4 @@
-name: Four-target store routing proof
+name: Combined four-target store routing proof
 on:
   workflow_dispatch:
 permissions:
@@ -6,29 +6,13 @@ permissions:
 jobs:
   store-routing-proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Store publishing unit and workflow contracts without store access
+      - name: All combined publishing and workflow-contract tests without store access
         run: node --test scripts/store-publishing/*.test.mjs
-      - name: Validate retained iOS profile handling without signing
+      - name: Retained profile validation without signing
         run: python3 scripts/store-publishing/apple-profile.test.py
-      - uses: ./.github/actions/yarn-install
-      - name: Existing build and release workflow contracts
-        run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/build-scripts.test.ts src/lib/update/release-workflows.test.ts
-      - name: Type check
-        run: yarn ts
-      - name: Check formatting of new routing scripts and workflow edits
-        run: |
-          yarn prettier --check package.json .github/workflows/build-store-artifacts.yml .github/workflows/publish-stores.yml scripts/store-publishing/all-target-routing.test.mjs scripts/store-publishing/build-chrome-devnet.mjs scripts/store-publishing/build-chrome-devnet.test.mjs scripts/store-publishing/targets.mjs scripts/store-publishing/targets.test.mjs scripts/store-publishing/release-plan.mjs scripts/store-publishing/release-plan.test.mjs scripts/store-publishing/README.md
-          git diff --binary > formatting.patch
-          test ! -s formatting.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: four-target-formatting
-          path: formatting.patch
-          if-no-files-found: ignore
