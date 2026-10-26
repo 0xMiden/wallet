@@ -729,7 +729,6 @@ test('workflow forwards iOS submit release notes as one exact argument', async t
   assert.equal(args[index + 1], env.RELEASE_NOTES);
 });
 
-
 test('the notes fallback is scoped to iOS submit and leaves other default actions untouched', () => {
   for (const change of [
     {},
