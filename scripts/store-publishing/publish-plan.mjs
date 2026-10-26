@@ -448,7 +448,11 @@ function safeResult(result) {
     if (result?.[key] && typeof result[key] === 'object') clean[key] = safeResult(result[key]);
   }
   if (Array.isArray(result?.versionCodes)) {
-    clean.versionCodes = result.versionCodes.slice(0, 100).filter(value => typeof value === 'string' && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= 2100000000);
+    clean.versionCodes = result.versionCodes
+      .slice(0, 100)
+      .filter(
+        value => typeof value === 'string' && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= 2100000000
+      );
   }
   if (result?.failure) clean.failure = safeStoreFailure({ ...result.failure, status: result.failure.httpStatus });
   if (result?.editInspection) {

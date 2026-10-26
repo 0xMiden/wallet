@@ -86,7 +86,9 @@ async function apiFailure(response, label) {
     const reasons = [
       ...(Array.isArray(body?.errors) ? body.errors.map(item => item?.reason) : []),
       ...(Array.isArray(body?.details)
-        ? body.details.filter(item => item?.['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo').map(item => item?.reason)
+        ? body.details
+            .filter(item => item?.['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo')
+            .map(item => item?.reason)
         : [])
     ];
     error.apiReasons = [...new Set(reasons.filter(reason => apiReasons.has(reason)))];
