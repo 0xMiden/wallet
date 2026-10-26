@@ -204,3 +204,26 @@ it('keeps dwell stable across fresh evidence objects and sends the latest branch
     submissionFeedbackBranch: 'guardian_unanswered'
   });
 });
+
+it('keeps the visible branch when a replacement render suspends before commit', async () => {
+  const never = new Promise<void>(() => {});
+  let replace: (() => void) | undefined;
+  function DisplayEvidence() {
+    const [pending, setPending] = React.useState(false);
+    replace = () => React.startTransition(() => setPending(true));
+    useUserVisibleError('submissionUnanswered', 'status_screen', undefined, {
+      kind: 'submission_feedback',
+      submissionFeedbackBranch: pending ? 'guardian_unanswered' : 'grpc_unknown'
+    });
+    if (pending) throw never;
+    return <span>Committed message</span>;
+  }
+  const view = render(<React.Suspense fallback={<span>Pending</span>}><DisplayEvidence /></React.Suspense>);
+  advance(999);
+  await act(async () => { replace?.(); });
+  expect(view.getByText('Committed message')).toBeVisible();
+  advance(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {
+    kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown'
+  });
+});
