@@ -548,8 +548,9 @@ async function verifyScreenshotSource({ root, version, sourceSha, paths }) {
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
     if (status.stdout.trim()) throw new Error('Screenshot source has local changes');
+    // Literal pathspecs stop a manifest path such as `0*.png` from matching a tracked sibling.
     if (paths.length)
-      await execute('git', ['-C', root, 'ls-files', '--error-unmatch', '--', ...paths], {
+      await execute('git', ['-C', root, '--literal-pathspecs', 'ls-files', '--error-unmatch', '--', ...paths], {
         timeout: 10000,
         maxBuffer: 1024 * 1024
       });

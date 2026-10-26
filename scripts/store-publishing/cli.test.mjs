@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -978,6 +979,50 @@ test('future screenshot absence or drift fails before the publishing mutation', 
     drift.calls.some(call => call[0] === 'operation'),
     false
   );
+});
+
+test('a glob manifest path is not satisfied by a tracked sibling', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'screenshot-source-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync('git', ['-C', root, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], {
+      encoding: 'utf8'
+    }).trim();
+  await mkdir(join(root, 'public'));
+  await mkdir(join(root, 'store-listing/screenshots'), { recursive: true });
+  for (const name of ['package.json', 'public/manifest.json'])
+    await writeFile(join(root, name), JSON.stringify({ version: '1.17.8' }));
+  for (const name of ['screenshots.json', 'store-rules.json']) await writeFile(join(root, 'store-listing', name), '{}');
+  await writeFile(join(root, 'store-listing/screenshots/01.png'), bytes);
+  git('init', '-q');
+  git('add', '.');
+  const commit = git('commit-tree', '--no-gpg-sign', '-m', 'fixture', git('write-tree'));
+  git('update-ref', 'HEAD', commit);
+  const prepare = async path => {
+    const c = screenshotContext();
+    delete c.deps.verifyScreenshotSource;
+    c.manifest.sets[0].images[0].path = path;
+    return run(
+      [
+        'ios',
+        'prepare',
+        '--version',
+        '1.17.8',
+        '--source-sha',
+        commit,
+        '--network',
+        'testnet',
+        '--confirm',
+        '1.17.8',
+        '--screenshots-root',
+        root,
+        '--dry-run'
+      ],
+      c.deps
+    );
+  };
+  assert.equal((await prepare('store-listing/screenshots/01.png')).dryRun, true);
+  await assert.rejects(prepare('store-listing/screenshots/0*.png'), /exact release checkout/);
 });
 
 test('Android screenshot synchronization uses the exact existing edit without a build, upload, creation or commit', async () => {
