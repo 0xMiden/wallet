@@ -178,6 +178,25 @@ export async function readPublicPswapNote(noteId: string): Promise<PublicPswapNo
   return spentAt === undefined ? { kind: 'open', note, fields, block } : { kind: 'spent' };
 }
 
+// `NoteType::Public as u8` in miden-protocol, the two top bits of a public note's tag.
+const PUBLIC_NOTE_TYPE_BITS = 1;
+
+/**
+ * The tag of a public PSWAP note offering `offeredFaucet` for `requestedFaucet`, as miden-standards 0.17.1
+ * `PswapNote::create_tag` builds it: the note type in the top two bits, the 14 most significant bits of the PSWAP
+ * script root, then the top byte of the offered faucet's prefix and the top byte of the requested one's. A remainder
+ * keeps its parent's tag, so one tag lists a whole sale lineage. This is not `buildSwapTag`, the SWAP script's.
+ */
+export function pswapNoteTag(offeredFaucet: AccountId, requestedFaucet: AccountId): number {
+  const root = NoteScript.pswap().root().toHex().slice(2);
+  const [first, second] = [parseInt(root.slice(0, 2), 16), parseInt(root.slice(2, 4), 16)];
+  const useCase = ((first << 6) | (second >> 2)) & 0x3fff;
+  const topByte = (id: AccountId) => Number((id.prefix().asInt() >> 56n) & 0xffn);
+  return (
+    ((PUBLIC_NOTE_TYPE_BITS << 30) | (useCase << 16) | (topByte(offeredFaucet) << 8) | topByte(requestedFaucet)) >>> 0
+  );
+}
+
 /** The node's current block height, on an RpcClient of its own. */
 export function readChainTip(): Promise<number> {
   return read('chain-tip', 'chain tip', async rpc => (await rpc.getBlockHeaderByNumber(null, false)).blockNum());

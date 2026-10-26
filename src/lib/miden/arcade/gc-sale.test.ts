@@ -1,7 +1,11 @@
 import type { PswapFields } from 'lib/miden/sdk/pswap-order-note';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import {
   DEFAULT_GC_PURCHASE_AMOUNT,
+  GC_SALES,
+  getGcSaleConfig,
   isGcSaleNote,
   pswapFillPayout,
   quoteGcPurchase,
@@ -17,8 +21,14 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 jest.mock('lib/miden/sdk/pswap-order-note', () => ({}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'mainnet' }));
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => '0xusdcx' }));
+let mockSnapshot: Pick<BridgeConfigSnapshot, 'network' | 'config'> = { network: 'mainnet', config: null };
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockSnapshot }));
+jest.mock('lib/remote-config/values', () => ({
+  selectGcSale: (s: Pick<BridgeConfigSnapshot, 'config'>) =>
+    s.config?.features.arcadeGcPurchase === true ? (s.config.arcade?.sale ?? null) : null
+}));
 
-const config: GcSaleConfig = { gcFaucetId: '0xgc', sellerAccountId: '0xseller_suffix', noteTag: 1, fromBlock: 0 };
+const config: GcSaleConfig = { gcFaucetId: '0xgc', sellerAccountId: '0xseller_suffix', fromBlock: 0 };
 
 // The mainnet sale note as `scripts/dev/gc-sale/buy.mjs` read it: 49,850 GC against 49.85 USDCx, no fill floor.
 const liveNote = (overrides: Partial<PswapFields> = {}): PswapFields => ({
@@ -28,9 +38,8 @@ const liveNote = (overrides: Partial<PswapFields> = {}): PswapFields => ({
   offeredAmount: 49_850_000_000n,
   requestedFaucet: '0xusdcx',
   creator: '0xseller',
-  ...liveNoteOverrides(overrides)
+  ...overrides
 });
-const liveNoteOverrides = (overrides: Partial<PswapFields>) => overrides;
 
 const sale = (overrides: Partial<GcSale> = {}): GcSale => ({
   saleNoteId: '0xnote',
@@ -41,6 +50,45 @@ const sale = (overrides: Partial<GcSale> = {}): GcSale => ({
   requestedAmount: 49_850_000n,
   fillFloor: 0n,
   ...overrides
+});
+
+const documentWith = (features: Record<string, boolean>, arcade?: { sale: { seller: string } }) =>
+  ({
+    network: 'mainnet',
+    config: {
+      network: 'mainnet',
+      version: 13,
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+      supportedEvmChains: {},
+      features: { earn: false, nearIntents: false, ...features },
+      mainnetCountdown: { enabled: false },
+      swap: {},
+      ...(arcade === undefined ? {} : { arcade })
+    }
+  }) satisfies Pick<BridgeConfigSnapshot, 'network' | 'config'>;
+
+describe('getGcSaleConfig', () => {
+  const bundled = GC_SALES[MIDEN_NETWORK_NAME.MAINNET];
+
+  it('uses the bundled sale while no document is accepted, and none off mainnet', () => {
+    mockSnapshot = { network: 'mainnet', config: null };
+    expect(getGcSaleConfig(MIDEN_NETWORK_NAME.MAINNET)).toEqual(bundled);
+    expect(getGcSaleConfig(MIDEN_NETWORK_NAME.TESTNET)).toBeUndefined();
+  });
+
+  it('takes the seller from a document that turns the purchase on, and turns off with one that does not', () => {
+    mockSnapshot = documentWith({ arcadeGcPurchase: true }, { sale: { seller: '0xdocumentseller' } });
+    expect(getGcSaleConfig(MIDEN_NETWORK_NAME.MAINNET)).toEqual({ ...bundled, sellerAccountId: '0xdocumentseller' });
+    mockSnapshot = documentWith({ arcadeGcPurchase: false });
+    expect(getGcSaleConfig(MIDEN_NETWORK_NAME.MAINNET)).toBeUndefined();
+    mockSnapshot = documentWith({});
+    expect(getGcSaleConfig(MIDEN_NETWORK_NAME.MAINNET)).toBeUndefined();
+  });
+
+  it('ignores a document of another network', () => {
+    mockSnapshot = { ...documentWith({}), network: 'testnet' };
+    expect(getGcSaleConfig(MIDEN_NETWORK_NAME.MAINNET)).toEqual(bundled);
+  });
 });
 
 describe('pswapFillPayout', () => {
@@ -89,7 +137,6 @@ describe('quoteGcPurchase', () => {
   });
 
   it('rounds the cost up so the script’s floor never delivers less than asked', () => {
-    // 49,850 GC for 49.85 USDCx: 1.5 GC costs 1,500 base units exactly; an awkward price rounds up.
     const awkward = sale({ offeredAmount: 3_000_000n, requestedAmount: 1_000n });
     const result = quoteGcPurchase(awkward, 1_000_000n);
     expect('quote' in result && result.quote.fillAmount).toBe(334n);

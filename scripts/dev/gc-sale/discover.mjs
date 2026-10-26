@@ -3,8 +3,21 @@
 import { Endpoint, NoteId, NoteTag, RpcClient, NoteScript } from '@miden-sdk/miden-sdk';
 
 const RPC = 'https://rpc.cedar.miden.io';
-const TAG = 1663710438;
+const GC = '0x34a3510213533f512ec4abe36baf84';
+const USDCX = '0xe69e6ca6e39df1b10c1e5399399feb';
 const KNOWN_NOTE = '0x34b2e1aa676f97dfe1e80f2f3da58bc30824434db6e6c7e8d13c8e471969171a';
+
+// The PSWAP tag as miden-standards' `PswapNote::create_tag` builds it: public note type, the 14 top bits of the
+// PSWAP script root, the top byte of each faucet prefix. The same derivation as the wallet's `pswapNoteTag`.
+const { AccountId } = await import('@miden-sdk/miden-sdk');
+const pswapTag = (offered, requested) => {
+  const root = NoteScript.pswap().root().toHex().slice(2);
+  const useCase = ((parseInt(root.slice(0, 2), 16) << 6) | (parseInt(root.slice(2, 4), 16) >> 2)) & 0x3fff;
+  const top = hex => Number((AccountId.fromHex(hex).prefix().asInt() >> 56n) & 0xffn);
+  return ((1 << 30) | (useCase << 16) | (top(offered) << 8) | top(requested)) >>> 0;
+};
+const TAG = pswapTag(GC, USDCX);
+console.log('derived sale tag', TAG);
 
 const rpc = new RpcClient(new Endpoint(RPC));
 const tip = (await rpc.getBlockHeaderByNumber(null, false)).blockNum();

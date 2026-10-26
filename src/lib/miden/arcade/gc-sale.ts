@@ -1,6 +1,7 @@
 import { getBech32AddressFromAccountId, sameWalletAccountId, walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
 import {
   listCommittedNoteIdsByTag,
+  pswapNoteTag,
   readChainTip,
   readPublicPswapNote,
   type PswapFields
@@ -8,31 +9,34 @@ import {
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { selectGcSale } from 'lib/remote-config/values';
 
 import type { GcPurchaseQuote } from '../transaction/initiate';
 
 /**
  * Where a network sells Game Coins: one public PSWAP note the seller created, offering GC against the chain's fee
  * asset (USDCx). Every fill spends the note and the PSWAP script creates a remainder under a new id with the same
- * tag, so the live note is found by the tag, never by a pinned id (`docs/arcade/gc-integration.md`).
+ * tag, so the live note is found by the tag the script derives from the two faucets (`pswapNoteTag`), never by a
+ * pinned id (`docs/arcade/gc-integration.md`).
  */
 export interface GcSaleConfig {
   /** The GC faucet, hex. */
   gcFaucetId: string;
   /** The account whose storage the sale note names as creator; a note of any other creator is not this sale. */
   sellerAccountId: string;
-  /** The tag every note of the sale lineage carries (the PSWAP script root and the two faucets). */
-  noteTag: number;
   /** The first block a note of the sale can be in, so the tag walk starts there. */
   fromBlock: number;
 }
 
-/** Mainnet only: the sale `scripts/dev/gc-sale/buy.mjs` filled on 2026-10-26, 0.001 USDCx per GC. */
+/**
+ * The bundled sale per network: what a wallet with no accepted config document uses, as `GUARDIAN_OPTIONS` is for
+ * the operators. Mainnet only: the sale `scripts/dev/gc-sale/buy.mjs` filled on 2026-10-26, 0.001 USDCx per GC.
+ */
 export const GC_SALES: Partial<Record<MIDEN_NETWORK_NAME, GcSaleConfig>> = {
   [MIDEN_NETWORK_NAME.MAINNET]: {
     gcFaucetId: '0x34a3510213533f512ec4abe36baf84',
-    sellerAccountId: 'mm1azntuhzd3lwqxs2mmeny202ljy3fxnpm_qr7qqq9wr6w',
-    noteTag: 1663710438,
+    sellerAccountId: '0xa6be5c4d8fdc03415bde66453d5f91',
     fromBlock: 214_000
   }
 };
@@ -61,8 +65,19 @@ export interface GcSale {
   fillFloor: bigint;
 }
 
+/**
+ * The sale of `network`, or undefined where there is none. The accepted config document decides: its
+ * `arcade.sale.seller` is the seller while `features.arcadeGcPurchase` is on, and a document that leaves the switch
+ * off turns the purchase off. With no accepted document for the network (a first start that cannot reach the config
+ * repo, a read before the realm hydrated) the bundled sale stands in, as the bundled operator list does.
+ */
 export function getGcSaleConfig(network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()): GcSaleConfig | undefined {
-  return GC_SALES[network];
+  const bundled = GC_SALES[network];
+  if (!bundled) return undefined;
+  const snapshot = getBridgeConfigSnapshot();
+  if (snapshot.network !== network || snapshot.config === null) return bundled;
+  const sale = selectGcSale(snapshot);
+  return sale ? { ...bundled, sellerAccountId: sale.seller } : undefined;
 }
 
 /**
@@ -128,16 +143,18 @@ export function quoteGcPurchase(
 }
 
 /**
- * The live sale note of this network, on RPC clients of its own and no WASM lock: the notes under the sale tag newest
- * first, the first unspent one of the seller's with GC left. Null when the network has no sale, the fee asset is not
- * discovered yet, or no note is open; a failed node read rejects.
+ * The live sale note of this network, on RPC clients of its own and no WASM lock: the notes under the sale's tag
+ * newest first, the first unspent one of the seller's with GC left. Null when the network has no sale, the fee asset
+ * is not discovered yet, or no note is open; a failed node read rejects.
  */
 export async function findLiveGcSale(network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()): Promise<GcSale | null> {
   const sale = getGcSaleConfig(network);
   const payFaucetId = getNativeAssetIdSync();
   if (!sale || !payFaucetId) return null;
+  const gcFaucet = walletAccountIdToSdk(sale.gcFaucetId);
+  const tag = pswapNoteTag(gcFaucet, walletAccountIdToSdk(payFaucetId));
   const tip = await readChainTip();
-  const committed = await listCommittedNoteIdsByTag(sale.noteTag, sale.fromBlock, tip);
+  const committed = await listCommittedNoteIdsByTag(tag, sale.fromBlock, tip);
   for (const { noteId } of committed.slice(0, MAX_SALE_NOTE_READS)) {
     const read = await readPublicPswapNote(noteId);
     if (read.kind !== 'open' || !isGcSaleNote(read.fields, sale, payFaucetId)) continue;
@@ -147,7 +164,7 @@ export async function findLiveGcSale(network: MIDEN_NETWORK_NAME = getEffectiveN
       saleNoteId: noteId,
       sellerAccountId: sale.sellerAccountId,
       payFaucetId,
-      gcFaucetId: getBech32AddressFromAccountId(walletAccountIdToSdk(sale.gcFaucetId)),
+      gcFaucetId: getBech32AddressFromAccountId(gcFaucet),
       offeredAmount: read.fields.offeredAmount,
       requestedAmount,
       fillFloor: read.fields.storage[3] ?? 0n

@@ -31,7 +31,15 @@ const STORE = process.env.STORE ?? 'gc-sale-probe';
 const USDCX = '0xe69e6ca6e39df1b10c1e5399399feb';
 const GC = '0x34a3510213533f512ec4abe36baf84';
 const SELLER = 'mm1azntuhzd3lwqxs2mmeny202ljy3fxnpm_qr7qqq9wr6w';
-const SALE_TAG = 1663710438;
+// The PSWAP tag as miden-standards' `PswapNote::create_tag` builds it: public note type, the 14 top bits of the
+// PSWAP script root, the top byte of each faucet prefix. The same derivation as the wallet's `pswapNoteTag`.
+const pswapTag = (offered, requested) => {
+  const root = NoteScript.pswap().root().toHex().slice(2);
+  const useCase = ((parseInt(root.slice(0, 2), 16) << 6) | (parseInt(root.slice(2, 4), 16) >> 2)) & 0x3fff;
+  const top = hex => Number((AccountId.fromHex(hex).prefix().asInt() >> 56n) & 0xffn);
+  return ((1 << 30) | (useCase << 16) | (top(offered) << 8) | top(requested)) >>> 0;
+};
+const SALE_TAG = pswapTag(GC, USDCX);
 const FUNDING_BASE_UNITS = 10_000n; // 0.01 USDCx
 const MAX_FILL = BigInt(process.env.FILL ?? '0') || null;
 const DRY_RUN = process.env.DRY_RUN === '1';
