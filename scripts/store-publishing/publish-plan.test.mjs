@@ -664,3 +664,23 @@ test('workflow persists only safe stage/status failure metadata before rejecting
   });
   assert.doesNotMatch(JSON.stringify(result), /secret/);
 });
+
+test('edit inspection execute/export retains exact bounded numeric version codes', async t => {
+  const { env, root } = await workspace(t);
+  await main('prepare', env);
+  await main('execute', env, {
+    run: async () => ({
+      editInspection: {
+        id: 'edit-1',
+        expiryTimeSeconds: '1',
+        releases: [{ name: '1.17.7', status: 'completed', versionCodes: ['11707019', 'secret-token', 11707020] }]
+      }
+    })
+  });
+  await main('export', { ...env, OPERATION_OUTCOME: 'success' });
+  const result = JSON.parse(await readFile(join(root, 'export/result.json')));
+  const manifest = JSON.parse(await readFile(join(root, 'export/manifest.json')));
+  assert.deepEqual(result.editInspection.releases[0].versionCodes, ['11707019']);
+  assert.deepEqual(manifest.result, result);
+  assert.doesNotMatch(JSON.stringify(result), /secret-token/);
+});

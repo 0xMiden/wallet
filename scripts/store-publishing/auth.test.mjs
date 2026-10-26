@@ -394,3 +394,33 @@ test('Play failures retain only closed status and reason metadata, never provide
     return true;
   });
 });
+
+test('Play in-review ErrorInfo retains the exact known reason without arbitrary details', async () => {
+  const client = createApiClient({
+    origin: 'https://androidpublisher.googleapis.com',
+    token: 'secret-token',
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            status: 'FAILED_PRECONDITION',
+            message: 'secret-message',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                reason: 'CHANGES_ALREADY_IN_REVIEW',
+                metadata: { token: 'secret-token' }
+              },
+              { reason: 'secret-token' }
+            ]
+          }
+        }),
+        { status: 400 }
+      )
+  });
+  await assert.rejects(client.request('POST', '/androidpublisher/v3/applications/app/edits/one:commit'), error => {
+    assert.deepEqual(error.apiReasons, ['CHANGES_ALREADY_IN_REVIEW']);
+    assert.doesNotMatch(JSON.stringify(error), /secret-token|secret-message/);
+    return true;
+  });
+});
