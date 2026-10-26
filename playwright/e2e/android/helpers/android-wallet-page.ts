@@ -1,7 +1,18 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
+import { buildBalanceTotalScript } from '../../helpers/balance-script';
+import { claimFromPendingList } from '../../helpers/claim-drain';
+import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
+import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -172,15 +183,20 @@ export class AndroidWalletPage implements WalletPage {
     // The bypass applies the onboarding state and auto-advances to Confirmation.
     await this.pollForSelector('[data-testid="onboarding-confirmation"]', 120_000);
     // "Open wallet" — runs register(), which creates the vault.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`AndroidWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
+
+    // Onboarding now finishes on the one-time telemetry consent prompt rather
+    // than on the wallet home, so decline it before handing the caller a wallet
+    // it expects to be able to navigate. After the Ready poll above, which is
+    // what proves `register()` is done, and raced against the home surface so
+    // that the gap between Ready being published and `Welcome.tsx` actually
+    // navigating is waited out rather than assumed away.
+    await dismissTelemetryConsent(this, {
+      nextSurface: '[data-testid="explore-page"]',
+      timeoutMs: 60_000
+    });
 
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`
@@ -192,6 +208,16 @@ export class AndroidWalletPage implements WalletPage {
     return { address, seedPhrase: seed ?? [] };
   }
 
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
+  }
+
   async getAccountAddress(): Promise<string> {
     await this.navigateTo('/receive');
     await this.pollForSelector('[data-testid="receive-page"]', 15_000);
@@ -199,36 +225,20 @@ export class AndroidWalletPage implements WalletPage {
     const address = await this.cdp.eval<string>(
       `var c = document.querySelector('[data-testid="receive-page"]'); ` +
         `if (!c) return ''; ` +
-        `var m = (c.textContent || '').match(/mtst\\S+/); ` +
+        `var m = (c.textContent || '').match(/m[a-z]{1,4}1\\S+/); ` +
         `return m ? m[0] : '';`
     );
-    if (!address) throw new Error('AndroidWalletPage.getAccountAddress: no mtst-prefixed address found');
+    if (!address) throw new Error('AndroidWalletPage.getAccountAddress: no miden-prefixed address found');
     await this.navigateHome();
     return address.trim();
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
 
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
-    return this.cdp.eval<number>(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return 0; ` +
-        `var st = s.getState(); ` +
-        `var total = 0; ` +
-        `var balances = st.balances || {}; ` +
-        `for (var k in balances) { ` +
-        `  var list = balances[k]; ` +
-        `  if (!Array.isArray(list)) continue; ` +
-        `  for (var i = 0; i < list.length; i++) { ` +
-        `    var t = list[i]; ` +
-        `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-        `    if (amt > 0) total += amt; ` +
-        `  } ` +
-        `} ` +
-        `return total;`
-    );
+    return this.cdp.eval<number>(buildBalanceTotalScript(tokenSymbol));
   }
 
   async triggerSync(): Promise<void> {
@@ -242,123 +252,24 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    // Claimable notes live on their own /pending-notes page (mounts the claim UI
+    // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
+    // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/pending-notes');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     await sleep(3_000);
 
-    await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
-        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
-        `btn.click(); return true;`,
-      60_000
-    );
-
-    let lastProveTimingIdx = 0;
-    const pumpProveTimings = async () => {
-      try {
-        const fresh = await this.cdp.eval<string[]>(
-          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
-        );
-        if (Array.isArray(fresh) && fresh.length > 0) {
-          lastProveTimingIdx += fresh.length;
-          for (const line of fresh) {
-            // eslint-disable-next-line no-console
-            console.log(`[prove-timing] ${line}`);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      await this.triggerSync();
-      await sleep(5_000);
-      await pumpProveTimings();
-      const balance = await this.cdp.eval<number>(
-        `var s = window.__TEST_STORE__; ` +
-          `if (!s) return 0; ` +
-          `var st = s.getState(); ` +
-          `var balances = st.balances || {}; ` +
-          `for (var k in balances) { ` +
-          `  var list = balances[k]; ` +
-          `  if (!Array.isArray(list)) continue; ` +
-          `  for (var i = 0; i < list.length; i++) { ` +
-          `    var t = list[i]; ` +
-          `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-          `    if (amt > 0) return amt; ` +
-          `  } ` +
-          `} ` +
-          `return 0;`
-      );
-      if (balance > 0) {
-        await pumpProveTimings();
-        await this.navigateHome();
-        return;
-      }
-    }
-    await pumpProveTimings();
-
-    // Nothing authoritative has been read yet. The loop above polls the store IN
-    // PLACE, and for the whole of a claim this page sits on /pending-notes (or
-    // the transaction-progress route), where no mounted screen refreshes
-    // `st.balances` — that projection is written only by the `useAllBalances`
-    // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
-    // consume that has already landed on chain. Confirm with `getBalance()`,
-    // which navigates home and therefore reads a projection something updates.
-    // (Ported from the iOS fix, wallet #651 — the same read was structurally
-    // unable to pass there.)
-    const confirmMs = 120_000;
-    const confirmStart = Date.now();
-    while (Date.now() - confirmStart < confirmMs) {
-      const confirmed = await this.getBalance().catch(() => 0);
-      if (confirmed > 0) {
-        await pumpProveTimings();
-        await this.navigateHome();
-        return;
-      }
-      await sleep(5_000);
-      await this.triggerSync();
-    }
-
-    // The claim did NOT land. This used to return normally, so the run continued
-    // as if the notes were claimed and blew up later on a balance assertion,
-    // attributing a failed consume to delivery. Chrome and iOS both throw here;
-    // this brings Android in line. (Ported from wallet #638.)
-    const surface = await this.cdp
-      .eval<string>(
-        `var h = String(location.hash || ''); ` +
-          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
-      )
-      .catch(() => 'unreadable');
-    await this.navigateHome();
-    throw new Error(
-      `AndroidWalletPage.claimAllNotes: no consumed balance after ${timeoutMs}ms, and none after a further ` +
-        `${confirmMs}ms confirming via getBalance() from the home screen — "Claim All" was clicked but the ` +
-        `consume never landed. Surface at timeout: ${surface}`
-    );
+    await claimFromPendingList(this, { label: 'AndroidWalletPage.claimAllNotes', firstClickMs: 60_000, timeoutMs });
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams): Promise<void> {
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.pollForSelector('[data-testid="send-network-selector"]', 15_000);
-      await this.click('[data-testid="send-network-selector"]');
-      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
-      await this.click('[data-testid="send-network-sepolia"]');
+      await selectSendNetworkByScript(this, SEPOLIA_NETWORK, 15_000, POLL_INTERVAL_MS);
     }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
@@ -377,7 +288,7 @@ export class AndroidWalletPage implements WalletPage {
         `  if (want) { want.click(); return true; } ` +
         `} ` +
         `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
-        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-USDCX']; ` +
         `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
         `if (!pick) pick = rows[0]; ` +
         `if (!pick) return false; pick.click(); return true;`
@@ -421,10 +332,16 @@ export class AndroidWalletPage implements WalletPage {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
       lastBalance = await this.getBalance(tokenSymbol);
 
@@ -432,16 +349,19 @@ export class AndroidWalletPage implements WalletPage {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
-      if (attempt < maxAttempts) await sleep(intervalMs);
-    }
 
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+      await sleep(Math.min(intervalMs, remainingAfter));
+    }
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -530,14 +450,19 @@ export class AndroidWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
+        // A failed eval reads as not yet; what `accept` throws ends the poll.
+        const ok = await this.cdp.eval<T>(jsBody).then(accept, () => false);
         if (ok) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;

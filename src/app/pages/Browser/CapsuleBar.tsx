@@ -1,11 +1,9 @@
 /**
  * Top-of-screen capsule chrome shown while a dApp is foregrounded.
  *
- * Layout:
- * - 24px drag affordance strip at the top (draggable for minimize)
- * - 56px content row with favicon, title, origin, action buttons
+ * Layout: a 56px content row with favicon, title, origin, action buttons.
  *
- * Total height: 81px (incl. bottom hairline). Rendered IN FLOW at the
+ * Total height: 57px (incl. bottom hairline). Rendered IN FLOW at the
  * top of DappActive's column — the body's safe-area-inset-top padding
  * (public/mobile.html) keeps it below the notch.
  *
@@ -24,13 +22,11 @@
  * button so the user can tap it without opening anything.
  */
 
-import React, { type FC, useState } from 'react';
+import React, { forwardRef, useState } from 'react';
 
-import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { useSprings } from 'lib/animation';
 import {
   type DappSession,
   getDappDisplayName,
@@ -39,13 +35,14 @@ import {
   getFallbackLetter,
   getFaviconUrl
 } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { hapticLight } from 'lib/mobile/haptics';
 
 interface CapsuleBarProps {
   session: DappSession;
   onClose: () => void;
   onReload: () => void;
-  /** Optional drag handler — when provided, the top 24px strip becomes draggable. */
+  /** Parks the dApp as a bubble; the Minimize button renders only when provided. */
   onMinimize?: () => void;
   /**
    * PR-5: when there is more than one open dApp, this opens the card
@@ -62,36 +59,17 @@ interface CapsuleBarProps {
   onOpenActions?: () => void;
 }
 
-const MINIMIZE_DISTANCE_THRESHOLD = 120;
-const MINIMIZE_VELOCITY_THRESHOLD = 600;
-
-export const CapsuleBar: FC<CapsuleBarProps> = ({
-  session,
-  onClose,
-  onReload,
-  onMinimize,
-  onOpenSwitcher,
-  tabsCount = 1,
-  onOpenActions
-}) => {
+// The ref reaches the header, which the morph's companions fade and lift (`morph-companions`).
+export const CapsuleBar = forwardRef<HTMLElement, CapsuleBarProps>(function CapsuleBar(
+  { session, onClose, onReload, onMinimize, onOpenSwitcher, tabsCount = 1, onOpenActions },
+  ref
+) {
   const { t } = useTranslation();
-  // PR-7: reduce-motion aware springs. When the user has reduce-motion
-  // on, every transition below collapses to `{ duration: 0.001 }`.
-  const springs = useSprings();
   const [faviconBroken, setFaviconBroken] = useState(false);
 
   const handleClose = () => {
     hapticLight();
     onClose();
-  };
-
-  const handleDragEnd = (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-    const dy = info.offset.y;
-    const vy = info.velocity.y;
-    const shouldMinimize = onMinimize && (dy > MINIMIZE_DISTANCE_THRESHOLD || vy > MINIMIZE_VELOCITY_THRESHOLD);
-    if (shouldMinimize && onMinimize) {
-      onMinimize();
-    }
   };
 
   const handleReload = () => {
@@ -117,6 +95,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
   return (
     <header
+      ref={ref}
       // In-flow (NOT position:fixed) so the body's env(safe-area-inset-top)
       // padding from mobile.html pushes it below the notch. A fixed header's
       // containing block is the viewport — body padding never offsets it —
@@ -135,42 +114,12 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
         userSelect: 'none',
         WebkitUserSelect: 'none',
         WebkitTouchCallout: 'none'
-        // Note: touchAction: 'none' is intentionally NOT set on the header
-        // because it would block synthesized click events from touches on the
-        // child buttons (minimize, moreOptions, close). Only the drag handle
-        // strip below sets touchAction: 'none' so framer-motion can own it.
       }}
     >
-      {/* 24px drag affordance strip — PR-3 wires up framer-motion drag here.
-          The strip is draggable in y; releasing past 120px or velocity > 600px/s
-          calls onMinimize(). The drag is constrained to the strip itself so
-          taps in the content row below remain unaffected.
-
-          PR-7: role + aria-roledescription so screen readers announce
-          "draggable" — users without the gesture capability still have
-          the Minimize button below as an accessible alternative path. */}
-      <motion.div
-        className="flex h-6 items-center justify-center"
-        data-drag-handle="true"
-        role={onMinimize ? 'button' : undefined}
-        aria-roledescription={onMinimize ? 'draggable' : undefined}
-        aria-label={onMinimize ? t('dragToMinimize') : undefined}
-        drag={onMinimize ? 'y' : false}
-        dragConstraints={{ top: 0, bottom: 0 }}
-        dragElastic={{ top: 0, bottom: 0.6 }}
-        dragMomentum={false}
-        onDragEnd={handleDragEnd}
-        style={{ touchAction: 'none' }}
-      >
-        <div className="h-1 w-8 rounded-full bg-grey-300/60" />
-      </motion.div>
-
       {/* 56px content row */}
       <div className="flex h-14 items-center gap-3 px-4">
-        {/* Favicon — layoutId target for the launcher tile morph (PR-2). */}
-        <motion.div
-          layoutId={`dapp-favicon-${session.url}`}
-          transition={springs.morph}
+        {/* Favicon */}
+        <div
           className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md"
           style={{ background: faviconBroken || !faviconUrl ? fallbackColor : 'transparent' }}
         >
@@ -184,40 +133,34 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               onError={() => setFaviconBroken(true)}
             />
           )}
-        </motion.div>
+        </div>
 
-        {/* Title + hostname — title is the layoutId target so the tile
-            name morphs into the capsule title. The secondary line shows
+        {/* Title + hostname. The secondary line shows
             the bare hostname so the tabs badge, minimize, reload, and
             close buttons all fit without URL truncation. The secondary
             line is hidden when the title already matches the hostname
             (common case: <title> is just "miden.xyz") so we don't
             stack two identical strings. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <motion.span
-            layoutId={`dapp-name-${session.url}`}
-            transition={springs.morph}
-            className="truncate text-base font-semibold text-black dark:text-white"
-          >
-            {displayTitle}
-          </motion.span>
+          <span className="truncate text-base font-semibold text-ink">{displayTitle}</span>
           {showHostnameRow && <span className="truncate text-xs text-text-muted">{hostname}</span>}
         </div>
 
-        {/* Minimize button — drag handle is the gesture path on real devices,
-            this button is the discoverable + accessible alternative. */}
+        {/* Minimize button: parks the dApp as a bubble. */}
         {onMinimize && (
           <button
             type="button"
+            onPointerDown={() => void prepareMorph()}
             onClick={() => {
-              hapticLight();
+              // The collapse's morph command goes to native first; the haptic does not have to precede it.
               onMinimize();
+              hapticLight();
             }}
             aria-label={t('minimize')}
             data-testid="dapp-capsule-minimize"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
-            <Icon name={IconName.ArrowDown} size="sm" className="text-black dark:text-white" fill="currentColor" />
+            <Icon name={IconName.ArrowDown} size="sm" className="text-ink" fill="currentColor" />
           </button>
         )}
 
@@ -229,9 +172,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           onClick={handleReload}
           aria-label={t('reload')}
           data-testid="dapp-capsule-reload"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
         >
-          <Icon name={IconName.Refresh} size="sm" className="text-black dark:text-white" fill="currentColor" />
+          <Icon name={IconName.Refresh} size="sm" className="text-ink" fill="currentColor" />
         </button>
 
         {/* Close button */}
@@ -240,9 +183,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           onClick={handleClose}
           aria-label={t('close')}
           data-testid="dapp-capsule-close"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
         >
-          <Icon name={IconName.Close} size="sm" className="text-black dark:text-white" fill="currentColor" />
+          <Icon name={IconName.Close} size="sm" className="text-ink" fill="currentColor" />
         </button>
 
         {/* PR-5 card switcher button — sits after Close so it visually
@@ -258,10 +201,10 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             }}
             aria-label={t('switchDapps')}
             data-testid="dapp-capsule-switcher"
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
-            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black dark:border-white">
-              <span className="text-[10px] font-bold leading-none text-black dark:text-white">{tabsCount}</span>
+            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black">
+              <span className="text-[10px] font-bold leading-none text-ink">{tabsCount}</span>
             </div>
           </button>
         )}
@@ -277,9 +220,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             }}
             aria-label={t('dappActionsSheet')}
             data-testid="dapp-capsule-actions"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
-            <Icon name={IconName.More} size="sm" className="text-black dark:text-white" fill="currentColor" />
+            <Icon name={IconName.More} size="sm" className="text-ink" fill="currentColor" />
           </button>
         )}
       </div>
@@ -288,4 +231,4 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
       <div className="h-px w-full bg-border-light" />
     </header>
   );
-};
+});

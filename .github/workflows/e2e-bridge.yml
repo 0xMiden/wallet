@@ -1,30 +1,35 @@
 name: E2E Bridge
 
-# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge, all
-# specs) on every push to main. UI-only, real Miden testnet. Two routes:
-#   - Fast/Epoch (bridge-out-epoch): the wallet mints a real P2IDE note; the
-#     hosted solver settles the EVM leg; the test asserts real USDC lands at the
-#     Sepolia destination (read via a public RPC).
-#   - Slow/AggLayer (bridge-out-agglayer): the wallet's real work is the Miden
-#     leg — build + prove + submit the B2AGG note → the bridged-send row reaches
-#     Completed ("Bridged to EVM"). The EVM claim is external AggLayer L1 infra
-#     with no hermetic double, so it is deliberately not asserted.
+# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge) when
+# Release E2E dispatches it. UI-only, real Miden testnet. Two routes, and only one of
+# them runs here:
+#   - Slow/AggLayer (bridge-out-agglayer) is THIS job's signal: the wallet's real
+#     work is the Miden leg - build + prove + submit the B2AGG note → the
+#     bridged-send row reaches Completed ("Bridged to EVM"). The EVM claim is
+#     external AggLayer L1 infra with no hermetic double, so it is deliberately
+#     not asserted.
+#   - Fast/Epoch (bridge-out-epoch) asserts that real USDC lands at the Sepolia
+#     destination, but it SKIPS here: it is gated on E2E_REAL_EPOCH, which this
+#     workflow deliberately does not set. That spec spends a live solver fill,
+#     and a third party declining to quote must not be able to red main - it
+#     took the spec down for a month in 2026-08 (#627). Run it on demand with
+#     `yarn e2e:real --suite bridge-out-epoch`, which probes the solver for a
+#     quote before it builds anything.
 #
 # Testnet-only by nature — it depends on LIVE external services (Miden testnet,
-# the Epoch allocator/solver, a public Sepolia RPC), so it is a post-merge
-# signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
+# the Epoch allocator/solver, a public Sepolia RPC), so it is a nightly
+# and release signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
 # solver-fulfilled / Miden-side, so the test signs nothing on EVM and only reads
 # a public Sepolia RPC — there is no funded key to inject. `--retries=1` absorbs
 # transient testnet/RPC hiccups so a one-off external blip doesn't red main.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,12 +38,13 @@ concurrency:
 jobs:
   chrome-bridge-testnet:
     name: Bridge E2E (Chrome, testnet)
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Headroom for a cold cache (yarn + `cargo install --git --locked` + playwright
     # + the extension build ~20 min) PLUS two 15-min test attempts under
     # `--retries=1`, so the retry that absorbs a transient blip can't itself
     # wall-clock-timeout and red main.
-    timeout-minutes: 70
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 100 || 70 }}
     env:
       E2E_NETWORK: testnet
       # Optional: pin a keyed / higher-rate-limit Sepolia RPC so the EVM-side read
@@ -51,7 +57,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       # cargo is needed to install the miden-client CLI that funds the Miden
       # account (the bridge's Miden-side input token is self-minted per run).
@@ -65,36 +70,33 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -113,11 +115,31 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (testnet, e2e flags)
         run: yarn test:e2e:blockchain:build
 
       - name: Run bridge E2E (testnet)
         run: xvfb-run -a yarn playwright test --config playwright.bridge.config.ts --retries=1
+
+      - name: Check the AggLayer indexer files Miden exits under the testnet rollup id
+        # The Slow route finds its deposit by the network id the indexer files
+        # Miden exits under (the rollup id the wallet derives from the testnet
+        # bridge account); this probe checks that id against the testnet's
+        # pinned value, 73. A renumbering left every Slow bridge-out unsettled
+        # with no error anywhere (#1325), so it fails this job. It asks the
+        # indexer the published testnet config document names. It runs after
+        # the suite, and whatever the suite did, so a third party's answer never
+        # hides the Miden leg's own result; the document fetch and the indexer
+        # probe each ask twice before they fail.
+        # Only this probe runs: the suite's full preflight refuses the
+        # E2E_SEPOLIA_RPC_URL above, which is empty while that optional secret
+        # is unset.
+        if: always()
+        timeout-minutes: 2
+        run: node scripts/e2e-real.mjs --agglayer-indexer-only
 
       - name: Upload artifacts
         if: always()

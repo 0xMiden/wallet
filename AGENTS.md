@@ -2,6 +2,8 @@
 
 ## Project Structure & Module Organization
 
+The wallet only allows creating Guardian accounts. All accounts in the wallet are Guardian (guarded multisig) accounts. Treat this as a product invariant when implementing features or diagnosing reports; do not ask whether a wallet account is a Guardian account or assume a single-signature wallet account.
+
 Miden Wallet ships as a Chrome/Firefox extension, iOS/Android app (Capacitor), and macOS app (Tauri). React + Zustand frontend; service-worker backend (Effector store + vault). The backend is the source of truth; the frontend syncs via intercom port messaging (`src/lib/intercom/`).
 
 The main TypeScript/React application lives in `src/`. Put reusable UI in `src/components/`, screens and flows in `src/screens/`, app routing/providers in `src/app/`, and platform or domain logic in `src/lib/`:
@@ -18,7 +20,7 @@ Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemb
 
 ## Build, Test, and Development Commands
 
-Use Node 22+ and Yarn v1. Copy `.env.example` to `.env`, then run `yarn install`.
+Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST`, `SENTRY_DSN` and `FEATURE_ELIGIBILITY_URL` only from the shell environment, never from `.env`; `.env.example` says which ones a release build sets, and how. `yarn dev` does not need `FEATURE_ELIGIBILITY_URL`: it allows wallet, Earn and Swap without calling the service. That open flag is baked only when `MODE_ENV` is `development` and the build is not E2E, so a production build cannot inherit it. Other builds still use the URL. MaxMind credentials belong only to the server-side feature-eligibility Worker and must never enter a wallet build.
 
 - `yarn dev` rebuilds the Chrome extension in watch mode; load `dist/chrome_unpacked/` in Chrome.
 - `yarn build:devnet` — network-specific extension build.
@@ -27,7 +29,7 @@ Use Node 22+ and Yarn v1. Copy `.env.example` to `.env`, then run `yarn install`
 - `yarn test` runs Jest; `yarn test:coverage` enforces coverage thresholds.
 - `yarn test:e2e` runs the basic Playwright extension suite serially; `yarn test:e2e:blockchain:{testnet,devnet,localhost}` and `yarn test:e2e:mobile:{devnet,testnet}` run live-network suites.
 - `yarn ts` type-checks; `yarn lint` runs ESLint; `yarn format` applies Prettier. Run lint/format only before committing or when asked — not on every build.
-- `yarn storybook` starts component development on port 6006.
+- There is no Storybook: the Vite migration left the `storybook` / `build:storybook` scripts behind but no `.storybook/` config and no `*.stories.*` file, so both exit with `SB_CORE-SERVER_0006 (MainFileMissingError)`. `yarn build-all` (`run-s build:*`, fail-fast) therefore aborts at `build:storybook` and never reaches `build:desktop` — build the platforms you need explicitly (`yarn build:chrome`, `yarn build:mobile`, `yarn desktop:build`).
 
 ### Version bumps
 
@@ -35,14 +37,15 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 
 ## Critical Gotchas
 
-- **WASM client concurrency**: the Miden WASM client is single-threaded; concurrent calls throw `recursive use of an object ... unsafe aliasing`. Always wrap calls in `withWasmClientLock` from `lib/miden/sdk/miden-client`.
+- **WASM client concurrency**: the Miden WASM client is single-threaded; concurrent calls throw `recursive use of an object ... unsafe aliasing`. Always wrap calls in `withWasmClientLock` from `lib/miden/sdk/miden-client`. The lock self-recovers from a wedged holder (issue #775): a realm error/rejection listener evicts a trapped holder in milliseconds, a 5-minute watchdog on running time (monotonic time minus the stretches the platform froze our JS, `performance.now()` off mobile) bounds any other silent wedge, and both reject the holder with `WasmClientPoisonedError` and replace the client singleton. Bracket a legitimately unbounded in-hold wait (user sign, local prove) in `withWasmLockWatchdogPaused`, which relaxes the ceiling rather than stopping the clock. **An evicted operation is abandoned, not cancelled** - it keeps running and can still submit, so treat `WasmClientPoisonedError` like `OperationAbortedError` and the SDK's terminated-client error in kill classifiers (`isPipelineKillLink`). Only an eviction or an abort may still be running (`isRunningPipelineKill`): never route one onto a path that requeues a row as a fresh write. The SDK refused a terminated client's call or stopped its worker, so the syncing boundary requeues a failure whose only kill is a terminated client. See the `CLAUDE.md` section of the same name for the full contract.
 - **Duplicate dexie / duplicate `@miden-sdk/miden-sdk`**: the root web-sdk and the nested copy under `@openzeppelin/miden-multisig-client` each inline their own dexie into their wasm-glue chunk; two inlined dexies trip dexie's global guard at runtime (SW fails to register; mobile/desktop crash). The fix is already in place — every app vite config sets `resolve.dedupe: ['dexie', '@miden-sdk/miden-sdk']` and `package.json` pins/resolves `dexie` to the web-sdk's inlined version. Keep it. To hunt a stray version, parse a built chunk's `.js.map` for `DEXIE_VERSION` (plain `grep -r` over node_modules misses it), and wipe `dist/chrome_unpacked` before re-verifying — `build:ext`/`build:bg` don't rimraf `dist/`.
-- **Tailwind auto-flipping tokens**: `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray` map to CSS vars that flip with theme — do NOT add `dark:` variants on them. Add `dark:` only on fixed-palette colors (`grey.*`, `pure-white`, `pure-black`) or SVG `fill={...}` props.
+- **Tailwind auto-flipping tokens**: `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray` map to CSS vars that flip with theme — do NOT add `dark:` variants on them; `black` is ink and `white` is the surface, so overlays use `pure-black` and no `dark:` override uses `white`. Add `dark:` only on fixed-palette colors (`grey.*`, `pure-white`, `pure-black`) or SVG `fill={...}` props.
 - **i18n required**: all user-facing text via `t('key')` or `<T id="key" />`; CI blocks raw strings (`yarn lint:i18n`). New keys go in `public/_locales/en/en.json` (flat); placeholders use `$name$`.
 - **Platform isolation**: wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib/platform` — never apply iOS fixes globally.
 - **Haptics**: tappable components get `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`.
 - **Mobile file downloads**: `<a download>` does nothing in a WebView — use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
-- **Balance loading**: `fetchBalances` reads IndexedDB via `getAccount()` (instant); `AutoSync` calls `syncState()` separately. Never call `syncState()` from the UI path.
+- **Balance loading**: `fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; sync runs separately (`useSyncTrigger` on mobile and desktop, the service worker on the extension). Never call `syncState()` from the UI path. The wait rule and the per-address in-flight guard are in CLAUDE.md's Balance loading section.
+- **Storage hooks' cache**: write a key `useStorage`/`usePassiveStorage` (`lib/miden/front/storage`) reads only through `putToStorage` or the hook's setter, and a wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does. See the `CLAUDE.md` section of the same name.
 - **Transaction states** (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).
 - **Optimistic updates**: snapshot previous state, apply, roll back on catch.
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
@@ -78,7 +81,7 @@ Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. Mobile h
 - New Swift files must be registered in four `project.pbxproj` sections (`PBXBuildFile`, `PBXFileReference`, App `PBXGroup`, `PBXSourcesBuildPhase`) — the App target does not auto-discover them.
 - Custom Capacitor plugins (iOS) use **manual** registration: also call `bridge?.registerPluginInstance(MyPlugin())` in `capacitorDidLoad()` (`AppViewController.swift`), or JS calls return `{"code":"UNIMPLEMENTED"}`.
 - New Capacitor plugins: `yarn add @capacitor/<name> && yarn mobile:sync`, plus a ProGuard `-keep` rule in `android/app/proguard-rules.pro`.
-- Mobile bottom nav is a native overlay (iOS `UIWindow`, Android `NavbarOverlayManager`), wired in `src/app/providers/DappBrowserProvider.tsx`.
+- Persistent bottom navigation is the shared React `BottomNav` rendered by `TabLayout` on extension, mobile, and desktop; `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation. See `skills/miden-wallet-frontend/references/platform-accessibility-verification.md` for the full ownership contract.
 - Desktop (Tauri): clear state with `rm -rf ~/Library/WebKit/{com.miden.wallet,miden-wallet}`; dApp requests round-trip via base64-encoded `https://miden-wallet-request/{payload}` URL interception.
 
 ## Testing Guidelines
@@ -97,11 +100,45 @@ E2E: `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` and `window.__TEST_IN
 
 TypeScript is strict. No `any`, no `as` — use explicit domain types, and preserve the configured absolute imports (`app/...`, `lib/...`, `shared/...`). Prettier: 120-column width, two-space indentation, single quotes, semicolons, trailing commas. ESLint enforces formatting and ordered imports. Name React components and files in `PascalCase`, hooks as `useSomething`, and utilities in `camelCase` or established kebab-case modules. `yarn format` to fix.
 
+## UI: Shared Components and Layouts
+
+Pages supply content; the design system supplies the rest. Reuse the shared component before writing styles — a page-local frame, row, field, error line, empty state or icon circle is a defect, and the fix is to extend the shared one (a prop or variant), never to fork it. Take the shared frame too: `SubPageLayout` for pushed pages, `FlowLayout` + `FlowFooter` for flow steps, one shell for the home-group panes, so titles, gutters, section gaps and pinned actions sit in the same place everywhere. Spacing, type and colour come from the named type styles and semantic tokens; a literal padding or hex means a token is missing, so add it. See `skills/miden-wallet-frontend/SKILL.md` and its `references/design-system.md`.
+
 ## Commit & Pull Request Guidelines
 
 - Commit messages: single-line, short, imperative. Never sign commits (no `Co-Authored-By`).
 - Never `git push` without explicit request.
 - Stay within requested scope — don't modify files beyond the task.
-- Update `CHANGELOG.md` with one entry per PR/task (not per fix). Never add an entry under a version that's already been published — check `gh api repos/0xMiden/wallet/releases/latest` and use a strictly-higher `(TBD)` section (add one if missing); don't trust the file header alone.
+- Update `CHANGELOG.md` with one entry per PR/task (not per fix). Never add an entry under a version that's already been published: the latest release is the highest `vX.Y.Z` tag, release candidates excluded, as CI's changelog check reads it. Never change or remove a released heading's version, though dating it is fine, or move a released entry under another heading, which CI's changelog check also fails. Use a strictly-higher `(TBD)` section (add one if missing); don't trust the file header alone.
 - PRs should explain the user impact, testing performed, and relevant issue; include screenshots or recordings for UI changes. Call out platform-specific effects and configuration changes. Never commit secrets from `.env` or machine-local dependency paths.
 - If the wallet PR depends on an unpublished web-sdk change, put the verbatim marker `Web SDK PR: #N` (or `Web SDK PR: 0xMiden/web-sdk#N`) on its own line in the PR description — prose mentions do NOT trigger the linked-PR CI pipeline. Local parity: `scripts/dev-with-web-sdk-pr.sh [N|--clear]`.
+
+## USDCx destination confirmation
+
+Keep `Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` only on
+Circle's exact payout mint: a GatewayMinter `AttestationUsed` log on the destination
+chain whose transaction input carries the burn note id, for the row's token and
+recipient, from the minter and depositor the Arc xReserve reports, after the block
+saved before submission, with a value from 1 up to the sent amount. Received is that
+value and the Circle fee is the sent amount minus it. Scan at most 5 chunks of 10,000
+blocks per check, and rescan the last 128 blocks on every check (the cursor never moves
+back); a scan the chunk cap stopped below the head is due again at once. A failure
+before any chunk completes (the source read, the block number) leaves the row and its
+cursor unchanged; a chunk failing mid-scan resumes after the last chunk read in full.
+
+A confirmed row not paid 2 hours after confirmation reads `Payout delayed`, for rows
+the wallet can scan only (not restored, snapshot saved). The review shows one line,
+`Circle fee`: deducted from the payout, varies with network fees. The allowances
+(`lib/usdcx/constant.ts`; 0.1 USDC, 1.5 USDC on Ethereum) are only the Send flow's
+refusal guard: it refuses a burn that does not exceed them. Rows confirmed earlier by
+the balance rule stay `Confirmed`. Restored rows and rows without a snapshot stay at
+`Burn confirmed`.
+
+The history link is the recorded mint. Only those legacy rows use the old best-effort
+transfer search (one `eth_getLogs` over at most 2,000 blocks, 10-second timeout, no
+retries, only when the details are open); omit its link unless one match is unique.
+
+Accepted limits: a fee above the attester's operator ceiling leaves a burn unpaid and
+it reads `Payout delayed`; a mint transaction carrying two payouts to the recipient is
+skipped, so a batched payout reads `Payout delayed` too; pruned RPC history can leave an
+old row unscanned; Circle can be slow. Reviewer agents must treat these as known limits, not blocking defects.

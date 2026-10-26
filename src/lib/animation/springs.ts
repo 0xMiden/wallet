@@ -15,12 +15,46 @@
  * - `magnetic`: bubble fly-to-corner with overshoot
  * - `settle`: bubble final landing (no bounce)
  * - `sheetPresent`: bottom sheet present/dismiss
- * - `pill`: footer tabbar pill (existing precedent)
- * - `morph`: shared-element transitions (slow, soft)
  * - `dragRelease`: post-drag rebound
+ * - `tabSwitch`: a tab bar's highlight sliding to the new tab - one visible
+ *   overshoot (~7%), settled within ~340ms even across three tabs
+ * - `tabIconPop`: the newly active tab icon rising to its pop scale, quickly
+ *   and without overshoot, before `tabSwitch` brings it back to rest
+ * - `sheetOpen` / `sheetClose`: a vaul bottom sheet (`lib/animation/sheet.ts`);
+ *   `tabSwitch` and `tabIconPop` at 1.25 times their duration
+ * - `morphExpand` / `morphCollapse` / `morphRelease`: the native dApp morph
+ *   (`lib/animation/morph.ts`), run by the plugin with the same physics
  */
 
 import type { Transition } from 'framer-motion';
+
+// Tuned against `springToLinearEasing` (lib/animation/tab-bar.test.ts pins it):
+// damping ratio ≈ 0.64, a single ~7% overshoot, and quiet (under 0.5px) after
+// ~230ms for a one-tab hop of 90px and ~340ms for a 270px jump.
+const tabSwitch: Transition = { type: 'spring', stiffness: 680, damping: 30, mass: 0.8 };
+// Damping ratio ≈ 0.87: reaches the pop scale in about a tenth of a second
+// with no visible overshoot past it.
+const tabIconPop: Transition = { type: 'spring', stiffness: 900, damping: 40, mass: 0.6 };
+// The two tab-bar springs at 1.25 times their duration, for a bottom sheet: the travel of a sheet
+// is longer than the travel of a tab highlight, and the tab timing was too fast for it. The damping
+// ratios are the same (stiffness / 1.25², damping / 1.25), so the shape of each curve is the same.
+const sheetOpen: Transition = { type: 'spring', stiffness: 435, damping: 24, mass: 0.8 };
+const sheetClose: Transition = { type: 'spring', stiffness: 576, damping: 32, mass: 0.6 };
+
+function responseSpring(response: number, dampingRatio: number): Transition {
+  return {
+    type: 'spring',
+    stiffness: ((2 * Math.PI) / response) ** 2,
+    damping: (4 * Math.PI * dampingRatio) / response,
+    mass: 1
+  };
+}
+
+// The iOS and Android morph drivers derive their stiffness and damping from these same response and
+// damping-ratio pairs, so the host companions that follow the page read the page's own curve.
+const morphExpand = responseSpring(0.42, 0.88);
+const morphCollapse = responseSpring(0.38, 0.9);
+const morphRelease = responseSpring(0.4, 0.82);
 
 export const springs = {
   snappy: { type: 'spring', stiffness: 500, damping: 38, mass: 1 } as Transition,
@@ -28,9 +62,14 @@ export const springs = {
   magnetic: { type: 'spring', stiffness: 380, damping: 26, mass: 1 } as Transition,
   settle: { type: 'spring', stiffness: 260, damping: 30, mass: 1 } as Transition,
   sheetPresent: { type: 'spring', stiffness: 380, damping: 34, mass: 1 } as Transition,
-  pill: { type: 'spring', stiffness: 320, damping: 30 } as Transition,
-  morph: { type: 'spring', stiffness: 220, damping: 30, mass: 1.2 } as Transition,
-  dragRelease: { type: 'spring', stiffness: 420, damping: 40, mass: 1 } as Transition
+  dragRelease: { type: 'spring', stiffness: 420, damping: 40, mass: 1 } as Transition,
+  tabSwitch,
+  tabIconPop,
+  sheetOpen,
+  sheetClose,
+  morphExpand,
+  morphCollapse,
+  morphRelease
 };
 
 export type SpringName = keyof typeof springs;

@@ -5,95 +5,81 @@ import { Trans, useTranslation } from 'react-i18next';
 import { ReactComponent as WhatIsGuardianHero } from 'app/icons/onboarding/what-is-guardian-hero.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
+import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-interface InfoRowProps {
-  badge: React.ReactNode;
-  title: string;
-  description: string;
-  hasDivider?: boolean;
-}
-
-const InfoRow: React.FC<InfoRowProps> = ({ badge, title, description, hasDivider = true }) => (
-  <div className={hasDivider ? 'border-b border-[#E9E9E9]' : undefined}>
-    <div className="mx-auto flex max-w-[32rem] flex-col items-center px-4 py-4 text-center">
-      <div className="flex max-w-full items-center justify-center gap-3">
-        {badge}
-        <h3 className="min-w-0 break-words text-left font-heading text-[18px] font-semibold leading-[1.2] text-[#151515] dark:text-heading-gray">
-          {title}
-        </h3>
-      </div>
-      <p className="mt-2.5 break-words text-[15px] font-normal leading-[1.32] text-gray-secondary">{description}</p>
-    </div>
-  </div>
-);
-
-const IconBadge: React.FC<{ className: string; children: React.ReactNode }> = ({ className, children }) => (
-  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${className}`}>{children}</div>
-);
-
+/**
+ * The "what is a guardian" explainer sheet. It carries the app's one sheet header (title left,
+ * close right) and states the three facts as plain rows on the sheet, hairlines between them, the
+ * way the testnet notice and the guardian step draw theirs — no group fill, no literal colours.
+ */
 export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
-      <DrawerContent
-        className="max-h-[78vh] overflow-hidden rounded-t-[28px] border-t-[6px] border-primary-500 bg-surface-solid"
-        overlayClassName="bg-transparent backdrop-blur-0 dark:bg-transparent"
-      >
-        <div className="flex flex-col overflow-y-auto px-5 pb-4 pt-4">
-          <DrawerTitle className="text-center font-heading text-[28px] font-semibold leading-[1.1] text-heading-gray">
-            {t('whatIsAGuardian')}
-          </DrawerTitle>
+      <DrawerContent className="max-h-[calc(100dvh-env(safe-area-inset-top)-1.5rem)] pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <DrawerHeader>
+          <DrawerTitle>{t('whatIsAGuardian')}</DrawerTitle>
+        </DrawerHeader>
 
-          <WhatIsGuardianHero className="mx-auto mt-2 h-[111px] w-[125px] shrink-0" />
+        {/* Every line of the sheet is Nunito: the body styles that read `--font-sans` resolve to the
+            heading face here, the explainer's bold phrase included. */}
+        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4 face-heading">
+          <WhatIsGuardianHero className="mx-auto h-[111px] w-[125px] shrink-0" />
 
-          <p className="mx-auto mt-3 max-w-[34rem] text-center text-[18px] font-normal leading-[1.28] text-heading-gray">
-            <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
+          <p className="text-body font-semibold text-ink">
+            <Trans
+              i18nKey="guardianInfoDescription"
+              components={{ b: <span className="text-body-strong font-extrabold" /> }}
+            />
           </p>
 
-          <div className="mt-5 h-1.5 w-full shrink-0 rounded-full bg-primary-500" />
-
-          <div className="mt-3 flex flex-col">
-            <InfoRow
-              badge={
-                <IconBadge className="bg-[#7D936D]">
-                  <Icon name={IconName.Checkmark} size="xs" fill="currentColor" className="text-pure-white" />
-                </IconBadge>
+          <ListGroup surface="plain" insetHairlines className="-mt-4 shrink-0">
+            <FactRow
+              titleAs="h3"
+              leading={
+                <IconCircle className="bg-positive-tint-ink text-positive-tint">
+                  <Icon name={IconName.FactCheck} size="xs" fill="currentColor" />
+                </IconCircle>
               }
-              title={t('guardianInfoWhatItDoesTitle')}
+              title={<span className="font-extrabold">{t('guardianInfoWhatItDoesTitle')}</span>}
               description={t('guardianInfoWhatItDoesDescription')}
             />
-            <InfoRow
-              badge={
-                <IconBadge className="bg-primary-500">
-                  <span className="font-heading text-[17px] font-bold leading-none text-pure-white">!</span>
-                </IconBadge>
+            <FactRow
+              titleAs="h3"
+              leading={
+                <IconCircle className="bg-accent-tint-ink text-accent-tint">
+                  <Icon name={IconName.FactAlert} size="xs" fill="currentColor" />
+                </IconCircle>
               }
-              title={t('guardianInfoSwitchingIsEasyTitle')}
+              title={<span className="font-extrabold">{t('guardianInfoSwitchingIsEasyTitle')}</span>}
               description={t('guardianInfoSwitchingIsEasyDescription')}
             />
-            <InfoRow
-              badge={
-                <IconBadge className="bg-[#C96060]">
-                  <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-pure-white" />
-                </IconBadge>
+            <FactRow
+              titleAs="h3"
+              leading={
+                <IconCircle className="bg-negative-tint-ink text-negative-tint">
+                  <Icon name={IconName.FactCross} size="xs" fill="currentColor" />
+                </IconCircle>
               }
-              title={t('guardianInfoWhatItCannotDoTitle')}
+              title={<span className="font-extrabold">{t('guardianInfoWhatItCannotDoTitle')}</span>}
               description={t('guardianInfoWhatItCannotDoDescription')}
-              hasDivider={false}
             />
-          </div>
-
-          <div className="mt-4 flex justify-center">
-            <Button title={t('gotIt')} onClick={() => onOpenChange(false)} />
-          </div>
+          </ListGroup>
         </div>
+
+        {/* Pinned outside the scrolling body, as NetworkModeSheet does: at the sheet's height cap the
+            button used to scroll with the facts and sit half cut off at the bottom edge. */}
+        <DrawerFooter className="shrink-0">
+          <Button title={t('gotIt')} className="w-full max-w-none" onClick={() => onOpenChange(false)} />
+        </DrawerFooter>
       </DrawerContent>
     </Drawer>
   );

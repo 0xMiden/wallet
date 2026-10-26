@@ -55,7 +55,7 @@ test.describe('Faucet Minting and Balance', () => {
     await steps.step(
       'verify_balance_wallet_a',
       async () => {
-        const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
+        const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline, 'TST');
         expect(balance).toBeGreaterThan(0);
       },
       {
@@ -77,7 +77,7 @@ test.describe('Faucet Minting and Balance', () => {
     await steps.step(
       'verify_balance_wallet_b',
       async () => {
-        const balance = await walletB.waitForBalanceAbove(0, 120_000, timeline);
+        const balance = await walletB.waitForBalanceAbove(0, 120_000, timeline, 'TST');
         expect(balance).toBeGreaterThan(0);
       },
       {

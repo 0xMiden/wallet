@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { render, within } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
@@ -13,7 +13,7 @@ import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transacti
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn' },
+  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn', Key: 'key' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -30,8 +30,13 @@ jest.mock('./transactionUtils', () => ({
   // Faithful to the real one-liner (`entry.earnDepositStatus ?? 'pending'`) so the
   // failed-lending-leg branch is exercised, not stubbed away.
   earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
-  TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#891DB1' }
+  TRANSACTION_COLORS: { send: '#7697B2', receive: '#839A7D', faucet: '#BA839F', bridge: '#777487' }
 }));
+
+const NATIVE_FAUCET = 'miden-native-faucet';
+
+// Only the real `isFaucetRequest` reads it, in the one test that swaps it in.
+jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => NATIVE_FAUCET }));
 
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
 const mockBridgeStatusOf = bridgeStatusOf as jest.MockedFunction<typeof bridgeStatusOf>;
@@ -137,6 +142,48 @@ describe('TransactionIcon', () => {
     });
   });
 
+  describe('guardian operation branch', () => {
+    // The detail header draws what the Activity row draws (HistoryView): the Guardian key on the slate.
+    it.each([
+      ['replace-hot-key', 'replace-hot-key' as const],
+      ['switch-guardian', 'switch-guardian' as const],
+      ['update-procedure-threshold', 'update-procedure-threshold' as const]
+    ])('renders the slate square with the Guardian key for %s, not the receive arrow', (_label, txType) => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType, transactionIcon: 'DEFAULT' })} size="lg" />
+      );
+
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('w-18', 'h-18', 'rounded-10');
+      expect(wrapper).toHaveStyle({ backgroundColor: '#777487' });
+      expect(wrapper).not.toHaveStyle({ backgroundColor: TRANSACTION_COLORS.receive });
+      expect(wrapper.querySelector('svg')).toBeNull();
+      const icon = within(wrapper).getByTestId('v2-icon');
+      expect(icon).toHaveAttribute('data-name', 'key');
+      expect(icon).toHaveAttribute('data-size', 'lg');
+    });
+
+    it('sizes the key glyph for the small row', () => {
+      const { getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'switch-guardian', transactionIcon: 'DEFAULT' })} />
+      );
+
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'key');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'sm');
+    });
+
+    it('renders the failed cross for a failed rotation', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'replace-hot-key', transactionIcon: 'FAILED' })} size="lg" />
+      );
+
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('bg-[#CC5D5D]', 'rounded-10');
+      expect(wrapper).not.toHaveStyle({ backgroundColor: '#777487' });
+      expect(wrapper.querySelector('svg')).toHaveClass('w-8', 'h-8');
+    });
+  });
+
   describe('cancelled branch', () => {
     it('renders the grey cross and takes precedence over every other branch', () => {
       const { container } = render(
@@ -162,6 +209,32 @@ describe('TransactionIcon', () => {
     });
   });
 
+  describe('unconfirmed branch (#1250)', () => {
+    it('renders the pending-tone square ahead of cancelled, failed, bridge and earn', () => {
+      const { container } = render(
+        <TransactionIcon
+          entry={makeEntry({
+            isUnconfirmed: true,
+            isCancelled: true,
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED'
+          })}
+        />
+      );
+
+      expect(root(container)).toHaveClass('bg-status-pending', 'rounded-10');
+      expect(root(container)).not.toHaveClass('bg-gray-400');
+      expect(mockBridgeStatusOf).not.toHaveBeenCalled();
+      expect(root(container).querySelector('svg')).toHaveClass('text-pure-white', '[&_path]:fill-pure-white');
+    });
+
+    it('does not animate: the row is settled, not literally in flight, unlike the pending spinner', () => {
+      const { container } = render(<TransactionIcon entry={makeEntry({ isUnconfirmed: true })} />);
+
+      expect(root(container).querySelector('svg')).not.toHaveClass('animate-spin');
+    });
+  });
+
   // The accent feeds both the glyph and the detail-page section dividers, so it
   // has to agree with the glyph branch above for every row shape.
   describe('getTransactionIconBackgroundColor', () => {
@@ -169,6 +242,14 @@ describe('TransactionIcon', () => {
       expect(getTransactionIconBackgroundColor(makeEntry({ isCancelled: true, transactionIcon: 'FAILED' }))).toBe(
         '#9E9E9E'
       );
+    });
+
+    it('gives the pending tone to an unconfirmed row ahead of cancelled, failed and bridge', () => {
+      expect(
+        getTransactionIconBackgroundColor(
+          makeEntry({ isUnconfirmed: true, isCancelled: true, txType: 'bridged-send', transactionIcon: 'FAILED' })
+        )
+      ).toBe('var(--status-pending)');
     });
 
     it('reddens a hard failure', () => {
@@ -182,6 +263,13 @@ describe('TransactionIcon', () => {
       expect(getTransactionIconBackgroundColor(makeEntry(overrides))).toBe('#777487');
     });
 
+    it.each([['switch-guardian' as const], ['replace-hot-key' as const], ['update-procedure-threshold' as const]])(
+      'gives %s the same slate the activity row paints, not the receive green',
+      txType => {
+        expect(getTransactionIconBackgroundColor(makeEntry({ txType }))).toBe('#777487');
+      }
+    );
+
     it('reddens a failed bridge', () => {
       mockBridgeStatusOf.mockReturnValue('failed');
       expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'bridged-send' }))).toBe('#CC5D5D');
@@ -190,6 +278,19 @@ describe('TransactionIcon', () => {
     it('uses the faucet accent for a faucet request', () => {
       mockIsFaucetRequest.mockReturnValue(true);
       expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'SEND' }))).toBe(TRANSACTION_COLORS.faucet);
+    });
+
+    it('uses the faucet accent for a queued faucet claim, whose entry carries no icon', () => {
+      mockIsFaucetRequest.mockImplementation(
+        jest.requireActual<typeof import('./transactionUtils')>('./transactionUtils').isFaucetRequest
+      );
+      const claim = makeEntry({
+        type: HistoryEntryType.PendingTransaction,
+        txType: 'consume',
+        faucetId: NATIVE_FAUCET,
+        secondaryAddress: NATIVE_FAUCET
+      });
+      expect(getTransactionIconBackgroundColor(claim)).toBe(TRANSACTION_COLORS.faucet);
     });
 
     it.each([

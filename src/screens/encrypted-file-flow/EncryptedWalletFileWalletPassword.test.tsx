@@ -1,20 +1,33 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
+
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import type { WalletAccount } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { WalletType } from 'screens/onboarding/types';
 
 import EncryptedWalletFileWalletPassword, {
   EncryptedWalletFileWalletPasswordProps
 } from './EncryptedWalletFileWalletPassword';
+
+let mockRealTelemetrySurfaces = false;
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
 const mockUnlock = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 let mockIsMobile = false;
 // Backing store for the mocked `useLocalStorage` — seed keys per-test to drive
 // the attempt/timelock branches.
 let mockStore: Record<string, unknown> = {};
+// The store's account list, read by the step to name what the file does not restore.
+let mockAccounts: WalletAccount[] = [];
+// The active locale the step joins those names in.
+let mockLocale = 'en';
 
 const ATTEMPT_KEY = 'TridentSharedStorageKey.PasswordAttempts';
 const TIMELOCK_KEY = 'TridentSharedStorageKey.TimeLock';
@@ -23,15 +36,28 @@ const TIMELOCK_KEY = 'TridentSharedStorageKey.TimeLock';
 // Module mocks.
 // ---------------------------------------------------------------------------
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  // Echoes the one interpolated value this step passes, so the names are assertable.
+  useTranslation: () => ({
+    t: (key: string, options?: { accountNames?: string }) =>
+      options?.accountNames === undefined ? key : `${key}: ${options.accountNames}`
+  })
 }));
+
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { accounts: WalletAccount[] }) => unknown) => selector({ accounts: mockAccounts })
+}));
+
+jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => mockLocale }));
 
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => {
@@ -54,44 +80,21 @@ jest.mock('lib/miden/front', () => {
   };
 });
 
-// A functional Input mock: forwards the props the component drives (type toggles
-// with visibility, onChange -> onPasswordChange, onKeyDown -> handleEnterKey,
-// disabled -> isDisabled) and renders `icon` so the eye toggle button is clickable.
-jest.mock('components/Input', () => ({
-  Input: ({
-    type,
-    value,
-    disabled,
-    placeholder,
-    icon,
-    onChange,
-    onKeyDown
+jest.mock('components/ui/Checkbox', () => ({
+  CheckboxConsent: ({
+    checked,
+    onCheckedChange,
+    children
   }: {
-    type?: string;
-    value?: string;
-    disabled?: boolean;
-    placeholder?: string;
-    icon?: React.ReactNode;
-    onChange?: React.ChangeEventHandler<HTMLInputElement>;
-    onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    children: React.ReactNode;
   }) => (
-    <div>
-      <input
-        data-testid="password-input"
-        type={type}
-        value={value ?? ''}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-      />
-      {icon}
-    </div>
+    <button type="button" role="checkbox" aria-checked={checked} onClick={() => onCheckedChange(!checked)}>
+      <span data-testid="checkbox" data-checked={String(!!checked)} />
+      {children}
+    </button>
   )
-}));
-
-jest.mock('components/Checkbox', () => ({
-  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(!!value)} />
 }));
 
 jest.mock('components/Button', () => ({
@@ -113,41 +116,46 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    error,
-    disabled,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    onChange?: (code: string) => void;
-    error?: string | null;
-    disabled?: boolean;
-    isSubmitting?: boolean;
-  }) => (
-    <div data-testid="passcode-entry" data-disabled={String(!!disabled)} data-submitting={String(!!isSubmitting)}>
-      <span data-testid="passcode-error">{error ?? ''}</span>
-      <button data-testid="passcode-change" onClick={() => onChange?.('12')}>
-        change
-      </button>
-      <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
-        submit
-      </button>
-    </div>
-  )
-}));
-
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ title, description }: { title?: React.ReactNode; description?: React.ReactNode }) => (
-    <div data-testid="alert" role="alert">
-      <span data-testid="alert-title">{title}</span>
-      <span data-testid="alert-desc">{description}</span>
-    </div>
-  )
-}));
+jest.mock('components/PasscodeEntry', () =>
+  (() => {
+    const legacy = {
+      PasscodeEntry: ({
+        onSubmit,
+        onChange,
+        error,
+        disabled,
+        isSubmitting
+      }: {
+        onSubmit: (code: string) => void;
+        onChange?: (code: string) => void;
+        error?: string | null;
+        disabled?: boolean;
+        isSubmitting?: boolean;
+      }) => (
+        <div data-testid="passcode-entry" data-disabled={String(!!disabled)} data-submitting={String(!!isSubmitting)}>
+          <span data-testid="passcode-error">{error ?? ''}</span>
+          <button data-testid="passcode-change" onClick={() => onChange?.('12')}>
+            change
+          </button>
+          <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
+            submit
+          </button>
+        </div>
+      )
+    };
+    return {
+      ...legacy,
+      PasscodeEntry: (props: React.ComponentProps<typeof import('components/PasscodeEntry').PasscodeEntry>) => {
+        if (mockRealTelemetrySurfaces) {
+          const { PasscodeEntry } =
+            jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry');
+          return <PasscodeEntry {...props} />;
+        }
+        return <legacy.PasscodeEntry {...props} />;
+      }
+    };
+  })()
+);
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
@@ -168,7 +176,12 @@ const makeProps = (
 });
 
 // Renders and flushes the async `Vault.hasHardwareProtector()` promise so the
-// body mounts (the component renders null until it resolves).
+// body mounts (until it resolves, the component renders its header over an empty body).
+// The shared negative `Notice` replaced the Alert atom: it labels its title and body by slot.
+const noticePart = (slot: 'title' | 'body') =>
+  document.querySelector<HTMLElement>(`[data-tone="negative"] [data-slot="${slot}"]`)!;
+const noticeBody = () => noticePart('body');
+
 const renderComp = async (props: EncryptedWalletFileWalletPasswordProps) => {
   const utils = render(<EncryptedWalletFileWalletPassword {...props} />);
   await act(async () => {
@@ -182,12 +195,33 @@ const clickConfirm = () => {
   fireEvent.click(screen.getByTestId('checkbox').closest('button')!);
 };
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('EncryptedWalletFileWalletPassword', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStore = {};
     mockIsMobile = false;
+    mockAccounts = [];
+    mockLocale = 'en';
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockUnlock.mockResolvedValue(undefined);
     jest.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -196,26 +230,135 @@ describe('EncryptedWalletFileWalletPassword', () => {
     jest.restoreAllMocks();
   });
 
-  it('renders nothing while the hardware-protector check is pending', () => {
+  it('lays the sheet out on the shared field and section copy', async () => {
+    await renderComp(makeProps());
+
+    const input = screen.getByTestId('encrypted-file-wallet-password-input');
+    // The shared TextField: labelled, on the fill pill, with a named eye toggle inside it.
+    expect(screen.getByLabelText('password')).toBe(input);
+    expect(input.parentElement).toHaveClass('bg-fill', 'rounded-full');
+    expect(screen.getByRole('button', { name: 'show' })).toHaveAttribute('type', 'button');
+    // The explanation is 14px muted section copy.
+    expect(screen.getByText('encryptedWalletFileDescription')).toHaveClass('text-body', 'text-muted');
+    // The confirmation row does not submit anything by itself.
+    expect(screen.getByTestId('checkbox').closest('button')).toHaveAttribute('type', 'button');
+    // It is a checkbox to assistive tech, reporting its state.
+    const confirmation = screen.getByRole('checkbox', { name: 'encryptedWalletFileConfirmation' });
+    expect(confirmation).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(confirmation);
+    expect(confirmation).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('keeps its header while the hardware-protector check is pending, with an empty body and no footer', async () => {
     // Never-resolving promise keeps hasHardwareProtector === null.
     mockHasHardwareProtector.mockReturnValue(new Promise(() => {}));
-    const { container } = render(<EncryptedWalletFileWalletPassword {...makeProps()} />);
-    expect(container.firstChild).toBeNull();
+    const onBack = jest.fn();
+    render(
+      <SubPageHeaderProvider value={{ title: 'importWallet', onBack }}>
+        <EncryptedWalletFileWalletPassword {...makeProps()} />
+      </SubPageHeaderProvider>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('heading', { name: 'importWallet' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    const page = screen.getByTestId('encrypted-file-wallet-password');
+    expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
+  });
+
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  it('takes the password step when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    expect(await screen.findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+    expect(screen.getByTestId('action-button')).toHaveTextContent('continue');
+  });
+
+  it('unlocks through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    render(<EncryptedWalletFileWalletPassword {...makeProps()} />);
+
+    expect(await screen.findByTestId('action-button')).toHaveTextContent('unlock');
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    clickConfirm();
+    fireEvent.click(screen.getByTestId('action-button'));
+    await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  });
+
+  it('shows an error and offers no credential step when both protector reads fail', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
+  });
+
+  // This case keeps the failure surface from becoming platform-gated: a branch such as
+  // `probeFailed && !isMobile()` would fail only here, since the case above renders desktop. Its
+  // passcode-entry assertion holds because the hook leaves `hasHardwareProtector` null on failure,
+  // not because of the error branch: `usePasscodeEntry` is `isMobile() && hasHardwareProtector ===
+  // false`, which stays false on a failed probe whatever order the branches render in.
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('protector-probe-retry'));
+      expect(await screen.findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the software-unlock UI (password field + continue) with no hardware protector', async () => {
     await renderComp(makeProps({ walletPassword: 'pw' }));
-    expect(screen.getByTestId('password-input')).toBeInTheDocument();
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
     expect(screen.getByTestId('action-button')).toHaveTextContent('continue');
     expect(screen.getByText('encryptedWalletFileDescription')).toBeInTheDocument();
     // Software field defaults to a masked password input.
-    expect(screen.getByTestId('password-input')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'password');
   });
 
   it('renders the hardware-unlock UI (unlock button, no password field)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     await renderComp(makeProps());
-    expect(screen.queryByTestId('password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     const button = screen.getByTestId('action-button');
     expect(button).toHaveTextContent('unlock');
     // continueEnabled = confirmed && !isSubmitting -> disabled before confirming.
@@ -225,22 +368,22 @@ describe('EncryptedWalletFileWalletPassword', () => {
 
   it('toggles password visibility via the eye button', async () => {
     await renderComp(makeProps({ walletPassword: 'pw' }));
-    const input = screen.getByTestId('password-input');
+    const input = screen.getByTestId('encrypted-file-wallet-password-input');
     expect(input).toHaveAttribute('type', 'password');
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'Eye');
 
     fireEvent.click(screen.getByTestId('icon').closest('button')!);
-    expect(screen.getByTestId('password-input')).toHaveAttribute('type', 'text');
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'text');
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'EyeOff');
 
     fireEvent.click(screen.getByTestId('icon').closest('button')!);
-    expect(screen.getByTestId('password-input')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'password');
   });
 
   it('forwards password edits through onPasswordChange', async () => {
     const onPasswordChange = jest.fn();
     await renderComp(makeProps({ walletPassword: '', onPasswordChange }));
-    fireEvent.change(screen.getByTestId('password-input'), { target: { value: 'abc' } });
+    fireEvent.change(screen.getByTestId('encrypted-file-wallet-password-input'), { target: { value: 'abc' } });
     expect(onPasswordChange).toHaveBeenCalledWith('abc');
   });
 
@@ -296,7 +439,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(mockStore[ATTEMPT_KEY]).toBe(4);
     // The lock renders the delay alert and disables the input.
     await waitFor(() => expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument());
-    expect(screen.getByTestId('password-input')).toBeDisabled();
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeDisabled();
   });
 
   it('applies the extra human delay once past the last attempt on success', async () => {
@@ -330,7 +473,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
 
-    await waitFor(() => expect(screen.getByTestId('alert-desc')).toHaveTextContent('hw-fail'));
+    await waitFor(() => expect(noticeBody()).toHaveTextContent('hw-fail'));
     // Hardware failures skip the attempt/time-lock accounting.
     expect(mockStore[ATTEMPT_KEY]).toBeUndefined();
     expect(mockStore[TIMELOCK_KEY]).toBeUndefined();
@@ -343,8 +486,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
 
-    await waitFor(() => expect(screen.getByTestId('alert-title')).toHaveTextContent('error'));
-    expect(screen.getByTestId('alert-desc')).toHaveTextContent('');
+    await waitFor(() => expect(noticePart('title')).toHaveTextContent('error'));
+    expect(noticeBody()).toHaveTextContent('');
   });
 
   it('forwards a failed passcode unlock error into the numpad', async () => {
@@ -364,7 +507,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     const onPasswordChange = jest.fn();
     await renderComp(makeProps({ onGoNext, onPasswordChange }));
 
-    expect(screen.queryByTestId('password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
     expect(screen.getByTestId('passcode-entry')).toBeInTheDocument();
 
@@ -389,7 +532,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
   it('submits on Enter only when confirmed and ignores other keys', async () => {
     const onGoNext = jest.fn();
     await renderComp(makeProps({ walletPassword: 'pw', onGoNext }));
-    const input = screen.getByTestId('password-input');
+    const input = screen.getByTestId('encrypted-file-wallet-password-input');
 
     // Not confirmed -> Enter is a no-op.
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -415,7 +558,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     await waitFor(() => expect(screen.getByTestId('action-button')).toHaveAttribute('data-loading', 'true'));
 
     // Second submit via Enter is swallowed by the isSubmitting guard.
-    fireEvent.keyDown(screen.getByTestId('password-input'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByTestId('encrypted-file-wallet-password-input'), { key: 'Enter' });
     expect(mockUnlock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -432,12 +575,175 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockStore[TIMELOCK_KEY] = Date.now();
     await renderComp(makeProps({ walletPassword: 'pw' }));
 
-    const desc = screen.getByTestId('alert-desc');
+    const desc = noticeBody();
     expect(desc).toHaveTextContent('unlockPasswordErrorDelay');
     // ~11 minutes exercises checkTime's >= 10 branch (two-digit minutes),
     // regardless of the few ms of jitter between seeding and rendering.
     expect(desc.textContent).toMatch(/1[01]:\d{2}/);
-    expect(screen.getByTestId('password-input')).toBeDisabled();
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeDisabled();
     expect(screen.getByTestId('action-button')).toBeDisabled();
+  });
+
+  describe('accounts the file does not restore (#1114)', () => {
+    const account = (name: string, type: WalletType, hdIndex: number): WalletAccount => ({
+      publicKey: `pk-${name}`,
+      name,
+      isPublic: type !== WalletType.Guardian,
+      type,
+      hdIndex,
+      authScheme: 'ecdsa'
+    });
+
+    it('names every hot-key Guardian account the file does not restore, before the consent (#1114)', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Imported', WalletType.OnChain, -1),
+        account('Guardian one', WalletType.Guardian, -1),
+        account('Guardian two', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      const notice = screen.getByTestId('encrypted-file-excluded-accounts');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveTextContent('encryptedWalletFileExcludedTitle: Guardian one and Guardian two');
+      expect(notice).toHaveTextContent('encryptedWalletFileExcludedDesc');
+      expect(notice).not.toHaveTextContent('Imported');
+      // Read before the user consents to what the file holds.
+      expect(
+        notice.compareDocumentPosition(screen.getByRole('checkbox')) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it.each([
+      ['fr', 'Guardian one et Guardian two'],
+      // getCurrentLocale speaks en_GB; Intl rejects the underscore form outright.
+      ['en_GB', 'Guardian one and Guardian two']
+    ])('joins two names in the active locale, %s (#1114)', async (locale, joined) => {
+      mockLocale = locale;
+      mockAccounts = [
+        account('Guardian one', WalletType.Guardian, -1),
+        account('Guardian two', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      expect(screen.getByTestId('encrypted-file-excluded-accounts')).toHaveTextContent(
+        `encryptedWalletFileExcludedTitle: ${joined}`
+      );
+    });
+
+    it('says what the file holds for a seed-derived Guardian account, before the consent', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Seed Guardian', WalletType.Guardian, 0),
+        account('Key Guardian', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      const notice = screen.getByTestId('encrypted-file-guardian-accounts');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveTextContent('encryptedWalletFileGuardianTitle: Seed Guardian');
+      expect(notice).not.toHaveTextContent('Key Guardian');
+      expect(
+        notice.compareDocumentPosition(screen.getByRole('checkbox')) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it('shows no Guardian notice when the wallet holds no seed-derived Guardian account', async () => {
+      mockAccounts = [account('Seed account', WalletType.OnChain, 0), account('Key Guardian', WalletType.Guardian, -1)];
+      await renderComp(makeProps());
+
+      expect(screen.queryByTestId('encrypted-file-guardian-accounts')).not.toBeInTheDocument();
+    });
+
+    it('shows no notice when every account is in the file, a seed-derived Guardian included (#1114)', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Seed Guardian', WalletType.Guardian, 0),
+        account('Imported', WalletType.OnChain, -1)
+      ];
+      await renderComp(makeProps());
+
+      expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('encrypted-file-excluded-accounts')).not.toBeInTheDocument();
+    });
+  });
+  describe('user-visible error reporting', () => {
+    it('does not report the excluded-account warning or its account name', async () => {
+      mockAccounts = [
+        {
+          publicKey: 'synthetic-public-key',
+          name: privateErrorFixture,
+          isPublic: false,
+          type: WalletType.Guardian,
+          hdIndex: -1,
+          authScheme: 'ecdsa'
+        }
+      ];
+      await renderComp(makeProps());
+      expect(screen.getByTestId('encrypted-file-excluded-accounts')).toHaveAttribute('data-tone', 'warning');
+      expect(screen.getByTestId('encrypted-file-excluded-accounts')).toHaveTextContent(privateErrorFixture);
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealTelemetrySurfaces = true;
+    });
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockRealTelemetrySurfaces = false;
+    });
+
+    it.each([false, true])('reports a raw credential failure hardware=%s', async hardware => {
+      mockHasHardwareProtector.mockResolvedValue(hardware);
+      mockUnlock.mockRejectedValueOnce(new Error(privateErrorFixture));
+      await renderComp(makeProps({ walletPassword: 'pw' }));
+      clickConfirm();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('action-button'));
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      dwellForError();
+      expectDisplayReport('raw_encrypted_file_unlock_failed', hardware ? 'notice' : 'field');
+    });
+    it('reports a raw passcode failure through the real passcode entry', async () => {
+      mockIsMobile = true;
+      mockUnlock.mockRejectedValueOnce(new Error(privateErrorFixture));
+      await renderComp(makeProps());
+      clickConfirm();
+      for (const digit of '123456') fireEvent.click(screen.getByRole('button', { name: digit }));
+      await act(async () => {
+        jest.advanceTimersByTime(150);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(screen.getByText(privateErrorFixture)).toBeVisible();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      dwellForError();
+      expectDisplayReport('raw_encrypted_file_unlock_failed', 'passcode');
+    });
+    it('reports the lockout notice using its key without the countdown', async () => {
+      mockStore[TIMELOCK_KEY] = Date.now();
+      mockStore[ATTEMPT_KEY] = 4;
+      await renderComp(makeProps());
+      expect(screen.getByRole('alert')).toHaveTextContent('unlockPasswordErrorDelay');
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      dwellForError();
+      expectDisplayReport('unlockPasswordErrorDelay', 'notice');
+    });
+    it('does not report credential helper or confirmation caution text', async () => {
+      await renderComp(makeProps());
+      expect(screen.getByText('encryptedWalletFileConfirmation')).toBeVisible();
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
   });
 });

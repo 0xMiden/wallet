@@ -1,25 +1,42 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+// The svg module directly, not the `app/icons/v2` barrel: the barrel's module graph runs before
+// this suite's `lib/miden-chain` mock factories and leaves them reading an unevaluated constant.
+import { ReactComponent as OptionsIcon } from 'app/icons/v2/settings-2.svg';
 import { Button, ButtonVariant } from 'components/Button';
-import { Input } from 'components/Input';
-import { ScreenHeader } from 'components/ScreenHeader';
-import { TabPicker } from 'components/TabPicker';
+import { MainnetSwitchSheet } from 'components/MainnetSwitchSheet';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
+import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
+import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { resetMidenClient } from 'lib/miden/sdk/miden-client';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
   applyEndpointOverride,
   buildDefaultOverrideFor,
-  clearEndpointOverride,
   EndpointOverride,
   getActiveOverride,
-  getEffectiveNetworkName
+  getEffectiveNetworkName,
+  getTestNetworkNameKey
 } from 'lib/miden-chain/effective-endpoints';
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { isExtension } from 'lib/platform';
-import { useConfirm } from 'lib/ui/dialog';
-import { goBack, navigate } from 'lib/woozie';
+import { hasExtensionRuntime, isExtension, reloadInPlace } from 'lib/platform';
+import { followEffectiveNetwork } from 'lib/remote-config/runtime';
+import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useAlert, useConfirm } from 'lib/ui/dialog';
+import { navigate } from 'lib/woozie';
 
 import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
 
@@ -56,6 +73,10 @@ const FIELDS: FieldSpec[] = [
   { key: 'guardianUrl', labelKey: 'devEndpointGuardian', health: 'reachability' }
 ];
 
+/** Just the URL fields of an override, which are the only ones "custom" is about. */
+const pickUrls = (o: EndpointOverride): Partial<Record<UrlFieldKey, string>> =>
+  Object.fromEntries(FIELDS.map(field => [field.key, o[field.key]]));
+
 interface HealthNoteProps {
   url: string;
   kind: EndpointHealthKind;
@@ -67,7 +88,7 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
   const status = useEndpointHealth(url, kind);
   if (status === 'idle') return null;
 
-  const color = status === 'reachable' ? 'text-green-600' : status === 'error' ? 'text-red-500' : 'text-text-muted';
+  const color = status === 'reachable' ? 'text-positive-ink' : status === 'error' ? 'text-negative-ink' : 'text-muted';
   const labelKey =
     status === 'pending'
       ? 'devEndpointChecking'
@@ -75,122 +96,329 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
         ? 'devEndpointReachable'
         : 'devEndpointNoResponse';
 
-  return <p className={`text-xs mt-1 ${color}`}>{t(labelKey)}</p>;
+  return <p className={`px-1 text-caption ${color}`}>{t(labelKey)}</p>;
 };
 
 export interface DeveloperSettingsProps {
-  /** Read-only mode (Settings, post-onboarding): inputs disabled, no preset picker, single reset action. */
+  /** Read-only mode (Settings, post-onboarding): inputs disabled, no preset picker, the reset action. */
   readOnly?: boolean;
 }
 
 /**
  * Advanced endpoint override editor. Reused in two modes: edit (reachable during onboarding via
  * the 7-tap logo unlock on Welcome) and read-only (post-onboarding, from Settings, only shown
- * when an override is active).
+ * when an override is active). Once a wallet exists the standalone route is read-only too, and a
+ * wallet on a test network is offered the code-first switch to mainnet, which goes through the reset.
  */
 const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false }) => {
+  // Both routes for this page are full-screen pages outside the Settings host, so neither inherits
+  // the host's fallback. A deep link or a reload lands at the first history entry, where goBack()
+  // does nothing. Read-only is the /settings sub-page; the standalone debug route belongs to home.
+  const handleBack = useBackWithFallback(readOnly ? '/settings' : '/');
   const { t } = useTranslation();
   const confirm = useConfirm();
+  const customAlert = useAlert();
   const initial = useMemo<EndpointOverride>(
     () => getActiveOverride() ?? buildDefaultOverrideFor(getEffectiveNetworkName()),
     []
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
-  const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<{ text: string; id: UserErrorId } | null>(null);
+  // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
+  const noWalletYet = useWalletStore(selectIsIdle);
+  const clearBalances = useWalletStore(s => s.clearBalances);
+  // The standalone route is gated on `!locked`, not `!ready` (PageRouter), so an unlocked wallet can open
+  // it. A save there would move this page while the service worker and offscreen keep the old network,
+  // so a wallet's network changes only through the reset in the switch below.
+  const editable = !readOnly && noWalletYet;
+  const offerMainnetSwitch = !noWalletYet && getTestNetworkNameKey() !== null;
+  const [mainnetSwitchOpen, setMainnetSwitchOpen] = useState(false);
 
-  const presetTabs = useMemo(
-    () =>
-      [
-        ...ENDPOINT_PRESETS.map(preset => ({ id: preset, title: capitalize(preset) })),
-        { id: CUSTOM_PRESET, title: t('devEndpointCustom') }
-      ].map(tab => ({ ...tab, active: form.presetName === tab.id })),
-    [form.presetName, t]
+  const presetItems = useMemo<SegmentedControlItem[]>(
+    () => [
+      ...ENDPOINT_PRESETS.map(preset => ({
+        id: preset,
+        label: capitalize(preset),
+        'data-testid': `dev-endpoint-preset-${preset}`
+      })),
+      { id: CUSTOM_PRESET, label: t('devEndpointCustom'), 'data-testid': `dev-endpoint-preset-${CUSTOM_PRESET}` }
+    ],
+    [t]
   );
 
-  const applyPreset = (index: number) => {
-    // `presetTabs` is every known preset followed by one trailing "Custom" tab, so an index
-    // past the end of `ENDPOINT_PRESETS` is always that trailing tab.
-    const network = ENDPOINT_PRESETS[index];
+  const networkIdItems = useMemo<SegmentedControlItem<MIDEN_NETWORK_NAME>[]>(
+    () =>
+      NETWORK_ID_OPTIONS.map(network => ({
+        id: network,
+        label: capitalize(network),
+        disabled: !editable,
+        'data-testid': `dev-endpoint-network-${network}`
+      })),
+    [editable]
+  );
+
+  // The endpoints the user typed, kept while a preset is selected so choosing Custom again brings
+  // them back. The picker is a radio group, so arrow keys commit every item they pass over: without
+  // this, one keypress away from Custom replaced the fields and coming back kept the preset's URLs.
+  // ONLY a keystroke defines them. Two other controls flip the form to Custom without touching a
+  // URL - the Network ID picker and the no-guardian checkbox - and while a preset's URLs are in the
+  // fields, so capturing the whole form whenever it reads Custom would store a PRESET's URLs as
+  // what the user typed and lose them on the next hop.
+  const customUrlsRef = useRef<Partial<Record<UrlFieldKey, string>> | null>(null);
+
+  const applyPreset = (id: string) => {
+    const network = ENDPOINT_PRESETS.find(preset => preset === id);
     if (network) {
       setForm(presetToOverride(network));
       return;
     }
-    setForm(prev => ({ ...prev, presetName: CUSTOM_PRESET }));
+    // Back to Custom: the endpoints the user authored, over whatever the other controls have set
+    // since, so the network id and the no-guardian choice survive the round trip. Authored covers
+    // both sources, in precedence order - the ones this screen OPENED on, when it opened on a saved
+    // custom override, under the ones typed since. Without the first, a screen opened on saved
+    // endpoints remembered nothing and one hop to a preset replaced them.
+    setForm(prev => ({
+      ...prev,
+      ...(initial.presetName === CUSTOM_PRESET ? pickUrls(initial) : null),
+      ...customUrlsRef.current,
+      presetName: CUSTOM_PRESET
+    }));
   };
 
-  const setField = (key: UrlFieldKey, value: string) =>
+  const setField = (key: UrlFieldKey, value: string) => {
+    // Outside the updater, which must stay pure: this needs no previous form.
+    customUrlsRef.current = { ...customUrlsRef.current, [key]: value };
     setForm(prev => ({ ...prev, [key]: value, presetName: CUSTOM_PRESET }));
+  };
 
   const handleSave = async () => {
-    setSaving(true);
-    await applyEndpointOverride(form);
-    setSaving(false);
-    navigate('/');
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await applyEndpointOverride({ ...form, developerChoice: true });
+      // Every fuse conclusion was earned against the node this just stopped pointing at.
+      // Mobile and desktop are exactly the realms that own the idle loop, so a fused
+      // wallet repointed at a working RPC would otherwise probe once per 30 min - and the
+      // successful sync that puts the fuse out is the thing it stops giving itself the
+      // chance to observe (#777).
+      clearSyncFuseForEndpointChange();
+      // The other half of the same fact. The line above discards what the old node
+      // taught us; this one retires the passes still in flight against it, whose
+      // pending-rotation recheck would otherwise demote rows and roll the guardian
+      // binding back from chain reads taken before this save.
+      retireGuardianSyncPasses();
+      // And the durable write that loop cannot reach. The discard rollback runs in the BACKEND,
+      // takes no token, and spends a chain read and two operator probes before it rebinds the
+      // account; the loop's own retirement check only runs once that call has returned, so it
+      // suppresses the row settlement while the binding has already been rewritten. Mobile and
+      // desktop share one realm, so this is where their backend hears about the repoint. The
+      // extension hears it from the service worker's endpoint-override handler instead.
+      retireGuardianWritesForEndpointChange();
+      // This realm's client baked in the old endpoints when it was built and never re-reads them. Started,
+      // not awaited: the reset queues on the WASM lock ahead of every read after this save, so each builds
+      // against the new node, while awaiting it would keep the save waiting behind whatever hold is running.
+      if (!isExtension()) {
+        void resetMidenClient().catch(err => console.warn('client reset after endpoint change failed', err));
+      }
+      // Every cached balance was read from the old node and names no network, so a reader would show it
+      // as this one's; dropped, each reader waits for a read on the new node, and a read already out on the
+      // old client is discarded by the store's network guard.
+      clearBalances();
+      // The native asset and its base fee belong to the node too. The caches drop
+      // themselves on the next read (`invalidateOnEndpointChange`), but dropping them
+      // notifies nobody - and `useVerificationBaseFee` only re-reads when discovery
+      // EMITS. Without a discovery to emit, every mounted screen goes on gating sends and
+      // claims on the previous chain's fee until something else happens to ask. Priming
+      // here is that discovery.
+      //
+      // Imported lazily: `native-asset` reads the effective endpoints, so a static import
+      // adds this screen to that module cycle. Same reason `native-asset` defers its own
+      // `lib/miden/metadata` import.
+      void import('lib/miden-chain/native-asset')
+        .then(({ primeNativeAssetId }) => primeNativeAssetId())
+        .catch(err => console.warn('native-asset prime after endpoint change failed', err));
+      // The bridge config belongs to the network too; readers that never load (the label sites) would
+      // otherwise keep the old network's snapshot.
+      followEffectiveNetwork();
+      // On the extension, the service worker is a separate JS realm with its own
+      // module-level override cache and a create-once Miden client singleton, so
+      // applyEndpointOverride's write doesn't reach it - nudge it to re-hydrate
+      // and rebuild before navigating away. Mobile/desktop share this realm, so
+      // the client reset above is their rebuild. Only a save before any wallet
+      // exists gets here (`editable`), so no live sync or transaction is torn down.
+      if (isExtension()) await reloadEndpointOverridesInSW();
+      navigate('/');
+    } catch (err) {
+      console.warn('[developer-settings] Could not save the endpoint override', err);
+      setError({ text: t('devEndpointSaveFailed'), id: 'devEndpointSaveFailed' });
+    } finally {
+      setPending(false);
+    }
   };
 
   const handleReset = async () => {
+    if (pending) return;
     // Destructive: wipes the wallet DB and clears the vault/keys. Gate behind an
     // explicit confirmation (shared app-wide confirm dialog, see options.tsx's
     // "Reset Wallet" for the same pattern) so a single stray tap can't wipe the wallet.
     const confirmed = await confirm({
       title: t('actionConfirmation'),
-      children: t('devEndpointResetConfirm')
+      children: t('devEndpointResetConfirm'),
+      confirmLabel: t('reset'),
+      destructive: true
     });
     if (!confirmed) return;
 
+    // Set only once confirmed, so a cancelled dialog cannot leave it on.
+    setPending(true);
     hapticMedium();
-    await clearEndpointOverride();
-    await resetStorageDestructive();
-    // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
-    // override cache) can survive it — mirrors the canonical reset in src/options.tsx.
-    if (isExtension()) {
-      // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
-      // `chrome.runtime.id` is absent, so it must not be a top-level import — this
-      // screen is statically imported by PageRouter and evaluates on every platform
-      // (desktop has no vite alias for it, unlike mobile). Mirrors src/lib/miden/reset.ts.
-      const browser = (await import('webextension-polyfill')).default;
-      browser.runtime.reload();
-    } else {
+    setError(null);
+    // Set by whichever extension reload runs first, the pagehide listener's or the one below, so it runs once.
+    let reloaded = false;
+    // The popup that hosts this page closes when it loses focus, and nothing after the await it is in runs then,
+    // the wipe's or the alert's, so the pagehide reload is armed before the wipe. The polyfill is fetched first
+    // because a pagehide listener cannot wait for an import, and a fetch that fails stops the reset before the
+    // wipe, so nothing is wiped without its reload armed. Dynamic import: `webextension-polyfill` throws at
+    // module-evaluation time when `chrome.runtime.id` is absent, so it must not be a top-level import - this
+    // screen is statically imported by PageRouter and evaluates on every platform (desktop has no vite alias for
+    // it, unlike mobile). Mirrors src/lib/miden/reset.ts. A page an extension reload or update left without a runtime
+    // cannot reload the extension, so it reloads in place.
+    let reloadOnce: (() => void) | undefined;
+    if (hasExtensionRuntime()) {
       try {
-        // mobile/desktop: no background worker to resync with, just reload in place.
-        window.location.reload();
-      } catch {
-        // window.location.reload can't be relied on in every embedding (and can't be
-        // mocked in jsdom, since `window.location` is a non-configurable getter) —
-        // the storage wipe above already succeeded either way.
-        // no-op
+        const browser = (await import('webextension-polyfill')).default;
+        reloadOnce = () => {
+          browser.runtime.reload();
+          reloaded = true;
+        };
+        window.addEventListener('pagehide', reloadOnce, { once: true });
+      } catch (importErr) {
+        // Stopped before the wipe, so the wallet is untouched and the reset reports that it did not finish.
+        console.warn('[developer-settings] Could not load the polyfill before the wipe', importErr);
+        setError({ text: t('resetDidNotFinish'), id: 'resetDidNotFinish' });
+        setPending(false);
+        return;
       }
+    }
+    try {
+      try {
+        // The override goes in the wipe's own blanket clear, so no separate step can fail after the
+        // wallet is gone and leave onboarding on the endpoints being reset.
+        await resetStorageDestructive({ keepEndpointOverride: false });
+      } catch (err) {
+        // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+        // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+        // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+        // reports a reload that cannot start. The reload does not depend on the page staying open at any point: on the
+        // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
+        // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
+        console.warn('[developer-settings] Could not wipe the wallet storage', err);
+        await customAlert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
+      }
+      try {
+        // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
+        // Reset does. The reload also drops the resolver's override cache this realm holds in memory.
+        if (reloadOnce) {
+          // Set exactly on the extension, where it is the only reload, so no await separates a finished wipe from
+          // it. A listener reload that threw left the flag down, so this one retries and reports.
+          if (!reloaded) reloadOnce();
+        } else {
+          // mobile/desktop, or an extension page that lost its runtime: no background worker to resync with,
+          // just reload in place.
+          reloadInPlace();
+        }
+      } catch (err) {
+        // No reload started, so the closed handles and the in-memory override outlive the wipe:
+        // the reset did not finish.
+        console.warn('[developer-settings] Could not reload after the reset', err);
+        setError({ text: t('resetDidNotFinish'), id: 'resetDidNotFinish' });
+      } finally {
+        setPending(false);
+      }
+    } finally {
+      if (reloadOnce) window.removeEventListener('pagehide', reloadOnce);
     }
   };
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
 
+  const actionButton = 'max-w-none';
+
   return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <ScreenHeader
-        title={t('developerSettingsTitle')}
-        backLabel={t('back')}
-        onBack={() => goBack()}
-        className="mx-4 shrink-0"
-      />
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-4 flex flex-col gap-5">
-        <div className="w-full bg-surface-input rounded-10 px-4 py-3">
-          <div className="text-base font-bold font-heading leading-tight text-black">
-            {t('developerSettingsWarningTitle')}
-          </div>
-          <div className="text-xs mt-1 text-text-muted">{t('developerSettingsWarning')}</div>
-        </div>
+    <SubPageLayout
+      title={t('developerSettingsTitle')}
+      onBack={handleBack}
+      data-testid="developer-settings"
+      footerLayout="stack"
+      footer={
+        <>
+          <ErrorLine data-testid="dev-endpoints-error" errorId={error?.id}>
+            {error?.text}
+          </ErrorLine>
+          {offerMainnetSwitch && (
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Primary}
+              title={t('switchToMainnet')}
+              disabled={pending}
+              data-testid="dev-switch-to-mainnet"
+              onClick={() => setMainnetSwitchOpen(true)}
+            />
+          )}
+          {readOnly && (
+            // Destructive: it wipes the wallet and starts onboarding over.
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Destructive}
+              title={t('devEndpointResetAndReonboard')}
+              isLoading={pending}
+              data-testid="dev-endpoints-reset"
+              onClick={handleReset}
+            />
+          )}
+          {editable && (
+            <>
+              <Button
+                className={actionButton}
+                variant={ButtonVariant.Primary}
+                title={t('devEndpointSaveContinue')}
+                isLoading={pending}
+                data-testid="dev-endpoints-save"
+                onClick={handleSave}
+              />
+              <Button
+                className={actionButton}
+                variant={ButtonVariant.Secondary}
+                title={t('devEndpointResetDefaults')}
+                data-testid="dev-endpoints-reset-defaults"
+                onClick={handleResetToDefaults}
+              />
+            </>
+          )}
+        </>
+      }
+    >
+      <SubPageSection title={t('developerSettingsWarningTitle')} description={t('developerSettingsWarning')} />
 
-        {!readOnly && (
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-heading-gray">{t('devEndpointPreset')}</span>
-            <TabPicker tabs={presetTabs} onTabChange={applyPreset} />
-          </div>
-        )}
+      {editable && (
+        <SubPageSection title={t('devEndpointPreset')}>
+          <SegmentedControl
+            items={presetItems}
+            value={form.presetName}
+            onChange={applyPreset}
+            layout="fill"
+            aria-label={t('devEndpointPreset')}
+            data-testid="dev-endpoint-preset"
+          />
+        </SubPageSection>
+      )}
 
+      <SubPageSection className="gap-4">
         {FIELDS.map(field => (
-          <div key={field.key} className="flex flex-col">
-            <Input
+          <div key={field.key} className="flex flex-col gap-1">
+            <TextField
               label={t(field.labelKey)}
               data-testid={`dev-endpoint-${field.key}`}
               value={form[field.key]}
@@ -198,64 +426,60 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              disabled={readOnly}
-              inputClassName="font-mono text-xs select-text"
+              disabled={!editable}
+              className="font-mono select-text"
               onChange={e => setField(field.key, e.target.value)}
             />
             <HealthNote url={form[field.key]} kind={field.health} />
           </div>
         ))}
+      </SubPageSection>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium text-heading-gray">{t('devEndpointNetworkId')}</span>
-          <TabPicker
-            tabs={NETWORK_ID_OPTIONS.map(network => ({
-              id: network,
-              title: capitalize(network),
-              active: form.networkName === network
-            }))}
-            onTabChange={
-              readOnly
-                ? undefined
-                : index => {
-                    const network = NETWORK_ID_OPTIONS[index];
-                    if (network) setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }));
-                  }
+      <SubPageSection>
+        <TextField
+          label={t('devEndpointFeeFaucet')}
+          data-testid="dev-endpoint-feeFaucetId"
+          value={form.feeFaucetId ?? ''}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={!editable}
+          className="font-mono select-text"
+          onChange={e => setForm(prev => ({ ...prev, feeFaucetId: e.target.value, presetName: CUSTOM_PRESET }))}
+        />
+      </SubPageSection>
+
+      <SubPageSection title={t('devEndpointNetworkId')}>
+        <SegmentedControl
+          items={networkIdItems}
+          value={form.networkName}
+          onChange={network => setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }))}
+          layout="fill"
+          aria-label={t('devEndpointNetworkId')}
+          data-testid="dev-endpoint-network-id"
+        />
+      </SubPageSection>
+
+      <SubPageSection title={t('options')} icon={<OptionsIcon fill="currentColor" />}>
+        <ListGroup surface="plain">
+          <ListRow
+            title={t('devAllowNoGuardian')}
+            disabled={!editable}
+            data-testid="dev-allow-no-guardian"
+            onClick={() =>
+              setForm(prev => ({
+                ...prev,
+                allowNoGuardian: !prev.allowNoGuardian,
+                presetName: CUSTOM_PRESET
+              }))
             }
+            pressed={form.allowNoGuardian}
+            trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
           />
-        </div>
-      </div>
-
-      <div className="px-4 pb-8 pt-4 mt-auto flex flex-col gap-3">
-        {readOnly ? (
-          <Button
-            className="w-full justify-center"
-            variant={ButtonVariant.Secondary}
-            title={t('devEndpointResetAndReonboard')}
-            data-testid="dev-endpoints-reset"
-            onClick={handleReset}
-          />
-        ) : (
-          <>
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Primary}
-              title={t('devEndpointSaveContinue')}
-              isLoading={saving}
-              data-testid="dev-endpoints-save"
-              onClick={handleSave}
-            />
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Ghost}
-              title={t('devEndpointResetDefaults')}
-              data-testid="dev-endpoints-reset-defaults"
-              onClick={handleResetToDefaults}
-            />
-          </>
-        )}
-      </div>
-    </div>
+        </ListGroup>
+      </SubPageSection>
+      <MainnetSwitchSheet open={mainnetSwitchOpen} onOpenChange={setMainnetSwitchOpen} />
+    </SubPageLayout>
   );
 };
 

@@ -26,11 +26,8 @@ const SOURCE_OF_TRUTH = path.join(ROOT, 'public/_locales/en/en.json');
  * string today. Listed rather than fixed because they are unrelated to the
  * change that added this file, and an allowlist keeps them visible instead of
  * letting the test be deleted to make room for them.
- *
- * - `faceId`: the hot-key label on the Rotate Guardian review screen, blank
- *   whenever the device reports Face ID.
  */
-const KNOWN_MISSING = new Set(['faceId']);
+const KNOWN_MISSING = new Set<string>();
 
 /**
  * A `t('someKey')` call with a literal key. Dynamic keys (`t(variable)`,
@@ -38,6 +35,14 @@ const KNOWN_MISSING = new Set(['faceId']);
  * this is a floor on coverage, not a ceiling.
  */
 const LITERAL_T_CALL = /\bt\(\s*['"`]([A-Za-z][A-Za-z0-9_]*)['"`]/g;
+
+/**
+ * A key handed over as data for a later `t(key)`: a `titleKey` / `bodyKey` string
+ * literal, as an object field (`titleKey: 'x'`) or a JSX prop (`titleKey="x"`). The
+ * network notice rows, the test-funds warnings, the home prompts and the
+ * connectivity banner pass their keys this way, which LITERAL_T_CALL cannot see.
+ */
+const DATA_KEY = /\b(?:titleKey|bodyKey)\s*[=:]\s*\{?\s*['"`]([A-Za-z][A-Za-z0-9_]*)['"`]/g;
 
 const sourceFiles = (dir: string): string[] =>
   fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -52,9 +57,13 @@ describe('translation keys used by the UI exist in en.json', () => {
   const englishKeys: Record<string, string> = JSON.parse(fs.readFileSync(SOURCE_OF_TRUTH, 'utf8'));
 
   const requestedKeys = new Map<string, string[]>();
+  const dataKeys = new Set<string>();
   for (const file of sourceFiles(path.join(ROOT, 'src'))) {
     const contents = fs.readFileSync(file, 'utf8');
-    for (const match of contents.matchAll(LITERAL_T_CALL)) {
+    for (const match of contents.matchAll(DATA_KEY)) {
+      if (match[1] !== undefined) dataKeys.add(match[1]);
+    }
+    for (const match of [...contents.matchAll(LITERAL_T_CALL), ...contents.matchAll(DATA_KEY)]) {
       const key = match[1];
       if (key === undefined) continue;
       requestedKeys.set(key, [...(requestedKeys.get(key) ?? []), path.relative(ROOT, file)]);
@@ -65,6 +74,12 @@ describe('translation keys used by the UI exist in en.json', () => {
   // while checking nothing at all.
   it('finds the keys the UI asks for', () => {
     expect(requestedKeys.size).toBeGreaterThan(200);
+  });
+
+  it('finds the keys passed as data, in both syntaxes', () => {
+    // One known key per syntax: a count alone could hide a branch that stopped matching.
+    expect(dataKeys).toContain('networkNoticeNoValueTitle'); // object field: titleKey: '...'
+    expect(dataKeys).toContain('recoverySeedRequiredTitle'); // JSX prop: titleKey="..."
   });
 
   it('has every one of them in the source of truth', () => {

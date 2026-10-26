@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import ExportFilePassword, { ExportFilePasswordProps } from './ExportFileSetNamePassword';
 
@@ -103,6 +105,24 @@ const renderHarness = (overrides: Partial<React.ComponentProps<typeof Harness>> 
   };
 };
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('ExportFilePassword', () => {
   afterEach(() => jest.clearAllMocks());
 
@@ -120,6 +140,23 @@ describe('ExportFilePassword', () => {
 
     // Nothing entered yet => CTA disabled.
     expect(continueBtn).toBeDisabled();
+  });
+
+  it('renders through SubPageLayout: shared fields in the body, Continue pinned in the footer', () => {
+    const { nameInput, passwordInput, continueBtn, passwordEyeBtn } = renderHarness();
+
+    const page = screen.getByTestId('export-file-password');
+    expect(page.querySelector('[data-slot="body"]')).toContainElement(nameInput);
+    expect(page.querySelector('[data-slot="footer"]')).toContainElement(continueBtn);
+    // Every field is the shared TextField: labelled, on the fill pill.
+    expect(screen.getByLabelText('name')).toBe(nameInput);
+    expect(screen.getByLabelText('password')).toBe(passwordInput);
+    expect(passwordInput.parentElement).toHaveClass('bg-fill', 'rounded-full');
+    // The explanation is the section's muted 14px copy, not a grey chip.
+    expect(screen.getByText('enterPasswordToEncrypt')).toHaveClass('text-body', 'text-muted');
+    // The eye toggle is a named, non-submitting IconButton.
+    expect(passwordEyeBtn).toHaveAttribute('type', 'button');
+    expect(passwordEyeBtn).toHaveAccessibleName('show');
   });
 
   it('reflects password validation counts through to the strength indicator', () => {
@@ -294,5 +331,31 @@ describe('ExportFilePassword', () => {
     expect(nameInput).toHaveValue('Preset');
     // strongPasswordLength branch: seed a >=12 char password to flip it true.
     expect(screen.getByTestId('password-strength')).toHaveAttribute('data-valid-count', '4');
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports export password mismatch without sending the filename or password', () => {
+    render(<Harness initialPassword="Abcdef12!" initialFileName={privateErrorFixture} />);
+    fireEvent.change(screen.getByPlaceholderText('enterPasswordAgain'), { target: { value: privateErrorFixture } });
+    expect(screen.getByText('passwordsDoNotMatch')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('passwordsDoNotMatch', 'inline');
+  });
+  it('does not report an empty export form or its hidden mismatch paragraph', () => {
+    render(<Harness />);
+    expect(screen.getByText('passwordsDoNotMatch')).toHaveClass('hidden');
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

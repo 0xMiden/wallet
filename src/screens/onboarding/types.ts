@@ -1,3 +1,4 @@
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 
 /**
@@ -12,6 +13,9 @@ export type GuardianProbeState =
   | { status: 'done'; result: GuardianDiscoveryResult }
   | { status: 'error'; message: string };
 
+/** Sentinel guardianId meaning "create a no-guardian account" (dev-gated). */
+export const NO_GUARDIAN_ID = 'no-guardian';
+
 export enum OnboardingType {
   Create = 'create',
   Import = 'import'
@@ -23,8 +27,15 @@ export enum WalletType {
   OnChain = 'on-chain'
 }
 
+export enum ImportType {
+  SeedPhrase = 'seed-phrase',
+  WalletFile = 'wallet-file'
+}
+
 export enum OnboardingStep {
   Welcome = 'welcome',
+  MainnetAccess = 'mainnet-access',
+  NetworkNotice = 'network-notice',
   SelectWalletType = 'select-wallet-type',
   ChooseProtection = 'choose-protection',
   SetupPasscode = 'setup-passcode',
@@ -32,38 +43,29 @@ export enum OnboardingStep {
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   ImportFromSeed = 'import-from-seed',
+  ImportFromKey = 'import-from-key',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
+  SelectImportType = 'select-import-type',
+  ImportFromFile = 'import-from-file',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
-  ChooseGuardian = 'choose-guardian',
+  /** The create flow's first guardian screen: what a Guardian does for the user, before any operator is named. */
+  GuardianIntro = 'guardian-intro',
+  /**
+   * The create flow's second guardian screen: the fastest reachable operator, picked for the user and
+   * introduced on its own, with a Change provider action that opens the operator sheet. Continue opens
+   * once the chosen operator has answered online. The full-page picker, `ChooseGuardian`, is Rotate
+   * Guardian's alone.
+   */
+  MeetGuardian = 'meet-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
+  /** Between "no backup found" and the create flow: the entered phrase will seed a NEW account. */
+  ReusedPhrase = 'reused-phrase',
   Confirmation = 'confirmation'
 }
-export type OnboardingActionId =
-  | 'select-wallet-type'
-  | 'select-import-type'
-  | 'choose-protection'
-  | 'setup-passcode'
-  | 'setup-passcode-submit'
-  | 'setup-biometric'
-  | 'setup-biometric-submit'
-  | 'choose-guardian'
-  | 'choose-guardian-submit'
-  | 'create-wallet'
-  | 'import-wallet'
-  | 'backup-seed-phrase'
-  | 'verify-seed-phrase'
-  | 'create-password'
-  | 'create-password-submit'
-  | 'biometric-setup-submit'
-  | 'select-transaction-type'
-  | 'select-recovery-method'
-  | 'choose-guardian'
-  | 'import-select-recovery-method'
-  | 'confirmation'
-  | 'retry-guardian-probe'
-  | 'import-from-seed';
+/** Every onboarding action id, derived from the action union so the two cannot drift. */
+export type OnboardingActionId = OnboardingAction['id'];
 
 export type CreateWalletAction = {
   id: 'create-wallet';
@@ -90,6 +92,11 @@ export type SetupBiometricSubmitAction = {
   id: 'setup-biometric-submit';
 };
 
+/** Leave the guardian intro for the operator screen. */
+export type GuardianIntroSubmitAction = {
+  id: 'guardian-intro-submit';
+};
+
 export type ChooseGuardianSubmitAction = {
   id: 'choose-guardian-submit';
   payload: { guardianId: string; guardianEndpoint: string };
@@ -99,8 +106,43 @@ export type SelectImportTypeAction = {
   id: 'select-import-type';
 };
 
+export type NetworkNoticeAcknowledgeAction = {
+  id: 'network-notice-acknowledge';
+};
+
+/** Welcome's "I have a code": the mainnet access step, which starts the create flow. */
+export type MainnetAccessAction = {
+  id: 'mainnet-access';
+};
+
+/** The node accepted the code. It is held until account setup, and the create flow starts. */
+export type MainnetAccessGrantedAction = {
+  id: 'mainnet-access-granted';
+  payload: string;
+};
+
 export type ImportFromSeedAction = {
   id: 'import-from-seed';
+};
+
+export type ImportFromFileAction = {
+  id: 'import-from-file';
+};
+
+/** Switch the import flow from seed-phrase entry to hot-key paste. */
+export type ImportWithKeyAction = {
+  id: 'import-with-key';
+};
+
+/** Submit the pasted hot key (normalized hex) from the key-paste screen. */
+export type ImportHotKeySubmitAction = {
+  id: 'import-hot-key-submit';
+  payload: string;
+};
+
+export type ImportWalletFileSubmitAction = {
+  id: 'import-wallet-file-submit';
+  payload: DecryptedWalletFile;
 };
 
 export type BackupSeedPhraseAction = {
@@ -131,10 +173,20 @@ export type SelectRecoveryMethodAction = {
   payload: WalletType;
 };
 
-export type ChooseGuardianAction = {
-  id: 'choose-guardian';
-  payload: { guardianId: string; guardianEndpoint: string };
-};
+/**
+ * What the user has done on the Meet your Guardian step: the operator locked in. The flow owns it, not
+ * the step, so leaving the step and coming back leaves it as it was.
+ */
+export interface MeetGuardianProgress {
+  chosenId: string | null;
+  /**
+   * The fastest operator of the first full round that had one online, tagged Fastest in the provider sheet.
+   * Recorded once, whatever is chosen by then, and never moved by a later round.
+   */
+  fastestId: string | null;
+}
+
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { chosenId: null, fastestId: null };
 
 export type ImportSelectRecoveryMethodAction = {
   id: 'import-select-recovery-method';
@@ -168,6 +220,16 @@ export type RetryGuardianProbeAction = {
   id: 'retry-guardian-probe';
 };
 
+/** From "no backup found": create a new account with the phrase already entered. */
+export type CreateWithPhraseAction = {
+  id: 'create-with-phrase';
+};
+
+/** The reused-phrase warning was acknowledged. */
+export type ReusedPhraseAcknowledgeAction = {
+  id: 'reused-phrase-acknowledge';
+};
+
 export type OnboardingAction =
   | CreateWalletAction
   | ChooseProtectionAction
@@ -175,23 +237,31 @@ export type OnboardingAction =
   | SetupPasscodeSubmitAction
   | SetupBiometricAction
   | SetupBiometricSubmitAction
-  | ChooseGuardianAction
+  | GuardianIntroSubmitAction
   | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
+  | NetworkNoticeAcknowledgeAction
+  | MainnetAccessAction
+  | MainnetAccessGrantedAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction
   | BiometricSetupSubmitAction
   | SelectTransactionTypeAction
   | SelectRecoveryMethodAction
-  | ChooseGuardianAction
   | ImportSelectRecoveryMethodAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction
   | ImportFromSeedAction
+  | ImportFromFileAction
+  | ImportWalletFileSubmitAction
+  | ImportWithKeyAction
+  | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
+  | CreateWithPhraseAction
+  | ReusedPhraseAcknowledgeAction
   | SwitchToPasswordAction;
 
 // TODO: Potentially make this into what the onboarding flows use to render the

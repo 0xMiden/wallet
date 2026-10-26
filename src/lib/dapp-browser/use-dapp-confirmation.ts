@@ -20,7 +20,8 @@ import { type DAppConfirmationRequest, type DAppConfirmationResult, dappConfirma
 
 export interface UseDappConfirmationResult {
   request: DAppConfirmationRequest | null;
-  resolve: (result: DAppConfirmationResult) => void;
+  /** Resolves `requestId` only while it is still the session's pending request; see `resolveConfirmation`. */
+  resolve: (result: DAppConfirmationResult, requestId: string) => boolean;
 }
 
 /**
@@ -42,6 +43,7 @@ export function useDappConfirmation(sessionId?: string): UseDappConfirmationResu
 
   return {
     request,
-    resolve: (result: DAppConfirmationResult) => dappConfirmationStore.resolveConfirmation(sessionId, result)
+    resolve: (result: DAppConfirmationResult, requestId: string) =>
+      dappConfirmationStore.resolveConfirmation(sessionId, result, requestId)
   };
 }

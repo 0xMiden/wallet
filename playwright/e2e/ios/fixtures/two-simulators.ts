@@ -18,6 +18,7 @@ import { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../../harness/types';
 import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
+import { captureWedgeEvidence, relaunchOnceIfWedged, WEDGED_LAUNCH_ATTEMPTS } from '../helpers/cdp-wedge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
 import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
 import { createNotificationAlertGate, warmUpIdb } from '../helpers/system-alerts';
@@ -66,12 +67,50 @@ function getRunOutputDir(testId: string): string {
 }
 
 /**
+ * Launch one wallet, relaunching it once when its CDP attach wedged. The relaunch's own terminate, uninstall and
+ * install give it a fresh WebContent process, RemoteDebugger and storage; each wedge's evidence is saved first.
+ */
+async function launchSimWalletInstance(
+  sim: SimulatorControl,
+  udid: string,
+  envConfig: EnvironmentConfig,
+  timeline: TimelineRecorder,
+  label: 'A' | 'B'
+): Promise<SimWalletInstance> {
+  let attemptStart = Date.now();
+  return relaunchOnceIfWedged(
+    `Wallet ${label}`,
+    () => {
+      attemptStart = Date.now();
+      return launchSimWalletInstanceOnce(sim, udid, envConfig, timeline, label);
+    },
+    async (error, attempt, relaunching) => {
+      timeline.emit({
+        category: 'test_lifecycle',
+        severity: 'warn',
+        wallet: label,
+        message:
+          `[cdp-wedge] Wallet ${label} attempt ${attempt}/${WEDGED_LAUNCH_ATTEMPTS}: ${error.message}; ` +
+          (relaunching ? `saving evidence, then relaunching wallet ${label}` : 'saving evidence, then giving up')
+      });
+      await captureWedgeEvidence({
+        udid,
+        outDir: path.join(timeline.getOutputDir(), 'cdp-wedge', `wallet-${label}-attempt-${attempt}`),
+        since: attemptStart,
+        screenshot: (outPath, timeoutMs) => sim.screenshot(udid, outPath, { timeoutMs }),
+        onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+      });
+    }
+  );
+}
+
+/**
  * Bring one simulator from "booted but app not running" to "app launched +
  * CDP connected + IosWalletPage ready". Per-test isolation: uninstall +
  * install wipes the IndexedDB / Preferences sandbox without touching boot
  * state (~5s instead of the ~30s `simctl erase` would cost).
  */
-async function launchSimWalletInstance(
+async function launchSimWalletInstanceOnce(
   sim: SimulatorControl,
   udid: string,
   envConfig: EnvironmentConfig,
@@ -138,7 +177,25 @@ async function launchSimWalletInstance(
     });
   });
 
-  const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
+  // Dismiss the native notification-permission alert before every screenshot of this wallet (see
+  // system-alerts.ts): initNativeNotifications() raises it when the authenticated shell mounts mid-test,
+  // a SpringBoard alert outside the WebView that CDP can't tap. Gating the page's own screenshot covers
+  // every capture path, the screen poll and DappBrowserDriver's paint assertions alike, so no frame is
+  // shot while it's up. Best-effort; no-op without idb.
+  const alertGate = createNotificationAlertGate(udid, {
+    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+  });
+  // The wallet's bridge log says when the app has asked for notification permission, so a capture waits for the
+  // alert to be tapped instead of racing its appearance (see createNotificationAlertGate).
+  cdp.onConsoleLog(entry => alertGate.observeConsole(entry.text));
+  const walletPage = new IosWalletPage({
+    cdp,
+    sim,
+    udid,
+    bundleId: BUNDLE_ID,
+    beforeCapture: () => alertGate.beforeCapture(),
+    settleNotificationPrompt: () => alertGate.settlePrompt(60_000)
+  });
 
   // Connect idb's companion now, before the screen poll starts, so the first
   // home frame isn't captured while idb is still cold-starting (see warmUpIdb).
@@ -209,6 +266,8 @@ async function setupBothWallets(
       // hung `simctl` call, or webinspectord exposing no WebViews (CDP blind).
       // recoverSimSubsystem fixes both (restart CoreSimulatorService + relaunch
       // Simulator.app so webinspectord re-exposes WebViews + re-boot devices).
+      // A wedged CDP attach is not one of them: the subsystem is healthy and
+      // launchSimWalletInstance has already relaunched that wallet once.
       if ((isSimctlTimeoutError(err) || isCdpNoPagesError(err)) && attempt < MAX_ATTEMPTS) {
         timeline.emit({
           category: 'test_lifecycle',
@@ -409,17 +468,9 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // socket as the rest of the spec's traffic.
     const screensDir = path.join(steps.outputDir, 'screens');
     const screenPolls = [
-      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp, udid: instanceA.udid },
-      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp, udid: instanceB.udid }
-    ].map(({ label, walletPage, cdp, udid }) => {
-      // Dismiss the native notification-permission alert before each screenshot
-      // (see system-alerts.ts): initNativeNotifications() raises it when the
-      // authenticated shell mounts mid-test — a SpringBoard alert outside the
-      // WebView that CDP can't tap. Gating the capture (vs a background poll)
-      // means no frame is ever shot while it's up. Best-effort; no-op without idb.
-      const alertGate = createNotificationAlertGate(udid, {
-        onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
-      });
+      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp },
+      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp }
+    ].map(({ label, walletPage, cdp }) => {
       return startScreenPoll({
         intervalMs: 250,
         read: async () => {
@@ -437,10 +488,8 @@ export const test = base.extend<TwoSimulatorFixtures>({
           );
           return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
         },
-        grab: async p => {
-          await alertGate.beforeCapture();
-          await walletPage.screenshot({ path: p });
-        },
+        // walletPage.screenshot() dismisses the notification alert first (launchSimWalletInstance).
+        grab: p => walletPage.screenshot({ path: p }),
         dir: screensDir,
         label
       });

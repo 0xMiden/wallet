@@ -1,12 +1,12 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
+import type { Status } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
-  IEarnWithdrawPhase,
   ITransaction,
   ITransactionStatus,
   ITransactionType
@@ -15,9 +15,16 @@ import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
+import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
 
@@ -62,6 +69,33 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
   );
 };
 
+/**
+ * The entry as shown: its token and each extra amount named by its own faucet (`midenTokenLabel`). A fetched entry keeps
+ * the chain symbol, so a list labels it at render and follows the snapshot when it publishes. A swap row names each side
+ * by that side's faucet; an Earn row keeps the chain symbol the Earn screens use.
+ */
+export const labelHistoryEntry = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): IHistoryEntry => {
+  if (entry.txType === 'swap') {
+    return {
+      ...entry,
+      token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+      requestedToken:
+        entry.requestedToken === undefined
+          ? undefined
+          : midenTokenLabel(snapshot, entry.requestedFaucetId, entry.requestedToken)
+    };
+  }
+  if (entry.txType === 'earn-withdraw' || entry.txType === 'earn-deposit') return entry;
+  return {
+    ...entry,
+    token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+    extraAmounts: entry.extraAmounts?.map(extra => ({
+      ...extra,
+      token: midenTokenLabel(snapshot, extra.faucetId, extra.token)
+    }))
+  };
+};
+
 /** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
 interface SwapExtraInputs {
   requestedFaucetId?: string;
@@ -92,10 +126,13 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   // to re-discriminate them — which is how the scale check first went wrong,
   // testing a property (`name`) that a legitimate metadata record may omit.
   const offeredRegistry = getSwapTokenByFaucetId(tx.faucetId);
-  const offeredMetadata = offeredRegistry === undefined ? await getTokenMetadata(tx.faucetId ?? null) : undefined;
+  const offeredMetadata =
+    offeredRegistry === undefined && tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
   const requestedRegistry = getSwapTokenByFaucetId(extra.requestedFaucetId);
   const requestedMetadata =
-    requestedRegistry === undefined ? await getTokenMetadata(extra.requestedFaucetId ?? null) : undefined;
+    requestedRegistry === undefined && extra.requestedFaucetId
+      ? await getTokenMetadata(extra.requestedFaucetId)
+      : undefined;
   // A registry token declares its own decimals, so a registry hit is always
   // scalable. Off the registry, `getTokenMetadata` hands back the unknown-token
   // placeholder for a faucet it could not resolve, and its 6 decimals are a
@@ -118,12 +155,34 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   };
 };
 
-export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
+/**
+ * Whether the wallet received this entry. A settled receive carries the `RECEIVE` icon; a claim
+ * still queued or processing has none, because the pending entries History builds do not copy the
+ * row's `displayIcon`, so it is recognised by its type.
+ */
+export const isReceiveEntry = (
+  entry: Pick<IHistoryEntry, 'transactionIcon'> & { txType?: IHistoryEntry['txType'] }
+): boolean =>
+  entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
+
+/**
+ * Whether a note of the native asset that the native faucet sent is a faucet claim on this
+ * network. Mainnet has no faucet to request funds from: its native faucet is the USDCx minter, so
+ * such a note there is a bridge-in, shown as an ordinary receive. Every other network has a faucet
+ * drip to show. The caller gives the network of each call, because a Developer Settings save can
+ * change it without a reload.
+ */
+export const networkHasFaucetClaims = (network: MIDEN_NETWORK_NAME): boolean => network !== MIDEN_NETWORK_NAME.MAINNET;
+
+export const isFaucetRequest = (
+  entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'> & {
+    txType?: IHistoryEntry['txType'];
+  }
+): boolean => {
+  if (!networkHasFaucetClaims(getEffectiveNetworkName())) return false;
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
-  return (
-    entry.transactionIcon === 'RECEIVE' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId
-  );
+  return isReceiveEntry(entry) && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
 };
 
 export const isCompletedTransaction = (message: string): boolean => {
@@ -133,7 +192,7 @@ export const isCompletedTransaction = (message: string): boolean => {
 /**
  * Settlement state for a completed swap order, driving the swap row's status
  * chip and the receipt's hero pill; `undefined` renders Confirmed. Pending only
- * for auto-consumed orders that carry an explicit expiry (stamped since
+ * for an open Guardian-recovered order, and for auto-consumed orders that carry an explicit expiry (stamped since
  * settlement shipped) and have no settlement stamp yet — settled, legacy, and
  * manual-claim orders all fall through to Confirmed. A settledAt stamp wins over
  * reclaimedAt (a batch containing payback notes delivered funds even if the
@@ -142,31 +201,80 @@ export const isCompletedTransaction = (message: string): boolean => {
  * Shared by the list and the detail screen so one order cannot read "Pending"
  * in the list and "Confirmed" on its own receipt.
  */
-export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | undefined => {
+export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlement'] => {
   if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
   const extra = tx.extraInputs ?? {};
+  // Recovery writes Auto accept off and no expiry, so a recovered order reads open while its lineage has not closed
+  // it, which is what the placing device shows (#1487), and Returning funds once this wallet's Cancel stamped it. Read
+  // before the stamps: a settledAt or reclaimedAt no lineage read recorded is provisional.
+  if (isOpenRecoveredOrder(tx)) return extra.expiryTriggeredAt != null ? 'reclaiming' : 'pending';
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
+  if (tx.recovered === true) return undefined;
+  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
+    return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };
 
+/** What a displayed Bridge or Earn amount means, which decides how it may be rounded. */
+export type MoneyKind = 'receives' | 'pays' | 'typed';
+
 /**
- * Round a bridge's (USDC) destination output to the standard 2 decimals for
- * display, expanding for small non-zero values. Passes non-numeric input
- * through unchanged.
- *
- * Rounds DOWN, never half-up: this now formats the bridge hero's IN side too,
- * which is the user's own sent amount, and half-up there displays MORE than was
- * sent (1.239999… → "1.24"). Rounding down also matches the two sibling money
- * formatters — `formatEarnWithdrawAmount` and the activity row — so the same
- * value cannot read differently depending on the surface.
+ * Minimum decimals by displayed symbol, for an asset whose amounts need more than the default two.
+ * Six is the typed-amount input cap (`AmountInput`), so a Slow ETH amount reads the same in flight
+ * and once credited. Metadata `decimals` is the on-chain scale, not a display precision.
  */
-export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
-  if (amount === undefined) return undefined;
-  const n = new BigNumber(amount);
-  return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
-};
+const DISPLAY_PRECISION = new Map([
+  ['ETH', 6],
+  ['WETH', 6]
+]);
+const DEFAULT_DISPLAY_PRECISION = 2;
+
+/**
+ * The decimal text of a stored amount. A restore keeps a row's `extraInputs` as the dump recorded
+ * them, so a hand-edited backup can leave a number or a BigInt where a string is declared; any
+ * other shape is not an amount.
+ */
+const amountText = (stored: unknown): string | undefined =>
+  typeof stored === 'string' || typeof stored === 'number' || typeof stored === 'bigint' ? String(stored) : undefined;
+
+/**
+ * The one display rule for Bridge and Earn amounts. `receives` rounds down, so a screen never
+ * promises more than arrives; `pays` rounds up, so it never shows less than leaves the account;
+ * `typed` shows the exact decimal the user typed, without grouping, a trailing separator or
+ * trailing zeros, and reads an empty or non-numeric value as 0. Rounded kinds keep at least the
+ * asset's minimum decimals, expand for a small value and never pad. A non-numeric rounded value
+ * (a legacy or restored string) and `undefined` pass through unchanged. A value outside the display
+ * window (`DISPLAY_EXPONENT_LIMIT`) reads as non-numeric: 0 when typed, passed through when rounded.
+ */
+export function formatMoneyAmount(value: string, kind: MoneyKind, symbol?: string): string;
+export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined;
+export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined {
+  if (value === undefined) return undefined;
+  const text = amountText(value);
+  if (text === undefined) return kind === 'typed' ? '0' : value;
+  if (kind === 'typed') {
+    const typed = new BigNumber(text.replace(/,/g, ''));
+    return isDisplayable(typed) ? typed.toFixed() : '0';
+  }
+  const amount = new BigNumber(text);
+  if (!isDisplayable(amount)) return value;
+  const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
+  const places = getAdaptiveDecimalPlaces(amount, minimum);
+  return amount.decimalPlaces(places, kind === 'pays' ? BigNumber.ROUND_UP : BigNumber.ROUND_DOWN).toFixed();
+}
+
+/**
+ * A received amount as the wallet credited it: the row's own base-unit `amount` scaled by the
+ * delivered faucet, then rounded down at that asset's precision. Withheld when there is no amount or
+ * the faucet's scale is a guess, since scaling by a guess misreports what arrived.
+ */
+export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetadata | undefined): string | undefined =>
+  amount !== undefined && hasKnownScale(metadata)
+    ? formatMoneyAmount(formatAmount(amount, metadata?.decimals), 'receives', metadata?.symbol)
+    : undefined;
 
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -187,6 +295,11 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
     return 'pending';
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
+  if (entry.bridgeProvider === 'usdcx') {
+    if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
+    if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
+    return 'pending';
+  }
   if (entry.bridgeProvider === 'agglayer') {
     if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
     if (entry.bridgeClaimStatus === 'failed') return 'failed';
@@ -195,17 +308,49 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   return entry.bridgeEpochStatus ?? 'pending';
 };
 
-/** i18n key for each bridge status (shared by the summary row + full Activity row). */
-export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
-  pending: 'pending',
-  confirmed: 'confirmed',
-  failed: 'bridgeFailed'
-};
+/** A USDCx row in either direction: a deposit through xReserve, or a burn. Its badge is `bridgeBadgeStatusOf`. */
+export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
+  entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
+
+/**
+ * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
+ * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
+ * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
+ * none arrives within 2 hours.
+ */
+export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
+  if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
+  if (entry.bridgeInProvider === 'usdcx') {
+    const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
+    return received ? 'completed' : bridgeStatusOf(entry);
+  }
+  if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
+  switch (entry.usdcxBurn?.phase) {
+    case 'confirmed':
+      if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';
+      return isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, now, entry.restoredFromBackup === true)
+        ? 'payoutDelayed'
+        : 'burnConfirmed';
+    case 'discarded':
+      return 'burnDiscarded';
+    case 'consuming':
+      return 'burnConsuming';
+    default:
+      return 'burnPending';
+  }
+}
 
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
-  /** Quoted destination output, falling back to the input amount for legacy/in-flight rows. */
+  /** The name each side is shown under (`midenTokenLabel`, `evmUsdcLabel`); the symbols above format the amounts. */
+  inLabel: string;
+  outLabel: string;
+  /**
+   * What the destination side receives, ready to show. Bridge-out: the stored quote rounded down,
+   * or the typed send amount for a row without a quote (Slow). Bridge-in: the typed "you receive"
+   * while in flight, then the credited amount rounded down once received.
+   */
   outAmount?: string;
   providerLabel: string;
   network: string;
@@ -217,13 +362,63 @@ export interface BridgeRowDisplay {
  * (`HistoryItem`) and the full Activity row (`HistoryView` → `ActivityRow`) render
  * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
  */
-export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
+  if (entry.bridgeProvider === 'usdcx') {
+    return {
+      inSymbol,
+      outSymbol: inSymbol,
+      inLabel: inSymbol,
+      outLabel: inSymbol,
+      outAmount: entry.amount?.toString(),
+      providerLabel: 'Circle xReserve',
+      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
+      status: bridgeStatusOf(entry)
+    };
+  }
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
-  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? entry.amount?.toString();
+  // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
+  const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
+  // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
+  const outLabel = entry.bridgeProvider === 'epoch' ? evmUsdcLabel(snapshot, outSymbol) : outSymbol;
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel: midenTokenLabel(snapshot, entry.faucetId, inSymbol),
+    outLabel,
+    outAmount,
+    providerLabel,
+    network: 'Sepolia',
+    status: bridgeStatusOf(entry)
+  };
+};
+
+/**
+ * A stored bridge symbol that is really an EVM contract address is not shown.
+ * Rows written before the fix carry the allocator's token `name`, which for
+ * Sepolia USDC is the address, in place of a symbol.
+ */
+const symbolOrUndefined = (symbol: string | undefined): string | undefined =>
+  symbol === undefined || /^0x[0-9a-fA-F]{40}$/.test(symbol) ? undefined : symbol;
+
+/** Display name of the bridge-in route. A row with no provider predates the field and was Epoch. */
+const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): string => {
+  switch (provider) {
+    case 'agglayer':
+      return 'Agglayer';
+    case 'usdcx':
+      return 'Circle xReserve';
+    case 'near-intents':
+      return '1Click';
+    case 'epoch':
+      return 'Epoch';
+    case undefined:
+      return 'Epoch';
+    default:
+      return 'Bridge';
+  }
 };
 
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
@@ -236,47 +431,51 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
  * row is only tagged once the consume is on-chain-final, so status is always
  * confirmed.
  */
-export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
-  const inSymbol = entry.bridgeInSourceSymbol ?? 'USDC';
-  const outSymbol = entry.bridgeInOutputSymbol ?? entry.token ?? '—';
+export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
+  const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
+  const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
+  // Once received (a consume row always is) the row's own amount is what was credited. In flight
+  // the stored "you receive" amount is what was typed, on either route; a row without one shows its
+  // own amount, which is the typed amount on Slow and the quote's tokenOut on any other route.
+  const fallbackKind = entry.bridgeInProvider === 'agglayer' ? 'typed' : 'receives';
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
-      ? entry.amount?.toString()
-      : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
-  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
+      ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
+      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
+        formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
+  const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
+  const inLabel = bridgeInSourceLabel(snapshot, {
+    provider: entry.bridgeInProvider,
+    symbol: inSymbol,
+    sourceToken: entry.bridgeInSourceToken
+  });
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel,
+    outLabel: midenTokenLabel(snapshot, entry.faucetId, outSymbol),
+    outAmount,
+    providerLabel,
+    network: 'Miden',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
 export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
-
-/** Trim a human decimal amount to 2 places, expanding when needed to preserve a small non-zero value. */
-export const formatEarnWithdrawAmount = (human: string): string => {
-  const n = new BigNumber(human);
-  if (!n.isFinite()) return human;
-  return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
-};
-
-/** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */
-export const earnWithdrawToneOf = (phase: IEarnWithdrawPhase | undefined): BridgeStatus => {
-  if (phase === 'received') return 'confirmed';
-  if (phase === 'failed') return 'failed';
-  return 'pending';
-};
-
-/** i18n key for each withdraw phase status chip. */
-export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> = {
-  redeeming: 'earnWithdrawStatusRedeeming',
-  delivering: 'earnWithdrawStatusDelivering',
-  received: 'received',
-  failed: 'failed'
-};
 
 /** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
 export interface EarnWithdrawAmountFields {
   amount?: string;
   token?: string;
 }
+
+/**
+ * Whether a Smart Withdraw shows its redeemed source side rather than the credited amount: until the
+ * credit lands, and on a received row that recorded no amount. The estimate prices the same side.
+ */
+export const earnWithdrawShowsSource = (extra: IEarnWithdrawExtraInputs, rowAmount: bigint | undefined): boolean =>
+  !(extra.phase === 'received' && rowAmount !== undefined);
 
 /**
  * Which side of a Smart Withdraw the activity shows.
@@ -286,7 +485,8 @@ export interface EarnWithdrawAmountFields {
  * `amount`. Once the bridged note is consumed (`phase === 'received'`) the
  * consume path patches the row with the amount that actually arrived,
  * denominated in `faucetId`'s asset — so the row must switch to its own amount
- * scaled by that faucet's metadata. The consume row is suppressed from Activity
+ * scaled by that faucet's metadata. Both sides round down: each is what the
+ * withdrawal delivers at most. The consume row is suppressed from Activity
  * (this row is the single trace), so keeping the source side would let the row
  * claim "+10 USDC" when a different amount of a different asset landed.
  */
@@ -295,17 +495,19 @@ export const earnWithdrawAmountFields = (
   rowAmount: bigint | undefined,
   destinationMetadata: AssetMetadata | undefined
 ): EarnWithdrawAmountFields => {
-  if (extra.phase === 'received' && rowAmount !== undefined) {
+  if (!earnWithdrawShowsSource(extra, rowAmount)) {
     return {
       // The whole point of this branch is that the received leg is denominated
       // in the DESTINATION faucet's asset, so its decimals are load-bearing. If
       // that faucet never resolved, scaling by the placeholder's guess reports a
-      // withdrawal the user did not receive; the asset is still named.
-      amount: hasKnownScale(destinationMetadata) ? formatAmount(rowAmount, destinationMetadata?.decimals) : undefined,
-      token: destinationMetadata?.symbol ?? extra.outputSymbol
+      // withdrawal the user did not receive. The token is that faucet's own
+      // symbol, a placeholder's included; the stored output symbol is the bridged
+      // note's source token (the EVM side), so it never names what arrived.
+      amount: creditedAmount(rowAmount, destinationMetadata),
+      token: destinationMetadata?.symbol
     };
   }
-  return { amount: formatEarnWithdrawAmount(extra.sourceAmount), token: extra.sourceSymbol };
+  return { amount: formatMoneyAmount(extra.sourceAmount, 'receives', extra.sourceSymbol), token: extra.sourceSymbol };
 };
 
 /** Settlement state of a Smart Deposit's Sepolia lending leg (`extraInputs.epochStatus`). */
@@ -315,27 +517,67 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  * An `earn-deposit` row goes database-Completed the moment the Miden collateral
  * note lands, but the leg that actually opens the lending position is
  * solver-fulfilled and tracked separately — so an unstamped/pending leg must not
- * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
+ * render as Confirmed. The detail page reads the same leg through its own badge.
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
   entry.earnDepositStatus ?? 'pending';
-
-/** i18n key per deposit settlement state (reuses the shared status labels). */
-export const EARN_DEPOSIT_STATUS_LABEL_KEY: Record<EarnDepositSettlement, string> = {
-  pending: 'pending',
-  confirmed: 'confirmed',
-  failed: 'failed'
-};
 
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;
 };
 
 export const TRANSACTION_COLORS = {
-  send: '#91ACC1',
-  receive: '#99AC94',
-  faucet: '#891DB1'
+  // The Send and Receive action colours, through the activity tokens in main.css.
+  send: 'var(--tx-sent)',
+  receive: 'var(--tx-received)',
+  // A dusty rose distinct from Received's green and Swap's purple. The square carries a white glyph
+  // (HistoryView paints `[&_path]:fill-pure-white`), so it owes WCAG 1.4.11's 3:1: the original
+  // #CCA4B8 sat at 2.19:1, and this is the same hue taken down in lightness until it clears.
+  // Mirrors --tx-faucet in main.css - keep both in sync; the test below is what enforces it.
+  faucet: '#BA839F',
+  // The slate every bridge row wears — and, since it moves no money on Miden, a
+  // Guardian op too. `TransactionIcon` paints the glyph with it and `HistoryView`
+  // hard-codes the same value as `bg-[#777487]`; keep the three in sync.
+  bridge: '#777487'
 } as const;
+
+/**
+ * `isFaucetRequest` read off the transaction row instead of the history entry, for the two
+ * screens that hold an `ITransaction` and never build an entry — the summary badge and the
+ * receipt. The same three facts: a claim, of the native asset, whose sender is the faucet
+ * itself (`secondaryAccountId` is what History copies into the entry's `secondaryAddress`).
+ *
+ * `nativeFaucetId` is a parameter rather than `getNativeAssetIdSync()` because those screens
+ * take it from `useMidenFaucetId()`, which re-renders once discovery lands; `null` means "not
+ * known yet", so the claim reads as an ordinary one until it is — the same contract the badge's
+ * asset labels already follow. On Mainnet it is never a faucet mint (`networkHasFaucetClaims`).
+ */
+export const isFaucetMintTransaction = (
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
+  nativeFaucetId: string | null
+): boolean =>
+  networkHasFaucetClaims(getEffectiveNetworkName()) &&
+  transaction?.type === 'consume' &&
+  nativeFaucetId !== null &&
+  transaction.faucetId === nativeFaucetId &&
+  transaction.secondaryAccountId === nativeFaucetId;
+
+/**
+ * The accent a claim wears: the colour `getTransactionIconBackgroundColor` paints that same
+ * claim's glyph with, in Activity and on its detail page. A bridge-in claim takes the bridge
+ * slate, a faucet mint the dusty rose; every other claim is money arriving from someone, in the
+ * received green.
+ *
+ * The summary badge's arrow sits directly under that glyph, so it asks this instead of naming
+ * the Receive action colour — which drew a green arrow beneath a rose icon on every faucet claim.
+ */
+export const claimAccentColor = (
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId' | 'extraInputs'> | undefined,
+  nativeFaucetId: string | null
+): typeof TRANSACTION_COLORS.bridge | typeof TRANSACTION_COLORS.faucet | typeof TRANSACTION_COLORS.receive => {
+  if (transaction?.type === 'consume' && transaction.extraInputs?.bridgeIn) return TRANSACTION_COLORS.bridge;
+  return isFaucetMintTransaction(transaction, nativeFaucetId) ? TRANSACTION_COLORS.faucet : TRANSACTION_COLORS.receive;
+};
 
 export const formatDate = (timestamp: number | string): string => {
   let date: Date;

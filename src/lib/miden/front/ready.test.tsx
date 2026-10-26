@@ -4,6 +4,7 @@ import React from 'react';
 
 import { renderHook, act } from '@testing-library/react';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -29,11 +30,36 @@ jest.mock('lib/miden/front/storage', () => ({
   })
 }));
 
+// The effective network: the endpoint override's network, else the build
+// default. A Testnet build with no override is the start state.
+let mockEffectiveNetworkName: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetworkName
+}));
+
+// The bridge config listeners. followEffectiveNetwork() fires them when the
+// effective network changes.
+const mockBridgeConfigListeners = new Set<() => void>();
+jest.mock('lib/remote-config/runtime', () => ({
+  subscribeBridgeConfig: (listener: () => void) => {
+    mockBridgeConfigListeners.add(listener);
+    return () => {
+      mockBridgeConfigListeners.delete(listener);
+    };
+  }
+}));
+
+const MAINNET_ENTRY = { id: MIDEN_NETWORK_NAME.MAINNET, name: 'Mainnet', rpcBaseURL: 'http://mainnet', autoSync: true };
+const TESTNET_ENTRY = { id: MIDEN_NETWORK_NAME.TESTNET, name: 'Testnet', rpcBaseURL: 'http://testnet', autoSync: true };
+
 describe('ready hooks', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStoredValue = '';
     mockSetStoredValue.mockClear();
+    mockEffectiveNetworkName = MIDEN_NETWORK_NAME.TESTNET;
+    mockBridgeConfigListeners.clear();
 
     // Reset store to initial state
     useWalletStore.setState({
@@ -132,6 +158,53 @@ describe('ready hooks', () => {
       // After validation effect runs, should fall back to default
       expect(result.current.id).toBe('net-1');
     });
+
+    // Regression #1655: Mainnet invitation onboarding stores only an endpoint
+    // override. It does not write the legacy stored network id.
+    it('returns the Mainnet entry on a Testnet build when a Mainnet override is active', () => {
+      mockEffectiveNetworkName = MIDEN_NETWORK_NAME.MAINNET;
+      useWalletStore.setState({ networks: [MAINNET_ENTRY, TESTNET_ENTRY], selectedNetworkId: null });
+
+      const first = renderHook(() => useNetwork());
+      expect(first.result.current).toEqual(MAINNET_ENTRY);
+      first.unmount();
+
+      const second = renderHook(() => useNetwork());
+      expect(second.result.current).toEqual(MAINNET_ENTRY);
+    });
+
+    it('prefers the effective network over the legacy stored network id', () => {
+      mockEffectiveNetworkName = MIDEN_NETWORK_NAME.MAINNET;
+      mockStoredValue = MIDEN_NETWORK_NAME.TESTNET;
+      useWalletStore.setState({
+        networks: [TESTNET_ENTRY, MAINNET_ENTRY],
+        selectedNetworkId: MIDEN_NETWORK_NAME.TESTNET
+      });
+
+      const { result } = renderHook(() => useNetwork());
+      expect(result.current).toEqual(MAINNET_ENTRY);
+    });
+
+    it('returns the Testnet entry on a Testnet build with no override', () => {
+      useWalletStore.setState({ networks: [MAINNET_ENTRY, TESTNET_ENTRY], selectedNetworkId: null });
+
+      const { result } = renderHook(() => useNetwork());
+      expect(result.current).toEqual(TESTNET_ENTRY);
+    });
+
+    it('renders again when the effective network changes without a reload', () => {
+      useWalletStore.setState({ networks: [MAINNET_ENTRY, TESTNET_ENTRY], selectedNetworkId: null });
+
+      const { result } = renderHook(() => useNetwork());
+      expect(result.current).toEqual(TESTNET_ENTRY);
+      expect(mockBridgeConfigListeners.size).toBe(1);
+
+      act(() => {
+        mockEffectiveNetworkName = MIDEN_NETWORK_NAME.MAINNET;
+        mockBridgeConfigListeners.forEach(listener => listener());
+      });
+      expect(result.current).toEqual(MAINNET_ENTRY);
+    });
   });
 
   describe('useAllAccounts', () => {
@@ -142,8 +215,22 @@ describe('ready hooks', () => {
 
     it('returns accounts from store', () => {
       const accounts = [
-        { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-        { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OffChain, hdIndex: 1 }
+        {
+          publicKey: 'pk1',
+          name: 'Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa' as const
+        },
+        {
+          publicKey: 'pk2',
+          name: 'Account 2',
+          isPublic: false,
+          type: WalletType.OffChain,
+          hdIndex: 1,
+          authScheme: 'ecdsa' as const
+        }
       ];
       useWalletStore.setState({ accounts });
 
@@ -164,7 +251,14 @@ describe('ready hooks', () => {
     });
 
     it('returns current account when set', () => {
-      const account = { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+      const account = {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      };
       useWalletStore.setState({ currentAccount: account });
 
       const { result } = renderHook(() => useAccount());
@@ -173,7 +267,14 @@ describe('ready hooks', () => {
 
     it('dispatches reseterrorboundary event on account change', () => {
       const dispatchEventSpy = jest.spyOn(window, 'dispatchEvent');
-      const account = { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+      const account = {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      };
       useWalletStore.setState({ currentAccount: account });
 
       renderHook(() => useAccount());

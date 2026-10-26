@@ -1,20 +1,25 @@
 import React, { FC, ChangeEvent, KeyboardEvent, useRef } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+
+import { ClearFieldButton } from './ClearFieldButton';
 
 export interface SearchInputProps {
   value: string;
   onChange: (value: string) => void;
   /** Fired when the user presses Enter (or the mobile keyboard's go/return key). */
   onSubmit?: () => void;
+  /** Fired when the user presses Escape, e.g. to close a search that opened in place. */
+  onEscape?: () => void;
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
   /** Set to `'url'` for URL entry — also disables autocapitalize/autocorrect. */
   inputMode?: 'text' | 'url' | 'search';
+  /** `md` (44px) in a page or sheet; `sm` (36px) fits a header row. Same look at both sizes. */
+  size?: 'md' | 'sm';
   'data-testid'?: string;
 }
 
@@ -22,19 +27,23 @@ export const SearchInput: FC<SearchInputProps> = ({
   value,
   onChange,
   onSubmit,
+  onEscape,
   placeholder = 'Search',
   className,
   autoFocus,
   inputMode,
+  size = 'md',
   'data-testid': dataTestId
 }) => {
-  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && onSubmit) {
       e.preventDefault();
       onSubmit();
+    } else if (e.key === 'Escape' && onEscape) {
+      e.preventDefault();
+      onEscape();
     }
   };
 
@@ -44,14 +53,29 @@ export const SearchInput: FC<SearchInputProps> = ({
   };
 
   return (
-    <div className={classNames('relative w-full bg-gray-25 rounded-3xl h-14', className)}>
+    <div
+      className={classNames(
+        // Direction B: the shared `fill`, no border; an accent ring while typing.
+        'relative flex w-full items-center rounded-full bg-fill',
+        'focus-within:ring-[1.5px] focus-within:ring-accent-primary',
+        size === 'sm' ? 'h-9' : 'h-11',
+        className
+      )}
+    >
+      <Icon
+        name={IconName.Search}
+        size="sm"
+        fill="currentColor"
+        aria-hidden="true"
+        className={classNames('pointer-events-none absolute shrink-0 text-muted', size === 'sm' ? 'left-3' : 'left-4')}
+      />
       <input
         ref={inputRef}
         type="text"
         data-testid={dataTestId}
         value={value}
         onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-        onKeyDown={onSubmit ? handleKeyDown : undefined}
+        onKeyDown={onSubmit || onEscape ? handleKeyDown : undefined}
         placeholder={placeholder}
         aria-label={placeholder}
         autoFocus={autoFocus}
@@ -61,27 +85,17 @@ export const SearchInput: FC<SearchInputProps> = ({
         autoCorrect={inputMode === 'url' ? 'off' : undefined}
         spellCheck={inputMode === 'url' ? false : undefined}
         className={classNames(
-          // pad right only while the clear button is shown so centered text doesn't sit under it
-          'w-full bg-transparent outline-none py-4 text-base font-heading text-center',
-          value ? 'pl-11 pr-11' : 'px-4',
-          // #503 — placeholder must read as a hint, not a real value: lighter weight
-          // than the bold input text, and hidden once the field is focused.
-          'placeholder:text-placeholder-gray placeholder:font-normal placeholder:text-center',
-          'focus:placeholder:text-transparent',
-          'text-black font-bold'
+          // `text-body`: 16px, since anything smaller makes iOS zoom the page on focus, and Inter,
+          // since a query can be an address, which reads badly in the rounded display face.
+          'h-full w-full min-w-0 bg-transparent text-body text-ink outline-none',
+          size === 'sm' ? 'pl-9' : 'pl-11',
+          // Room for the clear button only while it shows.
+          value ? 'pr-11' : 'pr-4',
+          // #503: the placeholder reads as a hint, `muted` against the typed `ink`, and gives way to the caret.
+          'placeholder:text-muted focus:placeholder:text-transparent'
         )}
       />
-      {/* #503 — clear (X) affordance to erase the input, shown only when non-empty. */}
-      {value && (
-        <button
-          type="button"
-          aria-label={t('clear')}
-          onClick={handleClear}
-          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center"
-        >
-          <Icon name={IconName.CloseCircleFill} size="sm" className="text-placeholder-gray" fill="currentColor" />
-        </button>
-      )}
+      {value && <ClearFieldButton onClear={handleClear} className="absolute right-0 top-1/2 -translate-y-1/2" />}
     </div>
   );
 };

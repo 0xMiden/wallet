@@ -4,13 +4,14 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import AssetListItemDefault, { AssetListItem } from './AssetListItem';
+import AssetListItemDefault, { AssetListItem, AssetListItemSkeleton } from './AssetListItem';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-const renderItem = (props: Partial<React.ComponentProps<typeof AssetListItem>> = {}) =>
+// A disabled row is rendered directly: the props type admits `disabled` only together with `onClick`.
+const renderItem = (props: Partial<React.ComponentProps<typeof AssetListItem>> & { disabled?: undefined } = {}) =>
   render(<AssetListItem icon={<svg data-testid="glyph" />} name="Miden" amount="12.5 MIDEN" {...props} />);
 
 describe('AssetListItem', () => {
@@ -42,6 +43,14 @@ describe('AssetListItem', () => {
     expect((container.firstChild as HTMLElement).className).toContain('my-extra-class');
   });
 
+  it('renders the amount in the muted token rather than opacity-50', () => {
+    renderItem();
+
+    const amount = screen.getByText('12.5 MIDEN');
+    expect(amount.className).toContain('text-muted');
+    expect(amount.className).not.toContain('opacity-50');
+  });
+
   describe('chart rendering', () => {
     it('renders the chart node when provided', () => {
       renderItem({ chart: <div data-testid="chart" /> });
@@ -70,50 +79,140 @@ describe('AssetListItem', () => {
     });
   });
 
-  describe('delta rendering and color', () => {
+  describe('delta rendering', () => {
+    /** The Pill around a figure: its label slot's parent, or null when the figure is not in a pill. */
+    const pillAround = (text: string) =>
+      screen.getByText(text).closest('[data-slot="pill-label"]')?.parentElement ?? null;
+
     it('omits the delta when absent', () => {
       renderItem();
 
       expect(screen.queryByText('+2.5%')).toBeNull();
     });
 
-    it('applies the positive color for an explicit positive direction', () => {
+    it('draws the move as a tinted pill', () => {
       renderItem({ delta: { value: '+2.5%', direction: 'positive' } });
 
-      expect(screen.getByText('+2.5%').className).toContain('text-status-positive');
+      const pill = pillAround('+2.5%');
+      expect(pill).not.toBeNull();
+      expect(pill).toHaveClass('h-5', 'text-badge', 'mt-0.5', 'bg-positive-tint', 'text-positive-tint-ink');
+      // The pill carries the colour alone: no caption ink around it to argue with its tint.
+      expect(pill!.parentElement!.className).not.toMatch(/\btext-/);
     });
 
-    it('defaults to the positive color when direction is undefined', () => {
-      renderItem({ delta: { value: '+1.0%' } });
+    it.each([
+      ['negative', '-3.1%', ['bg-negative-tint', 'text-negative-tint-ink']],
+      ['neutral', '0.0%', ['bg-fill', 'text-muted']],
+      [undefined, '+1.0%', ['bg-positive-tint', 'text-positive-tint-ink']]
+    ] as const)('tints the pill by the direction: %s', (direction, value, classes) => {
+      renderItem({ delta: { value, direction } });
 
-      expect(screen.getByText('+1.0%').className).toContain('text-status-positive');
+      expect(pillAround(value)).toHaveClass(...classes);
+    });
+  });
+
+  it('truncates a long name before it pushes the price or the check out of the row', () => {
+    renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', name: 'A very long token name' });
+
+    const nameRow = screen.getByText('A very long token name').parentElement!;
+    expect(nameRow).toHaveClass('min-w-0');
+    expect(nameRow).not.toHaveClass('shrink-0');
+    // The name row sits inside the name+amount stack, which sits inside the leading group; each must
+    // be allowed to shrink, or the one above it cannot.
+    const stack = nameRow.parentElement!;
+    expect(stack).toHaveClass('min-w-0');
+    const leading = stack.parentElement!;
+    expect(leading).toHaveClass('min-w-0', 'flex-1');
+    const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
+    expect(trailing).toHaveClass('shrink-0');
+  });
+
+  it('truncates a long amount on one line, so it never runs under the price or the check', () => {
+    renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
+
+    expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+  });
+
+  describe('badge rendering', () => {
+    it('renders a badge right after the name, outside the truncating name element, in a wrapper that never shrinks', () => {
+      renderItem({ name: 'A very long token name', badge: <span data-testid="badge">B</span> });
+
+      const name = screen.getByText('A very long token name');
+      const wrapper = screen.getByTestId('badge').parentElement!;
+      expect(name).not.toContainElement(wrapper);
+      expect(name.nextElementSibling).toBe(wrapper);
+      expect(wrapper).toHaveClass('shrink-0');
     });
 
-    it('applies the negative color for a negative direction', () => {
-      renderItem({ delta: { value: '-3.1%', direction: 'negative' } });
+    it('leaves the name alone in its row when no badge is given', () => {
+      renderItem();
 
-      expect(screen.getByText('-3.1%').className).toContain('text-status-negative');
+      expect(screen.getByText('Miden').parentElement!.children).toHaveLength(1);
+    });
+  });
+
+  describe('selection', () => {
+    it('renders no check and reports no pressed state when selected is undefined', () => {
+      const { container } = renderItem({ onClick: jest.fn() });
+
+      expect(container.querySelector('[data-slot="check"]')).toBeNull();
+      expect(screen.getByRole('button')).not.toHaveAttribute('aria-pressed');
     });
 
-    it('applies the tertiary color for a neutral direction', () => {
-      renderItem({ delta: { value: '0.0%', direction: 'neutral' } });
+    it('renders the round check in the brand accent and reports aria-pressed when selected', () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: true });
 
-      expect(screen.getByText('0.0%').className).toContain('text-text-tertiary-token');
+      const check = container.querySelector('[data-slot="check"]')!;
+      expect(check).toBeTruthy();
+      expect(check.className).toContain('bg-accent-primary');
+      expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it("fills the check with a flow's own colour when an accent is given", () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: true, accent: 'swap' });
+
+      const check = container.querySelector('[data-slot="check"]')!;
+      expect(check.className).toContain('bg-accent-swap');
+      expect(check.className).not.toContain('bg-accent-primary');
+    });
+
+    it('renders no check on an unselected row but still reports the pressed state', () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: false });
+
+      expect(container.querySelector('[data-slot="check"]')).toBeNull();
+      expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
     });
   });
 
   describe('onClick / interaction', () => {
-    it('exposes a button role, fires haptics then onClick when clicked', () => {
+    it('is a native button, fires haptics then onClick when clicked', () => {
       const onClick = jest.fn();
       renderItem({ onClick });
 
       const button = screen.getByRole('button');
-      expect(button.className).toContain('cursor-pointer');
+      expect(button.tagName).toBe('BUTTON');
+      expect(button.className.split(' ')).toContain('cursor-pointer');
 
       fireEvent.click(button);
 
       expect(hapticLight).toHaveBeenCalledTimes(1);
       expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a disabled button in the shared disabled style that fires neither haptics nor onClick', () => {
+      const onClick = jest.fn();
+      render(<AssetListItem icon={<svg />} name="Miden" amount="12.5 MIDEN" onClick={onClick} disabled />);
+
+      const button = screen.getByRole('button');
+      expect(button).toBeDisabled();
+      expect(button.className.split(' ')).toEqual(
+        expect.arrayContaining(['disabled:cursor-default', 'disabled:opacity-50'])
+      );
+
+      fireEvent.click(button);
+
+      expect(hapticLight).not.toHaveBeenCalled();
+      expect(onClick).not.toHaveBeenCalled();
     });
 
     it('has no button role and does not fire haptics when onClick is absent', () => {
@@ -126,5 +225,26 @@ describe('AssetListItem', () => {
       expect(hapticLight).not.toHaveBeenCalled();
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
+  });
+});
+
+describe('AssetListItemSkeleton', () => {
+  it('stands in for a row with the row height and no text', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    const row = screen.getByTestId('skeleton-row');
+    expect(row).toHaveClass('h-18');
+    expect(row).toHaveTextContent('');
+  });
+
+  it('draws a round icon block and pulsing bars where the name, amount, price and change go', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    const blocks = screen.getByTestId('skeleton-row').querySelectorAll('[data-slot="skeleton"]');
+    expect(blocks).toHaveLength(5);
+    expect(blocks[0]).toHaveClass('rounded-full', 'w-9', 'h-9');
+  });
+
+  it('is hidden from assistive tech, since it has nothing to announce', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    expect(screen.getByTestId('skeleton-row')).toHaveAttribute('aria-hidden', 'true');
   });
 });

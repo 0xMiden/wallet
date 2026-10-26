@@ -169,7 +169,7 @@ describe('native-notifications', () => {
             channelId: 'miden_notes',
             extra: {
               type: 'note_received',
-              navigateTo: '/pending-notes'
+              navigateTo: '/history?filter=pending&view=list'
             }
           })
         ]
@@ -217,13 +217,38 @@ describe('native-notifications', () => {
       // Simulate notification tap
       await capturedCallback!({
         notification: {
-          extra: { navigateTo: '/pending-notes' }
+          extra: { navigateTo: '/settings' }
         }
       });
 
       jest.advanceTimersByTime(200);
 
-      expect(navigate).toHaveBeenCalledWith('/pending-notes');
+      expect(navigate).toHaveBeenCalledWith('/settings');
+
+      jest.useRealTimers();
+    });
+
+    it('sends a note_received tap to the current pending List path, not the one stored on an older notification', async () => {
+      jest.useFakeTimers();
+
+      let capturedCallback: ((action: any) => Promise<void>) | null = null;
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
+        capturedCallback = callback;
+        return Promise.resolve();
+      });
+
+      await setupNotificationTapListener();
+
+      // Posted by 1.16.2, before `view=list` was added to ACTIVITY_PENDING_PATH.
+      await capturedCallback!({
+        notification: {
+          extra: { type: 'note_received', navigateTo: '/history?filter=pending' }
+        }
+      });
+
+      jest.advanceTimersByTime(200);
+
+      expect(navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
 
       jest.useRealTimers();
     });

@@ -2,12 +2,16 @@ import '../../../test/jest-mocks';
 
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { PromptCarousel } from 'components/ui/PromptCarousel';
 import { useWalletStore } from 'lib/store';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
 import { GuardianNeedsUrlBanner } from './GuardianNeedsUrlBanner';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -18,7 +22,8 @@ const baseAccount = {
   name: 'Account 1',
   isPublic: true,
   type: WalletType.Guardian,
-  hdIndex: 0
+  hdIndex: 0,
+  authScheme: 'ecdsa' as const
 };
 
 describe('GuardianNeedsUrlBanner', () => {
@@ -53,6 +58,25 @@ describe('GuardianNeedsUrlBanner', () => {
     expect(screen.getByText('guardianChangedBody')).toBeInTheDocument();
   });
 
+  it('runs no guardian status clock', () => {
+    // Home mounts this banner, and nothing on Home may re-render on the 15 s status tick.
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      render(<GuardianNeedsUrlBanner />);
+      expect(screen.getByText('guardianChangedTitle')).toBeInTheDocument();
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+    }
+  });
+
+  it('renders the submit action as the compact in-card sm button, not a full 48px CTA', () => {
+    render(<GuardianNeedsUrlBanner />);
+    // sm is `h-9`; the default lg CTA is `h-12` — assert the compact size landed.
+    expect(getSubmitButton()).toHaveClass('h-9');
+    expect(getSubmitButton()).not.toHaveClass('h-12');
+  });
+
   it('rejects an invalid URL without calling the apply action', () => {
     render(<GuardianNeedsUrlBanner />);
     fireEvent.change(getUrlInput(), { target: { value: 'not-a-url' } });
@@ -71,13 +95,48 @@ describe('GuardianNeedsUrlBanner', () => {
     await waitFor(() => expect(mockApply).toHaveBeenCalledWith('pk1', 'https://mine.example.com'));
   });
 
-  it('shows a mismatch error when the endpoint fails on-chain verification', async () => {
-    mockApply.mockResolvedValueOnce(false);
+  it('shows a mismatch error when the endpoint denies the on-chain commitment', async () => {
+    mockApply.mockResolvedValueOnce('mismatch');
     render(<GuardianNeedsUrlBanner />);
     fireEvent.change(getUrlInput(), { target: { value: 'https://wrong.example.com' } });
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => expect(screen.getByText('guardianUrlMismatch')).toBeInTheDocument());
+  });
+
+  // The accusation is only earned when the operator ANSWERED and denied the
+  // commitment. An operator that never answered — cold-starting, self-hosted,
+  // briefly down — looks identical to a correct URL, and this banner is the only
+  // prompt that can repair the account, so telling that user they named the
+  // wrong operator sends them away from their one exit.
+  it('does not accuse the URL when the operator simply never answered', async () => {
+    mockApply.mockResolvedValueOnce('unreachable');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlUnreachable')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
+  });
+
+  it('says so plainly when the account has no on-chain guardian to verify against', async () => {
+    mockApply.mockResolvedValueOnce('no-onchain-guardian');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlNoOnChainGuardian')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
+  });
+
+  it('asks for one retry when the guardian changed while the URL was being checked', async () => {
+    mockApply.mockResolvedValueOnce('stale');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlStaleRetry')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
   });
 
   it('surfaces a thrown error message from the apply action', async () => {
@@ -87,6 +146,10 @@ describe('GuardianNeedsUrlBanner', () => {
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => expect(screen.getByText('network down')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_url_save_failed', 'inline');
   });
 
   it('surfaces a stringified message when a non-Error value is thrown', async () => {
@@ -96,6 +159,39 @@ describe('GuardianNeedsUrlBanner', () => {
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument());
+  });
+
+  // `applyUserGuardianEndpoint` crosses the intercom boundary, which may
+  // serialize the rejection: an Error arrives as a plain object carrying
+  // `message` (no prototype), and some rejections carry no message at all.
+  it('surfaces the message from a serialized rejection that lost its prototype', async () => {
+    mockApply.mockRejectedValueOnce({ message: 'endpoint refused' });
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('endpoint refused')).toBeInTheDocument());
+  });
+
+  it('falls back to localized copy rather than rendering [object Object]', async () => {
+    mockApply.mockRejectedValueOnce({ code: 'transport_failed' });
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('smthWentWrong')).toBeInTheDocument());
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
+  // This line is the only feedback the recovery path has, and it appears after a
+  // submit rather than at render — without a live region it is silence.
+  it('announces the error to assistive technology', async () => {
+    mockApply.mockRejectedValueOnce(new Error('network down'));
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('network down'));
   });
 
   it('disables the submit button while a request is in flight, blocking re-clicks', async () => {
@@ -127,5 +223,108 @@ describe('GuardianNeedsUrlBanner', () => {
 
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(document.activeElement).not.toBe(input); // Enter: blurs
+  });
+
+  describe('carousel reporting visibility', () => {
+    let originalResizeObserver: typeof ResizeObserver;
+
+    beforeAll(() => {
+      originalResizeObserver = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      };
+    });
+
+    afterAll(() => {
+      globalThis.ResizeObserver = originalResizeObserver;
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const advance = async (milliseconds: number) => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(milliseconds);
+      });
+    };
+
+    const startRepair = () => {
+      let rejectApply: (error: Error) => void = () => undefined;
+      mockApply.mockReturnValueOnce(
+        new Promise<boolean>((_resolve, reject) => {
+          rejectApply = reject;
+        })
+      );
+      render(
+        <PromptCarousel>
+          <GuardianNeedsUrlBanner key="guardian" />
+          <div key="other">Another prompt</div>
+        </PromptCarousel>
+      );
+      fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+      fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+      expect(mockApply).toHaveBeenCalledTimes(1);
+      return async () => {
+        await act(async () => {
+          rejectApply(new Error('private repair failure'));
+        });
+      };
+    };
+
+    const showPrompt = (number: number) => {
+      fireEvent.click(screen.getByRole('button', { name: `Show prompt ${number} of 2` }));
+    };
+
+    it('does not report a repair rejection while its real carousel slide is offstage', async () => {
+      const rejectRepair = startRepair();
+      showPrompt(2);
+      await rejectRepair();
+      expect(screen.getByRole('alert')).toHaveTextContent('private repair failure');
+
+      await advance(1000);
+
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    it('requires a fresh 1000 ms after returning to a repair error that arrived offstage', async () => {
+      const rejectRepair = startRepair();
+      showPrompt(2);
+      await rejectRepair();
+      await advance(500);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      showPrompt(1);
+      await advance(999);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await advance(1);
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_url_save_failed', 'inline');
+    });
+
+    it('resets a partially elapsed reporting timer when paging away and back', async () => {
+      const rejectRepair = startRepair();
+      await rejectRepair();
+      await advance(600);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      showPrompt(2);
+      await advance(600);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      showPrompt(1);
+      await advance(999);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await advance(1);
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_url_save_failed', 'inline');
+    });
   });
 });

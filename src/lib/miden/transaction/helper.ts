@@ -1,49 +1,127 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { WalletMessageType } from 'lib/shared/types';
+import { classifyError } from 'lib/telemetry/classify';
+import { logOperationEnd } from 'lib/telemetry/diagnostic-log';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
-import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
-import { getMidenClient } from '../sdk/miden-client';
-
-/**
- * Feature flag: is the offscreen WASM client active? Read as a module constant
- * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
- * eliminates the flag-on branch of {@link readLastAuthReason}. Defaults ON in
- * the service-worker bundle that runs the transaction loop, OFF elsewhere and
- * hardcoded OFF on mobile — see the defines in the vite configs.
- */
-const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
+import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
+import { latestEntry, upsertEvidenceEntry } from './verdict-rules';
+import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import { compareAccountIds } from '../activity/utils';
+import {
+  hasLeftQueue,
+  IBridgedSendExtraInputs,
+  ICON_BY_TYPE,
+  INoteDeliveryState,
+  ITransaction,
+  ITransactionIcon,
+  ITransactionStage,
+  ITransactionStatus,
+  SubmitEvidenceFields,
+  TransactionOutput
+} from '../db/types';
+import { isPrivateNoteType } from '../helpers';
+import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
 // cycle (the offscreen write proxy needs the classifier). Re-exporting keeps
 // every existing caller — `import { buildSignCallbackError, ... } from './helper'`
 // / `./index` — unchanged.
-export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
-// `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
-// return type) and re-exported from that local binding to avoid naming it in
-// two separate re-export statements.
+export { buildSignCallbackError, buildSdkSignCallback, type SignCallbackError } from './sign-callback';
+// `SignCallbackReason` is imported locally and re-exported from that binding.
 export type { SignCallbackReason };
 
 /**
- * Detect the eventually-consistent Guardian canonicalization error:
+ * Detect the Guardian canonicalization refusal, which the pinned multisig client
+ * (0.17.0) throws from `syncState` when the guardian's view of an account has the
+ * local nonce with another commitment, or does not match the chain (a guardian
+ * behind local is kept quietly):
  *
- *   "Refusing to overwrite local state: incoming nonce 0 is not greater
- *    than local nonce 1 for account 0x..."
+ *   "Refusing to overwrite local state: incoming nonce N equals local nonce N
+ *    but commitments differ for account X"
+ *   "Refusing to overwrite local state: incoming commitment does not match
+ *    on-chain commitment for account X"
  *
- * Thrown by the WASM SDK when it's asked to sync a stale view of an account
- * the local client has already advanced past. For Guardian accounts this
- * happens because guardian canonicalization runs asynchronously after the
- * tx is accepted on-chain — by the time we try to sync, the local nonce has
- * already moved forward and the guardian's reply looks stale. The transaction
- * itself is fine; the next sync tick will reconcile. Treat as success.
+ * An answer about the guardian's view, never a landed write: a post-submit failure
+ * arrives as the apply-after-submit error (#1233). See `sdk/sdk-error-code.ts`.
  */
-export function isGuardianCanonicalizationError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-  return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
+export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
+
+/**
+ * Detect a co-signature that no longer authorizes the transaction being executed:
+ *
+ * The verbatim text, from all 67 guardian failures in a 300-send devnet run:
+ *
+ *   "Offscreen call 'guardianPipeline' failed: failed to execute transaction:
+ *    transaction execution failed: transaction is unauthorized with summary
+ *    TransactionSummary { ... }"
+ *
+ * The guardian co-signs a `TransactionSummary` bound to the account state and
+ * block commitment it saw when it signed. If the executing client recomputes
+ * that summary against anything else, the account's auth procedure rejects the
+ * signature. It is not a rejection of the transfer — the transfer is untouched,
+ * and a fresh proposal is authorized again.
+ *
+ * The mechanism behind every observed instance is the chain moving between the
+ * signature and the `executeRequest`, and its odds scale with the guardian
+ * round-trip: measured over a 300-send devnet run at ~4.5% with a sub-second
+ * proposal→execute window, rising to ~35% past 1.7s under sustained load.
+ *
+ * That mechanism is closed: the summary binds the block its auth args name (the
+ * proposal's `boundBlockNum`), the request declares it, and both leaves execute
+ * at the tip after `prepareGuardianTipExecution`, so a client whose sync height
+ * has advanced still reproduces the summary. A match here means some other
+ * divergence between the two computations of the summary.
+ *
+ * BOTH halves are required, and the execution half is the load-bearing one: it
+ * is what lets callers conclude the transaction never reached the chain, since
+ * this text can only come from the execute step, which precedes prove and
+ * submit in both the inline (`runGuardianPipeline`) and offscreen
+ * (`guardianPipeline`) leaves. Matching "unauthorized" alone would also catch a
+ * post-submit rejection carrying the same word, and requeueing one of those
+ * could double-send a transfer that had already landed.
+ *
+ * The execution marker is deliberately the narrow `transaction execution
+ * failed` and not the broader "failed to execute …": the native prover reports
+ * `failed to execute transaction kernel program`, which would pair with the
+ * word "unauthorized" on a text coincidence and pin the failure to no step at
+ * all.
+ *
+ * The `cause` chain is searched, like `isApplyAfterSubmitError` in the same
+ * catch chain — the offscreen bus rewraps errors and callers may attach a
+ * cause, so the reason does not reliably land on `.message`, and reading only
+ * that fails closed (silently switching this arm back off) rather than
+ * announcing itself. But both halves must come from the SAME error in that
+ * chain, which is why this tests each link instead of the flattened string: on
+ * the flattened form a post-submit rejection supplying "unauthorized" and any
+ * unrelated inner error supplying the execution marker would assemble a match
+ * for a transfer that may already be on chain, out of two errors that never
+ * described one failure.
+ */
+export function isGuardianUnauthorizedExecutionError(error: unknown): boolean {
+  // A lock-recovery eviction is never a guardian auth rejection, but its `cause`
+  // carries the raw realm error VERBATIM — and this classifier walks the cause
+  // chain, so an eviction that interrupted a pipeline which had already produced
+  // this text would match on the wrapper (issue #775). That breaks the arm's
+  // whole safety argument: it holds because the execute step STOPPED the
+  // pipeline before prove and submit, whereas an eviction only rejects the
+  // caller — the abandoned pipeline runs on and can still submit, so requeueing
+  // would broadcast the transfer a second time. Checked first and at any depth,
+  // mirroring `isApplyAfterSubmitError` and `isLockedError`.
+  if (isPoisonedPipeline(error)) return false;
+  return errorMessageParts(error).some(
+    part => /transaction is unauthorized/i.test(part) && /transaction execution failed/i.test(part)
+  );
 }
 
 /**
@@ -53,9 +131,13 @@ export function isGuardianCanonicalizationError(error: unknown): boolean {
  * auto-consume cycle retries it after unlock, instead of marking it Failed.
  *
  * Two signals, mirroring `buildSignCallbackError`'s locked classification:
- *   - a `reason: 'locked'` tag (attached by `buildSignCallbackError` or by
- *     the vault-backed guardian provider's null-vault guard), or
- *   - an explicit "locked" / "not initialized" message.
+ *   - a `reason: 'locked'` tag, attached to the write's own rejection by
+ *     `withWasmClientLock` (from the record its sign trampoline keyed by the
+ *     hold) or by `dispatchOffscreenWrite` (from its op-keyed record), through
+ *     `tagLockedSignReason`; the vault-backed guardian provider's null-vault
+ *     guard throws it directly, or
+ *   - an explicit "locked" / "not initialized" message, which is all the SDK
+ *     forwards from a sign callback's throw.
  *
  * Deliberately NARROWER than `buildSignCallbackError`: it does NOT treat a
  * bare `Cannot read properties of null` TypeError as locked. That regex is
@@ -66,6 +148,16 @@ export function isGuardianCanonicalizationError(error: unknown): boolean {
  * locked message, so this precise match is sufficient.
  */
 export function isLockedError(err: unknown): boolean {
+  // A lock-recovery eviction is never a locked vault, whatever its text says
+  // (issue #775). "Locked" means DEFER: leave the row Queued for the next cycle.
+  // That is safe only because a locked vault is strictly pre-submit — and an
+  // eviction is the one failure where that does not hold, since the abandoned
+  // pipeline runs on and can still submit. Belt-and-braces with the closed-set
+  // message in `WasmClientPoisonedError`: this is the classifier whose false
+  // positive turns into a second payment, so it checks the TYPE too, at any
+  // depth: a wrapper's own locked text or tag does not make an eviction a
+  // locked vault (#1313).
+  if (isPoisonedPipeline(err)) return false;
   if (err && typeof err === 'object' && (err as { reason?: unknown }).reason === 'locked') {
     return true;
   }
@@ -77,6 +169,8 @@ export function isLockedError(err: unknown): boolean {
  * Update the status of the transaction
  * @param id The id of the transaction to update
  * @throws if the transaction has been cancelled
+ *
+ * An Unconfirmed row is refused too: its pipeline has stopped, and only the reconciler's writers move it (#1081).
  */
 export const updateTransactionStatus = async <K extends keyof ITransaction>(
   id: string,
@@ -85,12 +179,40 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
 ) => {
   const tx = await Repo.transactions.where({ id }).first();
   if (!tx) throw new Error('No transaction found to update');
-  if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Completed) {
+  if (hasLeftQueue(tx)) {
     throw new Error('Transaction already in a finalized state');
   }
 
+  // Re-checked at WRITE time as well as above, because the two are separate
+  // transactions and the terminal writer is no longer always inside the loop
+  // lock: the requeue wake's ceiling can fail a stale row from outside it. Lose
+  // that race and this call writes a live status straight over the Failed —
+  // without clearing `error`, `displayIcon` or `completedAt`, which nothing on
+  // the success path clears either. The row then completes wearing a FAILED
+  // icon and an expiry message, on a send that actually went through.
+  let finalized = false;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id: id }).modify(t => {
+    if (hasLeftQueue(t)) {
+      finalized = true;
+      return false;
+    }
+    // Snapshot the stamps accumulated DURING the run, before the assign below
+    // can overwrite them with a stale forwarded copy (see the Completed branch).
+    if (status === ITransactionStatus.Failed) failed = { ...t };
+    const runStageTimestamps = t.stageTimestamps;
+    // A completion hands over the whole pick-time row, which predates every crossing and verdict written during the
+    // run; only their own writers change these (#1081).
+    const storedEvidence = t.submitEvidence;
+    const storedNeverCommittedAt = t.neverCommittedAt;
     Object.assign(t, otherValues);
+    if (Object.prototype.hasOwnProperty.call(otherValues, 'failureDiagnostics') && t.failureDiagnostics === undefined) {
+      delete t.failureDiagnostics;
+    }
+    if (storedEvidence === undefined) delete t.submitEvidence;
+    else t.submitEvidence = storedEvidence;
+    if (storedNeverCommittedAt === undefined) delete t.neverCommittedAt;
+    else t.neverCommittedAt = storedNeverCommittedAt;
     t.status = status;
     // Stamp the terminal stage on success. `setTransactionStage` refuses writes
     // once a row is terminal, so the trailing setTransactionStage(id,'complete')
@@ -108,9 +230,99 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     // Failed rows keep their stage: there it records WHERE the failure happened
     // and is diagnostically load-bearing (GeneratingTransaction reads it to pin
     // the failed step).
-    if (status === ITransactionStatus.Completed) t.stage = 'complete';
+    if (status === ITransactionStatus.Completed) {
+      t.stage = 'complete';
+      // Restore the run's stamps, for the same reason the stage write above is
+      // unconditional: completeCustomTransaction forwards
+      // `interpretTransactionResult(...)`, i.e. the whole row as picked at loop
+      // time — which predates every stamp `setTransactionStage` wrote during the
+      // run, so the assign above would hand back an empty set and every step
+      // would render without a duration (#524). No Completed caller supplies
+      // stamps deliberately; the only deliberate payload is
+      // requeueTransactionForRetry, and that writes Queued, not Completed.
+      if (runStageTimestamps) t.stageTimestamps = runStageTimestamps;
+      // The same write also closes the LAST processing step: its span runs to the
+      // synthetic `complete` boundary, since no following stage exists to end it.
+      if (!t.stageTimestamps) t.stageTimestamps = {};
+      if (t.stageTimestamps.complete === undefined) t.stageTimestamps.complete = Date.now();
+    }
+    return undefined;
   });
+  if (finalized) throw new Error('Transaction already in a finalized state');
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      entryPoint: failed.consumeEntryPoint,
+      lastDeferral: failed.lastDeferral,
+      feeAdmission: failed.feeAdmission,
+      error: failureTextOf(otherValues) ?? failed.rawError ?? failed.error
+    });
+  }
+
+  // Both terminal outcomes, from the one place a row can reach either through
+  // this function.
+  //
+  // The success side is the denominator: a failure count alone says nothing,
+  // since ten failed sends is a crisis or a rounding error depending on how many
+  // succeeded.
+  //
+  // The failure side does NOT double-count what `cancelTransaction` already
+  // reports, and the reason is worth stating because it is not obvious. That
+  // function writes its `Failed` with a raw `.modify` rather than calling this
+  // one, so the two sets of failures are disjoint: everything the pipeline fails
+  // deliberately goes through there, and the handful that bypass it — a private
+  // send with no note to deliver, a guardian rotation that could not be applied
+  // — arrive here and would otherwise be the only failures that reported
+  // nothing at all.
+  //
+  // Two more writers exist and both report for themselves, because both are
+  // *transitions between* terminal states and this function's guard refuses
+  // those outright: `completeVerifiedLandedTransaction` promotes Failed →
+  // Completed on node evidence, and `markBridgedSendFailed` demotes Completed →
+  // Failed when the allocator rejects an intent whose note already committed.
+  // Adding a writer that skips this function is therefore also adding a report;
+  // `rg 'status = ITransactionStatus\.(Completed|Failed)'` is the list to check
+  // against, and every hit on it should be one of these five.
+  if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
+    reportOperation({
+      operation: operationOfType(tx.type),
+      result: status === ITransactionStatus.Completed ? 'completed' : 'errored',
+      // How long the user waited from pressing the button to the money having
+      // moved, which is the number worth watching for regressions.
+      durationMs: elapsedMsSince(tx.initiatedAt),
+      // The stage of a failure written this way is whatever the row was in when
+      // it happened, which is exactly the diagnostic the failure carries. A
+      // success has none: `stage` was just stamped `complete` above, which is
+      // not somewhere anything went wrong.
+      ...(status === ITransactionStatus.Failed
+        ? { errorKind: classifyError(failureTextOf(otherValues)), step: stepOfStage(tx.stage) }
+        : {})
+    });
+    // Here rather than in the pipeline, so a swap that landed but could not be applied locally still ends.
+    if (tx.type === 'swap' && status === ITransactionStatus.Completed) {
+      logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
+    }
+  }
 };
+
+/**
+ * The failure text a caller passed alongside a `Failed` status, if any.
+ *
+ * These writes carry their reason in `otherValues` rather than as a thrown
+ * error, so this is the only thing available to classify. Read through a narrow
+ * structural check rather than a cast, and handed to `classifyError`, which
+ * returns a closed union — the text is inspected here and goes no further.
+ */
+function failureTextOf(otherValues: object): string | undefined {
+  const values = otherValues as { rawError?: unknown; error?: unknown };
+  if (typeof values.rawError === 'string') return values.rawError;
+  if (typeof values.error === 'string') return values.error;
+  return undefined;
+}
 
 /**
  * Informational stage write. Called at phase boundaries inside
@@ -125,13 +337,399 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
  * stamped `'complete'` by `updateTransactionStatus` itself (#618), which is why
  * this function stays the pre-terminal writer.
  */
-export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
+export const setTransactionStage = async (
+  id: string,
+  stage: ITransactionStage,
+  opts?: { readonly timingOnly?: boolean }
+) => {
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
-      tx.stage = stage;
-    }
+    // `false` on the declining path, not a fall-through: Dexie only skips its
+    // put on that exact value and treats `undefined` as "modified", so a
+    // terminal row would be re-put unchanged and fire a `liveQuery` event for
+    // it. This writer runs at every stage boundary and `useTransactionRow`
+    // observes the table, so that is the noisiest place to get it wrong.
+    if (hasLeftQueue(tx)) return false;
+    // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
+    // are written together only when the writer is reliable and in-order.
+    //
+    // The rate-limit, remote-prover-outage and guardian-unreachable gates in
+    // `transaction/index.ts` read `tx.stage` to decide a failed guardian tx is
+    // PRE-submit and may therefore be auto-requeued: "submit is stamped
+    // 'submitting' and runs only AFTER prove, so nothing reached the chain". That
+    // inference is only sound if every writer of `stage` is ordered with respect
+    // to the work it describes. (The 409 pending-conflict arm reads only the
+    // error and the transaction type.)
+    //
+    // The unauthorized-at-execution gate deliberately does NOT read `stage`: on the
+    // shipping path its leaf runs offscreen, so by the rule below the row still
+    // reads 'sending' when execution failed, and a stage-gated arm would never have
+    // fired in production. It proves pre-submit from the error text instead. Do not
+    // "harmonize" it onto `stage`.
+    //
+    // A stamp replayed from the OFFSCREEN realm is not: it crosses `chrome.runtime`
+    // fire-and-forget, with no delivery or ordering guarantee against the op's own
+    // reply. A dropped or late `submitting` would leave the row reading `proving`
+    // after submit had actually run, and the requeue gate would re-submit a
+    // transaction that may already be on chain. So cross-realm stamps record the
+    // boundary for the progress screen and leave `stage` alone — the service
+    // worker's own in-order writes remain its only author.
+    if (!opts?.timingOnly) tx.stage = stage;
+    // Record the first time this stage was entered so the UI can compute
+    // per-step durations from persisted stamps (see ITransaction.stageTimestamps).
+    // First-entry-wins WITHIN AN ATTEMPT: a requeue clears the whole map (both
+    // the automatic arms and a user Retry do), so the next attempt re-stamps
+    // from scratch rather than inheriting this one's boundaries.
+    if (!tx.stageTimestamps) tx.stageTimestamps = {};
+    if (tx.stageTimestamps[stage] === undefined) tx.stageTimestamps[stage] = Date.now();
+    return undefined;
   });
 };
+
+/**
+ * {@link setTransactionStage} for a stamp written after the transaction was submitted. Such a stamp is display state:
+ * a failed write is logged and never aborts the work it labels (a commit wait, a relay, the Guardian sync or the
+ * completion), and never sends a transaction that is on chain down a failure path. Never throws.
+ */
+export const stampPostSubmitStage = async (id: string, stage: ITransactionStage): Promise<void> => {
+  try {
+    await setTransactionStage(id, stage);
+  } catch (error) {
+    console.warn(`Could not stamp the ${stage} stage`, { txId: id, error });
+  }
+};
+
+const UNDELIVERED_SEPARATOR = ' - ';
+// 1.16.2 and earlier joined the wording with an em dash, and the sweep still delivers those rows.
+const LEGACY_UNDELIVERED_SEPARATOR = ' \u2014 ';
+
+const undeliveredLabel = (base: string, notes: number | undefined, separator: string): string => {
+  const phrase = notes === undefined ? 'the private note' : notes === 1 ? 'a private note' : `${notes} private notes`;
+  return `${base}${separator}${phrase} could not be delivered`;
+};
+
+/**
+ * The label of a landed row whose private notes could not be delivered: `base` plus the wording.
+ * Omit `notes` for a send, whose single note is "the private note"; pass the count where a row
+ * can carry several. {@link recordNoteDelivery} takes the wording off again once they arrive.
+ */
+export const undeliveredDisplayMessage = (base: string, notes?: number): string =>
+  undeliveredLabel(base, notes, UNDELIVERED_SEPARATOR);
+
+/**
+ * A stored note id list as a list of strings. The store can hold anything here (`importDb` fills it from
+ * a user-supplied file), so a value that is not a list reads as empty and an element that is not a string
+ * is dropped; a well-formed list comes back as it is.
+ */
+export const storedNoteIds = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((noteId): noteId is string => typeof noteId === 'string') : [];
+
+/**
+ * The private notes a row owes the relay, which its single `noteDelivery` covers. A send's one output
+ * note is its private note; a custom row records them apart from its public notes in `relayNoteIds`.
+ */
+export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>): string[] =>
+  storedNoteIds(row.relayNoteIds ?? row.outputNoteIds);
+
+/**
+ * Whether `row` owes exactly the notes `owed`, compared as sets of normalized ids. A writer that read the row before
+ * an await checks this inside its write: a landing may have replaced the delivery target meanwhile (#1473).
+ */
+export const owesNoteIds = (
+  row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>,
+  owed: readonly string[]
+): boolean => {
+  const held = new Set(relayNoteIdsOf(row).map(normalizeHex));
+  const expected = new Set(owed.map(normalizeHex));
+  return held.size === expected.size && [...expected].every(noteId => held.has(noteId));
+};
+
+/**
+ * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
+ * row records it apart with its `relayNoteIds`, because reading its result as a consume puts the input note's
+ * sender there instead. So a custom row whose dApp named no recipient has none, never that sender.
+ */
+export const relayRecipientOf = (
+  row: Pick<ITransaction, 'relayNoteIds' | 'relayRecipientId' | 'secondaryAccountId'>
+): string | undefined => (row.relayNoteIds ? row.relayRecipientId : row.secondaryAccountId);
+
+/**
+ * `label`'s base and note count when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else
+ * `undefined`. `notes` is `undefined` for "the private note".
+ */
+const parseUndeliveredWording = (label: string): { base: string; notes: number | undefined } | undefined => {
+  for (const separator of [UNDELIVERED_SEPARATOR, LEGACY_UNDELIVERED_SEPARATOR]) {
+    const at = label.lastIndexOf(separator);
+    if (at < 0) continue;
+    const base = label.slice(0, at);
+    const count = Number(label.slice(at + separator.length).split(' ', 1)[0]);
+    // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
+    for (const notes of [undefined, 1, count]) {
+      if (undeliveredLabel(base, notes, separator) === label) return { base, notes };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * The owed notes the transport has acknowledged, or `undefined` when the row does not say. A row written before
+ * acknowledgements were recorded says so only through its state: `relayed` meant every owed note was acknowledged.
+ */
+export const relayAckedNoteIdsOf = (
+  row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
+): string[] | undefined => {
+  if (row.relayAckedNoteIds != null) return storedNoteIds(row.relayAckedNoteIds);
+  return row.noteDelivery === 'relayed' ? relayNoteIdsOf(row) : undefined;
+};
+
+/** How many owed notes the transport has not acknowledged, or `undefined` when the row does not say. */
+const unacknowledgedNotesOf = (
+  row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
+): number | undefined => {
+  if (row.noteDelivery === 'confirmed') return 0;
+  const acked = relayAckedNoteIdsOf(row);
+  return acked === undefined ? undefined : relayNoteIdsOf(row).filter(noteId => !acked.includes(noteId)).length;
+};
+
+/**
+ * The row's label with its undelivered wording brought in line with the owed notes still unacknowledged: dropped
+ * at none, recounted otherwise. Never added, and kept as written when the row does not say how many.
+ */
+const relabelForDelivery = (row: ITransaction, label: string): string => {
+  const wording = parseUndeliveredWording(label);
+  if (!wording) return label;
+  const unacknowledged = unacknowledgedNotesOf(row);
+  if (unacknowledged === undefined) return label;
+  if (unacknowledged === 0) return wording.base;
+  // A send's one note reads "the private note"; a custom row, which records `relayNoteIds`, counts them, and so
+  // does any label that already counted.
+  const counted = row.relayNoteIds !== undefined || wording.notes !== undefined || unacknowledged > 1;
+  const notes = counted ? unacknowledged : undefined;
+  return notes === wording.notes ? label : undeliveredDisplayMessage(wording.base, notes);
+};
+
+let noteDeliveryWrites = 0;
+
+/**
+ * How many delivery writes this realm has made or been told of. The delivery sweep skips its query while nothing
+ * is due, and a write it did not make itself (a new send owing a relay) is what tells it to look
+ * again before then.
+ */
+export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
+
+/**
+ * An extension page, as against the extension's background, where `isExtension()` holds too and which Firefox runs as
+ * a page with a `window`: the build names each bundle (`WALLET_BUILD_TARGET`, as crash reports read it).
+ */
+const inExtensionPage = (): boolean => process.env.WALLET_BUILD_TARGET === 'extension';
+
+let workerIntercom: IIntercomClient | undefined;
+
+/**
+ * Count a delivery write, once it has landed, so a sweep that reads the new count cannot have queried before the
+ * write. {@link recordNoteDelivery} calls it, and so does any other write that gives the sweep a note to push.
+ *
+ * On the extension the sweep runs in the background, which never reads a page's count, so a page's write also tells
+ * the background, which counts it as its own. The signal is never awaited and carries nothing: one that does not
+ * arrive leaves the sweep to its idle window, an hour at most, and cannot fail the write it reports.
+ */
+export const countNoteDeliveryWrite = (): void => {
+  noteDeliveryWrites++;
+  try {
+    if (!inExtensionPage()) return;
+    workerIntercom ??= createIntercomClient();
+    workerIntercom.request({ type: WalletMessageType.NoteDeliveryWrittenRequest }).catch(() => undefined);
+  } catch {
+    // The write landed; only the wake is lost.
+  }
+};
+
+/** `held`, read as stored ids, plus each of `added` it lacks, in order. */
+const withIds = (held: string[] | undefined, added: string[]): string[] => {
+  const kept = storedNoteIds(held);
+  return [...kept, ...added.filter((noteId, at) => !kept.includes(noteId) && added.indexOf(noteId) === at)];
+};
+
+/**
+ * Record the delivery state of this row's private output note, plus the evidence
+ * needed to reason about it after the fact.
+ *
+ * The point is ordering. The SDK keeps no record of a relay it could not make, so
+ * stamping `'pending'` with the landed transaction id and note id BEFORE the attempt
+ * is what tells an interrupted relay apart from a delivered one, and what the
+ * delivery sweep (`note-delivery-sweep.ts`) retries from.
+ *
+ * Deliberately NOT guarded on terminal status, unlike {@link setTransactionStage}.
+ * That guard is right for a stage, which is display state describing the attempt
+ * currently running; it is wrong here, because this is EVIDENCE about what the
+ * pipeline did, and the case that most needs recording is exactly the one the
+ * guard would drop. Nothing aborts a running pipeline when its row is failed from
+ * outside — the Cancel button and the stuck-row reaper both mark the row and walk
+ * away, so the relay still runs. Under the guard that relay's outcome went
+ * unrecorded, leaving a Failed row with no delivery evidence and no landed-tx id:
+ * the worst of both, since a later retry then cannot tell the send already
+ * happened. `status` is the thing that must not move here, and this never touches
+ * it.
+ *
+ * `ackedNoteIds` and `deadNoteIds` are added to what the row already holds, never
+ * replace it: each relay of a custom row persists its own acknowledgement as it
+ * lands, for the same reason.
+ *
+ * With `expectedOwed` it writes only while the row still owes exactly those notes
+ * ({@link owesNoteIds}), and counts as a delivery write only when it wrote: the
+ * delivery sweep passes the notes it read before its awaits.
+ */
+export const recordNoteDelivery = async (
+  id: string,
+  noteDelivery: INoteDeliveryState,
+  evidence?: {
+    transactionId?: string;
+    outputNoteIds?: string[];
+    relayNoteIds?: string[];
+    relayRecipientId?: string;
+    ackedNoteIds?: string[];
+    deadNoteIds?: string[];
+  },
+  expectedOwed?: readonly string[]
+) => {
+  let wrote = expectedOwed === undefined;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (expectedOwed !== undefined && !owesNoteIds(tx, expectedOwed)) return false;
+    wrote = true;
+    tx.noteDelivery = noteDelivery;
+    if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
+    if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
+    if (evidence?.relayNoteIds) tx.relayNoteIds = evidence.relayNoteIds;
+    if (evidence?.relayRecipientId) tx.relayRecipientId = evidence.relayRecipientId;
+    if (evidence?.ackedNoteIds?.length) tx.relayAckedNoteIds = withIds(tx.relayAckedNoteIds, evidence.ackedNoteIds);
+    if (evidence?.deadNoteIds?.length) tx.relayDeadNoteIds = withIds(tx.relayDeadNoteIds, evidence.deadNoteIds);
+    // History renders the label, not `noteDelivery`, so a note the transport took retires its share of the warning
+    // there too.
+    if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
+    return undefined;
+  });
+  if (wrote) countNoteDeliveryWrite();
+};
+
+/**
+ * Activity label for a row, Guardian or not, whose submit LANDED on chain but whose
+ * local reconcile failed. There is no `TransactionResult` here, so the label is the one
+ * the type's normal completion writes, derived from the row alone:
+ * `completeConsumeTransaction` writes "Reclaimed" when the note's sender (the row's
+ * `secondaryAccountId`) is the account itself and "Received" otherwise, as the
+ * kill-verified consume derives it; `completeSwapTransaction` writes "Swapped",
+ * `completeBridgedSendTransaction` "Bridged to EVM" and `completeSendTransaction` "Sent".
+ * `completeCustomTransaction` reads its label off the result, so a landed execute takes
+ * the one it writes when the result shows no single direction, "Executed".
+ */
+export const applyLandedDisplayMessage = (
+  tx: Pick<ITransaction, 'type' | 'accountId' | 'secondaryAccountId'>
+): string => {
+  switch (tx.type) {
+    case 'consume':
+      return compareAccountIds(tx.accountId, tx.secondaryAccountId ?? '') ? 'Reclaimed' : 'Received';
+    case 'swap':
+      return 'Swapped';
+    case 'bridged-send':
+      return 'Bridged to EVM';
+    case 'execute':
+      return 'Executed';
+    default:
+      return 'Sent';
+  }
+};
+
+/**
+ * What a landed reconcile knows about a write whose submit resolved and whose local apply failed
+ * (#1233): no `TransactionResult`, only the facts the apply-after-submit error carried.
+ */
+export type LandedWithoutResult = LandedTransaction;
+
+/** The landed id as row fields, so the receipt names the transaction; empty when there is none. */
+export const landedTransactionIdFields = (landed: LandedWithoutResult | undefined): { transactionId?: string } =>
+  landed?.transactionId === undefined ? {} : { transactionId: landed.transactionId };
+
+/**
+ * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
+ * on either catch or on Retry's landed reconcile (#1233). A PRIVATE send's note reaches its
+ * recipient only through `completeSendTransaction`'s relay, which never ran and which no sync
+ * repairs, so the row says the note was not delivered. `isPrivateNoteType` and not a string
+ * compare, since a row can hold the SDK's numeric note type; an unreadable one counts as private,
+ * because under-reporting costs the funds while over-reporting costs a stale warning.
+ *
+ * An execute's private notes are relayed only by `completeCustomTransaction`, so the same holds for
+ * the `privateOutputNotes` its failure counted. Without a count (a refusal, Retry, an unreadable
+ * transaction) the recipient its request named says notes were owed, and an 'undelivered' the row
+ * already recorded is kept under a label that says so, counting the owed notes the transport did not
+ * acknowledge when the row records which it did.
+ *
+ * None of these rows is ever re-pushed: an apply that failed left the output notes out of this client's
+ * store, so `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. The
+ * delivery sweep leaves such a row inert.
+ */
+export const landedValueRowFields = (
+  tx: Pick<
+    ITransaction,
+    | 'type'
+    | 'noteType'
+    | 'accountId'
+    | 'secondaryAccountId'
+    | 'noteDelivery'
+    | 'relayNoteIds'
+    | 'relayAckedNoteIds'
+    | 'outputNoteIds'
+  >,
+  privateOutputNotes?: number
+): { displayMessage: string; noteDelivery?: 'undelivered' } => {
+  const displayMessage = applyLandedDisplayMessage(tx);
+  if (tx.type === 'execute') {
+    const owed =
+      tx.noteDelivery === 'undelivered' ||
+      (privateOutputNotes === undefined ? Boolean(tx.secondaryAccountId) : privateOutputNotes > 0);
+    // Only a custom row's relay records `relayNoteIds`, and with them which notes the transport took.
+    const count = privateOutputNotes ?? (tx.relayNoteIds ? unacknowledgedNotesOf(tx) : undefined);
+    const notes = count !== undefined && count > 0 ? count : undefined;
+    return owed
+      ? { displayMessage: undeliveredDisplayMessage(displayMessage, notes), noteDelivery: 'undelivered' }
+      : { displayMessage };
+  }
+  let privateSend = tx.type === 'send';
+  if (privateSend) {
+    try {
+      privateSend = isPrivateNoteType(tx.noteType);
+    } catch {
+      privateSend = true;
+    }
+  }
+  return privateSend
+    ? { displayMessage: undeliveredDisplayMessage(displayMessage), noteDelivery: 'undelivered' }
+    : { displayMessage };
+};
+
+/**
+ * The Completed fields for a row proven landed from node evidence alone, by Retry or the unconfirmed reconciler
+ * (#1233, #1081). A recorded 'pending', 'relayed' or 'confirmed' is the relay's own outcome (a cancelled pipeline runs
+ * on and relays) and is kept under the clean label; with none recorded, or an 'undelivered' one, it is derived again.
+ * Pass the row as the write finds it: the sweep or a cancelled pipeline can record an outcome during the node check.
+ */
+export const verifiedLandingRowFields = (
+  tx: Pick<
+    ITransaction,
+    | 'type'
+    | 'noteType'
+    | 'accountId'
+    | 'secondaryAccountId'
+    | 'noteDelivery'
+    | 'relayNoteIds'
+    | 'relayAckedNoteIds'
+    | 'outputNoteIds'
+  >
+): { displayMessage: string; displayIcon: ITransactionIcon; noteDelivery?: 'undelivered' } => ({
+  // A Failed row carries the failed icon, which Activity draws for any status.
+  displayIcon: ICON_BY_TYPE[tx.type],
+  ...(tx.noteDelivery === undefined || tx.noteDelivery === 'undelivered'
+    ? landedValueRowFields(tx)
+    : { displayMessage: applyLandedDisplayMessage(tx) })
+});
 
 /**
  * Reconcile a Failed row that the node says actually LANDED.
@@ -149,21 +747,72 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
  * an ambiguous post-submit abort and a second payment — so it gets its own
  * narrow door rather than a hole in that one. Refuses to touch an
  * already-Completed row, which needs no reconciling.
+ *
+ * `otherValues` may be a function of the row as the write finds it, for fields that
+ * depend on state another writer can record while the caller awaits the node.
  */
 export const completeVerifiedLandedTransaction = async (
   id: string,
-  otherValues: Partial<ITransaction> = {}
+  otherValues: Partial<ITransaction> | ((fresh: ITransaction) => Partial<ITransaction>) = {}
 ): Promise<void> => {
+  let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return;
-    Object.assign(tx, otherValues);
-    tx.status = ITransactionStatus.Completed;
-    tx.stage = 'complete';
-    // The failure is no longer the row's story; leaving it behind renders a
-    // completed transaction with an error on it.
-    tx.error = undefined;
-    tx.rawError = undefined;
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value. The row
+    // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
+    // `resultBytes`, and `useTransactionRow` observes this table.
+    if (tx.status !== ITransactionStatus.Failed) return false;
+    applyVerifiedLanding(tx, typeof otherValues === 'function' ? otherValues(tx) : otherValues);
+    reconciled = tx;
+    return undefined;
   });
+
+  if (reconciled !== undefined) {
+    reportVerifiedLanding(reconciled);
+  }
+};
+
+/**
+ * The write `completeVerifiedLandedTransaction` applies to a Failed row inside
+ * its `.modify`, pulled out so a caller that must promote a row INSIDE an
+ * existing `.modify` of its own can do so without a second write after it -
+ * `updateBridgeClaimStatus` (#1250), whose bridge evidence and the status it
+ * proves must land in the same Dexie write, never a write recording the
+ * evidence followed by a second one settling the row.
+ */
+export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITransaction> = {}): void => {
+  Object.assign(tx, otherValues);
+  tx.status = ITransactionStatus.Completed;
+  tx.stage = 'complete';
+  // The failure is no longer the row's story; leaving it behind renders a
+  // completed transaction with an error on it, or with the failed icon.
+  tx.error = undefined;
+  tx.rawError = undefined;
+  if (tx.displayIcon === 'FAILED') tx.displayIcon = ICON_BY_TYPE[tx.type];
+};
+
+/**
+ * Report the reconciliation `applyVerifiedLanding` just wrote onto `tx`.
+ *
+ * The row already reported `errored` when it was failed, and that report was
+ * true at the time - the wallet genuinely could not tell whether the money had
+ * moved. Reporting the success as well leaves both, which is the honest
+ * record: one operation that failed and was later reconciled from node
+ * evidence. Suppressing the failure is not an option, since it was reported
+ * from a realm that may no longer exist, and suppressing this one would leave
+ * the ambiguous post-submit abort - the case this reconciliation exists for -
+ * permanently counted as a failure and never as a success.
+ *
+ * Deliberately without a duration. A landed row can be reported through here
+ * arbitrarily long after `initiatedAt` - `completeVerifiedLandedTransaction`
+ * when the user taps Retry, and `updateBridgeClaimStatus` when a bridge claim
+ * or fill write reconciles a row days later (#1250) - so that interval means
+ * "how long until somebody came back", and putting it in the field a reader
+ * uses to watch for latency regressions would let a handful of them own the
+ * tail of every send's distribution. There is no honest interval to report
+ * here, so none is.
+ */
+export const reportVerifiedLanding = (tx: ITransaction): void => {
+  reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
 };
 
 /**
@@ -192,6 +841,243 @@ export const markMayHaveSubmitted = async (id: string) => {
 };
 
 /**
+ * The attempt a pipeline run is, frozen when it starts (#1081): its id, whether the row was an execute, and a
+ * Guardian proposal's nonce. Writers that run on the pipeline's own call stack take it; the others read the row.
+ */
+export interface AttemptContext {
+  readonly attemptId: string;
+  readonly fromExecute: boolean;
+  readonly guardianProposalNonce?: number;
+}
+
+/**
+ * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
+ * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
+ * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
+ */
+export const recordSubmitCrossing = async (
+  id: string,
+  evidence: SubmitEvidenceFields | undefined,
+  attempt: AttemptContext
+): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    const raised = tx.mayHaveSubmitted !== true;
+    tx.mayHaveSubmitted = true;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attempt.attemptId,
+      {
+        source: 'stage',
+        evidence,
+        guardianProposalNonce: attempt.guardianProposalNonce,
+        fromExecute: attempt.fromExecute,
+        ...(raised ? { raisedFlag: true } : {})
+      },
+      nowSec
+    );
+  });
+};
+
+/**
+ * The Guardian leaf's pre-dispatch pin, per attempt (#1081). A realm killed between submit and the replayed stamp
+ * leaves the row looking never-broadcast, so the crossing is pinned before dispatch. `raisedFlag` records that this
+ * pin, not an earlier crossing, set `mayHaveSubmitted`, which is what lets the leaf retire it.
+ */
+export const pinGuardianCrossing = async (id: string, attempt: AttemptContext): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    const raised = tx.mayHaveSubmitted !== true;
+    tx.mayHaveSubmitted = true;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attempt.attemptId,
+      {
+        source: 'pin',
+        guardianProposalNonce: attempt.guardianProposalNonce,
+        fromExecute: attempt.fromExecute,
+        ...(raised ? { raisedFlag: true } : {})
+      },
+      nowSec
+    );
+  });
+};
+
+/**
+ * The Guardian leaf kept this attempt's candidate instead of abandoning it (#1081), on a row that awaits a verdict:
+ * after a kill, whose pipeline may still land it, or after a failure that may have followed the attempt's submit
+ * crossing. Retry's hold reads it and the reconciler releases it. The leaf's catch holds the proposal nonce the kill
+ * route lacks, so it records both; `source` names the end only when this creates the entry. Never throws: the catch's
+ * own error is the one the row must record, and a lost mark only shortens the hold to the Guardian's pending-delta
+ * conflict.
+ */
+export const recordKeptCandidate = async (
+  id: string,
+  attempt: AttemptContext,
+  source: 'kill' | 'error-text' | 'end'
+): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attempt.attemptId,
+        {
+          source,
+          candidateKept: true,
+          guardianProposalNonce: attempt.guardianProposalNonce,
+          fromExecute: attempt.fromExecute
+        },
+        nowSec
+      );
+    });
+  } catch (error) {
+    console.warn(
+      `[submit-evidence] could not record the kept candidate of attempt ${attempt.attemptId} on ${id}`,
+      error
+    );
+  }
+};
+
+/**
+ * The attempt's leaf proved it ended before its submit call (#1081): its entry is ruled out everywhere, and the
+ * `mayHaveSubmitted` its pin raised is cleared, never one an earlier crossing raised. Never throws: it runs in the
+ * leaf's catch, whose own error is the one the row must record.
+ */
+export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
+      if (entry === undefined) return false;
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attemptId,
+        { source: entry.source, preSubmitEnd: true },
+        nowSec
+      );
+      if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
+      return undefined;
+    });
+  } catch (error) {
+    console.warn(`[submit-evidence] could not retire the pin of attempt ${attemptId} on ${id}`, error);
+  }
+};
+
+/**
+ * An offscreen leaf failed without proving it came before its submit (#1081), so the attempt gets an evidence-less
+ * entry: a run that submitted and then lost both its stamp and its result's decode is never invisible to the safe
+ * rule. Never throws, for the same reason as `markAttemptPreSubmitEnd`.
+ */
+export const recordLeafEnd = async (id: string, attempt: AttemptContext): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attempt.attemptId,
+        { source: 'end', fromExecute: attempt.fromExecute, guardianProposalNonce: attempt.guardianProposalNonce },
+        nowSec
+      );
+    });
+  } catch (error) {
+    console.warn(`[submit-evidence] could not record the end of attempt ${attempt.attemptId} on ${id}`, error);
+  }
+};
+
+/**
+ * The kill route's record (#1081): an eviction or an offscreen deadline kill abandoned this attempt, which may still
+ * be running and submit. It finds the attempt's pin or stamp entry, or creates one, and marks the end; the first end
+ * wins. Guard-free, because the cancel that follows makes the row terminal.
+ */
+export const recordKillEnd = async (id: string, attemptId: string | undefined): Promise<void> => {
+  if (attemptId === undefined) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attemptId,
+      { source: 'kill', endedBy: 'kill', fromExecute: tx.type === 'execute' },
+      nowSec
+    );
+  });
+};
+
+/**
+ * A writer is ending this row from outside its pipeline (#1081): a user cancel, the stuck reaper, the cold-start
+ * sweep, the force-cancel, the stuck-consume verifier. Only a GeneratingTransaction row has a pipeline that can
+ * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good.
+ * `onlyIfRow`, when passed, runs in this modify after that check and before the evidence write. False is Dexie's
+ * skip. Callers that omit it keep the GeneratingTransaction and defined-`attemptId` requirements below.
+ */
+export const recordOutOfBandEnd = async (id: string, onlyIfRow?: (row: ITransaction) => boolean): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.GeneratingTransaction || tx.attemptId === undefined) return false;
+    if (onlyIfRow !== undefined && !onlyIfRow(tx)) return false;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      tx.attemptId,
+      { source: 'out-of-band', endedBy: 'out-of-band', fromExecute: tx.type === 'execute' },
+      nowSec
+    );
+    return undefined;
+  });
+};
+
+/**
+ * Claim the submit point of an Epoch bridged-send, in the same write that checks
+ * the row is not Failed. A `markBridgedSendFailed` that already abandoned the
+ * bridge stops the pipeline here (the claim returns false and writes nothing),
+ * and one that comes later finds the claim recorded, so it knows the collateral
+ * note may exist. Bridge-only: it says nothing to the retry and
+ * unconfirmed-outcome readers of `mayHaveSubmitted`, which a claim made before
+ * execute and prove would turn every definite pre-submit failure into an
+ * unknown outcome.
+ */
+export const claimBridgeSubmit = async (id: string): Promise<boolean> => {
+  let claimed = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status === ITransactionStatus.Failed) return false;
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), submitClaimed: true };
+    claimed = true;
+    return undefined;
+  });
+  return claimed;
+};
+
+/**
+ * Record the collateral note of an Epoch bridged-send whose submit is proven to
+ * have landed: its local apply or canonicalization failed after it. It acts only
+ * on a row whose pipeline claimed its submit (`claimBridgeSubmit`), which is
+ * what makes such a failure post-submit; a canonicalization refusal can also be
+ * raised while the proposal is created, before any claim. The stamped
+ * `reclaimNoteId` is that note's id, computed from the bytes that were submitted,
+ * and the pipeline failing the row means the intent never went out, so the row
+ * is recorded as a route-failed bridge with a committed note, the shape the
+ * reclaim gate reads.
+ *
+ * The pipeline writes this itself rather than leaving the route to
+ * `markBridgedSendFailed`, which runs only in the realm driving the bridge; on
+ * the extension that is the page, which may be closed by then. Guard-free as to
+ * status, like `markMayHaveSubmitted`: a demotion may already have failed the
+ * row, and the note landed all the same. It never overwrites a recorded note or
+ * route, and never touches the row's status or error.
+ */
+export const recordBridgeNoteLanded = async (id: string): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    const noteId = ei?.reclaimNoteId;
+    if (tx.type !== 'bridged-send' || ei?.provider !== 'epoch' || !noteId) return false;
+    if (ei.submitClaimed !== true) return false;
+    if (tx.outputNoteIds?.length) return false;
+    tx.outputNoteIds = [noteId];
+    if (ei.epochStatus === undefined) tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
+    return undefined;
+  });
+};
+
+/**
  * Record that this row was failed from outside its own pipeline while that
  * pipeline was still running, so the retry guard treats a submit as possible
  * until the pipeline resolves. See `ITransaction.cancelledInFlightAt` for why
@@ -213,8 +1099,11 @@ export const markMayHaveSubmitted = async (id: string) => {
 export const markCancelledInFlight = async (id: string) => {
   const at = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.GeneratingTransaction) return;
+    // `false`, not a bare return — Dexie reads `undefined` as "modified" and
+    // re-puts the unchanged clone, a write and a `liveQuery` event for nothing.
+    if (tx.status !== ITransactionStatus.GeneratingTransaction) return false;
     tx.cancelledInFlightAt = at;
+    return undefined;
   });
 };
 
@@ -223,59 +1112,19 @@ export const markCancelledInFlight = async (id: string) => {
  * possible. Called from the pipeline's own catch, and what lets a genuine execute
  * or prove failure rebuild its request rather than replaying a bad one.
  *
- * On the guardian paths a submit that HAD happened is recorded on
- * `mayHaveSubmitted` by the leaf before it submitted, so the guard holds on that
- * instead and clearing this loses nothing. A plain send stamps nothing, so
- * clearing genuinely returns it to "no evidence either way" — correct for the
+ * A submit that HAD happened is on the attempt's evidence entry (#1081): an
+ * in-realm leaf writes its 'submitting' stamp before it submits, and an offscreen
+ * failure that cannot prove it came before its submit gets an evidence-less 'end'
+ * entry (`runWriteLeaf`). So clearing this loses nothing, and a run that failed
+ * before its submit returns to "no evidence either way", which is correct for the
  * failures that reach here (the pipeline stopped, and the aborted-op case is
- * routed to the flag instead), but not a claim that a crossing was recorded
- * elsewhere. See `cancelTransactionAfterPipelineStopped`.
+ * routed to the flag instead). See `cancelTransactionAfterPipelineStopped`.
  */
 export const clearCancelledInFlight = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.cancelledInFlightAt = undefined;
   });
 };
-
-/**
- * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
- * the SW-inline WASM client, used by the transaction loop to DEFER a
- * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).
- *
- * Invariant (issue #260 flip-prep #2): consult the SW client's `lastAuthError()`
- * IFF the SW client actually did the sign — i.e. the FLAG-OFF (inline) write path.
- * Under the flag-ON offscreen write the sign runs in the OFFSCREEN realm and the
- * SDK captures the error on the OFFSCREEN client; the SW-inline client NEVER
- * signed for that op, so its `lastAuthError()` is stale / another op's. Deferring
- * a genuinely-failed offscreen write on that stale slot would leave it Queued
- * FOREVER (never Failed). So under flag-on this returns `undefined` and the loop
- * relies solely on the op-keyed error tag (`isLockedError(e)`, set by
- * `dispatchOffscreenWrite` when the reverse-IPC sign reported 'locked').
- *
- * Flag-OFF is byte-identical to before: `USE_OFFSCREEN_CLIENT` is false, the
- * guard below dead-code-eliminates, and this reads the SW client exactly as it
- * always has.
- */
-export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
-  // Flag-on: the offscreen realm signed, not this SW client — its lastAuthError()
-  // is not authoritative for the failing op. The locked signal (if any) rides the
-  // op-keyed error tag instead.
-  if (USE_OFFSCREEN_CLIENT) return undefined;
-  try {
-    const midenClient = await getMidenClient();
-    const rawClient = (midenClient as any).client;
-    if (!rawClient || typeof rawClient.lastAuthError !== 'function') return undefined;
-    const raw = rawClient.lastAuthError();
-    if (!raw || typeof raw !== 'object') return undefined;
-    const reason = (raw as { reason?: unknown }).reason;
-    if (reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal') {
-      return reason;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 // Timeout for waiting on consume transactions (5 minutes)
 const WAIT_FOR_CONSUME_TX_TIMEOUT = 5 * 60_000;
@@ -324,13 +1173,32 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 
 const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
+const RESULT_EXPIRED_MESSAGE = `Transaction result expired: results are kept for ${
+  RESULT_BYTES_RETENTION_MS / 60_000
+} minutes after completion`;
+
+/** What a waiter hears when its row is still waiting for the node's verdict (#1081): submitted, never "failed". */
+const notYetConfirmedMessage = (row: Pick<ITransaction, 'submitEvidence'> | undefined): string => {
+  const transactionId = row === undefined ? undefined : latestEntry(row)?.transactionId;
+  return transactionId === undefined
+    ? 'Transaction was submitted, but the network has not confirmed it yet'
+    : `Transaction ${transactionId} was submitted, but the network has not confirmed it yet`;
+};
+
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
     let subscription: { unsubscribe: () => void } | null = null;
+    let lastSeen: ITransaction | undefined;
 
     const timeoutId = setTimeout(() => {
       subscription?.unsubscribe();
-      resolve({ errorMessage: 'Transaction timed out' });
+      // A dApp or the B2AGG flow must not read "failed" and ask for a second signature for a row that may still land.
+      resolve({
+        errorMessage:
+          lastSeen?.status === ITransactionStatus.Unconfirmed
+            ? notYetConfirmedMessage(lastSeen)
+            : 'Transaction timed out'
+      });
     }, WAIT_FOR_TX_TIMEOUT);
 
     const cleanup = () => {
@@ -346,21 +1214,56 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           resolve({ errorMessage: 'Transaction not found' });
           return;
         }
+        lastSeen = tx;
 
         if (tx.status === ITransactionStatus.Completed) {
           cleanup();
-          const txResult = TransactionResult.deserialize(tx.resultBytes!);
-          const res = {
-            txHash: tx.transactionId!,
-            outputNotes: txResult
-              .executedTransaction()
-              .outputNotes()
-              .notes()
-              .map(no => no.intoFull())
-              .filter(no => !!no)
-              .map(fullNote => u8ToB64(fullNote.serialize()))
-          };
-          resolve(res);
+          // Never let a throw escape this observer. `cleanup()` has already cleared
+          // the timeout, and dexie runs `next` inside its own promise chain — so an
+          // exception here settles the wait promise as neither success NOR timeout
+          // and the awaiting caller (the Epoch bridge/earn note builders) hangs
+          // forever while the activity row reads Completed.
+          //
+          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
+          // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
+          // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
+          // without one, so they keep a no-result message at any age.
+          try {
+            if (!tx.resultBytes) {
+              // A landed write (#1233) reaches here with its id recorded: the network accepted it and
+              // only the local apply failed. It stays an error, since no output exists to return, but
+              // says so, or a dApp reading "not sent" asks the user to sign and pay again.
+              resolve({
+                errorMessage:
+                  tx.resultReleasedAt != null
+                    ? RESULT_EXPIRED_MESSAGE
+                    : tx.transactionId
+                      ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`
+                      : 'Transaction completed without a transaction result'
+              });
+              return;
+            }
+            const txResult = TransactionResult.deserialize(tx.resultBytes);
+            // The kernel's fee note is an output note too, and this array is the wallet's
+            // PUBLIC dApp API (`window.miden.waitForTransaction`). Handing it out unsplit
+            // invited the very bug this module's siblings were hardened against: a site
+            // doing `outputNotes[0]` -- the obvious "the note my transaction created" --
+            // would get the fee note whenever the kernel ordered it first, and every site
+            // reading `.length` counted one note too many. Silent at fee 0, since the
+            // kernel skips the fee branch entirely.
+            const { userNotes } = splitExecutedOutputNotes(txResult.executedTransaction());
+            const res = {
+              txHash: tx.transactionId!,
+              outputNotes: userNotes
+                .map(no => no.intoFull())
+                .filter(no => !!no)
+                .map(fullNote => u8ToB64(fullNote.serialize()))
+            };
+            resolve(res);
+          } catch (err) {
+            resolve({ errorMessage: err instanceof Error ? err.message : String(err) });
+          }
         } else if (tx.status === ITransactionStatus.Failed) {
           cleanup();
           resolve({ errorMessage: tx.error || 'Transaction failed' });

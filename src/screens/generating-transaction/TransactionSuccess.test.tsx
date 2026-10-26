@@ -3,7 +3,9 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { TransactionSuccess } from './TransactionSuccess';
 
@@ -12,21 +14,22 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button data-testid="done-button" onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    title,
+    accent
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    title?: string;
+    accent?: string;
+  }) => (
+    <button data-testid="done-button" data-title={title} data-accent={accent} onClick={onClick}>
       {children}
     </button>
   ),
   ButtonVariant: { Primary: 'Primary' }
-}));
-
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
-    <div data-testid="screen-header">
-      <span>{title}</span>
-      <button aria-label="header-close" onClick={onClose} />
-    </div>
-  )
 }));
 
 const mockMidenMeta: { symbol: string | undefined; decimals: number } = { symbol: 'MIDEN', decimals: 6 };
@@ -44,7 +47,8 @@ jest.mock('lib/miden/metadata', () => ({
 let mockNativeAssetId: string | null = null;
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => mockNativeAssetId
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetMetadataSync: () => (mockNativeAssetId === null ? null : mockMidenMeta)
 }));
 
 // Explicit, because `__mocks__/app/hooks/useMidenFaucetId.ts` is picked up
@@ -79,6 +83,17 @@ jest.mock('app/icons/v2', () => ({
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
@@ -125,6 +140,25 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).not.toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
 
+    act(() => root.unmount());
+  });
+
+  it('names a send of the testnet bridge faucet by its label on the receipt', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          amount: 12345n,
+          faucetId: TEST_MIDEN_USDC_FAUCET,
+          secondaryAccountId: 'mtst1aprecipient_addr1234'
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('12345 Test Epoch USDC');
+    expect(container.textContent).not.toContain('12345 USDC');
     act(() => root.unmount());
   });
 
@@ -186,7 +220,8 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('relabels the receipt for a consume: From, Total Consumed and Notes Consumed rows', async () => {
+  it('relabels the receipt for an accepted transfer: From, Total Accepted and Transfer IDs rows', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -203,14 +238,61 @@ describe('TransactionSuccess', () => {
 
     expect(container.textContent).toContain('from');
     expect(container.textContent).not.toContain('Total Paid');
-    expect(container.textContent).toContain('Total Consumed');
-    expect(container.textContent).toContain('Notes Consumed');
-    // Both claimed note ids render, truncated, in the Notes Consumed row.
+    expect(container.textContent).toContain('Total Accepted');
+    expect(container.textContent).toContain('Transfer IDs');
+    // Both accepted transfer ids render, truncated, in the Transfer IDs row.
     expect(container.textContent).toContain('0xnote…aaaa');
     expect(container.textContent).toContain('0xnote…bbbb');
-    // The summary pill's right side reads "Consumed" instead of an address.
-    expect(container.textContent).toContain('Consumed');
+    // The summary pill's right side reads "Accepted" instead of an address.
+    expect(container.textContent).toContain('Accepted');
     expect(container.textContent).toContain('Transaction ID');
+    // And its arrow is the received green — the colour this claim's icon carries in Activity
+    // and on its detail page — not the Send blue and not the Receive action's own token.
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+
+    act(() => root.unmount());
+  });
+
+  // The receipt shows the same claim the detail page does, so it reaches the same conclusion
+  // about its colour: a note minted by the faucet wears the dusty rose, not the green.
+  it("paints a faucet mint's receipt arrow with the faucet rose", async () => {
+    mockNativeAssetId = 'faucet-native';
+    mockState.assetsMetadata = { 'faucet-native': { symbol: 'MIDEN', decimals: 6 } };
+
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 5n,
+          faucetId: 'faucet-native',
+          secondaryAccountId: 'faucet-native'
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.querySelector('rect')?.style.fill).toBe('#BA839F');
+
+    act(() => root.unmount());
+  });
+
+  it("paints a bridge-in claim's receipt arrow with the bridge slate", async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 5n,
+          faucetId: 'faucet-1',
+          secondaryAccountId: 'bridge',
+          extraInputs: { bridgeIn: { provider: 'agglayer' } }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
 
     act(() => root.unmount());
   });
@@ -245,7 +327,8 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('falls back to MIDEN symbol when the faucet has no metadata', async () => {
+  it('uses chain MIDEN metadata for a faucet-less receipt with an empty store', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 7n })} onDoneClick={() => {}} />
     );
@@ -279,7 +362,72 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('titles a paid burn Confirmed', async () => {
+    const transaction = baseTransaction({
+      type: 'bridged-send',
+      status: 2,
+      amount: 5_000_000n,
+      extraInputs: {
+        provider: 'usdcx',
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        destinationNetwork: 11155111,
+        usdcxBurn: {
+          noteId: 'burn-note',
+          destinationDomain: 26,
+          phase: 'confirmed',
+          payout: { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' }
+        }
+      }
+    });
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={transaction} onDoneClick={() => {}} />
+    );
+    try {
+      expect(container.textContent).toContain('confirmed');
+      expect(container.textContent).not.toContain('usdcxBurnConfirmed');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it('labels a USDCx receipt as submitted until the faucet confirms consumption', async () => {
+    const transaction = baseTransaction({
+      type: 'bridged-send',
+      status: 2,
+      amount: 1_000_000n,
+      extraInputs: {
+        provider: 'usdcx',
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        destinationNetwork: 11155111,
+        usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' }
+      }
+    });
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={transaction} onDoneClick={() => {}} />
+    );
+    try {
+      expect(container.textContent).toContain('usdcxBurnSubmitted');
+      expect(container.textContent).toContain('usdcxWithdrawalNotice');
+      expect(container.textContent).not.toContain('Payment Sent!');
+      transaction.extraInputs.usdcxBurn.phase = 'confirmed';
+      await act(async () => {
+        root.render(<TransactionSuccess transaction={transaction} onDoneClick={() => {}} />);
+      });
+      expect(container.textContent).toContain('usdcxBurnConfirmed');
+      expect(container.textContent).not.toContain('usdcxBurnSubmitted');
+      transaction.extraInputs.usdcxBurn.destinationBalanceConfirmed = { balance: '1000000', blockNumber: '101' };
+      await act(async () => {
+        root.render(<TransactionSuccess transaction={transaction} onDoneClick={() => {}} />);
+      });
+      expect(container.textContent).toContain('confirmed');
+      expect(container.textContent).not.toContain('usdcxBurnConfirmed');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('renders a Fast route row for an epoch bridged send', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -295,6 +443,9 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('Route');
     expect(container.textContent).toContain('Fast');
     expect(container.textContent).toContain('Via Epoch');
+    // And the arrow is the bridge slate this row's glyph carries in Activity and on its detail
+    // page — not the badge's default, which is the plain Send blue.
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
     act(() => root.unmount());
   });
 
@@ -319,7 +470,7 @@ describe('TransactionSuccess', () => {
         transaction={baseTransaction({
           type: 'switch-guardian',
           extraInputs: {
-            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            previousGuardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
             newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
           }
         })}
@@ -331,7 +482,7 @@ describe('TransactionSuccess', () => {
     // operators in its previous → new transition line (the mocked display-name
     // helper renders `guardian(<endpoint>)`).
     expect(container.textContent).toContain('guardianSwitchSuccessTitle');
-    expect(container.textContent).toContain('guardian(https://guardian.openzeppelin.com)');
+    expect(container.textContent).toContain('guardian(https://guardian-testnet.openzeppelin.com)');
     expect(container.textContent).toContain('guardian(https://guardian-testnet.kodax.com)');
     // NOT the generic SendSuccess fallback.
     expect(container.textContent).not.toContain('Transaction Complete!');
@@ -363,6 +514,32 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it.each([
+    ['consume', baseTransaction({ type: 'consume' }), 'receive'],
+    ['send', baseTransaction({ type: 'send' }), 'send'],
+    [
+      'bridged-send',
+      baseTransaction({
+        type: 'bridged-send',
+        extraInputs: { destinationAddress: '0xethdest1234', destinationNetwork: 1, provider: 'agglayer' }
+      }),
+      'send'
+    ],
+    ['earn-deposit', baseTransaction({ type: 'earn-deposit' }), 'earn'],
+    ['swap', baseTransaction({ type: 'swap' }), 'swap'],
+    ['switch-guardian', baseTransaction({ type: 'switch-guardian' }), 'brand']
+  ])("draws the %s receipt's Done in its flow colour", async (_type, transaction, accent) => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={transaction} onDoneClick={() => {}} />
+    );
+
+    expect(container.querySelector('[data-testid="done-button"][data-title="done"]')).toHaveAttribute(
+      'data-accent',
+      accent
+    );
+    act(() => root.unmount());
+  });
+
   it('invokes onDoneClick from both the Done button and the header close', async () => {
     const onDoneClick = jest.fn();
     const { container, root } = await renderInto(
@@ -373,20 +550,29 @@ describe('TransactionSuccess', () => {
     act(() => doneButton.click());
     expect(onDoneClick).toHaveBeenCalledTimes(1);
 
-    const closeButton = container.querySelector('button[aria-label="header-close"]') as HTMLButtonElement;
+    const closeButton = container.querySelector('[data-testid="flow-close"]') as HTMLButtonElement;
     act(() => closeButton.click());
     expect(onDoneClick).toHaveBeenCalledTimes(2);
 
     act(() => root.unmount());
   });
 
-  // A row with no faucet is about the native asset, so an empty store still
-  // shows the quantity — MIDEN's scale does not depend on what has been cached.
-  it('quantifies a faucet-less receipt from MIDEN metadata', async () => {
+  it('quantifies a faucet-less receipt from authoritative MIDEN metadata', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 3n })} onDoneClick={() => {}} />
     );
     expect(container.textContent).toContain('3 MIDEN');
+    act(() => root.unmount());
+  });
+
+  it('withholds a faucet-less receipt quantity before the native scale is resolved', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={baseTransaction({ amount: 3n })} onDoneClick={() => {}} />
+    );
+    expect(container.textContent).toContain('Payment Sent!');
+    expect(container.textContent).not.toContain('3');
+    expect(container.textContent).not.toContain('Total Paid');
     act(() => root.unmount());
   });
 
@@ -405,9 +591,7 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  // The native faucet is the case that must NOT be withheld: its scale is fixed,
-  // so an empty store is no reason to drop the amount.
-  it('quantifies a named native faucet even with an empty store', async () => {
+  it('quantifies a metadata-confirmed native faucet even with an empty store', async () => {
     mockState.assetsMetadata = {};
     mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(

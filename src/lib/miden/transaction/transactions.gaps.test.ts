@@ -9,9 +9,13 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
-import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
-import { NoteTypeEnum } from '../types';
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { captureCrash } from 'lib/telemetry/crash';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+
 import {
   completeCustomTransaction,
   generateTransaction,
@@ -23,6 +27,15 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ITransactionStatus } from '../db/types';
+import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { NoteTypeEnum } from '../types';
+
+// The lock's HOLD, owned for the duration of the callback: the guardian pipeline
+// re-checks ownership before proving and before submit (#777).
+// eslint-disable-next-line no-var
+var gapsHold: object | null = null;
 
 const _g = globalThis as any;
 _g.__txGapTest = {
@@ -95,20 +108,51 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn(async () => {});
 const mockWaitForCommit = jest.fn(async () => {});
 const mockSendPrivateNote = jest.fn(async () => {});
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 // The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
 // the `lib/...` alias of miden-client, which jest mocks separately from the
 // relative specifier below; delegate the alias to the same mock so the proxy's
 // flag-off passthrough hits it (incl. the on-the-fly getMidenClient patches in
 // the verifyStuckTransactionsFromNode branch tests below).
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async () => ({
-    syncState: mockSyncState,
-    waitForTransactionCommit: mockWaitForCommit,
-    sendPrivateNote: mockSendPrivateNote
-  }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
-}));
+jest.mock('../sdk/miden-client', () => {
+  // The real error class, so the code under test's poison classifiers see the
+  // same shape production throws.
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  return {
+    getMidenClient: async () => ({
+      syncState: mockSyncState,
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote
+    }),
+    // Hands out a hold and owns it for the duration: the guardian pipeline re-checks
+    // ownership before proving and before submit (#777).
+    withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+      const hold = { mock: 'wasm-lock-hold' };
+      gapsHold = hold;
+      try {
+        return await fn(hold);
+      } finally {
+        if (gapsHold === hold) gapsHold = null;
+      }
+    },
+    getCurrentWasmLockHold: () => gapsHold,
+    // The shared post-await re-check (#788 follow-up). Re-implements the
+    // comparison against THIS mock's current hold — a no-op stub here would make
+    // the request-build eviction tests below vacuously green.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && gapsHold === hold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    },
+    withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
+  };
+});
 
 jest.mock('../activity/notes', () => ({
   importAllNotes: jest.fn(),
@@ -120,9 +164,14 @@ jest.mock('../activity/helpers', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
+  isAndroid: () => false,
   isMobile: () => false,
-  isExtension: () => true
+  isIOS: () => false,
+  isExtension: () => true,
+  isDesktop: () => false
 }));
+
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn() }
@@ -137,11 +186,30 @@ jest.mock('../helpers', () => ({
   toNoteTypeString: () => (globalThis as any).__noteTypeForTest
 }));
 
+// The guardian request builders read the caller's Account (a borrow of the
+// shared client) — the eviction tests below assert they are never reached past
+// an eviction. Hoisted `var`s: the jest.mock factory runs before const/let inits.
+// eslint-disable-next-line no-var
+var mockGapsBuildSendRequest = jest.fn((): { serialize: () => Uint8Array } => ({
+  serialize: () => new Uint8Array([1])
+}));
+// eslint-disable-next-line no-var
+var mockGapsBuildPswapRequest = jest.fn((): { serialize: () => Uint8Array } => ({
+  serialize: () => new Uint8Array([2])
+}));
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
-  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x }),
+  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x, toString: () => `sdk-${x}` }),
+  accountRefToSdk: (ref: string) => ({ toString: () => `sdk-${ref}` }),
+  // Mirrors the real helper: strips the composite `<address>_<suffix>` form.
+  walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
-  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
+  // The guardian send and swap builds declare a fee conversion salt; this used to be
+  // produced inside the (separately mocked) fee-auth helper.
+  randomFeeSalt: () => ({ kind: 'fee-salt' }),
+  buildSendTransactionRequest: (...args: unknown[]) => mockGapsBuildSendRequest(...(args as [])),
+  buildPswapCreateRequest: (...args: unknown[]) => mockGapsBuildPswapRequest(...(args as []))
 }));
 
 const mockTransactionResultDeserialize = jest.fn();
@@ -153,6 +221,15 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionProver: { newLocalProver: jest.fn(() => ({ __proverMarker: true })) }
   };
 });
+// The swap request build takes the realm's reader client inside the caller's hold;
+// each eviction test below hands it its own reader. The real module is kept for the
+// rest, and mocking the accessor keeps its module-scoped reader out of these tests.
+// eslint-disable-next-line no-var
+var mockGapsGetRealmReaderClient = jest.fn();
+jest.mock('../sdk/miden-client-interface', () => ({
+  ...jest.requireActual('../sdk/miden-client-interface'),
+  getRealmReaderClient: (...args: unknown[]) => mockGapsGetRealmReaderClient(...args)
+}));
 
 jest.mock('lib/store', () => ({
   getIntercom: () => ({ request: jest.fn(() => Promise.resolve({})) })
@@ -167,8 +244,13 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
+  // A hold leaked by an eviction test would flip another test's ownership checks.
+  gapsHold = null;
   _gh.__noteTypeForTest = 'private';
 });
+
+// The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+afterEach(() => clearGuardianAccountLocks());
 
 describe('getUncompletedTransactions', () => {
   it('returns Queued + GeneratingTransaction rows for the given account, sorted by initiatedAt', async () => {
@@ -228,6 +310,7 @@ describe('completeCustomTransaction outer init-error path', () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
       const fakeNote = {
+        id: () => ({ toString: () => '0xnote' }),
         metadata: () => ({ noteType: () => 'private' }),
         intoFull: () => ({ valid: true })
       };
@@ -251,12 +334,461 @@ describe('completeCustomTransaction outer init-error path', () => {
   });
 });
 
-// A private note exists off chain: the chain holds a commitment, and the bytes are
-// what the recipient needs to see or consume it. A private output note the wallet
-// never hands to the transport is therefore stranded — unreachable by its
-// recipient, with no reclaim window guaranteed on a custom note — and the row used
-// to report a clean success regardless. The recipient is supplied by the requesting
-// site and is OPTIONAL, so this is reachable by simply omitting it.
+// The private and public apply-after-submit cases below share these: the loop runs one queued send
+// whose client rejects with `makeError()`.
+const applyAfterSubmitError = () =>
+  new Error(
+    "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed. Sync to reconcile."
+  );
+
+const installLocks = () => {
+  const nav = (globalThis as any).navigator || {};
+  Object.defineProperty(nav, 'locks', {
+    value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
+    writable: true,
+    configurable: true
+  });
+};
+
+const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmitError) => {
+  installLocks();
+  const sdk = require('../sdk/miden-client');
+  const origGetClient = sdk.getMidenClient;
+  sdk.getMidenClient = async () => ({
+    syncState: jest.fn(),
+    sendTransaction: jest.fn(async () => {
+      throw makeError();
+    }),
+    // An execute row's write.
+    newTransaction: jest.fn(async () => {
+      throw makeError();
+    })
+  });
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+  try {
+    await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+  } finally {
+    sdk.getMidenClient = origGetClient;
+    warnSpy.mockRestore();
+  }
+};
+
+describe('apply-after-submit on a private send', () => {
+  // "Submit landed, local apply threw." The row must stay Completed — the
+  // transaction is on chain and re-queueing it would spend again — but for a
+  // PRIVATE send that verdict hides a second fact the row cannot otherwise express:
+  // the apply threw before `completeSendTransaction` ran, and that is the only code
+  // that hands the note to the transport. So the note was never relayed, and no
+  // amount of syncing fixes it — sync reconciles what the chain knows, and the chain
+  // holds a commitment, not the note body the recipient needs.
+  it('marks a private send Completed but records the note as undelivered', async () => {
+    txStore.push({
+      id: 'tx-apply-priv',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.Queued,
+      // Fresh: a 1970 timestamp trips the stale-queued reaper before the write runs.
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend();
+
+    // Completed, because the transaction really did land — Failed would offer a
+    // Retry that spends a second time.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    // ...but not as an unqualified success.
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+    expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
+  });
+
+  // The SDK's numeric note type reads as public to a string compare, and an unreadable one says
+  // nothing; either must be flagged, since under-reporting costs the recipient the funds (#1233).
+  const queueSendWithNoteType = (noteType: unknown) =>
+    txStore.push({
+      id: 'tx-apply-odd-type',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+  it("a landed send whose note type is the SDK's numeric enum is flagged undelivered (#1233)", async () => {
+    // The shared SDK mock spells NoteType as strings, under which 0 reaches only the unreadable
+    // fallback; the real enum's values put it on the numeric match.
+    const realEnum = [jest.replaceProperty(NoteType, 'Private', 0), jest.replaceProperty(NoteType, 'Public', 1)];
+    try {
+      queueSendWithNoteType(0);
+      await runLoopWithFailingSend();
+    } finally {
+      realEnum.forEach(property => property.restore());
+    }
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+  });
+
+  it('a landed send whose note type is an unreadable value is flagged undelivered (#1233)', async () => {
+    queueSendWithNoteType('sealed');
+
+    await runLoopWithFailingSend();
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+  });
+});
+
+describe('apply-after-submit on a public send', () => {
+  // A landed public send is a clean Completed however the landing reached the loop: as the SDK's
+  // mempool text or as the site's own wrap.
+  it('leaves a PUBLIC send reporting a clean Completed', async () => {
+    // A public send carries its whole note on chain, so there was never a relay to
+    // miss and a delivery warning here would be pure noise.
+    txStore.push({
+      id: 'tx-apply-pub',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend();
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+    expect(txStore[0]!.displayMessage).toBe('Sent');
+  });
+
+  // The receiver the send site's own wrap reaches (#1233): a raw store failure carries neither the
+  // SDK's code nor its mempool text, so only the wrap says the node has it.
+  it('completes a PUBLIC send whose site reported a raw store failure after submit as landed (#1233)', async () => {
+    txStore.push({
+      id: 'tx-apply-wrapped',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend(
+      () =>
+        new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted while applying the transaction update'), {
+          transactionId: 'landed-send-hash'
+        })
+    );
+
+    // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+    expect(txStore[0]!.displayMessage).toBe('Sent');
+    expect(txStore[0]!.transactionId).toBe('landed-send-hash');
+  });
+});
+
+describe('apply-after-submit on an execute', () => {
+  // Only `completeCustomTransaction` relays an execute's private notes, and a landed execute never
+  // ran it (#1233).
+  it.each([
+    {
+      privateOutputNotes: 2,
+      recipient: undefined,
+      delivery: 'undelivered',
+      message: 'Executed - 2 private notes could not be delivered'
+    },
+    { privateOutputNotes: 0, recipient: 'recipient', delivery: undefined, message: 'Executed' },
+    {
+      privateOutputNotes: undefined,
+      recipient: 'recipient',
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
+    },
+    { privateOutputNotes: undefined, recipient: undefined, delivery: undefined, message: 'Executed' }
+  ])(
+    'a landed execute with $privateOutputNotes private output notes and recipient $recipient reads $message (#1233)',
+    async ({ privateOutputNotes, recipient, delivery, message }) => {
+      txStore.push({
+        id: 'tx-apply-execute',
+        type: 'execute',
+        accountId: 'acc-1',
+        secondaryAccountId: recipient,
+        requestBytes: new Uint8Array([7]),
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        displayIcon: 'DEFAULT'
+      });
+
+      await runLoopWithFailingSend(
+        () =>
+          new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+            transactionId: 'landed-execute-hash',
+            privateOutputNotes
+          })
+      );
+
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe(delivery);
+      expect(txStore[0]!.displayMessage).toBe(message);
+      expect(txStore[0]!.transactionId).toBe('landed-execute-hash');
+    }
+  );
+});
+
+describe('completeCustomTransaction private-note delivery', () => {
+  const makeResultWith = (notes: unknown[]) =>
+    ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'landed-hash' }),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    }) as any;
+
+  const privateNote = (marker: string) => ({
+    id: () => ({ toString: () => marker }),
+    metadata: () => ({ noteType: () => 'private' }),
+    intoFull: () => ({ __note: marker })
+  });
+
+  beforeEach(() => {
+    mockSendPrivateNote.mockClear();
+    mockWaitForCommit.mockClear();
+    _gh.__noteTypeForTest = 'private';
+  });
+
+  it('waits for the commit ONCE for a transaction carrying several private notes', async () => {
+    // The wait used to sit inside the per-note loop, so note N+1's relay waited out
+    // note N's commit — a full commit interval of extra exposure per note, in which a
+    // realm teardown loses the remaining relays — and re-asked the same question about
+    // the same transaction id each time.
+    txStore.push({
+      id: 'tx-multi',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+    await completeCustomTransaction(
+      txStore[0]!,
+      makeResultWith([privateNote('a'), privateNote('b'), privateNote('c')])
+    );
+
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(3);
+    expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  it('still relays the remaining notes after one fails, and records the pessimistic aggregate', async () => {
+    // Each note is separately owed, so one rejection must not skip the others. And a
+    // single undelivered note among several still means value is unreachable, so the
+    // row must not read as fully delivered.
+    txStore.push({
+      id: 'tx-partial',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
+
+      expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('records undelivered when a private note cannot be converted into a relayable note', async () => {
+    // Previously this was a bare `continue` with a console line: a private note that
+    // existed on chain and was never handed to anyone, on a row reporting success.
+    txStore.push({
+      id: 'tx-nofull',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(
+        txStore[0]!,
+        makeResultWith([
+          {
+            id: () => ({ toString: () => '0xnote' }),
+            metadata: () => ({ noteType: () => 'private' }),
+            intoFull: () => undefined
+          }
+        ])
+      );
+
+      expect(mockSendPrivateNote).not.toHaveBeenCalled();
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.transactionId).toBe('landed-hash');
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('leaves noteDelivery unset when the transaction produced no private notes', async () => {
+    _gh.__noteTypeForTest = 'public';
+    txStore.push({
+      id: 'tx-public-only',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+    await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+
+    expect(mockSendPrivateNote).not.toHaveBeenCalled();
+    expect(mockWaitForCommit).not.toHaveBeenCalled();
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+  });
+
+  const pushExecuteRow = () =>
+    txStore.push({
+      id: 'tx-stages',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+  const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
+
+  // Fails the first row write `matches` picks, judged on a copy of the row with the write applied, once, and records
+  // how many commit waits had run by then.
+  const failWriteOnce = (matches: (before: any, after: any) => boolean) => {
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    const outcome: { failed: boolean; waitsBefore?: number } = { failed: false };
+    where.mockImplementation((arg: any) => {
+      const real = realWhere(arg);
+      if (typeof arg === 'string') return real;
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          const row = txStore.find(t => t.id === arg.id);
+          if (!outcome.failed && row) {
+            const after = { ...row, stageTimestamps: { ...row.stageTimestamps } };
+            fn(after);
+            if (matches(row, after)) {
+              outcome.failed = true;
+              outcome.waitsBefore = mockWaitForCommit.mock.calls.length;
+              throw new Error('dexie write failed');
+            }
+          }
+          return real.modify(fn);
+        }
+      };
+    });
+    return { outcome, restore: () => where.mockImplementation(realWhere) };
+  };
+
+  // Like a private send, an execute's private notes wait for the commit and are relayed after the Guardian sync, so
+  // the row says which of the two it is waiting on (#1492).
+  it('stamps confirming for the commit wait and delivering for the relays', async () => {
+    pushExecuteRow();
+    let rowDuringWait: any;
+    let rowDuringRelay: any;
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+
+    await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+
+    expect(rowDuringWait.stage).toBe('confirming');
+    expect(rowDuringWait.stageTimestamps.delivering).toBeUndefined();
+    expect(rowDuringWait.noteDelivery).toBe('pending');
+    expect(rowDuringRelay.stage).toBe('delivering');
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // Display state only: the relay needs the proof the commit wait produces, and the notes are owed either way. The
+  // wait count at the failed write pins each stamp to its side of the wait.
+  it.each([
+    ['confirming', 0],
+    ['delivering', 1]
+  ])('still waits for the commit and relays when the %s stamp cannot be written', async (stage, waitsBefore) => {
+    pushExecuteRow();
+    const failing = failWriteOnce((before, after) => after.stage === stage && before.stage !== stage);
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
+    } finally {
+      failing.restore();
+    }
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(failing.outcome.waitsBefore).toBe(waitsBefore);
+    expect(txStore[0]!.stageTimestamps?.[stage]).toBeUndefined();
+    expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // The screen reads the stamps when the best-effort delivery record is missing, so they cannot depend on it.
+  it('stamps both stages when the pending delivery record cannot be written', async () => {
+    pushExecuteRow();
+    const failing = failWriteOnce(
+      (before, after) => after.noteDelivery === 'pending' && before.noteDelivery !== 'pending'
+    );
+    let rowDuringWait: any;
+    let rowDuringRelay: any;
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+    } finally {
+      failing.restore();
+    }
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(rowDuringWait.noteDelivery).toBeUndefined();
+    expect(rowDuringWait.stage).toBe('confirming');
+    expect(rowDuringRelay.stage).toBe('delivering');
+  });
+});
+
 describe('a custom transaction that strands a private note says so', () => {
   const customRow = (id: string, overrides: Record<string, unknown> = {}) => {
     const row: Record<string, unknown> & { status?: ITransactionStatus; displayMessage?: string } = {
@@ -279,7 +811,11 @@ describe('a custom transaction that strands a private note says so', () => {
       })
     }) as any;
 
-  const privateNote = { metadata: () => ({ noteType: () => 'private' }), intoFull: () => ({ valid: true }) };
+  const privateNote = {
+    id: () => ({ toString: () => '0xnote' }),
+    metadata: () => ({ noteType: () => 'private' }),
+    intoFull: () => ({ valid: true })
+  };
 
   it('flags the row when no recipient was ever named, and does not pretend to deliver', async () => {
     _gh.__noteTypeForTest = 'private';
@@ -295,7 +831,7 @@ describe('a custom transaction that strands a private note says so', () => {
     // On chain, so Completed — failing it would be untrue and would offer a Retry
     // that spends the assets a second time.
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
 
@@ -310,7 +846,7 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
-    expect(row.displayMessage).toBe('Completed — 3 private notes could not be delivered');
+    expect(row.displayMessage).toBe('Completed - 3 private notes could not be delivered');
   });
 
   it('flags a note that cannot be turned into deliverable bytes', async () => {
@@ -321,13 +857,21 @@ describe('a custom transaction that strands a private note says so', () => {
     try {
       await completeCustomTransaction(
         row as any,
-        resultWithNotes([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+        resultWithNotes([
+          {
+            id: () => ({ toString: () => '0xnote' }),
+            metadata: () => ({ noteType: () => 'private' }),
+            intoFull: () => undefined
+          }
+        ])
       );
     } finally {
       errSpy.mockRestore();
     }
 
-    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
+    // Nothing reached the relay, yet the note is still owed one, so the sweep can target it.
+    expect(row.relayNoteIds).toEqual(['0xnote']);
   });
 
   it('says nothing when the note was handed over', async () => {
@@ -340,9 +884,11 @@ describe('a custom transaction that strands a private note says so', () => {
     expect(row.displayMessage).not.toContain('could not be delivered');
   });
 
-  // A transport throw is NOT stranding: the note is in the client's store by then
-  // and the SDK outbox retries it, which is what the send path assumes too.
-  it('does not flag a relay that failed after the transport had the note', async () => {
+  // A relay throw IS treated as undelivered: the SDK does not re-send a failed
+  // relay, so the row's state is what the delivery sweep retries from, and
+  // over-reporting a note that arrives anyway costs a stale warning, while
+  // under-reporting costs the funds.
+  it('flags a relay that threw, because the transport may never have received it', async () => {
     _gh.__noteTypeForTest = 'private';
     const row = customRow('tx-relay-threw', { secondaryAccountId: 'recipient' });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down') as never);
@@ -354,8 +900,11 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
+    // Completed, because the transaction really is on chain — Failed would offer a
+    // Retry that spends a second time.
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).not.toContain('could not be delivered');
+    expect(row.displayMessage).toContain('could not be delivered');
+    expect(row.noteDelivery).toBe('undelivered');
   });
 
   it('says nothing for a public note, which needs no delivery at all', async () => {
@@ -453,6 +1002,40 @@ describe('generateTransactionsLoop early returns', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
+  it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
+    // The whole pipeline funnels through this one loop, so aborting the lap on an
+    // import failure stops every send, swap and claim in the wallet — and an
+    // eviction abandons the import hold, so nothing about the queue changes and the
+    // next lap fails the same way. The dependent consume is the smaller loss: it is
+    // marked Failed with nothing submitted, the note stays claimable, and a later
+    // auto-consume re-initiates it.
+    //
+    // `initiatedAt` is current so neither reaper can be what moves the row: only
+    // the pickup can.
+    const { importAllNotes } = require('../activity/notes');
+    importAllNotes.mockRejectedValueOnce(new Error('import hold evicted'));
+    txStore.push({
+      id: 'queued-behind-a-bad-import',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([9])
+    });
+    const guardianProvider: any = { getGuardianClient: async () => null, getAccounts: async () => [] };
+
+    await generateTransactionsLoop(
+      jest.fn(async () => new Uint8Array()),
+      false,
+      guardianProvider
+    );
+
+    const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
+    expect(row.status).not.toBe(ITransactionStatus.Queued);
+  });
+
   it('returns undefined when there are no queued or in-progress transactions', async () => {
     const guardianProvider: any = { getGuardianClient: async () => null };
     const result = await generateTransactionsLoop(jest.fn(), false, guardianProvider);
@@ -530,13 +1113,13 @@ describe('safeGenerateTransactionsLoop', () => {
     });
   };
 
-  it('returns false (catch path) when navigator.locks.request rejects', async () => {
+  it('returns failed (catch path) when navigator.locks.request rejects', async () => {
     installNavigatorLocksMock(() => Promise.reject(new Error('lock-blew-up')));
     const result = await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
-    expect(result).toBe(false);
+    expect(result).toBe('failed');
   });
 
-  it('returns false when generateTransactionsLoop returns false (forwards through `if (result === false)`)', async () => {
+  it('returns failed when generateTransactionsLoop returns false (forwards through `if (result === false)`)', async () => {
     // To make generateTransactionsLoop hit its catch branch and return false,
     // we patch the Repo.transactions.where().modify path so the very first
     // setTransactionStage call (inside generateTransaction) throws. Closure-
@@ -579,7 +1162,7 @@ describe('safeGenerateTransactionsLoop', () => {
     installNavigatorLocksMock((_n: string, _o: any, cb: any) => Promise.resolve(cb({})));
     try {
       const result = await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
-      expect(result).toBe(false);
+      expect(result).toBe('failed');
     } finally {
       Repo.transactions.where = origWhere;
     }
@@ -770,15 +1353,16 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       ...extra
     });
 
-  // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError)
-  // and the subsequent node read returns `noteState` (or throws when it is null).
-  const patchClient = (noteState: string | null) => {
+  // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError
+  // by default, or the given kill error) and the subsequent node read returns
+  // `noteState` (or throws when it is null).
+  const patchClient = (noteState: string | null, killError?: Error) => {
     const sdk = require('../sdk/miden-client');
     const orig = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
       consumeNoteId: jest.fn(async () => {
-        throw new OperationAbortedError('op-kill', 'deadline');
+        throw killError ?? new OperationAbortedError('op-kill', 'deadline');
       }),
       getInputNoteDetails: jest.fn(async () => {
         if (noteState === null) throw new Error('node unreachable');
@@ -789,6 +1373,33 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       sdk.getMidenClient = orig;
     };
   };
+
+  it('reports the not-landed verdict after a killed consume without leaking its operation id', async () => {
+    const accountHex = '0x1234567890abcdef1234567890abcdef';
+    const noteHex = '0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+    const amount = '987654321.123456';
+    const operationId = `consume-${accountHex}-${noteHex}-${amount}`;
+    pushConsume('nk-verdict-report');
+    const restore = patchClient('Committed', new OperationAbortedError(operationId, 'deadline'));
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(txStore.find(row => row.id === 'nk-verdict-report')!.status).toBe(ITransactionStatus.Failed);
+      const report = jest
+        .mocked(captureCrash)
+        .mock.calls.map(([captured]) => captured)
+        .find(captured => captured instanceof Error && captured.name === 'WalletTransactionFailure');
+      expect(report).toBeInstanceOf(Error);
+      if (!(report instanceof Error)) throw new Error('missing consume failure report');
+      const diagnostics = snapshotCrashDiagnostics(report);
+      for (const privateValue of [operationId, accountHex, noteHex, amount]) {
+        expect(report.message).not.toContain(privateValue);
+        expect(JSON.stringify(diagnostics)).not.toContain(privateValue);
+      }
+      expect(Reflect.get(diagnostics, 'consumeVerdict')).toBe('not-landed');
+    } finally {
+      restore();
+    }
+  });
 
   it('node reports the note LOCAL-consumed (provably mine) → the killed consume ends Completed Received', async () => {
     pushConsume('nk-landed');
@@ -802,6 +1413,106 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     } finally {
       restore();
     }
+  });
+
+  it('a lock-recovery (WasmClientPoisonedError) kill rides the same node adjudication: LOCAL-consumed → Completed', async () => {
+    // Issue #775: a watchdog/trap eviction abandons the pipeline exactly like an
+    // offscreen deadline kill does — the outcome is unknown, so the killed
+    // consume must be node-verified, not blindly Failed while the note IS
+    // consumed on chain.
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    pushConsume('nk-poison');
+    const restore = patchClient('ConsumedAuthenticatedLocal', new WasmClientPoisonedError('watchdog'));
+    try {
+      const result = await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(result).toBe(false);
+      const row = txStore.find(r => r.id === 'nk-poison')!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Received');
+    } finally {
+      restore();
+    }
+  });
+
+  const deadlineKill = () => new OperationAbortedError('op-kill', 'deadline');
+  const watchdogKill = () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    return new WasmClientPoisonedError('watchdog');
+  };
+
+  it.each([
+    ['the pre-flight sync itself is killed', deadlineKill, true, 1],
+    ['the consume is killed after pickup', watchdogKill, false, 2]
+  ])(
+    're-syncs before adjudicating only when the sync was not what died — %s (#777)',
+    async (_label, kill, killDuringSync, expectedSyncs) => {
+      // The adjudication normally opens with a fresh sync so the note state is
+      // current. When the thing that just died IS the pre-flight sync, that fresh
+      // sync is the worst possible next move: the SDK coalesces concurrent syncs
+      // onto one in-flight promise, and a killed sync's promise is still the
+      // in-flight one, so the "fresh" sync re-attaches to a dead promise and
+      // parks the wallet's only WASM lock for another full ceiling. The committed
+      // stage is what distinguishes the two cases; the kill shape is not, which is
+      // why an evicted PROVE still gets its fresh sync. A watchdog-evicted
+      // pre-flight sync reads nothing at all (#1233, below), so the sync kill here
+      // is the offscreen deadline's.
+      const syncState = jest.fn(async () => {
+        if (killDuringSync) throw kill();
+      });
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState,
+        consumeNoteId: jest.fn(async () => {
+          throw kill();
+        }),
+        getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
+      });
+      const id = `nk-sync-${killDuringSync}`;
+      pushConsume(id);
+      try {
+        await generateTransactionsLoop(dummySign, false, stubProvider);
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+
+      // 1 = the pre-flight sync only (the adjudication skipped its own);
+      // 2 = pre-flight plus the adjudication's.
+      expect(syncState).toHaveBeenCalledTimes(expectedSyncs);
+      // Either way the row is still adjudicated — skipping the sync must not skip
+      // the read.
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
+    }
+  );
+
+  // Nothing executed in that attempt, and the read would be the first hold after the eviction.
+  it('fails a consume whose pre-flight sync the watchdog evicted, without reading the note (#1233)', async () => {
+    const syncState = jest.fn(async () => {
+      throw watchdogKill();
+    });
+    const getInputNoteDetails = jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }]);
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState,
+      consumeNoteId: jest.fn(async () => {
+        throw watchdogKill();
+      }),
+      getInputNoteDetails
+    });
+    pushConsume('nk-sync-evicted');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(getInputNoteDetails).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === 'nk-sync-evicted')!.status).toBe(ITransactionStatus.Failed);
+    const report = jest.mocked(captureCrash).mock.calls[0]?.[0];
+    expect(report).toBeInstanceOf(Error);
+    expect(snapshotCrashDiagnostics(report)).not.toHaveProperty('consumeVerdict');
   });
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
@@ -836,6 +1547,46 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
+  // FUNDS-2: the two Processing* states mean our consuming tx WAS submitted and
+  // applied locally — the opposite of "not consumed". They used to fall through
+  // verifyConsumeLanded's catch-all to 'not-landed', so a killed consume whose
+  // claim had already reached the node was terminal-failed.
+  it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
+    'node reports the note %s (submitted, awaiting commit) → the row stays in progress, not Failed',
+    async noteState => {
+      pushConsume(`nk-${noteState}`);
+      const restore = patchClient(noteState);
+      try {
+        await generateTransactionsLoop(dummySign, false, stubProvider);
+        const row = txStore.find(r => r.id === `nk-${noteState}`)!;
+        expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+        expect(row.status).not.toBe(ITransactionStatus.Failed);
+        // Not completed either — the block is not committed yet.
+        expect(row.displayMessage).not.toBe('Received');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
+    'verifyConsumeLanded maps %s to the distinct "processing" verdict',
+    async noteState => {
+      const { verifyConsumeLanded } = require('./cancel');
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState: jest.fn(async () => {}),
+        getInputNoteDetails: jest.fn(async () => [{ state: noteState }])
+      });
+      try {
+        expect(await verifyConsumeLanded({ id: 'v-proc', noteId: 'note-kill' }, true)).toBe('processing');
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+    }
+  );
+
   it('verifyConsumeLanded(sync=true): a failed sync falls back to last-synced state (LOCAL-consumed → landed-local)', async () => {
     // sync=true best-effort syncs before reading, but a sync failure must NOT block
     // the check: a consumed note never un-consumes, so the last-synced state stays
@@ -853,6 +1604,80 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     try {
       const verdict = await verifyConsumeLanded({ id: 'v-syncfail', noteId: 'note-kill' }, true);
       expect(verdict).toBe('landed-local');
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
+  // After a watchdog eviction of the verdict's own sync the read would be the first hold after it, and
+  // would rebuild the client against the node that just parked.
+  it('verifySendLanded: a watchdog-evicted sync gives no verdict and reads nothing (#1233)', async () => {
+    const { verifySendLanded } = require('./cancel');
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const getTransactionCommitState = jest.fn(async () => 'pending');
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      getTransactionCommitState
+    });
+    try {
+      expect(await verifySendLanded({ id: 'v-send-evicted', transactionId: '0xtx' })).toBe('unknown');
+      expect(getTransactionCommitState).not.toHaveBeenCalled();
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
+  it.each([
+    ['sync unreachable', () => new Error('sync unreachable')],
+    [
+      'realm-error',
+      () => {
+        const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+        return new WasmClientPoisonedError('realm-error');
+      }
+    ]
+  ])(
+    'verifySendLanded: a sync that fails without a watchdog eviction still reads the last-synced record (%s)',
+    async (_label, syncError) => {
+      const { verifySendLanded } = require('./cancel');
+      const getTransactionCommitState = jest.fn(async () => 'pending');
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState: jest.fn(async () => {
+          throw syncError();
+        }),
+        getTransactionCommitState
+      });
+      try {
+        expect(await verifySendLanded({ id: 'v-send-syncfail', transactionId: '0xtx' })).toBe('landed');
+        expect(getTransactionCommitState).toHaveBeenCalledTimes(1);
+        expect(getTransactionCommitState).toHaveBeenCalledWith('0xtx');
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+    }
+  );
+
+  it('verifyConsumeLanded(sync=true): a watchdog-evicted sync gives no verdict and reads nothing (#1233)', async () => {
+    const { verifyConsumeLanded } = require('./cancel');
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const getInputNoteDetails = jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }]);
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      getInputNoteDetails
+    });
+    try {
+      expect(await verifyConsumeLanded({ id: 'v-consume-evicted', noteId: 'note-kill' }, true)).toBe('unknown');
+      expect(getInputNoteDetails).not.toHaveBeenCalled();
     } finally {
       sdk.getMidenClient = orig;
     }
@@ -884,56 +1709,6 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
 });
 
 describe('generateTransaction execute + consume default switch arms', () => {
-  it('drives the execute branch and invokes the signCallback wrapper', async () => {
-    txStore.push({
-      id: 'tx-exec',
-      type: 'execute',
-      accountId: 'acc-1',
-      secondaryAccountId: 'recipient',
-      status: ITransactionStatus.Queued,
-      initiatedAt: 1,
-      requestBytes: new Uint8Array([1, 2, 3]),
-      delegateTransaction: false
-    });
-    const fakeResult = {
-      executedTransaction: () => ({
-        id: () => ({ toHex: () => 'exec-hash' }),
-        outputNotes: () => ({ notes: () => [] })
-      }),
-      serialize: () => new Uint8Array([])
-    };
-
-    // Capture the options.signCallback the WASM client receives so we can
-    // invoke it with byte buffers — that's the only way to exercise the
-    // hex-encoding wrapper inside generateTransaction (lines 775-779).
-    let capturedSignCallback: ((pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array>) | null = null;
-    const sdk = require('../sdk/miden-client');
-    const origGetClient = sdk.getMidenClient;
-    sdk.getMidenClient = async (options?: any) => {
-      if (options?.signCallback) capturedSignCallback = options.signCallback;
-      return {
-        syncState: jest.fn(),
-        newTransaction: jest.fn(async () => fakeResult),
-        waitForTransactionCommit: jest.fn(),
-        sendPrivateNote: jest.fn()
-      };
-    };
-    _gh.__noteTypeForTest = 'public';
-    try {
-      const userSignCallback = jest.fn(async () => new Uint8Array([0xab, 0xcd]));
-      await generateTransaction(txStore[0] as any, userSignCallback, false, {} as any);
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-
-      // Drive the wrapper: it should hex-encode and forward to the user callback.
-      expect(capturedSignCallback).not.toBeNull();
-      const sig = await capturedSignCallback!(new Uint8Array([0x01, 0x02]), new Uint8Array([0x10, 0x20]));
-      expect(userSignCallback).toHaveBeenCalledWith('0102', '1020');
-      expect(sig).toEqual(new Uint8Array([0xab, 0xcd]));
-    } finally {
-      sdk.getMidenClient = origGetClient;
-    }
-  });
-
   it('Guardian consume: completes through completeConsumeTransaction → break (outer switch line 913)', async () => {
     txStore.push({
       id: 'guardian-consume',
@@ -991,9 +1766,16 @@ describe('generateTransaction execute + consume default switch arms', () => {
         })
       }))
     };
+    const guardianClient = {
+      transactions: guardianTxApi,
+      syncChain: jest.fn(async () => {}),
+      getSyncHeight: jest.fn(() => 1),
+      feeFaucetId: jest.fn(async () => ({ toString: () => '0xfee0000000000000000000000000000000' }))
+    };
+    bindFeeFaucetClientScope(guardianClient, 'fixture-rpc|testnet');
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
-      client: { transactions: guardianTxApi }
+      client: guardianClient
     });
     try {
       // A real GuardianAccountProvider always implements getAccounts (the
@@ -1039,15 +1821,237 @@ describe('generateTransaction execute + consume default switch arms', () => {
     };
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    const consumeNoteId = jest.fn(async (_tx: unknown, _onStage: unknown) => fakeResult);
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(),
-      consumeNoteId: jest.fn(async () => fakeResult)
+      consumeNoteId
     });
     try {
       await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // The leaf reads its own expiration delta, so the consume carries only its stage stamp (#1081).
+      expect(consumeNoteId).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-consume' }), expect.any(Function));
     } finally {
       sdk.getMidenClient = origGetClient;
     }
   });
 });
+
+describe('guardian request-build holds stop at an eviction (#788 follow-up)', () => {
+  // An evicted hold ABANDONS the callback rather than cancelling it: the mutex
+  // belongs to a successor the instant the watchdog fires, so the build's next
+  // WASM call — including reads on an Account borrowed earlier — would be a
+  // second borrow of a client somebody else is inside. Every site driven here is
+  // provably pre-submit (nothing has even been proposed yet), so stopping is
+  // funds-safe by construction.
+  const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc' }] };
+
+  const seedGuardianService = () => {
+    const guardianManager = require('lib/miden/front/guardian-manager');
+    guardianManager.isGuardianAccount.mockResolvedValueOnce(true);
+    const service = {
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    guardianManager.getOrCreateMultisigService.mockResolvedValueOnce(service);
+    return service;
+  };
+
+  const pushRecallableSendRow = () => {
+    txStore.push({
+      id: 'recallable-send-1',
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: '1000',
+      noteType: 'private',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      extraInputs: { recallBlocks: 10 }
+    });
+    return txStore[0];
+  };
+
+  const pushSwapRow = () => {
+    txStore.push({
+      id: 'swap-evict-1',
+      type: 'swap',
+      accountId: 'guardian-acc',
+      faucetId: 'faucet-offer',
+      amount: '5',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: '9' }
+    });
+    return txStore[0];
+  };
+
+  // Swap in a client whose reads the test controls; restore afterwards.
+  const withPatchedClient = async (client: Record<string, unknown>, run: () => Promise<void>) => {
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({ syncState: jest.fn(async () => {}), ...client });
+    try {
+      await run();
+    } finally {
+      sdk.getMidenClient = origGetClient;
+    }
+  };
+
+  it('recallable send: stops before the account read when the hold is evicted during the height read', async () => {
+    const row = pushRecallableSendRow();
+    const service = seedGuardianService();
+    const getAccount = jest.fn();
+    await withPatchedClient(
+      {
+        getAccount,
+        client: {
+          getSyncHeight: () => {
+            gapsHold = null; // the watchdog fired while the height read parked
+            return 100;
+          }
+        }
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(row.status).not.toBe(ITransactionStatus.Completed);
+    // Nothing may be persisted for retry off an abandoned build.
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  it('recallable send: stops before the request build when the hold is evicted during the account read', async () => {
+    const row = pushRecallableSendRow();
+    const service = seedGuardianService();
+    await withPatchedClient(
+      {
+        getAccount: jest.fn(async () => {
+          gapsHold = null;
+          return { kind: 'account' };
+        }),
+        client: { getSyncHeight: () => 100 }
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    // The returned Account is a borrow of the client a successor now owns —
+    // the request build reads its vault, so it must never run.
+    expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  it('Epoch bridged-send: does not fall back to the cached height when the hold is evicted during the fresh sync', async () => {
+    txStore.push({
+      id: 'bridged-evict-1',
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'solver',
+      faucetId: 'faucet-1',
+      amount: '1000',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      extraInputs: { provider: 'epoch', recallBlocks: 500 }
+    });
+    const row = txStore[0];
+    const service = seedGuardianService();
+    const plainHeightRead = jest.fn(() => 100);
+    const getAccount = jest.fn();
+    // The initial bounded sync succeeds; the request's fresh-height sync parks
+    // and loses its hold before rejecting. Its cached-height fallback must stop.
+    const syncState = jest
+      .fn(async () => ({ blockNum: () => 100 }))
+      .mockImplementationOnce(async () => ({ blockNum: () => 100 }))
+      .mockImplementationOnce(async () => {
+        gapsHold = null;
+        throw new Error('node parked');
+      });
+    await withPatchedClient(
+      {
+        getAccount,
+        syncState,
+        client: {
+          getSyncHeight: plainHeightRead
+        }
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    expect(syncState).toHaveBeenCalledTimes(2);
+    expect(plainHeightRead).not.toHaveBeenCalled();
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+  });
+
+  it('swap: never reaches the realm reader when the hold is evicted during the account read', async () => {
+    const row = pushSwapRow();
+    seedGuardianService();
+    mockGapsGetRealmReaderClient.mockReset();
+    const getAccount = jest.fn(async () => {
+      gapsHold = null;
+      return { kind: 'account' };
+    });
+    await withPatchedClient({ getAccount }, async () => {
+      await generateTransaction(row, jest.fn(), false, provider as any);
+    });
+    expect(getAccount).toHaveBeenCalledTimes(1);
+    expect(mockGapsGetRealmReaderClient).not.toHaveBeenCalled();
+    expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  it('swap: stops before the PSWAP build on an eviction during the reader build', async () => {
+    const row = pushSwapRow();
+    const service = seedGuardianService();
+    const newPswapCreateTransactionRequest = jest.fn();
+    mockGapsGetRealmReaderClient.mockReset();
+    mockGapsGetRealmReaderClient.mockImplementationOnce(async () => {
+      gapsHold = null; // the first build is the long parking await (a genesis fetch on a fresh store)
+      return { newPswapCreateTransactionRequest };
+    });
+    await withPatchedClient({ getAccount: jest.fn(async () => ({ kind: 'account' })) }, async () => {
+      await generateTransaction(row, jest.fn(), false, provider as any);
+    });
+    expect(mockGapsGetRealmReaderClient).toHaveBeenCalledTimes(1);
+    expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+  });
+
+  it('swap: stops before touching the creator account when the hold is evicted during the PSWAP request build', async () => {
+    const row = pushSwapRow();
+    const service = seedGuardianService();
+    const newPswapCreateTransactionRequest = jest.fn(async () => {
+      gapsHold = null;
+      return { kind: 'pswap-request' };
+    });
+    mockGapsGetRealmReaderClient.mockReset();
+    mockGapsGetRealmReaderClient.mockImplementationOnce(async () => ({ newPswapCreateTransactionRequest }));
+    await withPatchedClient({ getAccount: jest.fn(async () => ({ kind: 'account' })) }, async () => {
+      await generateTransaction(row, jest.fn(), false, provider as any);
+    });
+    expect(mockGapsGetRealmReaderClient).toHaveBeenCalledTimes(1);
+    expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
+    // buildPswapCreateRequest reads the creator Account - a borrow of the SHARED
+    // client, not the reader - so it must never run past the eviction.
+    expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(row.requestBytes).toBeUndefined();
+  });
+});
+
+// Vault admission is tested separately; retain these fixtures' WASM eviction boundaries.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

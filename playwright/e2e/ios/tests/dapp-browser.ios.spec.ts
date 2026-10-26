@@ -37,6 +37,14 @@ test.describe('dApp Browser (iOS)', () => {
     // is gated on the unlocked wallet shell.
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
+      // The wallet asks for notification permission as its shell mounts. Answer that SpringBoard prompt here, so
+      // no dApp step runs while the app sits inactive behind it, or resumes from it mid-journey.
+      const prompt = await walletA.settleNotificationPrompt();
+      if (!prompt.answered) {
+        throw new Error(
+          `create_wallet: the notification permission prompt was not settled (${prompt.reason}): ${prompt.detail}`
+        );
+      }
     });
 
     const driver = new DappBrowserDriver({

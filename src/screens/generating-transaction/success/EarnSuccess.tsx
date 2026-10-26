@@ -3,7 +3,9 @@ import React, { FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -11,15 +13,12 @@ import { navigate } from 'lib/woozie';
 import { buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
-  TransactionSuccessProps
+  TransactionSuccessProps,
+  useReceiptFeeText
 } from './TransactionSuccessLayout';
-import { earnMarketLabel, EarnDepositArrowGlyph } from '../TransactionSummaryBadge';
-
-/** USDC fallback decimals when the collateral faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
-const EARN_USDC_DECIMALS = 6;
+import { earnMarketLabel, EarnDepositArrowGlyph, useEarnCollateralFallback } from '../TransactionSummaryBadge';
 
 /**
  * "You're Earning!" receipt for a completed `earn-deposit` — routed from the
@@ -36,31 +35,36 @@ const EARN_USDC_DECIMALS = 6;
 export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
   const { t } = useTranslation();
 
-  // Mirrors the in-progress badge: earn collateral is USDC-denominated, and the
-  // CLI/testnet faucet may be absent from `assetsMetadata` — fall back to the
-  // USDC symbol/decimals rather than the native-asset defaults
+  // Mirrors the in-progress badge: the CLI/testnet faucet may be absent from
+  // `assetsMetadata`, so fall back to the collateral the config names, and only
+  // for a row of that very faucet, rather than the native-asset defaults
   // `useReceiptAmount` would pick.
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const stored = transaction?.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-  // A stored record only outranks the USDC constants when it actually resolved.
-  // The unknown-token placeholder is not evidence about this faucet — falling
-  // back to the collateral token's stated decimals is strictly better than
-  // scaling a deposit by a guess.
+  const collateral = useEarnCollateralFallback(transaction?.faucetId);
+  // A stored record only outranks the collateral's stated scale when it actually
+  // resolved: the unknown-token placeholder is not evidence about this faucet.
   const tokenMetadata = hasKnownScale(stored) ? stored : undefined;
+  const scale = tokenMetadata ?? collateral;
   const amountText =
-    transaction?.amount !== undefined
-      ? `${formatAmount(transaction.amount, tokenMetadata?.decimals ?? EARN_USDC_DECIMALS)} ${
-          tokenMetadata?.symbol ?? 'USDC'
-        }`
+    transaction?.amount !== undefined && scale
+      ? `${formatAmount(transaction.amount, scale.decimals)} ${scale.symbol}`
       : undefined;
 
   const marketUid: unknown = transaction?.extraInputs?.marketUid;
-  const market = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const market = typeof marketUid === 'string' ? earnMarketLabel(bridgeConfig, marketUid) : undefined;
+
+  // A deposit pays a network fee like any other transaction, and the row records it.
+  // Resolved on its own rather than through `useReceiptAmount`, whose amount is
+  // native-denominated and wrong for a USDC deposit.
+  const feeText = useReceiptFeeText(transaction);
 
   const rows = useMemo(() => {
     const receiptRows = buildReceiptRows(t, {
       amountText,
       amountLabel: t('earnTotalDeposited', { defaultValue: 'Total Deposited' }),
+      feeText,
       txHash,
       onViewExplorer
     });
@@ -68,11 +72,12 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       receiptRows.unshift({ label: t('earnMarketLabel', { defaultValue: 'Market' }), value: market });
     }
     return receiptRows;
-  }, [amountText, market, onViewExplorer, t, txHash]);
+  }, [amountText, feeText, market, onViewExplorer, t, txHash]);
 
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={t('youreEarning', { defaultValue: "You're Earning!" })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
@@ -83,8 +88,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={market} separator={<EarnDepositArrowGlyph />} />
-      <SuccessDivider />
-      <ReceiptRows rows={rows} className="mt-2" />
+      <ReceiptRows rows={rows} surface="outline" className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

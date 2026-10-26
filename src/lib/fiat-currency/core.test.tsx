@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, renderHook } from '@testing-library/react';
 
+import { useStorage } from 'lib/miden/front';
 import { useWalletStore } from 'lib/store';
 
 import { FIAT_CURRENCIES } from './consts';
@@ -20,6 +21,7 @@ jest.mock('lib/swr', () => ({
 describe('fiat-currency/core', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.mocked(useStorage).mockImplementation(() => [FIAT_CURRENCIES[0], jest.fn()]);
     useWalletStore.setState({
       selectedFiatCurrency: FIAT_CURRENCIES[0],
       fiatRates: { usd: 1 }
@@ -145,6 +147,40 @@ describe('fiat-currency/core', () => {
       );
 
       expect(setFiatRates).toHaveBeenCalledWith({ usd: 1 });
+    });
+  });
+
+  describe('currency selection (#1168)', () => {
+    it('keeps the shown currency when storage rejects the new one', async () => {
+      const setStore = jest.fn();
+      useWalletStore.setState({ setSelectedFiatCurrency: setStore });
+      jest
+        .mocked(useStorage)
+        .mockImplementation(() => [FIAT_CURRENCIES[0], jest.fn().mockRejectedValue(new Error('write failed'))]);
+
+      const { result } = renderHook(() => useFiatCurrency());
+
+      await expect(result.current.setSelectedFiatCurrency(FIAT_CURRENCIES[1]!)).rejects.toThrow('write failed');
+      expect(setStore).not.toHaveBeenCalled();
+    });
+
+    it('shows a currency that storage takes after the provider mounted', () => {
+      const setStore = jest.fn();
+      useWalletStore.setState({ setSelectedFiatCurrency: setStore });
+      const { rerender } = render(
+        <FiatCurrencyProvider>
+          <div />
+        </FiatCurrencyProvider>
+      );
+
+      jest.mocked(useStorage).mockImplementation(() => [FIAT_CURRENCIES[1], jest.fn()]);
+      rerender(
+        <FiatCurrencyProvider>
+          <div />
+        </FiatCurrencyProvider>
+      );
+
+      expect(setStore).toHaveBeenLastCalledWith(FIAT_CURRENCIES[1]);
     });
   });
 });

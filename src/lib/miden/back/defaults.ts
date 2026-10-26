@@ -23,6 +23,9 @@ export const intercom = {
   onRequest: (...args: Parameters<import('lib/intercom/server').IntercomServer['onRequest']>) => {
     return getIntercom()!.onRequest(...args);
   },
+  onNotFound: (...args: Parameters<import('lib/intercom/server').IntercomServer['onNotFound']>) => {
+    return getIntercom()!.onNotFound(...args);
+  },
   broadcast: (...args: Parameters<import('lib/intercom/server').IntercomServer['broadcast']>) => {
     return getIntercom()!.broadcast(...args);
   },
@@ -32,3 +35,10 @@ export const intercom = {
 };
 
 export class PublicError extends Error {}
+
+/** The code on `swapHotKey`'s refusal of a key this wallet does not hold; the port carries codes, not classes. */
+export const HOT_KEY_NOT_STORED = 'HOT_KEY_NOT_STORED';
+/** The code on `swapHotKey`'s refusal when the account's hot key is no longer the one its caller expected. */
+export const HOT_KEY_CHANGED = 'HOT_KEY_CHANGED';
+/** The code on a wallet setup whose access code the mainnet node refused; the setup is already undone. */
+export const MAINNET_ACCESS_CODE_REJECTED = 'MAINNET_ACCESS_CODE_REJECTED';

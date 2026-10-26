@@ -151,7 +151,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
         ))}
       </div>
 
-      <Button title={t('continue')} onClick={handleContinue} className="w-[360px] h-[48px]" />
+      <Button title={t('continue')} onClick={handleContinue} />
     </div>
   );
 };

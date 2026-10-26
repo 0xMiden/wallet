@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
-# Build (cached) + run the note-transport service on 127.0.0.1:57292.
-# Reads NOTE_TRANSPORT_REPO / NOTE_TRANSPORT_REF from versions.env.
+# Run the note-transport service on 127.0.0.1:57292 against the local test node.
+#
+# Since rust-sdk v0.17.0-rc.3 the transport is the node repo's own `miden-note-transport`,
+# installed by start-test-node.sh with the other node binaries, so it is always the build the
+# node and the SDK agree on. Since rc.4 it serves gRPC
+# `miden.note_transport.v1.NoteTransportService`. The standalone note-transport-service repo
+# this used to clone never moved to Miden 0.17: it rejects a 0.17 note header and does not
+# serve the path the 0.17 SDK calls.
+#
+# Starts it through the rust-sdk clone's own start-note-transport-bg.sh, which bootstraps an
+# empty database, waits for the port, and logs next to the node logs (dumped on failure by
+# .github/actions/dump-local-node-logs). Stop it with that clone's stop-note-transport.sh.
 set -euo pipefail
-here="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck disable=SC1091
-source "$here/versions.env"
-work="${RUNNER_TEMP:-/tmp}/note-transport"
-if [ ! -x "$work/target/release/miden-note-transport-node-bin" ]; then
-  rm -rf "$work"; git clone --depth 1 --branch "$NOTE_TRANSPORT_REF" "$NOTE_TRANSPORT_REPO" "$work"
-  ( cd "$work" && cargo build --release --locked --bin miden-note-transport-node-bin )
+clone="${MIDEN_CLIENT_DIR:-${RUNNER_TEMP:-/tmp}/miden-client}"
+script="$clone/scripts/start-note-transport-bg.sh"
+if [ ! -x "$script" ]; then
+  echo "note-transport: $script not found." >&2
+  echo "  Start the local node first (it clones rust-sdk at NODE_SRC_REF), or set MIDEN_CLIENT_DIR." >&2
+  exit 1
 fi
-# Build-only mode, used by the cache-warming workflow on main: it needs the
-# compiled artifact in the cache, not a running service (there is no node for it
-# to talk to there). Keeping this in the same script means the warm build and the
-# PR build can never drift to different refs or flags.
-if [ "${NOTE_TRANSPORT_BUILD_ONLY:-}" = "1" ]; then
-  echo "note-transport built (build-only mode); not starting"
-  exit 0
-fi
-"$work/target/release/miden-note-transport-node-bin" &
-echo $! > "${RUNNER_TEMP:-/tmp}/note-transport.pid"
-# Wait for the port (defaults 127.0.0.1:57292, :memory: sqlite — no flags)
-for _ in $(seq 1 60); do nc -z 127.0.0.1 57292 && exit 0; sleep 1; done
-echo "note-transport did not open :57292" >&2; exit 1
+exec "$script"

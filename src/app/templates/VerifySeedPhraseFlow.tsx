@@ -1,39 +1,59 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
-import { Icon, IconName } from 'app/icons/v2';
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Button, ButtonVariant } from 'components/Button';
-import { NavigationHeader } from 'components/NavigationHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
-import { Vault } from 'lib/miden/back/vault';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
+import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
+import { CopyLabel } from 'components/ui/CopyLabel';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
+import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
 
-type Step = 'warning' | 'auth' | 'review' | 'quiz';
+import { SEED_STATE_NOTICE } from './seed-state-notice';
+
+type Step = 'warning' | 'auth' | 'review' | 'quiz' | 'confirm';
 
 type FormData = {
   password: string;
 };
 
-const VerifySeedPhraseFlow: FC = () => {
+const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ remove = false, required = false }) => {
   const { t } = useTranslation();
-  const { revealMnemonic } = useMidenContext();
+  const { revealMnemonic, removeSeedPhrase } = useMidenContext();
+  const secretGeneration = useRef(0);
+  const seedStatus = useWalletStore(s => s.seedPhraseStatus);
+  useEffect(
+    () => () => {
+      secretGeneration.current += 1;
+    },
+    [seedStatus]
+  );
+  const [credential, setCredential] = useState<string>();
   const [step, setStep] = useState<Step>('warning');
   const [mnemonic, setMnemonic] = useState<string | null>(null);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const { fieldRef, copy, copied } = useCopyToClipboard();
+  const [authErrorId, setAuthErrorId] = useState<UserErrorId | null>(null);
+  const { copy, copied } = useClipboardCopy(mnemonic ?? '');
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -45,25 +65,12 @@ const VerifySeedPhraseFlow: FC = () => {
     watch,
     setError,
     clearErrors,
+    reset,
     formState: { errors }
   } = useForm<FormData>();
+  const [passwordErrorId, setPasswordErrorId] = useState<UserErrorId | null>(null);
   const passwordField = register('password', { required: t('required') });
   const passwordValue = watch('password');
-
-  useEffect(() => {
-    let cancelled = false;
-    Vault.hasHardwareProtector()
-      .then(hasHardware => {
-        if (!cancelled) setHasHardwareProtector(hasHardware);
-      })
-      .catch(() => {
-        if (!cancelled) setHasHardwareProtector(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const words = useMemo(() => mnemonic?.split(' ').filter(Boolean) ?? [], [mnemonic]);
 
@@ -79,23 +86,33 @@ const VerifySeedPhraseFlow: FC = () => {
       setIsSubmitting(true);
       setAuthError(null);
       clearErrors();
+      const generation = secretGeneration.current;
       try {
         const phrase = await revealMnemonic(password);
+        if (generation !== secretGeneration.current) return;
         setMnemonic(phrase);
+        if (remove) setCredential(password);
         setStep('review');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         if (password === undefined) {
+          if (generation !== secretGeneration.current) return;
           setAuthError(message);
+          setAuthErrorId('raw_seed_verification_reveal_failed');
         } else {
           await new Promise(res => setTimeout(res, 300));
+          // Defensive: the reset on entering auth already keeps a late error off screen;
+          // this also keeps it out of form state once the attempt is abandoned.
+          if (generation !== secretGeneration.current) return;
+          setPasswordErrorId('raw_seed_verification_reveal_failed');
           setError('password', { type: 'submit-error', message });
         }
       } finally {
+        // Unguarded: isSubmitting allows one reveal at a time, so this always resets it.
         setIsSubmitting(false);
       }
     },
-    [clearErrors, isSubmitting, revealMnemonic, setError]
+    [clearErrors, isSubmitting, revealMnemonic, setError, remove]
   );
 
   const onWarningContinue = useCallback(() => {
@@ -104,74 +121,177 @@ const VerifySeedPhraseFlow: FC = () => {
       revealPhrase(undefined);
       return;
     }
+    // A submit's react-hook-form completion can land after backToWarning's reset
+    // and reinstate isSubmitted, so reset again on the way back into auth.
+    reset();
     setStep('auth');
-  }, [hasHardwareProtector, revealPhrase]);
+  }, [hasHardwareProtector, revealPhrase, reset]);
 
   const onPasswordSubmit = useCallback((data: FormData) => revealPhrase(data.password), [revealPhrase]);
 
   const onComplete = useCallback(async () => {
     hapticMedium();
-    await completeWalletPrompt(WalletPromptType.VerifySeedPhrase);
-    setMnemonic(null);
-    navigate('/');
+    if (remove) {
+      setMnemonic(null);
+      setStep('confirm');
+      return;
+    }
+    try {
+      await completeWalletPrompt(WalletPromptType.VerifySeedPhrase);
+      setMnemonic(null);
+      navigate('/');
+    } catch {
+      setAuthError(t('seedBackupSaveFailed'));
+      setAuthErrorId('seedBackupSaveFailed');
+    }
+  }, [remove, t]);
+
+  // Leaving the attempt, by any exit, abandons an in-flight reveal, so its late result
+  // cannot move the flow on or leave an error or password behind for the next attempt.
+  const abandonReveal = useCallback(() => {
+    secretGeneration.current += 1;
   }, []);
 
+  const backToWarning = useCallback(() => {
+    abandonReveal();
+    reset();
+    setStep('warning');
+  }, [abandonReveal, reset]);
+
   const onExit = useCallback(() => {
+    abandonReveal();
     hapticLight();
     setMnemonic(null);
+    setCredential(undefined);
+    if (required) {
+      setStep('warning');
+      return;
+    }
     goBack();
-  }, []);
+  }, [abandonReveal, required]);
+
+  // The back action for the screen showing, used by every header and by hardware back (#1042), so
+  // the two cannot disagree. It follows the render branches below.
+  const back = useCallback(() => {
+    if (seedStatus && seedStatus !== 'stored') onExit();
+    else if (step === 'auth') backToWarning();
+    else if (step === 'quiz') setStep('review');
+    else onExit();
+  }, [seedStatus, step, backToWarning, onExit]);
+
+  useMobileBackHandler(() => {
+    back();
+    return true;
+  }, [back]);
+
+  useEffect(() => {
+    if (seedStatus && seedStatus !== 'stored') {
+      setMnemonic(null);
+      setCredential(undefined);
+    }
+  }, [seedStatus]);
+
+  const onRemove = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setAuthError(null);
+    try {
+      await removeSeedPhrase(credential);
+      setMnemonic(null);
+      setCredential(undefined);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : t('seedRemovalFailed'));
+      setAuthErrorId(error instanceof Error ? 'raw_seed_remove_failed' : 'seedRemovalFailed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const actionButton = 'flex-1 max-w-none';
+
+  if (seedStatus && seedStatus !== 'stored') {
+    return (
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={back}
+        data-testid="verify-seed-state"
+        footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
+      >
+        <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>}>
+          <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
+        </SubPageSection>
+      </SubPageLayout>
+    );
+  }
+
+  if (step === 'confirm') {
+    return (
+      <SubPageLayout
+        title={t('removeSeedPhrase')}
+        onBack={back}
+        data-testid="remove-seed-confirm"
+        footer={
+          <>
+            <Button className={actionButton} title={t('cancel')} variant={ButtonVariant.Secondary} onClick={onExit} />
+            {/* Destructive: after this the wallet keeps no copy of the phrase. */}
+            <Button
+              className={actionButton}
+              title={t('removeSeedPhraseConfirm')}
+              variant={ButtonVariant.Destructive}
+              onClick={onRemove}
+              disabled={isSubmitting}
+              isLoading={isSubmitting}
+            />
+          </>
+        }
+      >
+        <SubPageSection description={t('removeSeedPhraseConfirmation')}>
+          <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
+        </SubPageSection>
+      </SubPageLayout>
+    );
+  }
 
   if (step === 'warning') {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <NavigationHeader title={t('verifySeedPhrase')} onBack={onExit} />
-        <div className="flex-1 flex flex-col">
-          <div className="mt-6 px-4">
-            <div className="bg-gray-25 rounded-2xl px-6 py-8">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 bg-white rounded-xl p-4 text-center">
-              <p className="text-sm text-heading-gray">{t('verifySeedPhraseWarningBody')}</p>
-            </div>
-            {authError && (
-              <Alert type="error" title={t('error')} description={authError} className="mt-4 rounded-lg text-black" />
+      <SubPageLayout
+        title={t('verifySeedPhrase')}
+        onBack={required ? undefined : back}
+        focusTitleOnMount={required}
+        data-testid="verify-seed-warning"
+        footer={
+          <>
+            {!required && (
+              <Button className={actionButton} variant={ButtonVariant.Secondary} title={t('close')} onClick={onExit} />
             )}
-          </div>
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Primary}
+              title={t('continue')}
+              onClick={onWarningContinue}
+              disabled={hasHardwareProtector === null || isSubmitting}
+              isLoading={isSubmitting}
+            />
+          </>
+        }
+      >
+        <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
+          {required && (
+            <Notice role="status" className="mb-3">
+              {t('seedBackupRequiredBody')}
+            </Notice>
+          )}
+          <SeedPhrasePlaceholder />
+          {probeFailed && <ProtectorProbeErrorNotice className="mt-3" onRetry={retry} retrying={retrying} />}
+          {authError && (
+            <Notice errorId={authErrorId} tone="negative" role="alert" title={t('error')} className="mt-3">
+              {authError}
+            </Notice>
+          )}
+        </SubPageSection>
 
-          <div className="mt-auto pt-6 pb-6 flex flex-col items-center text-center bg-white rounded-t-2xl">
-            <div className="flex flex-col px-6 items-center">
-              <div className="w-10 h-10 rounded-sm bg-primary-500 flex items-center justify-center mb-4">
-                <Icon name={IconName.EyeOff} size="md" fill="white" />
-              </div>
-
-              <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
-              <p className="text-sm text-black mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
-            </div>
-            <div className="flex gap-4 w-full px-4">
-              <Button
-                className="flex-1 justify-center"
-                variant={ButtonVariant.Secondary}
-                title={t('close')}
-                onClick={onExit}
-              />
-              <Button
-                className="flex-1 justify-center"
-                variant={ButtonVariant.Primary}
-                title={t('continue')}
-                onClick={onWarningContinue}
-                disabled={hasHardwareProtector === null || isSubmitting}
-                isLoading={isSubmitting}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+        <SeedPhrasePrivacyHero className="mt-auto pt-4" />
+      </SubPageLayout>
     );
   }
 
@@ -180,135 +300,124 @@ const VerifySeedPhraseFlow: FC = () => {
     // get the numpad; extension/desktop use a typed password.
     if (isMobile()) {
       return (
-        <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-          <NavigationHeader title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
-          <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
-            <div className="flex flex-col gap-2 mb-6">
-              <h1 className="text-2xl font-semibold text-heading-gray">{t('enterYourPasscode')}</h1>
-              <p className="text-sm text-text-muted">{t('verifySeedPhrasePasswordBody')}</p>
-            </div>
-            <PasscodeEntry
-              onSubmit={code => revealPhrase(code)}
-              onChange={() => clearErrors()}
-              error={errors.password?.message ?? null}
-              isSubmitting={isSubmitting}
-              className="mt-auto pb-2"
-            />
-          </div>
-        </div>
+        <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-auth">
+          <SubPageSection
+            title={t('enterYourPasscode')}
+            titleSize="md"
+            description={t('verifySeedPhrasePasswordBody')}
+          />
+          <PasscodeEntry
+            onSubmit={code => revealPhrase(code)}
+            onChange={() => clearErrors()}
+            errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
+            error={errors.password?.message ?? null}
+            isSubmitting={isSubmitting}
+            className="mt-auto pb-2"
+          />
+        </SubPageLayout>
       );
     }
 
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <NavigationHeader title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
-        <form className="flex-1 flex flex-col px-4 pt-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
-          <div className="flex flex-col gap-2 mb-6">
-            <h1 className="text-2xl font-semibold text-heading-gray">{t('enterPassword')}</h1>
-            <p className="text-sm text-text-muted">{t('verifySeedPhrasePasswordBody')}</p>
-          </div>
-          <FormField
-            {...passwordField}
-            label={t('password')}
-            id="verify-seed-phrase-password"
-            type="password"
-            name="password"
-            placeholder="********"
-            errorCaption={errors.password?.message}
-            onChange={e => {
-              passwordField.onChange(e);
-              clearErrors();
-            }}
-            containerClassName="mb-4"
-            labelClassName="text-black"
+      <SubPageLayout
+        title={t('verifySeedPhrase')}
+        onBack={back}
+        data-testid="verify-seed-auth"
+        footer={
+          <Button
+            className={actionButton}
+            variant={ButtonVariant.Primary}
+            title={t('continue')}
+            disabled={isSubmitting || !passwordValue}
+            isLoading={isSubmitting}
+            onClick={handleSubmit(onPasswordSubmit)}
           />
-          <div className="mt-auto">
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Primary}
-              title={t('continue')}
-              disabled={isSubmitting || !passwordValue}
-              isLoading={isSubmitting}
-              onClick={handleSubmit(onPasswordSubmit)}
+        }
+      >
+        <SubPageSection title={t('enterPassword')} titleSize="md" description={t('verifySeedPhrasePasswordBody')}>
+          {/* One password field and no submit button: Enter submits the form on its own. */}
+          <form onSubmit={handleSubmit(onPasswordSubmit)}>
+            <TextField
+              {...passwordField}
+              label={t('password')}
+              id="verify-seed-phrase-password"
+              type="password"
+              placeholder="********"
+              errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
+              error={errors.password?.message}
+              errorTestId="verify-seed-password-error"
+              onChange={e => {
+                passwordField.onChange(e);
+                clearErrors();
+              }}
             />
-          </div>
-        </form>
-      </div>
+          </form>
+        </SubPageSection>
+      </SubPageLayout>
     );
   }
 
   if (step === 'review' && words.length === 12) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
-        <NavigationHeader title={t('recoveryPhrase')} onBack={onExit} />
-        <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
-          <p className="text-sm text-black text-center mb-4">{t('verifySeedPhraseReviewBody')}</p>
-
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={back}
+        data-testid="verify-seed-review"
+        footer={
+          <Button
+            className={actionButton}
+            variant={ButtonVariant.Primary}
+            title={t('continue')}
+            onClick={() => setStep('quiz')}
+          />
+        }
+      >
+        <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <input ref={fieldRef} value={mnemonic ?? ''} readOnly className="sr-only" tabIndex={-1} />
+              <SeedPhraseGrid words={words} />
 
-              <div className="flex justify-center mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    hapticLight();
-                    copy();
-                  }}
-                  className="flex items-center gap-1.5 px-4 py-1.5 border border-border-card rounded-2xl text-sm font-medium text-heading-gray hover:opacity-80 cursor-pointer"
+              {!remove && (
+                <Pill
+                  className="mt-3 self-start"
+                  icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
+                  onClick={() => void copy()}
+                  data-testid="verify-seed-copy"
                 >
-                  <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
-                  {t(copied ? 'copied' : 'copyToClipboard')}
-                </button>
-              </div>
-
-              <div className="p-6 bg-white rounded-10">
-                <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-                  {words.map((word, idx) => (
-                    <div key={idx} className="flex items-center gap-2 min-w-0">
-                      <span className="text-xs text-text-muted w-5 text-right">{idx + 1}.</span>
-                      <span data-testid={`seed-word-${idx}`} className="text-sm font-medium text-heading-gray">
-                        {word}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                  <CopyLabel copied={copied} copiedLabel={t('copied')}>
+                    {t('copyToClipboard')}
+                  </CopyLabel>
+                </Pill>
+              )}
             </>
           )}
-
-          <div className="mt-auto">
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Primary}
-              title={t('continue')}
-              onClick={() => setStep('quiz')}
-            />
-          </div>
-        </div>
-      </div>
+        </SubPageSection>
+      </SubPageLayout>
     );
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <NavigationHeader title={t('verifySeedPhrase')} onBack={() => setStep('review')} />
-      <div className="px-4 pt-4 text-sm text-black text-center">
-        <p>{t('verifyMessagePrefix')}</p>
-        <p>
-          <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />
-        </p>
-      </div>
+    <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-quiz">
+      <SubPageSection
+        description={
+          <>
+            <p>{t('verifyMessagePrefix')}</p>
+            <p>
+              <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold text-ink" /> }} />
+            </p>
+          </>
+        }
+      />
+      <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
       {isGuardReady && (
         <VerifySeedPhraseScreen
           seedPhrase={words}
           showIntro={false}
           onSubmit={onComplete}
-          className="min-h-0 pt-6"
           data-testid="verify-seed-phrase-prompt-flow"
         />
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 

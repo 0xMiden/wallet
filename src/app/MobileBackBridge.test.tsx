@@ -81,11 +81,7 @@ describe('MobileBackBridge', () => {
     renderAt('/settings/security', 3);
 
     expect(typeof mockBack.handler).toBe('function');
-    // [pathname, historyPosition, inHome, isSettingsSubpage, isTabPage].
-    // '/settings/security' is both a settings subpage AND a tab page (it
-    // startsWith '/settings/'), so isTabPage is true too — the subpage branch
-    // just wins first inside the handler.
-    expect(mockBack.deps).toEqual(['/settings/security', 3, false, true, true]);
+    expect(mockBack.deps).toEqual(['/settings/security', 3, false, true, false, false]);
   });
 
   it('on a settings subpage with history: pops one level, like the header chevron', () => {
@@ -133,15 +129,42 @@ describe('MobileBackBridge', () => {
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
-  it('treats the bare /settings tab as a tab page (not a settings subpage)', () => {
+  it('returns from a cold-opened Settings root to Me', () => {
     const { handler } = renderAt('/settings', 0);
 
-    // /settings does NOT start with '/settings/', so it falls through to the
-    // tab-page branch and goes home rather than replacing to itself.
     const result = handler();
 
     expect(result).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
+  });
+
+  it('pops a Settings root with history behind it', () => {
+    const { handler } = renderAt('/settings', 3);
+
+    const result = handler();
+
+    expect(result).toBe(true);
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes the Me tab home regardless of its tab history', () => {
+    const { handler } = renderAt('/me', 3);
+    expect(handler()).toBe(true);
     expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+  });
+
+  it('returns a cold-opened badge collection to Me', () => {
+    const { handler } = renderAt('/me/badges', 0);
+    expect(handler()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
+  });
+
+  it('pops the badge collection when it was opened from Me', () => {
+    const { handler } = renderAt('/me/badges', 2);
+    expect(handler()).toBe(true);
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('on a non-tab page with history: goes back and consumes', () => {

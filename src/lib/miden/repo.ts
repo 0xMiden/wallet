@@ -1,78 +1,172 @@
-import Dexie, { Transaction } from 'dexie';
+import Dexie, {
+  DBCore,
+  DBCoreCursor,
+  DBCoreMutateResponse,
+  DBCoreTable,
+  Middleware,
+  Transaction,
+  type Table as TransactionTable
+} from 'dexie';
+
+import {
+  annotateCrash,
+  snapshotCrashDiagnostics,
+  StorageCrashDiagnostics,
+  StorageOperation,
+  StorageOwner
+} from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus } from './db/types';
+import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
-  Transactions = 'transactions'
+  Transactions = 'transactions',
+  SpendingLimits = 'spendingLimits'
 }
 
-export const db = new Dexie('TridentMain');
+/**
+ * The 1.7 store definitions - the last schema before the spending-limits primary-key change.
+ * Exported so the migration-proving tests in repo.test.ts seed a database in this
+ * EXACT shape rather than a hand-typed duplicate that could silently drift from what
+ * `defineSchema` below actually declares.
+ *
+ * `completedAt` and `initiatedAt` are the ordered cursors for a bounded history page.
+ * A nonzero `completedAt` is read from that index; a missing or zero one falls back to
+ * `initiatedAt`, and the two streams merge by `(completedAt || initiatedAt, id)`.
+ */
+export const TRANSACTIONS_V17_STORE = indexes(
+  'id',
+  'accountId',
+  'transactionId',
+  'initiatedAt',
+  'completedAt',
+  'noteId',
+  '*noteIds',
+  'noteDelivery',
+  'extraInputs.destinationAddress',
+  'extraInputs.swapOrderTxId',
+  'spendingLimitAuthorizationId'
+);
+export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision');
 
-db.version(1)
-  .stores({
-    transactionRequests: indexes('id', 'accountId', 'initiatedAt', 'completedAt')
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db.table<any, string>('transactionRequests').clear();
+/** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
+export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
+
+/** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
+export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
+
+/**
+ * Declares every version this app has ever shipped, against whichever Dexie instance it is
+ * handed. Applied once below to build the real, shared `db` - and again by `createSchemaFor`,
+ * exported so a test can replay the EXACT same chain against an isolated database instead of a
+ * parallel hand-authored one that could drift from what production actually runs and so stop
+ * catching the defect it exists to catch.
+ */
+function defineSchema(target: Dexie): void {
+  target
+    .version(1)
+    .stores({
+      transactionRequests: indexes('id', 'accountId', 'initiatedAt', 'completedAt')
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db.table<any, string>('transactionRequests').clear();
+    });
+
+  target
+    .version(1.1)
+    .stores({
+      [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt'),
+      transactionRequests: null
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db.table<any, string>('transactionRequests').clear();
+      await tx.db.table<ITransaction, string>(Table.Transactions).clear();
+    });
+
+  target.version(1.2).stores({
+    [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt', 'noteId')
   });
 
-db.version(1.1)
-  .stores({
-    [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt'),
-    transactionRequests: null
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db.table<any, string>('transactionRequests').clear();
-    await tx.db.table<ITransaction, string>(Table.Transactions).clear();
-  });
+  // v1.3 — `bridge` → `bridged-send`. Adds an index on the EVM destination so the
+  // activity-detail claim flow can look a bridged send up by recipient, and
+  // rewrites legacy `bridge` rows into the richer `BridgedSendTransaction` shape
+  // (structured `extraInputs` with provider + claim status) so readers only ever
+  // deal with one discriminator. All legacy rows were Agglayer Miden→EVM bridges.
+  target
+    .version(1.3)
+    .stores({
+      [Table.Transactions]: indexes(
+        'id',
+        'accountId',
+        'transactionId',
+        'initiatedAt',
+        'completedAt',
+        'noteId',
+        'extraInputs.destinationAddress'
+      )
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db
+        .table<any, string>(Table.Transactions)
+        .toCollection()
+        .modify(t => {
+          // `false`, not a bare return - dexie re-puts an unchanged deep clone for anything else, so
+          // a bare return here rewrote EVERY transaction row, `resultBytes` blobs included, inside
+          // the versionchange transaction on the critical path of `db.open()`. Same rule as
+          // `setTransactionStage` and `markCancelledInFlight` in transaction/helper.ts.
+          if (t.type !== 'bridge') return false;
+          const prev = t.extraInputs ?? {};
+          t.type = 'bridged-send';
+          t.extraInputs = {
+            provider: 'agglayer',
+            destinationAddress: prev.destinationAddress ?? '',
+            destinationNetwork: prev.destinationNetwork ?? 0,
+            sourceFaucetId: t.faucetId ?? '',
+            // ITransactionStatus.Completed === 2. A completed Miden-side bridge may
+            // still need an L1 claim; anything else never reached that point.
+            claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
+          };
+          return undefined;
+        });
+    });
 
-db.version(1.2).stores({
-  [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt', 'noteId')
-});
+  // v1.4 — batch consume. Multi-entry index on `noteIds` so the consume dedup can
+  // find a note that's part of an in-flight batch row (whose scalar `noteId` only
+  // holds the first note). Backfills `noteIds = [noteId]` on existing consume rows
+  // so readers can rely on the array shape going forward.
+  target
+    .version(1.4)
+    .stores({
+      [Table.Transactions]: indexes(
+        'id',
+        'accountId',
+        'transactionId',
+        'initiatedAt',
+        'completedAt',
+        'noteId',
+        '*noteIds',
+        'extraInputs.destinationAddress'
+      )
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db
+        .table<any, string>(Table.Transactions)
+        .toCollection()
+        .modify(t => {
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (t.type !== 'consume' || !t.noteId || Array.isArray(t.noteIds)) return false;
+          t.noteIds = [t.noteId];
+          return undefined;
+        });
+    });
 
-// v1.3 — `bridge` → `bridged-send`. Adds an index on the EVM destination so the
-// activity-detail claim flow can look a bridged send up by recipient, and
-// rewrites legacy `bridge` rows into the richer `BridgedSendTransaction` shape
-// (structured `extraInputs` with provider + claim status) so readers only ever
-// deal with one discriminator. All legacy rows were Agglayer Miden→EVM bridges.
-db.version(1.3)
-  .stores({
-    [Table.Transactions]: indexes(
-      'id',
-      'accountId',
-      'transactionId',
-      'initiatedAt',
-      'completedAt',
-      'noteId',
-      'extraInputs.destinationAddress'
-    )
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db
-      .table<any, string>(Table.Transactions)
-      .toCollection()
-      .modify(t => {
-        if (t.type !== 'bridge') return;
-        const prev = t.extraInputs ?? {};
-        t.type = 'bridged-send';
-        t.extraInputs = {
-          provider: 'agglayer',
-          destinationAddress: prev.destinationAddress ?? '',
-          destinationNetwork: prev.destinationNetwork ?? 0,
-          sourceFaucetId: t.faucetId ?? '',
-          // ITransactionStatus.Completed === 2. A completed Miden-side bridge may
-          // still need an L1 claim; anything else never reached that point.
-          claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
-        };
-      });
-  });
-
-// v1.4 — batch consume. Multi-entry index on `noteIds` so the consume dedup can
-// find a note that's part of an in-flight batch row (whose scalar `noteId` only
-// holds the first note). Backfills `noteIds = [noteId]` on existing consume rows
-// so readers can rely on the array shape going forward.
-db.version(1.4)
-  .stores({
+  // v1.5 — private-note delivery sweep. Indexes `noteDelivery` so the sweep can ask
+  // for the handful of rows that still owe or may owe a delivery instead of scanning
+  // the whole history every cycle. No upgrade step: Dexie omits records whose index
+  // key is `undefined`, and `undefined` is exactly the "no relay applies" case (public
+  // sends, non-relaying types, and every row written before the field existed), so an
+  // un-backfilled table already yields the correct — empty — result.
+  target.version(1.5).stores({
     [Table.Transactions]: indexes(
       'id',
       'accountId',
@@ -81,21 +175,349 @@ db.version(1.4)
       'completedAt',
       'noteId',
       '*noteIds',
+      'noteDelivery',
       'extraInputs.destinationAddress'
     )
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db
-      .table<any, string>(Table.Transactions)
-      .toCollection()
-      .modify(t => {
-        if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
-          t.noteIds = [t.noteId];
-        }
-      });
   });
 
+  // v1.6 - linked swap settlement reads. The history detail live query observes
+  // only rows for its order instead of rerunning after every transaction write.
+  target.version(1.6).stores({
+    [Table.Transactions]: indexes(
+      'id',
+      'accountId',
+      'transactionId',
+      'initiatedAt',
+      'completedAt',
+      'noteId',
+      '*noteIds',
+      'noteDelivery',
+      'extraInputs.destinationAddress',
+      'extraInputs.swapOrderTxId'
+    )
+  });
+
+  target.version(1.7).stores({
+    [Table.Transactions]: TRANSACTIONS_V17_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V17_STORE
+  });
+
+  // v1.8/v1.9 - one USD cap per account replaces the per-asset caps, keyed by account alone instead
+  // of `[accountId+faucetId]`. Split across two versions because Dexie has no in-place primary-key
+  // change: declaring the new key directly against the existing table throws `UpgradeError: Not yet
+  // support for changing primary key`, even when the table is empty (verified in repo.test.ts against
+  // a real 1.7 database, replaying this exact function - not a duplicate that could drift from it).
+  // Dropping the store in one version and recreating it with the new key in the next is the
+  // supported shape. A native-unit cap cannot be restated in dollars for an asset nobody prices
+  // anyway, and the feature is days old, so there is nothing to carry across - the records are
+  // dropped and the screen asks for one number instead.
+  target.version(1.8).stores({
+    [Table.SpendingLimits]: null
+  });
+
+  target.version(1.9).stores({
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+
+  // v2 - type-scoped reads. The app-root bridge watcher asks for the `bridged-receive` and
+  // `bridged-send` rows every eight seconds, and without an index each ask walked the whole
+  // history. No upgrade step: IndexedDB builds a new index over the rows already stored.
+  // `spendingLimits` is named again at its 1.9 shape so this version does not drop that table.
+  // Bounded history pages keep walking the existing `completedAt` and `initiatedAt` indexes on
+  // this store. The `type` index does not replace them.
+  target.version(2).stores({
+    [Table.Transactions]: TRANSACTIONS_V2_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+
+  // v3 - the private-note delivery sweep is the only retry once the SDK stopped re-sending a failed
+  // note (0.17.2). A row that spent the old four-attempt budget within the new 72-hour retry window
+  // (`RETRY_WINDOW_SECONDS` in the sweep, a literal here because the sweep imports this module) gets
+  // the new schedule once: `relayAttempts` back to 1 and `nextRelayAt` cleared, so the sweep arms it
+  // from its send. A `relayed` row needs nothing (it is due its verification pushes as it is), nor
+  // does one with attempts left, and a restored row is never pushed. Stores unchanged.
+  target
+    .version(3)
+    .stores({
+      [Table.Transactions]: TRANSACTIONS_V2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    })
+    .upgrade(async (tx: Transaction) => {
+      const now = Math.floor(Date.now() / 1000);
+      await tx.db
+        .table<ITransaction, string>(Table.Transactions)
+        .where('noteDelivery')
+        .anyOf('pending', 'undelivered')
+        .modify(t => {
+          const sentAt = t.completedAt ?? t.initiatedAt ?? 0;
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (t.restoredFromBackup || (t.relayAttempts ?? 1) < 4 || now - sentAt >= 72 * 60 * 60) return false;
+          t.relayAttempts = 1;
+          delete t.nextRelayAt;
+          return undefined;
+        });
+    });
+
+  // v3.1 - only newly queued Mainnet rows can supply badge evidence. The compound index lets the badge
+  // issuer read just the Completed rows of the types a badge is built from, without scanning old history
+  // (and its large result blobs) for private achievements; no legacy backfill.
+  target.version(3.1).stores({
+    [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, '[badgeNetwork+status+type]'),
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+
+  // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
+  // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
+  // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
+  target.use({
+    stack: 'dbcore',
+    name: 'TransactionInitiatedAtCheck',
+    create: down => ({
+      ...down,
+      table: name => {
+        const table = down.table(name);
+        if (name !== Table.Transactions) return table;
+        return {
+          ...table,
+          mutate: req => {
+            if (req.type === 'add') {
+              const rows: readonly ITransaction[] = req.values;
+              const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
+              if (unplaceable !== undefined) {
+                throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
+              }
+            }
+            return table.mutate(req);
+          }
+        };
+      }
+    })
+  });
+}
+
+// The one construction path, so the production db and `createSchemaFor`'s replay cannot differ.
+// `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
+// `deepClone` per chunk). It defaults to 200, which is also the reaper's batch size, so one trim
+// held ~200 x ~237 KB of result blobs resident inside a single write transaction. Capping the
+// chunk bounds that without changing how many rows a pass selects - the reaper's drain rate is
+// governed by its own batch size, and tuning one constant from two directions is how these two
+// concerns collide. It applies to every `modify` on this database, including the schema upgrades
+// above, which walk the whole table.
+function buildTridentDb(name: string): Dexie {
+  const target = new Dexie(name, { modifyChunkSize: 25 });
+  defineSchema(target);
+  installWalletStorageDiagnostics(target);
+  return target;
+}
+
+function walletTableOwner(name: string): StorageOwner | undefined {
+  if (name === Table.Transactions) return 'wallet_transactions';
+  if (name === Table.SpendingLimits) return 'wallet_limits';
+  return undefined;
+}
+
+function observeWalletStorage<T>(
+  invoke: () => Promise<T>,
+  owner: StorageOwner,
+  operation: StorageOperation
+): Promise<T> {
+  try {
+    // Keep the invoked promise's chain and Dexie's active transaction zone.
+    return invoke().then(undefined, (error: unknown) => {
+      annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+      throw error;
+    });
+  } catch (error) {
+    annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+    throw error;
+  }
+}
+
+function observeWalletCursor(cursor: DBCoreCursor, owner: StorageOwner): DBCoreCursor {
+  const start = cursor.start;
+  const observedStart: DBCoreCursor['start'] = function (this: DBCoreCursor, ...args) {
+    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor');
+  };
+  // Dexie replaces start on exhaustion; next must keep using that replacement.
+  cursor.start = observedStart;
+  return cursor;
+}
+
+function installWalletStorageDiagnostics(target: Dexie): void {
+  const middleware: Middleware<DBCore> = {
+    stack: 'dbcore',
+    name: 'WalletStorageDiagnostics',
+    level: 11,
+    create: down => {
+      const transaction: DBCore['transaction'] = (...args) => {
+        const [stores] = args;
+        const store = stores.length === 1 ? stores[0] : undefined;
+        const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
+        try {
+          return down.transaction(...args);
+        } catch (error) {
+          annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
+          throw error;
+        }
+      };
+      return {
+        ...down,
+        transaction,
+        table: name => {
+          const table = down.table(name);
+          const owner = walletTableOwner(name);
+          if (owner === undefined) return table;
+          const get: DBCoreTable['get'] = (...args) => observeWalletStorage(() => table.get(...args), owner, 'get');
+          const getMany: DBCoreTable['getMany'] = (...args) =>
+            observeWalletStorage(() => table.getMany(...args), owner, 'get');
+          const query: DBCoreTable['query'] = (...args) =>
+            observeWalletStorage(() => table.query(...args), owner, 'query');
+          const count: DBCoreTable['count'] = (...args) =>
+            observeWalletStorage(() => table.count(...args), owner, 'count');
+          const openCursor: DBCoreTable['openCursor'] = (...args) =>
+            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor').then(cursor =>
+              cursor === null ? null : observeWalletCursor(cursor, owner)
+            );
+          const mutate: DBCoreTable['mutate'] = (...args) =>
+            observeWalletStorage(() => table.mutate(...args), owner, 'mutate').then(
+              (response: DBCoreMutateResponse) => {
+                // DBCore resolves partial failures; Dexie builds the public aggregate later.
+                for (const failure of Object.values(response.failures)) {
+                  annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
+                }
+                return response;
+              }
+            );
+          return { ...table, get, getMany, query, count, openCursor, mutate };
+        }
+      };
+    }
+  };
+  target.use(middleware);
+
+  const open = target.open;
+  const rejectOpen = (error: unknown): never => {
+    // A failed upgrade can already identify a table through Dexie's error links.
+    const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
+    if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
+      annotateCrash(error, { storageOwner: 'wallet_database', storageOperation: 'open' });
+    }
+    throw error;
+  };
+  const observedOpen: Dexie['open'] = function (this: Dexie, ...args) {
+    try {
+      return open.apply(this, args).then(undefined, rejectOpen);
+    } catch (error) {
+      return rejectOpen(error);
+    }
+  };
+  target.open = observedOpen;
+}
+
+export const db = buildTridentDb('TridentMain');
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+
+/** One row of an ordered `completedAt` or `initiatedAt` cursor, plus the step that advances it. */
+export interface HistoryIndexCursor {
+  readonly value: ITransaction;
+  readonly done: boolean;
+  next(): Promise<HistoryIndexCursor>;
+}
+
+/** Inclusive bounds omit `lowerOpen` / `upperOpen`. An absent bound is the whole index. */
+export interface HistoryIndexBound {
+  lower?: number;
+  lowerOpen?: boolean;
+  upper?: number;
+  upperOpen?: boolean;
+}
+
+/**
+ * Opens an ordered cursor on `completedAt` or `initiatedAt`. Caller must already be inside
+ * `table.db.transaction`, which is what keeps the cursor's IndexedDB transaction alive.
+ * Records Dexie does not index (a missing `completedAt`) are not on that cursor.
+ */
+export async function openTransactionIndexCursor(
+  table: TransactionTable<ITransaction, string>,
+  indexName: 'completedAt' | 'initiatedAt',
+  reverse: boolean,
+  bound?: HistoryIndexBound
+): Promise<HistoryIndexCursor | null> {
+  const current = Dexie.currentTransaction;
+  if (current === null) throw new Error('openTransactionIndexCursor requires a transaction');
+  const index = table.core.schema.getIndexByKeyPath(indexName);
+  if (index === undefined) throw new Error(`transactions ${indexName} index is missing`);
+  const cursor = await table.core.openCursor({
+    trans: current.idbtrans,
+    values: true,
+    reverse,
+    query: { index, range: historyIndexRange(bound) }
+  });
+  if (cursor === null) return null;
+  return wrapHistoryIndexCursor(cursor);
+}
+
+function historyIndexRange(bound: HistoryIndexBound | undefined) {
+  // Dexie range kinds are numeric: Any is 3 and Range is 2. The const enum does not exist at runtime.
+  if (bound === undefined || (bound.lower === undefined && bound.upper === undefined)) {
+    return { type: 3, lower: undefined, upper: undefined };
+  }
+  return {
+    type: 2,
+    lower: bound.lower,
+    upper: bound.upper,
+    lowerOpen: bound.lowerOpen === true,
+    upperOpen: bound.upperOpen === true
+  };
+}
+
+function isHistoryIndexRow(value: unknown): value is ITransaction {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('id' in value) || !('status' in value) || !('initiatedAt' in value) || !('accountId' in value)) return false;
+  return typeof value.id === 'string';
+}
+
+function historyRowFromCursor(cursor: DBCoreCursor): ITransaction {
+  const value: unknown = cursor.value;
+  if (!isHistoryIndexRow(value)) throw new Error('history index cursor returned a non-transaction');
+  return value;
+}
+
+function wrapHistoryIndexCursor(cursor: DBCoreCursor): HistoryIndexCursor {
+  return {
+    get value() {
+      return historyRowFromCursor(cursor);
+    },
+    get done() {
+      return cursor.done === true;
+    },
+    next() {
+      return cursor.next().then(advanced => wrapHistoryIndexCursor(advanced));
+    }
+  };
+}
+
+/**
+ * Non-negative safe integer: the spending-limit policy's rule for a transaction time it can judge (a
+ * matching row with any other refuses the assessment), stricter than the `initiatedAt` index, which
+ * places any number at or above 0 (#1007).
+ */
+function isPlaceableInitiatedAt(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
+
+/**
+ * Builds an independent, uniquely-named database running the exact same version chain as the
+ * production `db` above. Exported only for the migration-proving test in repo.test.ts, which
+ * needs to exercise the REAL, current chain against an isolated instance rather than a
+ * hand-authored duplicate - see `defineSchema`'s doc comment for why that distinction matters.
+ */
+export function createSchemaFor(name: string): Dexie {
+  return buildTridentDb(name);
+}
 
 function indexes(...items: string[]) {
   return items.join(',');
@@ -157,11 +579,8 @@ const isTaggedBigInt = (value: object): value is TaggedBigInt => {
 };
 
 /**
- * Byte fields stay plain number arrays, which is the shape the previous format
- * emitted for `requestBytes` — so a file written by an older build still imports.
- * `resultBytes` rode the untouched rest-spread back then, and `JSON.stringify`
- * turns a `Uint8Array` into `{"0":1,"1":2}` rather than an array, so the legacy
- * shape for that one is an index-keyed object.
+ * Byte fields are written as plain number arrays (`toSerializable` turns every
+ * `Uint8Array` into one) and restored by name.
  */
 const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
 
@@ -189,33 +608,6 @@ const isByteValue = (value: unknown): value is number =>
 const bytesFromArray = (value: unknown[], key: string): Uint8Array => {
   if (!value.every(isByteValue)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
   return Uint8Array.from(value);
-};
-
-/**
- * `{"0":1,"1":2}` — what `JSON.stringify` makes of a `Uint8Array`, and so the
- * legacy on-disk shape for `resultBytes`.
- *
- * The indices have to be dense and cover exactly `0…n-1`. The previous decoder
- * sized the array by key COUNT and then read indices `0…count-1`, so a gap made
- * it read past the keys the file actually had: `{"0":1,"2":3}` restored as
- * `[1,0]`, inventing a zero and dropping the byte at 2 without a word. `{}` is
- * legitimate and stays legitimate — an empty `Uint8Array` serializes to exactly
- * that.
- */
-const bytesFromIndexKeyed = (value: object, key: string): Uint8Array => {
-  const entries = Object.entries(value);
-  const bytes = new Uint8Array(entries.length);
-  const seen = new Set<number>();
-  for (const [index, entry] of entries) {
-    const position = Number(index);
-    if (!Number.isInteger(position) || position < 0 || position >= entries.length || seen.has(position)) {
-      throw new Error(`importDb: ${key} is not a dense byte sequence`);
-    }
-    if (!isByteValue(entry)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
-    seen.add(position);
-    bytes[position] = entry;
-  }
-  return bytes;
 };
 
 const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
@@ -246,7 +638,7 @@ const fromSerializable = (value: unknown, key?: string, depth = 0): unknown => {
   }
   if (typeof value === 'object' && value !== null) {
     if (isTaggedBigInt(value)) return BigInt(value[BIGINT_TAG]);
-    if (isByteField) return bytesFromIndexKeyed(value, key);
+    if (isByteField) throw new Error(`importDb: ${key} is not a byte array`);
     const sole = soleKeyOf(value);
     if (sole !== undefined && ESCAPED_BIGINT_TAG.test(sole)) {
       return { [sole.slice(0, -1)]: fromSerializable(Reflect.get(value, sole), undefined, depth + 1) };
@@ -335,13 +727,21 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
         ? initiatedAt
         : Math.floor(Date.now() / 1000);
 
+  // An imported row takes an `initiatedAt` the insert check accepts (its own, else its completedAt, else
+  // now), or the check would refuse the whole restore (#1007).
+  const placedAt = isPlaceableInitiatedAt(initiatedAt)
+    ? initiatedAt
+    : isPlaceableInitiatedAt(completedAt)
+      ? completedAt
+      : Math.floor(Date.now() / 1000);
+
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at
   // all; every consumer compares with `===`, so such a row is invisible in every
   // history view while still occupying its id — and a deny-list would wave it
   // through unstamped. Anything not recognisably terminal is treated as unfinished.
   if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
-    return { ...restored, completedAt: timestamp };
+    return { ...restored, completedAt: timestamp, initiatedAt: placedAt };
   }
   return {
     ...restored,
@@ -349,7 +749,8 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
     error: IMPORTED_UNFINISHED_REASON,
     // `displayIcon`/`displayMessage` are re-derived for failed rows when history
     // renders, so only the fields history reads straight off the row are set here.
-    completedAt: timestamp
+    completedAt: timestamp,
+    initiatedAt: placedAt
   };
 };
 
@@ -357,7 +758,8 @@ export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
     const rawTransactions = await transactions.toArray();
-    const serializableTransactions = rawTransactions.map(({ amount, ...rest }) => ({
+    // `dappOrigins` stays out: a backup must not record which dApps the user used (#1416).
+    const serializableTransactions = rawTransactions.map(({ amount, dappOrigins: _dappOrigins, ...rest }) => ({
       ...mapValues(rest, toSerializable),
       // `amount` keeps its plain-string shape so files stay readable by builds
       // that predate the tag; `fromSerializable` accepts either form.
@@ -368,14 +770,42 @@ export async function exportDb(): Promise<string> {
   return JSON.stringify(dump);
 }
 
+/**
+ * A dump's swap Cancel stamp (`expiryTriggeredAt`) is dropped. On a Guardian-recovered order it is the permission
+ * settlement acts on to return the order, which only this wallet's own Cancel may give (#1487); on any other restored
+ * row nothing reads it. A recovered order also drops what else this wallet's own tracking and Cancel wrote on it (the
+ * expiry, which recovery never writes, the remainder and checkpoint tracking found, and the lineage-close records
+ * `lineageClosedAt` and `orderNoteSpentAt`): with only the stamp gone, the lapsed expiry left the order showing its
+ * return as pending with no Cancel, and nothing would ever act on it, and a kept record closed the order with no read
+ * of the node. It imports open, a settledAt or reclaimedAt on it provisional until its next lineage read, and its
+ * Cancel is offered again.
+ */
+const CANCEL_STAMP = new Set(['expiryTriggeredAt']);
+const RECOVERED_ORDER_LOCAL_STATE = new Set([
+  'expiryTriggeredAt',
+  'expiresAt',
+  'recoveredTip',
+  'recoveredCheckpoint',
+  'lineageClosedAt',
+  'orderNoteSpentAt'
+]);
+
+const importedExtraInputs = (extraInputs: unknown, recovered: boolean): unknown => {
+  if (typeof extraInputs !== 'object' || extraInputs === null || Array.isArray(extraInputs)) return extraInputs;
+  const dropped = recovered ? RECOVERED_ORDER_LOCAL_STATE : CANCEL_STAMP;
+  return Object.fromEntries(Object.entries(extraInputs).filter(([key]) => !dropped.has(key)));
+};
+
 export async function importDb(dump: string): Promise<void> {
   const data = JSON.parse(dump);
 
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
-      const { amount, ...rest } = mapValues(tx, fromSerializable);
+      // A dump's `dappOrigins` is dropped too: no restored row is ever waitable by a dApp.
+      const { amount, dappOrigins: _dappOrigins, extraInputs, ...rest } = mapValues(tx, fromSerializable);
       const imported = {
         ...rest,
+        ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
       return neutralizeUnfinishedTransaction(imported);
@@ -388,9 +818,12 @@ export async function importDb(dump: string): Promise<void> {
     // to restore from. Inside a transaction Dexie rolls the `clear` back with
     // the failed add, so a bad dump costs the user nothing.
     //
-    // `clear()` covers what `db.delete()` did: `transactions` is the only live
-    // table (`transactionRequests` was dropped in v1.1), and the rows are
-    // written into the current schema either way.
+    // `clear()` only needs to cover `transactions`: `transactionRequests` was dropped in v1.1,
+    // and `spendingLimits` (added in v1.7) is untouched by import - a wallet-file backup restores
+    // transaction history, not local device settings. The rows are written into the current
+    // schema either way.
+    const { clearGuardianHistoryCheckpoints } = await import('./guardian/history-storage');
+    await clearGuardianHistoryCheckpoints();
     await db.transaction('rw', transactions, async () => {
       await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);

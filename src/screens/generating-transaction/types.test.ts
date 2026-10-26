@@ -78,6 +78,7 @@ describe('generating-transaction/types', () => {
       const full: GeneratingTransactionProps = {
         onDoneClick,
         transactionComplete: true,
+        isGuardian: true,
         hasErrors: false,
         keepOpen: true,
         activeStage: 'proving' as ITransactionStage,
@@ -108,7 +109,8 @@ describe('generating-transaction/types', () => {
 
       const minimal: GeneratingTransactionProps = {
         onDoneClick,
-        transactionComplete: false
+        transactionComplete: false,
+        isGuardian: false
       };
 
       expect(minimal.transactionComplete).toBe(false);
@@ -126,6 +128,7 @@ describe('generating-transaction/types', () => {
       const withNullHash: GeneratingTransactionProps = {
         onDoneClick: jest.fn(),
         transactionComplete: true,
+        isGuardian: true,
         completedTxHash: null
       };
       expect(withNullHash.completedTxHash).toBeNull();
@@ -168,8 +171,9 @@ describe('generating-transaction/types', () => {
       const processing: TransactionHeroState = 'processing';
       const success: TransactionHeroState = 'success';
       const failed: TransactionHeroState = 'failed';
+      const unconfirmed: TransactionHeroState = 'unconfirmed';
 
-      const states: TransactionHeroState[] = [processing, success, failed];
+      const states: TransactionHeroState[] = [processing, success, failed, unconfirmed];
 
       const labels = states.map(state => {
         switch (state) {
@@ -179,6 +183,8 @@ describe('generating-transaction/types', () => {
             return state;
           case 'failed':
             return state;
+          case 'unconfirmed':
+            return state;
           default: {
             const never: never = state;
             return never;
@@ -186,7 +192,7 @@ describe('generating-transaction/types', () => {
         }
       });
 
-      expect(labels).toEqual(['processing', 'success', 'failed']);
+      expect(labels).toEqual(['processing', 'success', 'failed', 'unconfirmed']);
     });
   });
 

@@ -6,38 +6,35 @@ import { GuardianTransitionHero } from './GuardianTransitionHero';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, string>) => {
-      if (key === 'unknown') return 'Unknown';
-      if (key === 'guardianProviderRegion') return `${values?.provider} · ${values?.region}`;
-      return key;
-    }
+    t: (key: string) => (key === 'unknown' ? 'Unknown' : key)
   })
 }));
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="transition-icon">{name}</span>,
-  IconName: { ArrowDown: 'ArrowDown' }
+  IconName: { ArrowRight: 'ArrowRight' }
 }));
 
 afterEach(cleanup);
 
-it('renders provider names and a custom endpoint hostname between the supplied labels', () => {
+it('renders provider names and a custom endpoint hostname, left to right with an arrow between', () => {
   render(
     <GuardianTransitionHero
       previousEndpoint="https://miden-guardian.lambdaclass.com"
       newEndpoint="https://custom.guardian.example/path"
       previousLabel="Current"
       newLabel="New"
-      className="history-hero"
+      className="review-hero"
     />
   );
 
-  expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('history-hero');
-  expect(screen.getByText('Current')).toBeInTheDocument();
+  expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('review-hero');
   expect(screen.getByText('LambdaClass')).toBeInTheDocument();
-  expect(screen.getByTestId('transition-icon')).toHaveTextContent('ArrowDown');
-  expect(screen.getByText('New')).toBeInTheDocument();
+  expect(screen.getByTestId('transition-icon')).toHaveTextContent('ArrowRight');
   expect(screen.getByText('custom.guardian.example')).toBeInTheDocument();
+  // The labels are not drawn, the ring and arrow carry them, but a screen reader still hears them.
+  expect(screen.getByText('Current:', { exact: false })).toHaveClass('sr-only');
+  expect(screen.getByText('New:', { exact: false })).toHaveClass('sr-only');
 });
 
 it('renders the localized fallback when either endpoint is absent', () => {
@@ -48,25 +45,22 @@ it('renders the localized fallback when either endpoint is absent', () => {
   expect(screen.getAllByText('Unknown')).toHaveLength(2);
 });
 
-it('emphasizes the destination and keeps review labels readable in dark mode', () => {
+it('draws each provider on its round hero tile and rings only the destination', () => {
   render(
     <GuardianTransitionHero
       previousEndpoint="https://miden-guardian.lambdaclass.com"
-      newEndpoint="https://guardian.openzeppelin.com"
+      newEndpoint="https://guardian-testnet.openzeppelin.com"
       previousLabel="Current"
       newLabel="New"
-      variant="review"
     />
   );
 
-  // `text-heading-gray`, not `text-text-muted`: the muted token is #ababab, which
-  // is 2.3:1 on this card in light mode. Both chips now carry ink that clears AA
-  // in both themes.
-  expect(screen.getByText('Current')).toHaveClass('text-heading-gray');
-  // Provider names come from the canonical brand mapping (#464).
-  expect(screen.getByText('LambdaClass · EU-WEST')).toHaveClass('text-heading-gray');
-  // Fixed dark grey on the fixed white pill so the chip stays readable in dark mode.
-  expect(screen.getByText('New')).toHaveClass('text-grey-700');
-  expect(screen.getByText('OpenZeppelin · US-EAST')).toHaveClass('text-pure-white');
-  expect(screen.getByText('OpenZeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
+  const [previousTile, newTile] = screen.getAllByTestId('guardian-logo-tile');
+  expect(previousTile).toHaveClass('size-22', 'rounded-full');
+  expect(previousTile).not.toHaveClass('ring-accent-primary');
+  // Inset, as a chosen choice card's ring is, so the top of the scroller cannot clip it.
+  expect(newTile).toHaveClass('ring-2', 'ring-inset', 'ring-accent-primary');
+  // Provider names come from the canonical brand mapping (#464); the region sits under each.
+  expect(screen.getByText('OpenZeppelin')).toHaveClass('text-row-title', 'text-ink');
+  expect(screen.getByText('US-EAST')).toHaveClass('text-caption-heading', 'text-muted');
 });

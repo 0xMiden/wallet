@@ -8,7 +8,23 @@ declare namespace NodeJS {
   interface ProcessEnv {
     readonly NODE_ENV: 'development' | 'production' | 'test';
     readonly PUBLIC_URL: string;
+    readonly MIDEN_UPDATE_NOTIFICATIONS?: string;
+    MIDEN_E2E_TEST?: string;
+    MIDEN_E2E_ONE_CLICK_TESTNET?: string;
+    MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY?: string;
+    MIDEN_EXPLORE_CONFIG_URL?: string;
+    TARGET_BROWSER?: string;
   }
+}
+
+interface Window {
+  __MIDEN_E2E_UPDATE__?: {
+    platform: 'chrome' | 'android' | 'ios' | 'desktop';
+    currentVersion: string;
+    availableVersion: string;
+    summary?: string;
+    urgency?: 'normal' | 'important' | 'critical';
+  };
 }
 
 declare module '*.bmp' {

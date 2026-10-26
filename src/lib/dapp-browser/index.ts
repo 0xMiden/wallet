@@ -13,15 +13,21 @@ export { buildFaviconUrl, getFaviconUrl, getFallbackColor, getFallbackLetter } f
 export { rectFromDOMRect, rectsEqual, type WebViewRect } from './webview-rect';
 export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-confirmation';
 export {
-  FEATURED_DAPPS,
-  CAROUSEL_DAPPS,
-  EXPLORE_GRID_DAPPS,
-  getExploreGridDapps,
-  type FeaturedDapp,
-  type FeaturedDappBadge,
-  type FeaturedDappCategory
-} from './featured-dapps';
-export { CATEGORIES, type CategoryDescriptor } from './category-data';
+  EXPLORE_FILTERS,
+  getExploreCategoryGroup,
+  getExploreCatalog,
+  localizeExploreCatalog,
+  resolveExploreSections,
+  searchExploreCatalog,
+  type ExploreFilter,
+  type ExploreCategoryGroup,
+  type ExploreFilterDescriptor,
+  type ExploreItem,
+  type ExploreSection,
+  type ExploreSectionKind,
+  type ExploreView,
+  type ResolvedExploreSection
+} from './explore-catalog';
 export { getRecentDapps, recordRecentDapp, forgetRecentDapp, type RecentDapp } from './recent-dapps';
 // PR-6: persistence for cold-bubble restore across app restart.
 export {

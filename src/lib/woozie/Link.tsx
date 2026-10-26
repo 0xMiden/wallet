@@ -1,7 +1,7 @@
 import React, { AnchorHTMLAttributes, FC, MouseEventHandler, useCallback, useMemo } from 'react';
 
-import { TestIDProps, useAnalytics, AnalyticsEventCategory } from 'lib/analytics';
 import { hapticLight } from 'lib/mobile/haptics';
+import { TestIDProps } from 'lib/ui/test-id.props';
 import { USE_LOCATION_HASH_AS_URL } from 'lib/woozie/config';
 import { HistoryAction, createUrl, changeState } from 'lib/woozie/history';
 import { To, createLocationUpdates, useLocation } from 'lib/woozie/location';
@@ -13,7 +13,6 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement>, Test
 
 const Link: FC<LinkProps> = ({ to, replace, testID, testIDProperties, ...rest }) => {
   const lctn = useLocation();
-  const { trackEvent } = useAnalytics();
 
   const { pathname, search, hash, state } = useMemo(() => createLocationUpdates(to, lctn), [to, lctn]);
 
@@ -22,13 +21,14 @@ const Link: FC<LinkProps> = ({ to, replace, testID, testIDProperties, ...rest })
   const href = useMemo(() => (USE_LOCATION_HASH_AS_URL ? `${window.location.pathname}#${url}` : url), [url]);
 
   const handleNavigate = useCallback(() => {
-    testID !== undefined && trackEvent(testID, AnalyticsEventCategory.ButtonPress, testIDProperties);
     const action =
       replace || url === createUrl(lctn.pathname, lctn.search, lctn.hash) ? HistoryAction.Replace : HistoryAction.Push;
     changeState(action, state, url);
-  }, [replace, state, url, lctn, testID, testIDProperties, trackEvent]);
+  }, [replace, state, url, lctn]);
 
-  return <LinkAnchor {...rest} href={href} onNavigate={handleNavigate} />;
+  return (
+    <LinkAnchor {...rest} testID={testID} testIDProperties={testIDProperties} href={href} onNavigate={handleNavigate} />
+  );
 };
 
 export default Link;
@@ -44,16 +44,13 @@ const LinkAnchor: FC<LinkAnchorProps> = ({
   onNavigate,
   onClick,
   target,
-  testID,
-  testIDProperties,
+  testID: _testID,
+  testIDProperties: _testIDProperties,
   ...rest
 }) => {
-  const { trackEvent } = useAnalytics();
-
   const handleClick = useCallback(
     (evt: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
       hapticLight();
-      testID !== undefined && trackEvent(testID, AnalyticsEventCategory.ButtonPress, testIDProperties);
 
       try {
         if (onClick) {
@@ -74,7 +71,7 @@ const LinkAnchor: FC<LinkAnchorProps> = ({
         onNavigate();
       }
     },
-    [onClick, target, onNavigate, trackEvent, testID, testIDProperties]
+    [onClick, target, onNavigate]
   );
 
   return (

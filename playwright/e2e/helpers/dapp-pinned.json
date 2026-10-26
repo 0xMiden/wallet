@@ -1,0 +1,38 @@
+{
+  "sdkVersion": "0.17.3",
+  "serveMode": "route",
+  "guardianCommitmentComparable": true,
+  "summarySigningInputs": "twin-preview",
+  "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "sheet": {
+    "simulatedEffects": "Simulated effects:",
+    "notSimulated": "This transaction could not be simulated, so its effects are unknown.",
+    "reasonPrefix": "Reason, ",
+    "leaves": "Leaves this account",
+    "fee": "Network fee, ",
+    "notesConsumed": "Notes consumed, ",
+    "notesCreated": "Notes created, "
+  },
+  "texts": {
+    "R5": {
+      "offchain": {
+        "stage": "sending",
+        "error": "failed to execute transaction: asset error: subtracting"
+      },
+      "guardian": {
+        "stage": "creating-proposal",
+        "error": "failed to execute transaction: asset error: subtracting"
+      }
+    },
+    "MF3": {
+      "offchain": {
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
+      },
+      "guardian": {
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
+      }
+    }
+  }
+}

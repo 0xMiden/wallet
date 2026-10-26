@@ -6,10 +6,51 @@ on:
   workflow_dispatch: {}
 concurrency:
   group: guardian-lifecycle-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  pull-requests: read
 jobs:
+  # The suite runs on every push to main and on dispatch. A pull request runs it only
+  # when its body carries a `Client PR:` / `Guardian PR:` / `Protocol PR:` / `Web SDK PR:`
+  # marker; otherwise the heavy job is skipped and the gate reports green.
+  # Name and work read the same base value (#1071): the selector and its pull
+  # request read run only under FULL, so a stacked pull
+  # request skips them along with the heavy job and the gate that need them.
+  select-guardian-e2e:
+    name: Select Guardian E2E
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
+    runs-on: ubuntu-slim
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - name: Read current pull request body
+        id: pull-request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('body', data.body ?? '');
+      - name: Decide whether to run
+        id: select
+        env:
+          PR_BODY: ${{ steps.pull-request.outputs.body }}
+        run: |
+          set -euo pipefail
+          run=false
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            run=true
+          elif printf '%s\n' "$PR_BODY" \
+            | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   # Dedicated two-guardian job for the guardian switch/recovery suite
   # (guardian-switch*.spec.ts / guardian-recovery*.spec.ts — design doc
   # 2026-08-03-guardian-switch-recovery-e2e-design.md). Unlike the existing
@@ -17,8 +58,12 @@ jobs:
   # wired into pr-e2e-local.yml), switch/recovery scenarios need a SECOND,
   # distinct-keypair guardian ("B", :3001) to switch/recover TO — brought up
   # via the `guardian-switch` compose profile (docker-compose.local.yml).
-  # The specs are live (seven guardian-*.spec.ts files), picked up via
-  # playwright.guardian.config.ts's `**/guardian-*.spec.ts` testMatch.
+  # The specs are live guardian-*.spec.ts files (tests/ plus tests/resilience/),
+  # picked up via playwright.guardian.config.ts's recursive
+  # `**/guardian-*.spec.ts` testMatch. Pull requests set GUARDIAN_E2E_SUITE=pr
+  # so stress specs and guardian-fault.smoke stay off the merge path; main and
+  # workflow_dispatch run the full suite. The policy unit tests live in Jest
+  # (playwright/e2e/harness/guardian-fault.test.ts), not this job.
   # guardian-lifecycle-e2e-gate is the stable required-check name.
   # #615: guardian-recovery.spec.ts:65 flaked ~10% of executions (~11 failures /
   # ~110 real runs, 2026-08-04 -> 2026-08-12) since the spec landed — there was
@@ -31,15 +76,27 @@ jobs:
   # A red run on this job is therefore NOT pre-excused. Guardian 401/429 handling
   # is tracked separately (#617 rate-limit requeue, #619 post-rotation
   # re-register) — if a failure shows those, triage it, don't assume flake.
-  # This is NOT #522 (that is the SDK-0.16 protocol gate).
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
-    runs-on: ubuntu-latest
+    needs: select-guardian-e2e
+    if: needs.select-guardian-e2e.outputs.run == 'true'
+    # 8 vCPUs, deliberately: measured 40 min here on 8 vCPU x64 against 76m35s on a 2 vCPU
+    # arm64 runner (warm cache), and the 120-minute ceiling below exists for the COLD build
+    # case, which no one has timed on 2 vCPU. The suite is workers:1 over 18 spec files, so
+    # the only way to cut this wall clock is sharding it across jobs, not shrinking the box.
+    runs-on: warp-ubuntu-latest-x64-8x
     # Stress scenarios (kill/reopen, guardian-fault injection, A->B->A repeat)
     # are heavier than the Tier-2 happy-path spec; sized like the other
     # dedicated single-purpose e2e jobs (swap/earn/bridge-guardian) rather
     # than pr-e2e-local.yml's 45m. Revisit once real spec timings exist.
-    timeout-minutes: 60
+    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
+    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
+    # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
+    # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
+    # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
+    # binds on a cold build; a warm run is unaffected by raising it.
+    timeout-minutes: 120
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
@@ -48,19 +105,22 @@ jobs:
       # src/lib/miden-chain/constants.ts (GUARDIAN_OPTIONS), matching the
       # fixed :3001 publish in docker-compose.local.yml.
       GUARDIAN_URL: http://localhost:3000
+      # pr = happy-path only (see playwright.guardian.config.ts). Full suite on
+      # main and workflow_dispatch, including the known-flaky stress specs.
+      GUARDIAN_E2E_SUITE: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: yarn }
+        with: { node-version: 22 }
       # Pinned exact (NOT @stable): a required gate must not drift with upstream
       # rustc -- a newer stable can reject the pinned older CLI/transport crates and
       # go red on unrelated PRs. Bump this deliberately (and the cache key below).
-      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: dtolnay/rust-toolchain@1.98.1
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -70,45 +130,49 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
-      - run: yarn install --frozen-lockfile
+      # These suites drive a real extension build, so they need the same unreleased
+      # dependencies the compile surfaces do: the fee APIs from the linked web-sdk PR and
+      # `resolveAuthArg` from the linked guardian PR. Without them the suite builds against
+      # the published packages and fails on missing exports — which reads as a product
+      # failure rather than an unshipped dependency. Both are no-ops when the PR body
+      # carries no marker.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      # Plain `yarn install`: the injections rewrite package.json to `file:` deps, which the
+      # committed lockfile cannot match, so `--frozen-lockfile` would fail by construction.
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
-        run: |
-          # The harness auto-installs the CLI lazily on first use, but that ~7min
-          # compile blows the 300s per-test timeout. Pre-install the SAME pinned
-          # rev here so the harness's `miden-client --version` check short-circuits.
-          # Skip when the cargo cache already restored it (else `cargo install`
-          # errors "binary already exists"). The cache key hashes package.json, so
-          # a present binary is guaranteed to be the pinned rev.
-          if ! command -v miden-client >/dev/null 2>&1; then
-            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
-            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
-            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
-          fi
-          miden-client --version
-      - name: Bring up node + prover
-        working-directory: playwright/e2e/local-stack
-        run: |
-          # --wait-timeout caps how long --wait blocks on readiness (--timeout is the
-          # unrelated shutdown timeout). Retry the bring-up so a transient GHCR image
-          # pull failure/rate-limit doesn't fail this (to-be-required) gate.
-          for attempt in 1 2 3; do
-            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
-            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
-            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
-            sleep 10
-          done
-          exit 1
+        # The harness auto-installs the CLI lazily on first use, but that ~7min compile
+        # blows the 300s per-test timeout, so it is pre-installed here. The action also
+        # rebuilds it against a linked Protocol PR when the PR carries one: the CLI
+        # EXECUTES AND PROVES transactions client-side, so an unpatched one dies inside
+        # its own local execution with a bare `x assert` that the harness misreports as
+        # a drained chain. No marker, no rebuild, and nothing about this step changes.
+        uses: ./.github/actions/install-miden-client-cli
+      - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
+        uses: ./.github/actions/run-local-node
+        with:
+          # Guarded accounts pay the fee from inside their auth procedure, which is what
+          # protocol#3786 adds to the guarded-multisig component. Verified locally: 49/49.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |
@@ -127,9 +191,22 @@ jobs:
         # guardian-b ("B", profile `guardian-switch`) up together, so every
         # service is named explicitly -- Compose starts an explicitly-named
         # service regardless of its own `profiles:` gating.
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
+        # ghcr image pulls can transiently time out (Client.Timeout on ghcr.io/v2/);
+        # retry so a flaky guardian pull doesn't fail this (to-be-required) gate.
+        run: |
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres && exit 0
+            echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2
+            sleep 10
+          done
+          exit 1
       - name: Start note-transport
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         # E2E_NETWORK=localhost bakes MIDEN_NETWORK=localhost AND (always, per
         # test:e2e:blockchain:build) MIDEN_E2E_TEST=true -- required both for the
@@ -179,10 +256,7 @@ jobs:
         # No --retries override: retries:0 (playwright.e2e.config.ts, inherited
         # by playwright.guardian.config.ts) is deliberate for this suite -- a
         # flake here is a bug to fix, not to paper over (design doc §11).
-        # testMatch is `**/guardian-*.spec.ts`, so this also runs the existing
-        # Tier-2 guardian-send-consume/guardian-fault specs until the
-        # guardian-switch*/guardian-recovery*.spec.ts files land (later phases
-        # of this project) -- expected, not a bug in this workflow.
+        # GUARDIAN_E2E_SUITE (job env) selects PR happy-path vs the full suite.
         run: xvfb-run -a yarn playwright test --config playwright.guardian.config.ts
       - name: Capture OS memory / OOM diagnostics on failure
         if: failure()
@@ -200,14 +274,18 @@ jobs:
           echo "=== dmesg OOM signals (decisive: present => OOM-kill, absent => non-OOM crash) ==="
           sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper|Out of memory: Kill" | tail -40 \
             || echo "(no OOM-kill in dmesg -- the browser death was NOT an out-of-memory kill)"
+      - name: Dump local node logs on failure
+        if: failure()
+        uses: ./.github/actions/dump-local-node-logs
+
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: guardian-lifecycle-e2e-report
           path: test-results/
@@ -217,16 +295,38 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff guardian-lifecycle-e2e succeeded.
-  # Mark THIS "required" in branch protection so the name stays stable across
-  # job renames.
+  # The gate runs only under the same FULL condition that names it and that
+  # decides the work (#1071), so on a stacked pull request it is skipped and
+  # reports no required name; a push, or a close and reopen, is what gets a
+  # retargeted pull request its required names from its own pull_request run.
+  # A by-hand workflow_dispatch run reports the required name on the branch
+  # head, built against the linked PRs that the branch's open pull request
+  # names, as its pull_request run is (none on main or next). Branch
+  # protection accepts that check for a pull request at the same commit,
+  # which is the spec's by-hand escape hatch. In this workflow that dispatch runs the full suite,
+  # known-flaky stress specs included, with no path selection
+  # (GUARDIAN_E2E_SUITE is 'full' off pull_request); a push, or a close and
+  # reopen, is the lighter path.
   guardian-lifecycle-e2e-gate:
-    name: guardian-lifecycle-e2e-gate
-    needs: [guardian-lifecycle-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'guardian-lifecycle-e2e-gate' || 'guardian-lifecycle-e2e-gate (stacked)' }}
+    needs: [select-guardian-e2e, guardian-lifecycle-e2e]
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
-          if [ "${{ needs.guardian-lifecycle-e2e.result }}" != "success" ]; then
-            echo "guardian-lifecycle-e2e ${{ needs.guardian-lifecycle-e2e.result }}"; exit 1; fi
-          echo "guardian-lifecycle-e2e ok"
+          set -euo pipefail
+          SELECT_RESULT="${{ needs.select-guardian-e2e.result }}"
+          SELECTED="${{ needs.select-guardian-e2e.outputs.run }}"
+          E2E_RESULT="${{ needs.guardian-lifecycle-e2e.result }}"
+
+          [ "$SELECT_RESULT" = "success" ] || {
+            echo "Guardian selector $SELECT_RESULT"; exit 1;
+          }
+
+          case "$SELECTED" in
+            true) [ "$E2E_RESULT" = "success" ] || { echo "guardian-lifecycle-e2e $E2E_RESULT"; exit 1; } ;;
+            false) [ "$E2E_RESULT" = "skipped" ] || { echo "guardian-lifecycle-e2e $E2E_RESULT"; exit 1; } ;;
+            *) echo "Guardian selector returned '$SELECTED'"; exit 1 ;;
+          esac
+
+          echo "guardian-lifecycle-e2e $E2E_RESULT"

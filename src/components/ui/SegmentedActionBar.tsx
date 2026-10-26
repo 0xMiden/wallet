@@ -1,10 +1,13 @@
 import React, { FC, ReactNode } from 'react';
 
-import classNames from 'clsx';
 import { motion } from 'framer-motion';
 
-import { easings } from 'lib/animation/easings';
+import { useTabShownAgain } from 'app/layouts/page-active';
+import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
+import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
+import { tabBarSwap, useTabBarMotion, useTabIconPop, type TabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 
 export interface SegmentedActionBarItem {
   id: string;
@@ -17,28 +20,92 @@ export interface SegmentedActionBarProps {
   activeId: string;
   onChange: (id: string) => void;
   className?: string;
-  /** Shared layoutId namespace. Override if multiple bars mount simultaneously. */
-  layoutId?: string;
 }
 
-const segmentedTransition = {
-  duration: 0.24,
-  ease: easings.easeInOut
+interface SegmentProps {
+  item: SegmentedActionBarItem;
+  active: boolean;
+  onSelect: (id: string) => void;
+  motionTokens: TabBarMotion;
+  swap: boolean;
+}
+
+const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap }) => {
+  const pop = useTabIconPop(active, swap);
+
+  return (
+    <HighlightItem
+      value={item.id}
+      asChild
+      as="span"
+      // `min-w-0` lets this row shrink with its button, so a label too long for the bar reaches its ellipsis.
+      className={cn('flex min-w-0 items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
+    >
+      <motion.button
+        type="button"
+        role="tab"
+        aria-selected={active}
+        aria-label={item.label}
+        onClick={() => onSelect(item.id)}
+        // One spring drives the pill AND the segment widths (Framer `layout`), so the active
+        // segment growing and the pill sliding into it move as one; a CSS width transition could
+        // not tween `flex-1` to a fixed width, so the segments used to snap while the pill tweened.
+        layout
+        transition={motionTokens.highlight}
+        {...motionTokens.press}
+        // Same reason as the pill above: this button's width really does change between states, so
+        // its radius has to be readable by the scale corrector. It shapes the focus ring.
+        style={{ borderRadius: '9999px' }}
+        className={cn(
+          // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
+          // pill's shadow off at the segment's edge. The active segment takes its label's width, never
+          // less than 112px (96px below 360px), so a longer translation grows it instead of spilling.
+          'group flex h-12 items-center justify-center rounded-full',
+          'text-text-primary-token transition-colors duration-200',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
+          active ? 'min-w-28 flex-initial px-2.5 max-[359px]:min-w-24 max-[359px]:px-2' : 'min-w-11 flex-1 px-0'
+        )}
+      >
+        <motion.span
+          layout="position"
+          data-pop={pop.phase}
+          animate={pop.animate}
+          // The pop's own transition governs the scale; `layout` is overridden separately so the
+          // icon's position move snaps together with the segment and the pill on a swap, instead of
+          // gliding on the pop spring.
+          transition={{ ...pop.transition, layout: motionTokens.highlight }}
+          onAnimationComplete={pop.onAnimationComplete}
+          className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
+        >
+          {item.icon}
+        </motion.span>
+        {active && (
+          <motion.span
+            key={`${item.id}-label`}
+            layout="position"
+            // `leading-5` puts the label on a 20px line, so `truncate`'s hidden overflow keeps its descenders.
+            className="relative truncate font-bold text-pill leading-5 max-[359px]:text-badge"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={motionTokens.label}
+          >
+            {item.label}
+          </motion.span>
+        )}
+      </motion.button>
+    </HighlightItem>
+  );
 };
 
-const labelTransition = {
-  duration: 0.12,
-  delay: 0.1,
-  ease: easings.easeInOut
-};
+export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeId, onChange, className }) => {
+  const tabBarMotion = useTabBarMotion();
+  // The Home tab shown again takes its new segment at once, as the carousel under it does. One decision
+  // here drives the pill, the segments, the label and (below) the icon's own layout move.
+  const swap = useTabShownAgain();
+  const motionTokens = swap ? { ...tabBarMotion, highlight: tabBarSwap, label: tabBarSwap } : tabBarMotion;
 
-export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
-  items,
-  activeId,
-  onChange,
-  className,
-  layoutId = 'segmented-action-pill'
-}) => {
+  // A tap on another segment buzzes once, here; a swipe between pages buzzes in HomeSwipeContainer,
+  // which owns that gesture. A tap on the active segment is silent and changes nothing.
   const handleSelect = (id: string) => {
     if (id === activeId) return;
     hapticSelection();
@@ -46,53 +113,39 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   };
 
   return (
+    // No band of its own: a caller that wants one passes it in `className` (Home, on mobile). The
+    // 48px segments set the height; 4px above them keeps it snug under the status bar, and 8px below
+    // them (room for the raised pill's shadow) and a hairline rule, like the bottom nav's top rule,
+    // divide it from the content under it.
     <div
       role="tablist"
-      className={classNames('flex h-16 items-center gap-1 overflow-hidden bg-gray-25 px-3', className)}
+      className={cn('flex items-center gap-1 overflow-hidden border-b border-hairline px-3 pt-1 pb-2', className)}
     >
-      {items.map(item => {
-        const isActive = item.id === activeId;
-        return (
-          <button
+      {/* The white pill slides between segments on the shared Highlight primitive; its layoutId is
+          scoped to this bar, so two mounted bars never trade pills. */}
+      <Highlight
+        controlledItems
+        value={activeId}
+        click={false}
+        exitDelay={0}
+        transition={motionTokens.highlight}
+        // Framer can only undo a layout projection's corner distortion for a radius it reads from
+        // `style` or a motion value; one that lives only in a class is invisible to the scale
+        // corrector. The primitive spreads this onto the projected pill.
+        style={{ borderRadius: '9999px' }}
+        className={cn('inset-0', raisedBubbleClassName)}
+      >
+        {items.map(item => (
+          <Segment
             key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            aria-label={item.label}
-            onClick={() => handleSelect(item.id)}
-            className={classNames(
-              'relative flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-[22px]',
-              'text-text-primary-token transition-[width,color] duration-200',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
-              isActive
-                ? 'w-28 flex-none gap-1.5 px-2.5 max-[359px]:w-24 max-[359px]:gap-1 max-[359px]:px-2'
-                : 'flex-1 px-0'
-            )}
-          >
-            {isActive && (
-              <motion.span
-                layoutId={layoutId}
-                className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-                transition={segmentedTransition}
-              />
-            )}
-            <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
-              {item.icon}
-            </span>
-            {isActive && (
-              <motion.span
-                key={`${item.id}-label`}
-                className="relative whitespace-nowrap text-sm font-bold leading-none max-[359px]:text-xs"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={labelTransition}
-              >
-                {item.label}
-              </motion.span>
-            )}
-          </button>
-        );
-      })}
+            item={item}
+            active={item.id === activeId}
+            onSelect={handleSelect}
+            motionTokens={motionTokens}
+            swap={swap}
+          />
+        ))}
+      </Highlight>
     </div>
   );
 };

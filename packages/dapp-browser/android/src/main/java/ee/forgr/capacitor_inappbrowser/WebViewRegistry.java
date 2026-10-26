@@ -37,6 +37,8 @@ public class WebViewRegistry {
     }
 
     public synchronized void register(String id, WebViewDialog dialog) {
+        WebViewDialog existing = instances.get(id);
+        if (existing != null && existing != dialog && existing.managedClose() != null) return;
         instances.put(id, dialog);
     }
 
@@ -65,4 +67,10 @@ public class WebViewRegistry {
     public synchronized void clear() {
         instances.clear();
     }
+
+    // The landing card in host-viewport dp as the host published it; each dialog converts it for its own window.
+    private BreadMorphCard morphCard;
+
+    synchronized BreadMorphCard morphCard() { return morphCard; }
+    synchronized void setMorphCard(BreadMorphCard card) { morphCard = card; }
 }

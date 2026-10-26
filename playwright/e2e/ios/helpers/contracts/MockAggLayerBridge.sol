@@ -7,12 +7,13 @@ pragma solidity ^0.8.20;
 /// `msg.value == amount` invariant, so a wrong-value / wrong-calldata deposit
 /// REVERTS on-chain (the app then marks the row failed) instead of passing green
 /// against dead code. Emits a BridgeEvent mirroring the real contract for
-/// optional log assertions.
+/// optional log assertions. `networkID()` answers 0 like the Sepolia bridge, so
+/// the wallet derives the same EVM-side network id it derives on testnet.
 ///
 /// The deployed (runtime) bytecode is embedded in ../evm-doubles.ts and placed
-/// at AGGLAYER_CONTRACT_ADDRESS('sepolia') via `anvil_setCode`. To regenerate
-/// after editing: `forge inspect MockAggLayerBridge deployedBytecode`
-/// (optimizer on, 200 runs).
+/// at the bridge address the served config document names, via `anvil_setCode`.
+/// To regenerate after editing, copy this file into an empty directory and run
+/// there: `forge inspect --root . --contracts . --use 0.8.35 --optimize --optimizer-runs 200 MockAggLayerBridge deployedBytecode`
 contract MockAggLayerBridge {
     event BridgeEvent(
         uint8 leafType,
@@ -26,6 +27,10 @@ contract MockAggLayerBridge {
     );
 
     uint32 public depositCount;
+
+    function networkID() external pure returns (uint32) {
+        return 0;
+    }
 
     function bridgeAsset(
         uint32 destinationNetwork,

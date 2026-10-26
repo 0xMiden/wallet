@@ -9,7 +9,8 @@
  * identifiable stub, keeping this a pure routing unit test.
  *
  * Top-level view selection now flows through `resolveRootView(ctx)` (locked →
- * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, else → `app`). The
+ * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, ready but finishing
+ * onboarding → `loading`, else → `app`). The
  * catch-all `*` route (registered BEFORE `/` and every ready-only route) is the
  * one that renders Unlock / RootSuspenseFallback / Welcome and only SKIPs — so a
  * specific route runs — when `resolveRootView` returns `app`. `root-view` is a
@@ -26,10 +27,11 @@
 
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
+import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
 import PageRouter from './PageRouter';
 import { resolveRootView } from './root-view';
 
@@ -44,6 +46,10 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
+// Whether the user has already answered the telemetry consent prompt. Read by
+// the `/help-improve-wallet` route factory, which refuses to re-ask.
+const mockTelemetryChoice = { made: false };
+const mockSettingsProps = jest.fn();
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -55,6 +61,14 @@ jest.mock('lib/woozie', () => ({
   HistoryAction: { Push: 'PUSH', Pop: 'POP', Replace: 'REPLACE' },
   resetHistoryPosition: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
+}));
+
+// Partial mock: only the consent probe is driven. A wholesale mock would strip
+// `getThemeSetting`, which one of the router's transitive imports calls at module
+// scope, taking the whole suite down before a single test runs.
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  hasTelemetryChoice: () => mockTelemetryChoice.made
 }));
 
 // root-view: partial mock. By default `resolveRootView` delegates to the real
@@ -79,7 +93,15 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMiden
 }));
 
-// The loading spinner shown during MV3 cold-start (before hydration).
+// App-lifecycle telemetry (`open` / `return`) is a leaf concern here and has its
+// own suite; stub it so it cannot disturb the `resolveRootView` call-order
+// assertions below, while still letting us assert PageRouter feeds it the ctx.
+const mockUseAppLifecycleTelemetry = jest.fn();
+jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
+  useAppLifecycleTelemetry: (ctx: unknown) => mockUseAppLifecycleTelemetry(ctx)
+}));
+
+// The loading spinner shown during MV3 cold-start (before hydration), or while the finishing mark holds a new wallet.
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
   default: () => <div data-testid="root-suspense-fallback" />
@@ -88,7 +110,12 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
 // Layouts render their children so the wrapped page stays assertable.
 jest.mock('app/layouts/FullScreenPage', () => ({
   __esModule: true,
-  default: ({ children }: { children?: React.ReactNode }) => <div data-testid="full-screen-page">{children}</div>
+  defaultPageEntrance: () => 'fade',
+  default: ({ children, entrance }: { children?: React.ReactNode; entrance?: string }) => (
+    <div data-testid="full-screen-page" data-entrance={entrance}>
+      {children}
+    </div>
+  )
 }));
 jest.mock('app/layouts/TabLayout', () => ({
   __esModule: true,
@@ -96,14 +123,22 @@ jest.mock('app/layouts/TabLayout', () => ({
 }));
 
 // Leaf screens — identifiable stubs, echoing any route params they receive.
+jest.mock('components/NetworkModeBanner', () => ({
+  NetworkModeBanner: () => <div data-testid="network-mode-banner" />
+}));
+jest.mock('components/MainnetCountdownBanner', () => ({
+  MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
+}));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('app/pages/Me', () => ({ __esModule: true, default: () => <div data-testid="me" /> }));
+jest.mock('app/pages/MyBadges', () => ({ __esModule: true, default: () => <div data-testid="my-badges" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
 }));
-jest.mock('app/pages/PendingNotes', () => ({
+jest.mock('app/pages/HelpImproveWallet', () => ({
   __esModule: true,
-  default: () => <div data-testid="pending" />
+  default: () => <div data-testid="help-improve-wallet" />
 }));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
 jest.mock('app/pages/BridgeDeposit', () => ({
@@ -112,9 +147,25 @@ jest.mock('app/pages/BridgeDeposit', () => ({
 }));
 jest.mock('app/pages/Settings', () => ({
   __esModule: true,
-  default: ({ tabSlug }: { tabSlug?: string }) => <div data-testid="settings" data-tab-slug={tabSlug ?? ''} />
+  default: (props: { tabSlug?: string; rootScrollTop?: React.MutableRefObject<number> }) => {
+    mockSettingsProps(props);
+    return <div data-testid="settings" data-tab-slug={props.tabSlug ?? ''} />;
+  }
 }));
-jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
+const mockRetireLockoutRecord = jest.fn();
+jest.mock('app/pages/Unlock', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: () => <div data-testid="unlock" />,
+    retireLockoutRecord: () => mockRetireLockoutRecord(),
+    // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
+    useRetireLockoutOnReady: (ready: boolean) =>
+      R.useEffect(() => {
+        if (ready) mockRetireLockoutRecord();
+      }, [ready])
+  };
+});
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
 
 jest.mock('screens/developer-settings/DeveloperSettings', () => ({
@@ -172,6 +223,9 @@ jest.mock('./pages/AllHistory', () => ({
   )
 }));
 jest.mock('./pages/Browser', () => ({ __esModule: true, default: () => <div data-testid="browser" /> }));
+jest.mock('./pages/ArcadePage', () => ({
+  ArcadePage: () => <div data-testid="arcade-coins" />
+}));
 jest.mock('./pages/ForgotPassword/ForgotPassword', () => ({
   __esModule: true,
   default: () => <div data-testid="forgot-password" />
@@ -189,6 +243,15 @@ jest.mock('./templates/history/HistoryDetails', () => ({
   HistoryDetails: ({ transactionId }: { transactionId?: string }) => (
     <div data-testid="history-details" data-transaction-id={transactionId} />
   )
+}));
+
+jest.mock('./pages/ActivityGroup', () => ({
+  ActivityGroupPage: ({ kind, id }: { kind?: string; id?: string }) => (
+    <div data-testid="activity-group" data-kind={kind} data-id={id} />
+  )
+}));
+jest.mock('screens/contacts/ContactDetailPage', () => ({
+  ContactDetailPage: ({ address }: { address: string }) => <div data-testid="contact-detail" data-address={address} />
 }));
 
 // ---------------------------------------------------------------------------
@@ -224,6 +287,72 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+  mockTelemetryChoice.made = false;
+});
+
+describe('app/PageRouter — no network banner', () => {
+  // The wallet names its test network in a banner above Home's action bar, which TabLayout draws
+  // (mocked here), and on the screens that commit value (NetworkModeBanner). The router itself draws
+  // no network banner.
+  it('renders no banner above a routed page', () => {
+    renderAt('/', { ready: true, hydrated: true });
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+  });
+
+  it('renders no banner above pre-ready screens either', () => {
+    renderAt('/reset-required');
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+  });
+});
+
+describe('app/PageRouter — mainnet countdown banner', () => {
+  // The banner sits above the whole layer stack of the open wallet (so above Home's action bar), on
+  // tab pages and pushed pages alike, and never over Unlock, loading or onboarding.
+  it('sits above a routed tab page', () => {
+    renderAt('/', ready);
+    const banner = screen.getByTestId('mainnet-countdown-banner');
+    expect(
+      banner.compareDocumentPosition(screen.getByTestId('explore')) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('stays above a pushed page', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.getByTestId('mainnet-countdown-banner')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['locked', '/', { ready: true, locked: true, hydrated: true }],
+    ['not yet hydrated', '/', { ready: true, hydrated: false }],
+    ['pre-ready', '/reset-required', {}]
+  ])('renders nothing while the wallet is %s', (_label, pathname, ctx) => {
+    renderAt(pathname, ctx);
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+  });
+
+  it('is absent while onboarding is finishing, and present once it is released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('mainnet-countdown-banner')).toBeInTheDocument();
+  });
+
+  it.each([
+    '/help-improve-wallet',
+    '/finish-side-panel',
+    '/forgot-password',
+    '/forgot-password-info',
+    '/reset-required',
+    '/reset-wallet'
+  ])('is absent at %s even with the wallet ready', pathname => {
+    renderAt(pathname, ready);
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {
@@ -236,6 +365,61 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     renderAt('/finish-side-panel', { locked: true });
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
     expect(screen.queryByTestId('open-side-panel')).not.toBeInTheDocument();
+  });
+
+  // The telemetry consent prompt. Same placement rationale as
+  // `/finish-side-panel`: it is reached the moment the wallet is created, and
+  // creation flips the app to the wallet home, so it must render either side of
+  // that flip or the user never gets to answer.
+  it('/help-improve-wallet renders the prompt before the wallet reports Ready', () => {
+    // The exact state the create flow navigates in: hydrated, unlocked, and
+    // Ready not yet broadcast. Ahead of the `!ready` catch-all, so the prompt
+    // wins over Welcome.
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: true });
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet keeps rendering once Ready arrives', () => {
+    // Ready lands while the user is still reading. The prompt must not be
+    // swapped out from under them for the wallet home.
+    renderAt('/help-improve-wallet', ready);
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet renders on a cold start, and with no wallet at all', () => {
+    // Reached directly — a reopened tab, a bookmark, a hand-typed URL — before
+    // the service worker has hydrated and with nothing created. The prompt only
+    // reads and writes a setting, so it needs no wallet and must not sit behind
+    // the hydration spinner waiting for one.
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: false });
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('root-suspense-fallback')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet SKIPs to the locked catch-all (Unlock) when locked', () => {
+    renderAt('/help-improve-wallet', { locked: true, ready: true, hydrated: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet SKIPs once a choice exists, so nobody is ever re-asked', () => {
+    // The guard lives on the route, not just on the flows that navigate here, so
+    // a bookmark or hand-typed URL cannot re-open a settled question either.
+    mockTelemetryChoice.made = true;
+    renderAt('/help-improve-wallet', ready);
+
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/');
+  });
+
+  it('/help-improve-wallet with a choice already made and no wallet falls through to onboarding', () => {
+    mockTelemetryChoice.made = true;
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: true });
+
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('welcome')).toBeInTheDocument();
   });
 
   it('/reset-required renders ResetRequired', () => {
@@ -294,6 +478,14 @@ describe('app/PageRouter — pre-ready / special routes', () => {
   it('/developer-settings SKIPs to the locked catch-all (Unlock) when locked', () => {
     renderAt('/developer-settings', { locked: true, ready: true, hydrated: true });
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
+  });
+
+  // Before the backend answers, the status is the initial Idle even when a wallet exists, and the
+  // screen would open its no-wallet edit mode for that wallet.
+  it('/developer-settings waits on the loading spinner until the backend state has arrived', () => {
+    renderAt('/developer-settings', { locked: false, ready: false, hydrated: false });
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
     expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
   });
 });
@@ -361,11 +553,43 @@ describe('app/PageRouter — the `/` root route', () => {
 });
 
 describe('app/PageRouter — ready tab & full-screen routes', () => {
+  it('does not expose the removed global ranking route', () => {
+    renderAt('/arcade/rankings', ready);
+    expect(screen.queryByTestId('arcade-rankings')).toBeNull();
+    expect(screen.queryByTestId('arcade-coins')).toBeNull();
+  });
+  it.each(['coins'])('/arcade/%s is a wallet-ready full-screen subpage', page => {
+    renderAt(`/arcade/${page}`, ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId(`arcade-${page}`));
+  });
+
+  it.each(['coins'])('/arcade/%s stays behind the wallet lock', page => {
+    renderAt(`/arcade/${page}`, { ...ready, locked: true });
+    expect(screen.queryByTestId(`arcade-${page}`)).toBeNull();
+  });
   it('/history/:programId passes the program id into AllHistory', () => {
     renderAt('/history/prog-1', ready);
     const el = screen.getByTestId('all-history');
     expect(screen.getByTestId('tab-layout')).toContainElement(el);
     expect(el).toHaveAttribute('data-program-id', 'prog-1');
+  });
+
+  it('keeps every tab route in one page layer, and keeps that layer mounted under a slide page', () => {
+    const { container, rerender } = renderAt('/history', ready);
+    const tabs = container.querySelector('[data-page-layer]');
+    expect(tabs).not.toBeNull();
+
+    // A tab change swaps panes inside the one tabs layer, never the layer itself.
+    mockLocation.pathname = '/me';
+    rerender(<PageRouter />);
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1);
+    expect(container.querySelector('[data-page-layer]')).toBe(tabs);
+
+    // A slide page stacks over the tabs layer, which stays mounted beneath it.
+    mockLocation.pathname = '/settings/general';
+    rerender(<PageRouter />);
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(2);
+    expect(tabs?.isConnected).toBe(true);
   });
 
   it('/history renders AllHistory with an empty (optional) program id', () => {
@@ -380,18 +604,71 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tab-slug', 'general');
   });
 
-  it('/settings renders Settings with no tab slug', () => {
+  it('/me renders the profile inside TabLayout', () => {
+    renderAt('/me', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('me'));
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+  });
+
+  it('/me/badges pushes the badge collection over the profile', () => {
+    renderAt('/me/badges', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('my-badges'));
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+  });
+
+  it('/settings renders Settings with no tab slug inside FullScreenPage', () => {
     renderAt('/settings', ready);
-    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', '');
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', '');
+  });
+
+  it('/settings/:tabSlug stays outside TabLayout so sub-pages keep their own layout', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+  });
+
+  // Recovery phrase used to open a warning overlay on the Settings root, where the
+  // tab bar covered its buttons. It is a routed sub-page now, so it gets the
+  // full-screen layout, which hides the tab bar (FullScreenPage.test.tsx asserts
+  // the `data-hide-navbar` flag it sets).
+  it('/settings/reveal-seed-phrase renders full screen, outside TabLayout', () => {
+    renderAt('/settings/reveal-seed-phrase', ready);
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', 'reveal-seed-phrase');
+  });
+
+  it('retains the root scroll reference across Settings layout changes', () => {
+    const { rerender } = renderAt('/settings', ready);
+    const initialRef = mockSettingsProps.mock.lastCall![0].rootScrollTop;
+    expect(initialRef).toEqual({ current: 0 });
+    initialRef.current = 420;
+
+    mockLocation.pathname = '/settings/language';
+    rerender(<PageRouter />);
+    mockLocation.pathname = '/settings';
+    rerender(<PageRouter />);
+
+    // The page's own restoration is exercised in Settings.test.tsx. This pins
+    // the router contract: its root must receive the same saved ref on return.
+    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop).toBe(initialRef);
+    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop.current).toBe(420);
   });
 
   // Registered ahead of the generic `/settings/:tabSlug?` route above so it
   // matches first — otherwise that route's pattern would swallow this path
   // with tabSlug='network-endpoints' and render the wrong screen.
-  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside FullScreenPage', () => {
+  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside a sliding FullScreenPage', () => {
     renderAt('/settings/network-endpoints', ready);
     const el = screen.getByTestId('developer-settings');
     expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    // Like every Settings sub-page it slides, so the tabs stay retained beneath it.
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
     expect(el).toHaveAttribute('data-read-only', 'true');
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });
@@ -406,9 +683,14 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('receive'));
   });
 
-  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+  it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending&view=list');
+    cleanup();
+
+    // Where that redirect lands: the Activity page, which reads `filter` off the location.
+    renderAt('/history', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('all-history'));
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {
@@ -530,5 +812,105 @@ describe('app/PageRouter — scroll & history side effects', () => {
     renderAt('/', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
+  it('shows the loading view at the root and on unknown paths while the mark is held, then Home once released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+  });
+
+  it('arms a held mark once the wallet is Ready on screen, so a stalled holder cannot hold the loading view forever', () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS);
+      });
+      expect(screen.getByTestId('explore')).toBeInTheDocument();
+      // The only trace a stalled holder leaves: lifecycle telemetry leaves the hold out.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain(`${ONBOARDING_FINISH_BUDGET_MS} ms safety budget`);
+    } finally {
+      act(() => mark.release());
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the finishing mark out of the lifecycle telemetry ctx', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(mockUseAppLifecycleTelemetry).toHaveBeenLastCalledWith({ ready: true, locked: false, hydrated: true });
+    } finally {
+      act(() => mark.release());
+    }
+  });
+});
+
+describe('app/PageRouter — app-lifecycle telemetry', () => {
+  it('feeds the wallet readiness ctx to the lifecycle telemetry hook', () => {
+    renderAt('/', ready);
+
+    expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: true, locked: false, hydrated: true })
+    );
+  });
+
+  it('reports the un-hydrated cold-start ctx so the open flow stays pending', () => {
+    renderAt('/some/cold-start/path', { locked: false, ready: false, hydrated: false });
+
+    expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: false, locked: false, hydrated: false })
+    );
+  });
+});
+
+// A correct guess whose window went away mid-call leaves its record behind; the next window to turn
+// ready retires it (#1192).
+describe('app/PageRouter - the lockout record', () => {
+  it('retires the guess record once the wallet is ready', () => {
+    renderAt('/', ready);
+    expect(mockRetireLockoutRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the guess record alone while the wallet is locked', () => {
+    renderAt('/', { locked: true, ready: false, hydrated: true });
+    expect(mockRetireLockoutRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe('app/PageRouter - encoded route parameters', () => {
+  it('hands a malformed activity group id on as absent, which the group page redirects', () => {
+    renderAt('/activity/group/address/%', ready);
+    const page = screen.getByTestId('activity-group');
+    expect(page).toHaveAttribute('data-kind', 'address');
+    expect(page).not.toHaveAttribute('data-id');
+  });
+
+  it('redirects a contact whose address will not decode to the address book', () => {
+    renderAt('/contacts/%', ready);
+    expect(screen.queryByTestId('contact-detail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/settings/address-book');
+  });
+
+  it('still decodes a well-formed address for both pages', () => {
+    const { unmount } = renderAt('/activity/group/address/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('activity-group')).toHaveAttribute('data-id', 'mtst1:abc');
+    unmount();
+    renderAt('/contacts/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
   });
 });

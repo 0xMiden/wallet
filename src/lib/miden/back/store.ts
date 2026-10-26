@@ -1,8 +1,9 @@
 import { createStore, createEvent } from 'effector';
 
+import { PublicError } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { NETWORKS } from 'lib/miden/networks';
-import { WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
+import { SeedPhraseStatus, WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
 
 export interface StoreState extends WalletState {
   inited: boolean;
@@ -19,7 +20,8 @@ export function toFront({
   networks,
   settings,
   currentAccount,
-  ownMnemonic
+  ownMnemonic,
+  seedPhraseStatus
 }: StoreState): WalletState {
   return {
     status,
@@ -27,7 +29,8 @@ export function toFront({
     networks,
     settings,
     currentAccount,
-    ownMnemonic
+    ownMnemonic,
+    seedPhraseStatus
   };
 }
 
@@ -43,6 +46,7 @@ export const unlocked = createEvent<{
   settings: WalletSettings;
   currentAccount: WalletAccount;
   ownMnemonic: boolean;
+  seedPhraseStatus?: SeedPhraseStatus;
 }>('Unlocked');
 
 export const accountsUpdated = createEvent<{ accounts: WalletAccount[]; currentAccount?: WalletAccount }>(
@@ -50,6 +54,8 @@ export const accountsUpdated = createEvent<{ accounts: WalletAccount[]; currentA
 );
 
 export const currentAccountUpdated = createEvent<WalletAccount>('Current Account Updated');
+
+export const seedPhraseStatusUpdated = createEvent<SeedPhraseStatus>('Seed phrase status updated');
 
 export const settingsUpdated = createEvent<WalletSettings>('Settings updated');
 
@@ -86,16 +92,18 @@ export const store = createStore<StoreState>({
     networks: NETWORKS,
     settings: null,
     currentAccount: null,
-    ownMnemonic: null
+    ownMnemonic: null,
+    seedPhraseStatus: undefined
   }))
-  .on(unlocked, (state, { vault, accounts, settings, currentAccount, ownMnemonic }) => ({
+  .on(unlocked, (state, { vault, accounts, settings, currentAccount, ownMnemonic, seedPhraseStatus }) => ({
     ...state,
     vault,
     status: WalletStatus.Ready,
     accounts,
     settings,
     currentAccount,
-    ownMnemonic
+    ownMnemonic,
+    seedPhraseStatus
   }))
   .on(accountsUpdated, (state, { accounts, currentAccount }) => ({
     ...state,
@@ -106,6 +114,7 @@ export const store = createStore<StoreState>({
     ...state,
     currentAccount
   }))
+  .on(seedPhraseStatusUpdated, (state, seedPhraseStatus) => ({ ...state, seedPhraseStatus }))
   .on(settingsUpdated, (state, settings) => ({
     ...state,
     settings
@@ -127,8 +136,43 @@ export function withInited<T>(factory: (state: StoreState) => T) {
   return factory(state);
 }
 
+/**
+ * Asserts the wallet is UNLOCKED — an initialized store with a live vault.
+ *
+ * This used to only assert `inited`, which a LOCKED wallet still satisfies
+ * (`locked()` clears `vault` but leaves `inited: true`). Every `withUnlocked`
+ * caller that doesn't dereference `vault` therefore kept working after a lock:
+ * most visibly `getPrivateNoteDetails` / `getConsumableNotes` / `getAssets` in
+ * `back/dapp.ts`, which go straight to `midenClientProxy`, so a connected dApp
+ * holding `PrivateDataPermission.Auto` could keep reading private notes and
+ * balances out of a locked wallet with no prompt. Callers that DID dereference
+ * the vault only got an opaque `TypeError: Cannot read properties of null`,
+ * which the transaction loop does not classify as "locked" — that is why
+ * `transaction-processor.ts` grew its own `withUnlockedVault` wrapper (now
+ * removed, since this assert covers it).
+ *
+ * The thrown error carries `reason: 'locked'` and a message `isLockedError`
+ * matches, so a background transaction that races a lock is DEFERRED (left
+ * Queued for retry after unlock) rather than marked Failed.
+ *
+ * Note: the WASM client and its IndexedDB are deliberately NOT disposed here or
+ * in `locked()`. `Actions.lock()` already runs inside `withWasmClientLock`, and
+ * `resetMidenClient()` takes that same non-reentrant lock, so disposing from the
+ * lock path would deadlock. This gate is what stops a locked wallet from serving
+ * that cached state to a dApp.
+ */
 export function assertUnlocked(state: StoreState): asserts state is UnlockedStoreState {
+  if (isUnlocked(state)) return;
   assertInited(state);
+  throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
+}
+
+/**
+ * The one definition of an unlocked store: initialized, Ready and holding a vault. `assertUnlocked` throws exactly
+ * when this is false, so a worker gate that asks it can never let through a claim signing would refuse.
+ */
+export function isUnlocked(state: StoreState): state is UnlockedStoreState {
+  return state.inited && !!state.vault && state.status === WalletStatus.Ready;
 }
 
 export function assertInited(state: StoreState) {

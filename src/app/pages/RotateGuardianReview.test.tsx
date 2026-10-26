@@ -2,7 +2,15 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { checkBiometricAvailability } from 'lib/biometric';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import RotateGuardianReview from './RotateGuardianReview';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
 const mockUnlock = jest.fn();
 const mockInitiateSwitch = jest.fn();
@@ -14,8 +22,10 @@ const mockStartBackgroundProcessing = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockIsMobile = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => true);
+const mockIsIOS = jest.fn(() => false);
 const mockCurrentAccount = {
   publicKey: 'guardian-account',
   name: 'Guardian',
@@ -23,6 +33,15 @@ const mockCurrentAccount = {
   type: 'guardian',
   hdIndex: 0
 };
+
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -35,7 +54,8 @@ let mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
 let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
-  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint, refresh: jest.fn() })
+  ...jest.requireActual('app/hooks/useCurrentGuardianEndpoint'),
+  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint })
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({
@@ -66,41 +86,8 @@ jest.mock('app/layouts/PageLayout', () => ({
 }));
 
 jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({
-    previousEndpoint,
-    newEndpoint,
-    variant
-  }: {
-    previousEndpoint?: string;
-    newEndpoint?: string;
-    variant?: string;
-  }) => (
-    <div
-      data-testid="guardian-transition"
-      data-previous={previousEndpoint}
-      data-new={newEndpoint}
-      data-variant={variant}
-    />
-  )
-}));
-
-jest.mock('app/atoms/FormField', () => ({
-  __esModule: true,
-  default: ({
-    id,
-    value,
-    onChange,
-    errorCaption
-  }: {
-    id: string;
-    value?: string;
-    onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
-    errorCaption?: React.ReactNode;
-  }) => (
-    <label>
-      <input id={id} value={value} onChange={onChange} />
-      {errorCaption ? <span role="alert">{errorCaption}</span> : null}
-    </label>
+  GuardianTransitionHero: ({ previousEndpoint, newEndpoint }: { previousEndpoint?: string; newEndpoint?: string }) => (
+    <div data-testid="guardian-transition" data-previous={previousEndpoint} data-new={newEndpoint} />
   )
 }));
 
@@ -122,41 +109,48 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div data-testid="passcode-entry">
-      {error ? <span role="alert">{error}</span> : null}
-      <button disabled={isSubmitting} data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div data-testid="passcode-entry">
+        {error ? <span role="alert">{error}</span> : null}
+        <button disabled={isSubmitting} data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: React.ReactNode }) => <div>{title}</div>,
   AlertVariant: { Warning: 'warning' }
 }));
 
-jest.mock('lib/ui/DetailCard', () => ({
-  DetailCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DetailRow: ({ label, value }: { label: string; value: string }) => (
-    <div>
-      {label}:{value}
-    </div>
-  )
-}));
-
 jest.mock('lib/biometric', () => ({
-  isBiometricEnabled: jest.fn().mockResolvedValue(false),
   checkBiometricAvailability: jest.fn()
 }));
 
@@ -168,7 +162,10 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -179,7 +176,8 @@ jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { provider:
 
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension(),
-  isMobile: () => mockIsMobile()
+  isMobile: () => mockIsMobile(),
+  isIOS: () => mockIsIOS()
 }));
 
 // Real `sanitizeGuardianUrl`/`isValidGuardianUrl`: they ARE the endpoint guards
@@ -206,23 +204,52 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch, historyPosition: 1 }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: 1, href: 'http://localhost/#/rotate-guardian/review' }),
+  listen: () => () => undefined,
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: () => mockGoBack(),
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
 beforeEach(() => {
+  mockRenderActualPasscode = false;
   jest.clearAllMocks();
   mobileBackHandler = undefined;
   mockCurrentEndpoint = 'https://old.example';
   mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
+  mockIsIOS.mockReturnValue(false);
   mockHasHardwareProtector.mockResolvedValue(false);
+  mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
   // Re-armed after `clearAllMocks`, which drops the declaration-site default.
   mockGetUncompleted.mockResolvedValue([]);
+});
+
+// This screen commits value, so it names the network. The registry test proves the element is in
+// the file; this proves it actually renders - the distinction a source match cannot make, and how
+// a banner once shipped behind an early return.
+it('names the network it will commit on', () => {
+  render(<RotateGuardianReview />);
+
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+});
+
+// The credential step is a separate render branch, reached by an early return, and it is the one
+// that actually commits: submitting here unlocks and initiates the switch. A banner on the review
+// branch alone leaves this screen unwarned, and the case above cannot see that, because it never
+// leaves the default state.
+it('still names the network on the credential step, where the rotation is submitted', async () => {
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  expect(await screen.findByTestId('rotate-guardian-auth-submit')).toBeInTheDocument();
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
 });
 
 it('renders the current and destination endpoints in the shared transition hero', async () => {
@@ -231,18 +258,21 @@ it('renders the current and destination endpoints in the shared transition hero'
   const hero = screen.getByTestId('guardian-transition');
   expect(hero).toHaveAttribute('data-previous', 'https://old.example');
   expect(hero).toHaveAttribute('data-new', 'https://new.example');
-  expect(hero).toHaveAttribute('data-variant', 'review');
-  // The review screen owns its header now (prominent NavigationHeader) instead
+  // The review screen owns its header now (its own PageHeader) instead
   // of PageLayout's toolbar title.
   expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
-it('uses theme-aware text colors for the rotation warning', async () => {
+it('states the old Guardian cannot block the rotation as a reassuring fact, not a warning', async () => {
   render(<RotateGuardianReview />);
 
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-heading-gray');
-  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-heading-gray');
+  // A fact row with a sage shield on a `fill` card, as the switch's success screen states its facts.
+  const fact = screen.getByText('oldGuardianCantBlockBody').closest('[data-slot="fact-row"]');
+  expect(fact).not.toBeNull();
+  expect(fact).toHaveTextContent('oldGuardianCantBlockTitle');
+  expect(fact?.querySelector('[data-slot="icon"]')).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
+  expect(screen.queryByText('oldGuardianCantBlockBody')?.closest('[role="note"]')).toBeNull();
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
@@ -294,12 +324,25 @@ it('hardware cancellation never queues a switch', async () => {
 const LONG_GUARDIAN_ERROR =
   'GuardianHttpError: https://guardian.example.com/v1/operators/rotate?token=abcdef0123456789abcdef0123456789 failed';
 
-// (The extension password-auth sink — FormField's errorCaption — is covered by
-// its own unit test in FormField.test.tsx; this suite mocks FormField, so the
-// real errorCaption classes aren't observable here.)
+// The extension authenticates with a password, and its error renders in the real TextField.
+it('wraps the long guardian error on the extension password path so it is not clipped (#454)', async () => {
+  mockUnlock.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  const password = document.querySelector<HTMLInputElement>('#rotate-guardian-password');
+  if (!password) throw new Error('Password field did not render');
+  fireEvent.change(password, { target: { value: 'correct-password' } });
+  fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
+
+  expect((await screen.findByText(LONG_GUARDIAN_ERROR)).closest('[role="alert"]')).toHaveClass('wrap-break-word');
+});
+
 it('wraps the long guardian error on the mobile hardware-auth path so it is not clipped (#454)', async () => {
   // On mobile hasHardwareProtector() is true; the error renders in the review
-  // page's own error row (line 207) instead of the auth-step FormField.
+  // page's own error row instead of the password step's TextField.
   mockHasHardwareProtector.mockResolvedValue(true);
   mockUnlock.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
   render(<RotateGuardianReview />);
@@ -307,7 +350,7 @@ it('wraps the long guardian error on the mobile hardware-auth path so it is not 
   await waitFor(() => expect(confirm).toBeEnabled());
   fireEvent.click(confirm);
 
-  expect(await screen.findByText(LONG_GUARDIAN_ERROR)).toHaveClass('wrap-break-word');
+  expect((await screen.findByText(LONG_GUARDIAN_ERROR)).closest('[role="alert"]')).toHaveClass('wrap-break-word');
 });
 
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
@@ -323,6 +366,10 @@ it('password authentication gates the extension flow and retries with fresh auth
   fireEvent.change(password, { target: { value: 'correct-password' } });
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
   expect(await screen.findByText('queue failed')).toBeInTheDocument();
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'field');
   expect(mockUnlock).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
@@ -345,7 +392,7 @@ it('invalid credentials and back navigation leave the Guardian unchanged', async
   expect(await screen.findByText('Invalid password')).toBeInTheDocument();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 
-  fireEvent.click(screen.getByTestId('auth-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
   expect(await screen.findByTestId('rotate-guardian-confirm')).toBeInTheDocument();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
@@ -418,6 +465,19 @@ describe('endpoint from the query string', () => {
 
     // Unsanitized this read as a real change and would have persisted a second
     // spelling of the Guardian already in use.
+    expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
+
+  it('treats a host-case and default-port spelling of the current endpoint as unchanged', async () => {
+    mockCurrentEndpoint = 'https://new.example';
+    mockSearch = '?endpoint=' + encodeURIComponent('https://New.Example:443/');
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    fireEvent.click(confirm);
+
     expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
     expect(mockInitiateSwitch).not.toHaveBeenCalled();
   });
@@ -525,6 +585,14 @@ describe('hardware back', () => {
   });
 });
 
+it('lays the review out on the shared sub-page frame: header, details card and pinned Continue', async () => {
+  render(<RotateGuardianReview />);
+  expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
+  expect(screen.getByText('walletKeyHot').closest('.divide-hairline')).not.toBeNull();
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  expect(confirm.closest('[data-slot="footer"]')).not.toBeNull();
+});
+
 it('keeps Continue out of the scroll region so it cannot land below the fold', async () => {
   const { container } = render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
@@ -532,7 +600,7 @@ it('keeps Continue out of the scroll region so it cannot land below the fold', a
   // The illustration plus the prominent header cost ~220px of a 600px popup, so
   // a CTA inside the scroller sat below the fold — the user had to scroll to
   // find the only way forward, and a failure could render off-screen entirely.
-  const scroller = container.querySelector('.flex-1.min-h-0.overflow-y-auto');
+  const scroller = container.querySelector('[data-slot="body"]');
   expect(scroller).not.toBeNull();
   expect(scroller!.contains(confirm)).toBe(false);
 });
@@ -628,6 +696,71 @@ it('refuses a second switch when one is already queued for the account', async (
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
 
+// The pre-check above reads the queue BEFORE `unlock`, so a row created during
+// that window slips past it and the refusal comes back from `initiate` instead.
+// It must read as the same condition: the initiator's own message is
+// developer-facing English, and putting it on screen — which is what the generic
+// arm of this catch does — ships untranslated copy that `yarn lint:i18n` cannot
+// see, since it is a runtime string rather than a literal in a component.
+it('localizes the in-progress refusal that comes back from the initiator', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  const inProgress = new Error('A guardian rotation to https://other.guardian is already in progress');
+  inProgress.name = 'GuardianRotationInProgressError';
+  mockInitiateSwitch.mockRejectedValueOnce(inProgress);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('guardianSwitchAlreadyInProgress'));
+  // The raw sentence must not reach the user.
+  expect(screen.queryByText(/already in progress for this account/)).toBeNull();
+});
+
+// The case the name check exists FOR, and the one an `instanceof Error` gate in
+// front of it silently excludes: the rejection crosses a boundary the intercom
+// adapters may serialize, which drops the prototype and leaves a plain object
+// carrying `name`. Gated on `instanceof`, this fell through to `String(err)` and
+// rendered "[object Object]" into the alert.
+it('localizes the in-progress refusal even after serialization drops the prototype', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  mockInitiateSwitch.mockRejectedValueOnce({
+    name: 'GuardianRotationInProgressError',
+    message: 'A guardian rotation to https://other.guardian is already in progress'
+  });
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('guardianSwitchAlreadyInProgress'));
+  expect(screen.queryByText(/object Object/)).toBeNull();
+});
+
+// And an unrelated serialized rejection still shows its own message rather than
+// "[object Object]" — the message read is shape-based for the same reason the
+// name check is.
+it('shows a serialized error message rather than stringifying the object', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  mockInitiateSwitch.mockRejectedValueOnce({ name: 'Error', message: 'the node refused the request' });
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('the node refused the request'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'notice');
+});
+
 it('allows a retry after a hang, which created no row', async () => {
   // The queue check reads the DB rather than holding a latch precisely so this
   // works: a hung `unlock` never reached `initiate`, so nothing is queued and the
@@ -658,14 +791,79 @@ it('announces a failure rather than only rendering it above the button', async (
   expect(await screen.findByRole('alert')).toHaveTextContent('cancelled');
 });
 
-it('fails closed when hardware-protector detection fails', async () => {
+// #1056: a failed hardware read is resolved through the password protector, never guessed.
+it('takes the password step when the hardware read fails and a password key exists', async () => {
   mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockResolvedValue(true);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  expect(await screen.findByTestId('rotate-guardian-auth-submit')).toBeInTheDocument();
+  expect(mockUnlock).not.toHaveBeenCalled();
+});
+
+it('switches through the hardware protector when the hardware read fails and no password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockResolvedValue(false);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  expect(screen.queryByTestId('rotate-guardian-auth-submit')).not.toBeInTheDocument();
+});
+
+it('fails closed when both protector reads fail', async () => {
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
   render(<RotateGuardianReview />);
 
-  expect(await screen.findByText('guardianAuthenticationUnavailable')).toBeInTheDocument();
+  expect(await screen.findByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+  expect(screen.queryByText('guardianAuthenticationUnavailable')).not.toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  // Back still leaves the review.
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(mockGoBack).toHaveBeenCalledTimes(1);
+});
+
+it('fails closed with no passcode entry on mobile when both protector reads fail', async () => {
+  mockIsMobile.mockReturnValue(true);
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
+  render(<RotateGuardianReview />);
+
+  expect(await screen.findByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+  expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+  expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+  expect(mockUnlock).not.toHaveBeenCalled();
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
+it('shows Retry in the footer when the protector probe does not answer in time, and Retry enables Continue (#1241)', async () => {
+  jest.useFakeTimers();
+  try {
+    mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(true);
+    render(<RotateGuardianReview />);
+
+    await act(async () => {
+      jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+    });
+    expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('protector-probe-retry'));
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+    expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('drives the queue itself when the user abandons on mobile, so the switch is not stranded', async () => {
@@ -765,4 +963,63 @@ it('does not redirect after the user backs out of the credential step mid-flight
 
   await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
   expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+describe('hot-key label (face / fingerprint)', () => {
+  beforeEach(() => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+  });
+
+  it('reads faceUnlock for a face biometric on Android', async () => {
+    mockIsIOS.mockReturnValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('faceUnlock')).toBeInTheDocument();
+  });
+
+  it('reads faceId for a face biometric on iOS', async () => {
+    mockIsIOS.mockReturnValue(true);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('faceId')).toBeInTheDocument();
+  });
+
+  it('reads fingerprint for a fingerprint biometric', async () => {
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'fingerprint' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('fingerprint')).toBeInTheDocument();
+  });
+
+  it('reads the password label when the vault has no hardware protector, even if biometrics are available', async () => {
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+
+    expect(screen.getByText('password')).toBeInTheDocument();
+    expect(mockCheckBiometricAvailability).not.toHaveBeenCalled();
+  });
+});
+
+it('reports a rejected mobile credential on the real passcode display', async () => {
+  mockRenderActualPasscode = true;
+  mockIsMobile.mockReturnValue(true);
+  mockUnlock.mockRejectedValue(new Error('private credential failure'));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  fireEvent.click(await screen.findByTestId('passcode-submit'));
+  await screen.findAllByText('private credential failure');
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'passcode');
 });

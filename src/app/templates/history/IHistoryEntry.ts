@@ -1,14 +1,25 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IOneClickTrackingData,
   IBridgedReceivePhase,
+  IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
+  INoteDeliveryState,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
+  IUsdcxBurn,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
+import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
+import type { CompletedHistoryCursor } from 'lib/miden/transaction/get';
+import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
+import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -26,18 +37,31 @@ export interface IHistoryExtraAmount {
    * metadata resolves; a missing number is recoverable, a wrong one is not.
    */
   amount?: string;
+  /** The asset's symbol as fetched, or its testnet label once a list names it at render (`labelHistoryEntry`). */
   token: string;
 }
 
 export interface IHistoryEntry {
+  guardianRecovered?: boolean;
+  guardianReclaimed?: boolean;
   key: string;
   address: string;
   timestamp: number;
-  message: string;
+  /**
+   * Completed-history key from the source transaction. Newest-first display order is the reverse of
+   * unlimited `getCompletedTransactions`: Completed, then Failed, then Unconfirmed, with Failed and
+   * Unconfirmed ordered by `initiatedAt` and then id. Absent on pending rows and when the source has
+   * no `initiatedAt`; those keep the timestamp and type comparison.
+   */
+  historyOrder?: CompletedHistoryCursor;
+  /** Recovered and legacy transactions may have no stored display message. */
+  message?: string;
   type: HistoryEntryType;
   txType: ITransactionType;
 
   // Optional properties
+  /** Recorded request origins; display classification only, not proof of a valid game result. */
+  dappOrigins?: string[];
   /** Raw transaction status; set by the detail page for the status pill. */
   status?: ITransactionStatus;
   /** Failure reason (`tx.error`); set for failed transactions. */
@@ -46,6 +70,33 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
+  isUnconfirmed?: boolean;
+  /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
+  notConfirmedHint?: NotConfirmedHintKey | SubmissionMessageKey;
+  /**
+   * `tx.noteDelivery` - whether this send's private note reached the transport
+   * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
+   * chain may still not be spendable by its recipient, since a private note is
+   * unreachable without its relayed body. Absent for public sends and for rows
+   * written before the field existed.
+   */
+  noteDelivery?: INoteDeliveryState;
+  /**
+   * The delivery sweep will not push this row's notes again: `tx.relayRetriesStopped`,
+   * a row restored from a backup (never pushed), or a send past the retry window
+   * (which the sweep may never revisit to set the flag). The detail page then stops
+   * promising automatic retries and points to the transaction ID instead.
+   */
+  relayRetriesStopped?: boolean;
+  /**
+   * `tx.processingStartedAt` — stamped atomically with the Queued →
+   * GeneratingTransaction transition. The detail page's Retry gate reads it as
+   * the double-send guard's "did this row ever execute?" signal: absent means the
+   * failure is unambiguously pre-submit. Set by the detail page only.
+   */
+  processingStartedAt?: number;
+  /** The asset's symbol as fetched, or its testnet label once a list names it at render (`labelHistoryEntry`). */
   token?: string;
   /**
    * Formatted for display, like `requestedAmount` below — every producer assigns
@@ -76,7 +127,11 @@ export interface IHistoryEntry {
    * status chip. Absent (rendered Confirmed) once settled, and for legacy /
    * manual-claim orders.
    */
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** Requested-token execution ratio, independent of token display decimals. Unknown is omitted. */
+  swapFillProgress?: string;
+  /** Swap only: a failed payout claim's notes are still unclaimed and no payout claim is live (`getPaybackClaimStates`). */
+  paybackClaimStuck?: { failedClaimId: string; reason: PaybackClaimStuckReason };
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
@@ -95,11 +150,26 @@ export interface IHistoryEntry {
   // Guardian switch audit trail. The previous endpoint is absent on legacy rows.
   previousGuardianEndpoint?: ISwitchGuardianExtraInputs['previousGuardianEndpoint'];
   newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
+  /**
+   * The row's rotation verdict kind (`rotationVerdict`), projected at the
+   * mapping boundary so the views can qualify their claims - the outcome flags
+   * themselves deliberately do not cross this boundary.
+   */
+  guardianSwitchVerdict?: RotationVerdictKind;
+  /** `replace-hot-key`: the device (hot) key the rotation installed, once it is known. */
+  newHotPublicKey?: string;
+  /** `replace-hot-key`: the guardian the rotation ran under, when the record carries it. */
+  rotationGuardianEndpoint?: string;
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
+  /** When the row settled, in ms: the clock a burn confirmed before `confirmedAt` existed counts from. */
+  bridgeSettledAt?: number;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
+  bridgeAgglayerRoute?: AgglayerRecoveryConfig;
+  bridgeEpochAllocatorUrl?: string;
   bridgeClaimStatus?: IBridgeClaimStatus;
   // Epoch (Fast) route: quoted destination output + intent-status tracking.
   bridgeOutputAmount?: string;
@@ -110,6 +180,22 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /** epoch: id of the bridge's P2IDE note, stamped when it was built; read only while the note may exist. */
+  bridgeReclaimNoteId?: string;
+  /**
+   * epoch: the bridge's pipeline claimed its submit, so its note may be on chain under bridgeReclaimNoteId although
+   * no committed id was recorded.
+   */
+  bridgeSubmitClaimed?: boolean;
+  /** agglayer: the indexer `tx_hash` of this row's exit, which binds every deposit lookup to this row. */
+  bridgeAgglayerExitTxHash?: string;
+  /** agglayer: `deposit_cnt` of this row's exit deposit, once the indexer has reported it. */
+  bridgeAgglayerDepositCnt?: number;
+  /**
+   * agglayer: the row's stored marks say no lookup can find its exit (`isAgglayerExitUnfindable`), so it is treated
+   * as unbound.
+   */
+  bridgeAgglayerExitUnfindable?: boolean;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —
@@ -120,14 +206,26 @@ export interface IHistoryEntry {
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
+  oneClickTracking?: IOneClickTrackingData;
   bridgeInSourceAddress?: string;
+  bridgeInSourceChainId?: number;
+  bridgeInSourceConfig?: UsdcxSourceChain;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase; absent on ETH and older rows. */
+  bridgeInSourceToken?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */
+  bridgeInCctp?: IUsdcxCctpLeg;
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;
+  /**
+   * A bridge-in `consume` row that delivered an Earn withdrawal (`bridgeIn.earnWithdrawTxId`), whose
+   * source amount is what the withdrawal redeemed rather than a deposit the wallet paid.
+   */
+  bridgeInFromEarnWithdraw?: boolean;
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;

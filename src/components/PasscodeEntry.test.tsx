@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import PasscodeEntry, { PasscodeEntry as NamedPasscodeEntry, PASSCODE_LENGTH } from './PasscodeEntry';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -19,22 +23,26 @@ jest.mock('react-i18next', () => ({
 // haptics) with a lightweight keypad exposing a button per digit plus a delete
 // button, forwarding `onDigit` / `onDelete` so passcode entry can be driven.
 jest.mock('components/Numpad', () => ({
+  // `disabled` is forwarded onto the keys, as the real component does: a stub that dropped it would
+  // make any assertion about a refused press a statement about the stub.
   Numpad: ({
     onDigit,
     onDelete,
+    disabled,
     className
   }: {
     onDigit: (d: string) => void;
     onDelete: () => void;
+    disabled?: boolean;
     className?: string;
   }) => (
     <div data-testid="numpad" className={className}>
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
-        <button key={d} data-testid={`numpad-${d}`} onClick={() => onDigit(d)}>
+        <button key={d} data-testid={`numpad-${d}`} disabled={disabled} onClick={() => onDigit(d)}>
           {d}
         </button>
       ))}
-      <button data-testid="numpad-delete" onClick={onDelete}>
+      <button data-testid="numpad-delete" disabled={disabled} onClick={onDelete}>
         del
       </button>
     </div>
@@ -63,7 +71,8 @@ const typeCode = (code: string) => {
 const pressDelete = () => fireEvent.click(screen.getByTestId('numpad-delete'));
 
 /** Count the number of "filled" passcode dots currently rendered. */
-const filledDotCount = (container: HTMLElement) => container.querySelectorAll('div.bg-\\[\\#C7C7CC\\]').length;
+const filledDotCount = (container: HTMLElement) =>
+  container.querySelectorAll('[data-testid="passcode-dot"][data-filled="true"]').length;
 
 type Props = React.ComponentProps<typeof NamedPasscodeEntry>;
 
@@ -104,7 +113,7 @@ describe('PasscodeEntry', () => {
 
     it('renders six empty dots and the numpad', () => {
       const { container } = renderComponent();
-      expect(container.querySelectorAll('div.rounded-full')).toHaveLength(PASSCODE_LENGTH);
+      expect(container.querySelectorAll('[data-testid="passcode-dot"]')).toHaveLength(PASSCODE_LENGTH);
       expect(filledDotCount(container)).toBe(0);
       expect(screen.getByTestId('numpad')).toBeInTheDocument();
     });
@@ -151,8 +160,8 @@ describe('PasscodeEntry', () => {
     it('renders the default (muted) hint styling with no error', () => {
       renderComponent();
       const status = screen.getByRole('status');
-      expect(status).toHaveClass('text-text-muted');
-      expect(status).not.toHaveClass('text-red-500');
+      expect(status).toHaveClass('text-muted');
+      expect(status).not.toHaveClass('text-negative-ink');
     });
 
     it('forwards a custom className to the root group', () => {
@@ -166,15 +175,15 @@ describe('PasscodeEntry', () => {
       renderComponent({ subtitle: 'Custom subtitle' });
       expect(screen.getByRole('status')).toHaveTextContent('Custom subtitle');
       expect(screen.getByRole('group')).toHaveAttribute('aria-label', 'Custom subtitle');
-      expect(screen.getByRole('status')).toHaveClass('text-text-muted');
+      expect(screen.getByRole('status')).toHaveClass('text-muted');
     });
 
     it('shows the error hint with red styling, taking precedence over the subtitle', () => {
       renderComponent({ subtitle: 'Custom subtitle', error: 'Wrong passcode' });
       const status = screen.getByRole('status');
       expect(status).toHaveTextContent('Wrong passcode');
-      expect(status).toHaveClass('text-red-500');
-      expect(status).not.toHaveClass('text-text-muted');
+      expect(status).toHaveClass('text-negative-ink');
+      expect(status).not.toHaveClass('text-muted');
       // aria-label still derives from subtitle, not the error.
       expect(screen.getByRole('group')).toHaveAttribute('aria-label', 'Custom subtitle');
     });
@@ -184,7 +193,7 @@ describe('PasscodeEntry', () => {
       typeCode('12');
       // Empty-string error is falsy, so digits are NOT cleared.
       expect(filledDotCount(container)).toBe(2);
-      expect(screen.getByRole('status')).toHaveClass('text-text-muted');
+      expect(screen.getByRole('status')).toHaveClass('text-muted');
     });
   });
 
@@ -399,5 +408,56 @@ describe('PasscodeEntry', () => {
       rerender(<NamedPasscodeEntry onSubmit={onSubmit} error={null} />);
       expect(filledDotCount(container)).toBe(2);
     });
+  });
+});
+
+// The keys read the same guards the handlers do, so a press that would be dropped is refused by the
+// key itself rather than silently ignored.
+describe('refused keys', () => {
+  it('disables the keypad while it is disabled by its owner', () => {
+    const onChange = jest.fn();
+    render(<PasscodeEntry onChange={onChange} onSubmit={jest.fn()} disabled />);
+
+    expect(screen.getByTestId('numpad-1')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('numpad-1'));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the passcode surface after the dwell', () => {
+    render(<PasscodeEntry errorId="usdcxFaucetUnavailable" error="Failed" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'passcode');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<PasscodeEntry errorId={errorId} error="Failed" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<PasscodeEntry errorId="usdcxFaucetUnavailable" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<PasscodeEntry errorId="usdcxFaucetUnavailable" error="Failed" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<PasscodeEntry errorId="usdcxFaucetUnavailable" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

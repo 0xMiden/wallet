@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import SetupPasscodeScreen, {
   SetupPasscodeScreen as NamedSetupPasscodeScreen,
   SetupPasscodePhase
@@ -58,7 +60,8 @@ const typeCode = (code: string) => {
 const pressDelete = () => fireEvent.click(screen.getByTestId('numpad-delete'));
 
 /** Count the number of "filled" passcode dots currently rendered. */
-const filledDotCount = (container: HTMLElement) => container.querySelectorAll('div.bg-\\[\\#C7C7CC\\]').length;
+const filledDotCount = (container: HTMLElement) =>
+  container.querySelectorAll('[data-testid="passcode-dot"][data-filled="true"]').length;
 
 const renderComponent = (props: Partial<React.ComponentProps<typeof SetupPasscodeScreen>> = {}) =>
   render(<SetupPasscodeScreen {...props} />);
@@ -76,6 +79,24 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('SetupPasscodeScreen', () => {
   describe('initial "enter" phase render', () => {
     it('renders the onboarding container with its test id', () => {
@@ -89,10 +110,31 @@ describe('SetupPasscodeScreen', () => {
       expect(screen.getByText('createA6DigitCode')).toBeInTheDocument();
     });
 
+    it('draws the shared passcode screen with the keypad docked at the bottom and no biometric key', () => {
+      renderComponent();
+
+      const root = screen.getByTestId('onboarding-setup-passcode');
+      expect(root).toContainElement(screen.getByTestId('passcode-screen-layout'));
+      expect(screen.getByTestId('passcode-keypad-dock')).toContainElement(screen.getByTestId('numpad'));
+      expect(screen.queryByTestId('numpad-biometric')).not.toBeInTheDocument();
+    });
+
+    it('shakes the dots and shows the mismatch in negative-ink', () => {
+      renderComponent();
+
+      typeCode('123456');
+      flushTimers();
+      typeCode('111111');
+      flushTimers();
+
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+      expect(screen.getByRole('status')).toHaveClass('text-negative-ink');
+    });
+
     it('renders six empty dots and the numpad', () => {
       const { container } = renderComponent();
       // 6 dots total, none filled initially.
-      expect(container.querySelectorAll('div.rounded-full')).toHaveLength(6);
+      expect(container.querySelectorAll('[data-testid="passcode-dot"]')).toHaveLength(6);
       expect(filledDotCount(container)).toBe(0);
       expect(screen.getByTestId('numpad')).toBeInTheDocument();
     });
@@ -188,6 +230,24 @@ describe('SetupPasscodeScreen', () => {
       expect(onSubmit).toHaveBeenCalledWith('123456');
     });
 
+    // The completion effect depends on `onSubmit`, so a parent re-rendering with a NEW function
+    // re-runs it with the same full, matching code. Without a record of what was already submitted
+    // that submits the passcode a second time. PasscodeEntry already guards this; setup did not.
+    it('submits a confirmed code once, even when the parent re-renders with a new onSubmit', () => {
+      const first = jest.fn();
+      const { rerender } = renderComponent({ onSubmit: first });
+      advanceToConfirm();
+      typeCode('123456');
+      flushTimers();
+      expect(first).toHaveBeenCalledTimes(1);
+
+      const second = jest.fn();
+      rerender(<SetupPasscodeScreen onSubmit={second} />);
+      flushTimers();
+
+      expect(second).not.toHaveBeenCalled();
+    });
+
     it('does not throw when the codes match but onSubmit is omitted', () => {
       renderComponent();
 
@@ -278,5 +338,36 @@ describe('SetupPasscodeScreen', () => {
       const phases: SetupPasscodePhase[] = ['enter', 'confirm'];
       expect(phases).toEqual(['enter', 'confirm']);
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a mismatched confirmation through the real passcode surface', () => {
+    renderComponent();
+    typeCode('123456');
+    flushTimers();
+    typeCode('654321');
+    flushTimers();
+    expect(screen.getByText('passcodesDoNotMatch')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('passcodesDoNotMatch', 'passcode');
+  });
+  it('does not report the enter or confirm instructions', () => {
+    renderComponent();
+    dwellForError();
+    typeCode('123456');
+    flushTimers();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

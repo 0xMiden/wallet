@@ -2,6 +2,11 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { TEST_NATIVE_ETH_FAUCET, testSnapshotWithSwapPairs } from 'lib/epoch/testing/bridge-config';
+import { TEST_TOKEN_IETH as REGISTRY_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
@@ -9,9 +14,13 @@ import { SelectSwapTokenDrawer } from './SelectSwapToken';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
+// The fiat values under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // `lib/mobile/haptics` reaches for the Capacitor Haptics plugin; stub the one
-// helper the component fires so we can assert selection triggers feedback.
+// helper the row fires so we can assert selection triggers feedback.
 const mockHapticLight = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: () => mockHapticLight()
@@ -24,33 +33,106 @@ type SwapToken = {
   faucetId: string;
   decimals: number;
   logoSymbol: string;
+  priceSymbol?: string;
 };
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokens: () => mockGetSwapTokens()
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+}));
+// The pair filter itself is the hook's; the sheet only says whose partners it lists.
+const mockPickerTokens = jest.fn((_partnersOf?: string) => mockGetSwapTokens());
+jest.mock('lib/miden/swap/use-swap-tokens', () => ({
+  useSwapPickerTokens: (partnersOf?: string) => mockPickerTokens(partnersOf)
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+
+// `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
+// sheet consumes so we can drive account / balances / metadata by hand.
+const mockUseAccount = jest.fn(() => ({ publicKey: 'pk-abc' }) as { publicKey: string });
+const mockUseAllTokensBaseMetadata = jest.fn(() => ({}) as Record<string, unknown>);
+const mockUseAllBalances = jest.fn(
+  (_publicKey: string, _metadata: Record<string, unknown>) => ({ data: [] as unknown[] }) as { data?: unknown[] }
+);
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockUseAccount(),
+  useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata(),
+  useAllBalances: (publicKey: string, metadata: Record<string, unknown>) => mockUseAllBalances(publicKey, metadata)
+}));
+
+// `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
+// through a selector, so run the selector against a controllable slice.
+let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
+// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
+// the SDK's re-encode does, an id already in that form maps to itself.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: (id: string) => id,
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => (id.startsWith('bech32:') ? id : `bech32:${id}`)
+}));
+
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
+}));
+
+// The real registry reads the snapshot a case sets here, and prices the bridged faucets today's testnet config names.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+
+// The testnet document, whose swap tokens name the iETH faucet the labels read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
 }));
 
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
-// surfaces the `symbol`/`size` props the component passes through.
+// surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
 // vaul drawer — render children plus a probe button so we can fire the
 // `onOpenChange` the component wires to the sheet, and surface `open`.
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} ref={() => (mockDrawerCloseOnBack = closeOnBack)}>
       <button data-testid="drawer-openchange" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -61,11 +143,23 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 
 const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8, logoSymbol: 'MIDEN' };
-const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH' };
-const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC' };
+const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH', priceSymbol: 'ETH' };
+const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC', priceSymbol: 'BTC' };
+// Drawn with the USDC logo, but the feed has no USDT price: its logo is no price.
+const IUSDT: SwapToken = { symbol: 'IUSDT', faucetId: 'fid-usdt', decimals: 8, logoSymbol: 'USDC' };
+
+type Balance = {
+  tokenId: string;
+  metadata: { symbol: string; decimals: number; scaleIsUnknown?: boolean };
+  balance: number;
+};
 
 const setTokens = (tokens: SwapToken[]) => {
   mockGetSwapTokens.mockReturnValue(tokens);
+};
+
+const setBalances = (balances: Balance[]) => {
+  mockUseAllBalances.mockReturnValue({ data: balances });
 };
 
 const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectSwapTokenDrawer>> = {}) => {
@@ -76,15 +170,30 @@ const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectSwapT
 };
 
 const tokenButton = (symbol: string) => screen.getByTestId(`swap-token-${symbol}`);
-// The selected-side indicator is an unlabeled `bg-primary-500` dot inside the row.
-const selectedDot = (symbol: string) => tokenButton(symbol).querySelector('.bg-primary-500');
+// The selected side is the design system's round check (as `AssetListItem` draws it), not a loose
+// dot, and the swap flow's own colour fills it (design-system.md, "Action colours").
+const selectedCheck = (symbol: string) => tokenButton(symbol).querySelector('[data-slot="check"]');
 
 beforeEach(() => {
   jest.clearAllMocks();
   setTokens([IMIDEN, IETH, IBTC]);
+  mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
+  mockUseAllTokensBaseMetadata.mockReturnValue({});
+  mockUseAllBalances.mockReturnValue({ data: [] });
+  mockStoreState = { tokenPrices: {} };
+});
+
+afterEach(() => {
+  mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+  mockBridgeSnapshot = undefined;
 });
 
 describe('SelectSwapTokenDrawer', () => {
+  it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
+    renderDrawer();
+    expect(mockDrawerCloseOnBack).toBe(false);
+  });
+
   it('renders the open drawer with the localized title and one row per swap token', () => {
     renderDrawer();
 
@@ -108,31 +217,192 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // `logoSymbol` (not `symbol`) drives the logo, and the row uses the md size.
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
-    expect(logo).toHaveAttribute('data-size', 'md');
+    // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
+    expect(logo).toHaveAttribute('data-symbol', 'IETH');
+    expect(logo).toHaveAttribute('data-faucet-id', 'fid-eth');
+    expect(logo).toHaveAttribute('data-fallback-symbol', 'ETH');
+    expect(logo).not.toHaveAttribute('data-size');
+  });
+
+  describe('balances', () => {
+    it('passes the account public key and base metadata through to useAllBalances', () => {
+      mockUseAccount.mockReturnValue({ publicKey: 'pk-999' });
+      const metadata = { faucet: { symbol: 'M' } };
+      mockUseAllTokensBaseMetadata.mockReturnValue(metadata);
+      renderDrawer();
+
+      expect(mockUseAllBalances).toHaveBeenCalledWith('pk-999', metadata);
+    });
+
+    it('shows the held balance of each token under its symbol', () => {
+      setBalances([
+        { tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 },
+        { tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 40 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).getByText('1.25 IETH')).toBeInTheDocument();
+      expect(within(tokenButton('IMIDEN')).getByText('40.00 IMIDEN')).toBeInTheDocument();
+    });
+
+    it('still lists a token the account holds nothing of, at zero', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IBTC')).getByText('0.00 IBTC')).toBeInTheDocument();
+    });
+
+    it('defaults to zero balances when useAllBalances yields no data', () => {
+      mockUseAllBalances.mockReturnValue({});
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).getByText('0.00 IETH')).toBeInTheDocument();
+    });
+
+    it('withholds the quantity of a held token whose decimals are the unknown placeholder', () => {
+      setBalances([
+        { tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 6, scaleIsUnknown: true }, balance: 1.25 }
+      ]);
+      renderDrawer();
+
+      const row = tokenButton('IETH');
+      expect(within(row).queryByText('1.25 IETH')).not.toBeInTheDocument();
+      // Symbol twice: the row title and the amount line that stands in for the quantity.
+      expect(within(row).getAllByText('IETH')).toHaveLength(2);
+    });
+  });
+
+  it('finds a held balance keyed by the normalized faucet id', () => {
+    setBalances([{ tokenId: 'bech32:fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+    renderDrawer();
+
+    expect(within(tokenButton('IETH')).getByText('1.25 IETH')).toBeInTheDocument();
+  });
+
+  describe('fiat value', () => {
+    it('prices a swap token by the asset it stands for: IETH at the ETH price', () => {
+      mockStoreState = { tokenPrices: { ETH: { price: 2 } } };
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).getByText('$2.50')).toBeInTheDocument();
+    });
+
+    it("values a solver token the bridge config prices at the config's asset, not the solver's", () => {
+      const { getSwapTokens } = jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens');
+      const weth = { faucetId: TEST_NATIVE_ETH_FAUCET, ticker: 'IWETH', decimals: 8, binanceAsset: 'USDC' };
+      const ieth = testSwapPairsToken(REGISTRY_IETH);
+      mockBridgeSnapshot = testSnapshotWithSwapPairs({
+        tokens: [weth, ieth],
+        pairs: [{ faucetIds: [weth.faucetId, ieth.faucetId] }]
+      });
+      setTokens(getSwapTokens());
+      mockStoreState = { tokenPrices: { USDC: { price: 1 }, ETH: { price: 3000 } } };
+      setBalances([
+        { tokenId: `bech32:${TEST_NATIVE_ETH_FAUCET}`, metadata: { symbol: 'IWETH', decimals: 8 }, balance: 2 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IWETH')).getByText('$6000.00')).toBeInTheDocument();
+    });
+
+    it('renders no fiat value for an unpriced DEX token rather than a $1-default figure', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+    });
+
+    it('prices by the asset a token stands for, never by its logo: IUSDT shows no USDC value', () => {
+      mockStoreState = { tokenPrices: { USDC: { price: 1 }, ETH: { price: 3000 } } };
+      setTokens([IMIDEN, IETH, IUSDT, IBTC]);
+      setBalances([
+        { tokenId: 'fid-usdt', metadata: { symbol: 'IUSDT', decimals: 8 }, balance: 5 },
+        { tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IUSDT')).getByText('5.00 IUSDT')).toBeInTheDocument();
+      expect(within(tokenButton('IUSDT')).queryByText(/^\$/)).not.toBeInTheDocument();
+      expect(within(tokenButton('IETH')).getByText('$6000.00')).toBeInTheDocument();
+    });
+
+    it('renders no fiat for IMIDEN, whose asset the feed does not list', () => {
+      mockStoreState = { tokenPrices: { ETH: { price: 2 }, MIDEN: undefined as unknown as { price: number } } };
+      setBalances([{ tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 3 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IMIDEN')).queryByText(/^\$/)).not.toBeInTheDocument();
+    });
+
+    it('values a token with no price symbol at the nominal $1 with the nominal rate on, never by its logo', () => {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockStoreState = { tokenPrices: { USDC: { price: 2 } } };
+      setTokens([IMIDEN, IETH, IUSDT, IBTC]);
+      setBalances([
+        { tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 3 },
+        { tokenId: 'fid-usdt', metadata: { symbol: 'IUSDT', decimals: 8 }, balance: 5 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IMIDEN')).getByText('$3.00')).toBeInTheDocument();
+      expect(within(tokenButton('IUSDT')).getByText('$5.00')).toBeInTheDocument();
+    });
+
+    it('never renders $0.00 for a priced token the account holds none of', () => {
+      mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
+      renderDrawer();
+
+      expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
+    });
+  });
+
+  it('names the registry iETH "Test iETH" in its row and balance line, keeping the symbol for the logo (#477)', () => {
+    const iEth: SwapToken = { ...IETH, faucetId: REGISTRY_IETH.faucetId };
+    setTokens([IMIDEN, iEth]);
+    setBalances([{ tokenId: REGISTRY_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }]);
+    renderDrawer();
+
+    const row = tokenButton('IETH');
+    expect(within(row).getByText('Test iETH')).toBeInTheDocument();
+    expect(within(row).getByText('2.00 Test iETH')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'IETH');
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {
     renderDrawer({ currentFaucetId: 'fid-eth' });
 
-    expect(selectedDot('IETH')).toBeInTheDocument();
-    expect(selectedDot('IMIDEN')).toBeNull();
-    expect(selectedDot('IBTC')).toBeNull();
+    expect(selectedCheck('IETH')).toBeInTheDocument();
+    expect(selectedCheck('IETH')).toHaveClass('bg-accent-swap');
+    expect(tokenButton('IETH')).toHaveAttribute('aria-pressed', 'true');
+    expect(selectedCheck('IMIDEN')).toBeNull();
+    expect(selectedCheck('IBTC')).toBeNull();
   });
 
   it('renders no selected indicator when currentFaucetId is undefined', () => {
     renderDrawer();
 
-    expect(selectedDot('IMIDEN')).toBeNull();
-    expect(selectedDot('IETH')).toBeNull();
-    expect(selectedDot('IBTC')).toBeNull();
+    expect(selectedCheck('IMIDEN')).toBeNull();
+    expect(selectedCheck('IETH')).toBeNull();
+    expect(selectedCheck('IBTC')).toBeNull();
   });
 
   it('renders no selected indicator when currentFaucetId matches no token', () => {
     renderDrawer({ currentFaucetId: 'fid-unknown' });
 
-    expect(document.querySelector('.bg-primary-500')).toBeNull();
+    expect(document.querySelector('[data-slot="check"]')).toBeNull();
+  });
+
+  it('draws the rows like the home assets list: unboxed, 72px, divided by a hairline', () => {
+    renderDrawer();
+
+    const list = tokenButton('IMIDEN').parentElement!;
+    expect(list.className).toContain('divide-y');
+    expect(list.className).toContain('divide-rule-default');
+    // Not the boxed list group: no fill card, no 16px radius around the rows.
+    expect(list.className).not.toContain('bg-fill');
+    expect(list.className).not.toContain('rounded-2xl');
+    expect(tokenButton('IETH').className).toContain('h-18');
   });
 
   it('fires haptics, forwards the token and closes the drawer on select', () => {
@@ -152,6 +422,18 @@ describe('SelectSwapTokenDrawer', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('lists the tokens that pair with the other side when given its faucet, else every token with a pair', () => {
+    mockPickerTokens.mockClear();
+    renderDrawer();
+    expect(mockPickerTokens).toHaveBeenLastCalledWith(undefined);
+
+    mockPickerTokens.mockImplementation(partnersOf => (partnersOf === 'fid-eth' ? [IUSDT] : mockGetSwapTokens()));
+    renderDrawer({ partnersOf: 'fid-eth' });
+    expect(mockPickerTokens).toHaveBeenLastCalledWith('fid-eth');
+    expect(screen.getAllByTestId(/^swap-token-/).at(-1)).toHaveAttribute('data-testid', 'swap-token-IUSDT');
+    mockPickerTokens.mockImplementation(() => mockGetSwapTokens());
   });
 
   it('renders drawer chrome but no rows when the registry is empty', () => {

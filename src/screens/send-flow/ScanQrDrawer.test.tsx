@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ScanQrDrawer } from './ScanQrDrawer';
 
 /**
@@ -17,6 +19,8 @@ import { ScanQrDrawer } from './ScanQrDrawer';
 // ---------------------------------------------------------------------------
 
 // i18n: identity translator so copy renders as raw keys (matches sibling tests).
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -103,6 +107,20 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 describe('ScanQrDrawer', () => {
+  it('returns a key pair unchanged and stops the camera in raw mode', async () => {
+    const { stream, tracks } = makeStream();
+    getUserMediaMock.mockResolvedValue(stream);
+    const payload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+    detectMock.mockResolvedValue([{ rawValue: payload }]);
+    const onDetected = jest.fn();
+    const onOpenChange = jest.fn();
+    await act(async () => {
+      render(<ScanQrDrawer open rawPayload onDetected={onDetected} onOpenChange={onOpenChange} onError={jest.fn()} />);
+    });
+    expect(onDetected).toHaveBeenCalledWith(payload);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    tracks.forEach(track => expect(track.stop).toHaveBeenCalled());
+  });
   it('requests the environment-facing camera and shows the video when open', async () => {
     const { stream } = makeStream();
     getUserMediaMock.mockResolvedValue(stream);
@@ -113,6 +131,19 @@ describe('ScanQrDrawer', () => {
 
     expect(getUserMediaMock).toHaveBeenCalledWith({ video: { facingMode: 'environment' } });
     expect(screen.getByTestId('scan-qr-video')).toBeInTheDocument();
+  });
+
+  // `black` is ink, white in dark theme, so the frame shown before the stream covers it must be pure black.
+  it('paints the camera frame pure black while the camera is still being requested', async () => {
+    getUserMediaMock.mockReturnValue(new Promise(() => {}));
+
+    render(<ScanQrDrawer open {...noopProps()} />);
+    await flushAsync();
+
+    expect(screen.getByText('requestingCamera')).toBeInTheDocument();
+    const frame = screen.getByTestId('scan-qr-video').parentElement;
+    expect(frame).toHaveClass('bg-pure-black');
+    expect(frame).not.toHaveClass('bg-black');
   });
 
   it('does not request the camera while closed', async () => {
@@ -130,6 +161,23 @@ describe('ScanQrDrawer', () => {
 
     expect(screen.getByTestId('scan-qr-permission-denied')).toBeInTheDocument();
     expect(props.onError).toHaveBeenCalledWith('cameraPermissionDenied');
+  });
+
+  it('renders the permission-denied state as an EmptyState whose Close shuts the drawer', async () => {
+    getUserMediaMock.mockRejectedValue(domError('NotAllowedError'));
+    const props = noopProps();
+
+    render(<ScanQrDrawer open {...props} />);
+    await flushAsync();
+
+    const state = screen.getByTestId('scan-qr-permission-denied');
+    expect(state.firstElementChild).toHaveClass('rounded-2xl', 'bg-fill');
+    expect(screen.getByRole('heading', { name: 'cameraPermissionDenied' })).toBeInTheDocument();
+
+    act(() => {
+      screen.getByRole('button', { name: 'close' }).click();
+    });
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('shows the no-camera state on NotFoundError', async () => {
@@ -313,5 +361,62 @@ describe('ScanQrDrawer', () => {
     expect(reactWarnings).toHaveLength(0);
 
     consoleError.mockRestore();
+  });
+});
+
+describe('ScanQrDrawer user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  const expectReport = async (id: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it('reports cameraPermissionDenied while its closeable permission failure remains visible', async () => {
+    getUserMediaMock.mockRejectedValueOnce(domError('NotAllowedError'));
+    const props = noopProps();
+    await act(async () => {
+      render(<ScanQrDrawer open {...props} />);
+    });
+
+    expect(screen.getByRole('heading', { name: 'cameraPermissionDenied' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'close' })).toBeEnabled();
+    await expectReport('cameraPermissionDenied');
+  });
+
+  it('reports noCameraFound without forwarding the failed camera request', async () => {
+    getUserMediaMock.mockRejectedValueOnce(new Error('Camera URL https://camera.invalid/private?amount=123.45'));
+    await act(async () => {
+      render(<ScanQrDrawer open {...noopProps()} />);
+    });
+
+    expect(screen.getByRole('heading', { name: 'noCameraFound' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'close' })).toBeEnabled();
+    await expectReport('noCameraFound');
+  });
+
+  it('reports invalidMidenAddress while an invalid QR remains visible and scanning continues', async () => {
+    const { stream } = makeStream();
+    getUserMediaMock.mockResolvedValueOnce(stream);
+    detectMock.mockResolvedValueOnce([{ rawValue: 'https://qr.invalid/private?amount=123.45' }]);
+    const props = noopProps();
+    await act(async () => {
+      render(<ScanQrDrawer open {...props} />);
+    });
+
+    expect(screen.getByText('invalidMidenAddress')).toBeVisible();
+    expect(screen.getByTestId('scan-qr-video')).toBeInTheDocument();
+    expect(props.onDetected).not.toHaveBeenCalled();
+    expect(props.onOpenChange).not.toHaveBeenCalled();
+    await expectReport('invalidMidenAddress');
   });
 });

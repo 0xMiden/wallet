@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.fragment.app.FragmentActivity
 import com.getcapacitor.JSArray
@@ -29,6 +30,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
     private data class PendingRequest(
         val call: PluginCall,
         val resolvesHash: Boolean,
+        val observation: ReownRequestObservations.Context,
     )
 
     companion object {
@@ -44,6 +46,9 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
     }
 
     private val pendingRequests = ConcurrentHashMap<Long, PendingRequest>()
+    private val requestLock = Any()
+    private val requestOwners = LinkedHashMap<ReownRequestObservations.Context, PendingRequest>()
+    private val observations: ReownRequestObservations = ReownRequestObservations(SystemClock::elapsedRealtime)
     private var socketStatus: String? = null
     private var selectedSessionTopic: String? = null
 
@@ -57,14 +62,23 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         intent.dataString?.let(::handleDeepLink)
     }
 
+    override fun handleOnResume() {
+        observations.onResume()
+        super.handleOnResume()
+    }
+
+    override fun handleOnPause() {
+        observations.onPause()
+        super.handleOnPause()
+    }
+
+    override fun handleOnDestroy() {
+        observations.invalidateLifecycle()
+        super.handleOnDestroy()
+    }
+
     @PluginMethod
     fun configure(call: PluginCall) {
-        if (configured) {
-            notifyStateChanged()
-            call.resolve()
-            return
-        }
-
         val projectId = call.getString("projectId") ?: DEFAULT_PROJECT_ID
         if (projectId.isBlank()) {
             call.reject("Missing WalletConnect projectId")
@@ -75,8 +89,16 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         val universalRedirect = call.getString("universalRedirect")
         val linkMode = (call.getBoolean("linkMode") ?: false) && !universalRedirect.isNullOrBlank()
         val methods = stringArray(call, "methods", listOf("eth_sendTransaction", "personal_sign", "eth_signTypedData"))
+        // Methods proposed as optional only (wallet_addEthereumChain, wallet_switchEthereumChain): a wallet
+        // that does not support them still pairs.
+        val optionalMethods = stringArray(call, "optionalMethods", emptyList())
         val events = stringArray(call, "events", listOf("chainChanged", "accountsChanged"))
         val chainIds = intArray(call, "chainIds", listOf(DEFAULT_CHAIN_ID))
+        if (configured) {
+            finishConfigure(call, chainIds, methods, optionalMethods, events)
+            return
+        }
+
 
         val metadata = Core.Model.AppMetaData(
             name = call.getString("appName") ?: "Bread Wallet",
@@ -109,11 +131,11 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
             AppKit.initialize(
                 init = Modal.Params.Init(core = CoreClient, coinbaseEnabled = false),
                 onSuccess = {
-                    finishConfigure(call, chainIds, methods, events)
+                    finishConfigure(call, chainIds, methods, optionalMethods, events)
                 },
                 onError = { error ->
                     if (error.throwable::class.java.simpleName.contains("AlreadyInitialized")) {
-                        finishConfigure(call, chainIds, methods, events)
+                        finishConfigure(call, chainIds, methods, optionalMethods, events)
                     } else {
                         Log.e(TAG, "AppKit initialization error: ${error.throwable.message}", error.throwable)
                         call.reject(error.throwable.message ?: "Failed to initialize native WalletConnect")
@@ -176,17 +198,18 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
 
     @PluginMethod
     fun request(call: PluginCall) {
-        guardConfigured(call) {
+        val observation = observations.create()
+        guardConfigured(call, observation) {
             val method = call.getString("method")
             val chainId = call.getInt("chainId")
             if (method.isNullOrBlank() || chainId == null) {
-                call.reject("Missing method or chainId")
+                rejectNativeRequest(call, observation, ReownNativeOrigin.ARGUMENT_VALIDATION, "Missing method or chainId")
                 return@guardConfigured
             }
 
             val params = call.data.opt("params")
             if (params == null || params == JSONObject.NULL) {
-                call.reject("Missing params")
+                rejectNativeRequest(call, observation, ReownNativeOrigin.ARGUMENT_VALIDATION, "Missing params")
                 return@guardConfigured
             }
 
@@ -195,22 +218,24 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
                 method = method,
                 params = paramsToJsonString(params),
                 chainId = "eip155:$chainId",
-                resolvesHash = false
+                resolvesHash = false,
+                observation = observation
             )
         }
     }
 
     @PluginMethod
     fun sendTransaction(call: PluginCall) {
-        guardConfigured(call) {
+        val observation = observations.create()
+        guardConfigured(call, observation) {
             val chainId = call.getInt("chainId")
             val to = call.getString("to")
             if (chainId == null) {
-                call.reject("Missing or invalid chainId")
+                rejectNativeRequest(call, observation, ReownNativeOrigin.ARGUMENT_VALIDATION, "Missing or invalid chainId")
                 return@guardConfigured
             }
             if (to.isNullOrBlank()) {
-                call.reject("Missing transaction recipient")
+                rejectNativeRequest(call, observation, ReownNativeOrigin.ARGUMENT_VALIDATION, "Missing transaction recipient")
                 return@guardConfigured
             }
 
@@ -229,7 +254,8 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
                 method = "eth_sendTransaction",
                 params = JSONArray().put(tx).toString(),
                 chainId = "eip155:$chainId",
-                resolvesHash = true
+                resolvesHash = true,
+                observation = observation
             )
         }
     }
@@ -305,10 +331,18 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
 
     override fun onSessionDelete(deletedSession: Modal.Model.DeletedSession) {
         selectedSessionTopic = null
-        pendingRequests.values.forEach {
-            it.call.reject("WalletConnect session was deleted")
+        val deleted = synchronized(requestLock) {
+            val failures = requestOwners.values.mapNotNull { pending ->
+                observations.fail(pending.observation, ReownNativeOrigin.SESSION_DELETED)?.let { pending to it }
+            }
+            requestOwners.clear()
+            pendingRequests.clear()
+            failures
         }
-        pendingRequests.clear()
+        // Claim every call before external delivery can start another request.
+        deleted.forEach { (pending, failure) ->
+            pending.call.reject("WalletConnect session was deleted", failure.toErrorCode())
+        }
         notifyStateChanged()
     }
 
@@ -321,18 +355,20 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
             is Modal.Model.JsonRpcResponse.JsonRpcResult -> {
                 payload.put("id", result.id)
                 payload.put("result", result.result?.toString())
-                val pending = pendingRequests.remove(result.id)
+                val pending = synchronized(requestLock) { pendingRequests[result.id] }
                 if (pending != null) {
-                    val callResult = JSObject()
-                    callResult.put(if (pending.resolvesHash) "hash" else "result", result.result?.toString() ?: "")
-                    pending.call.resolve(callResult)
+                    resolveNativeRequest(pending.observation, result.result?.toString() ?: "")
                 }
             }
 
             is Modal.Model.JsonRpcResponse.JsonRpcError -> {
                 payload.put("id", result.id)
                 payload.put("error", result.message)
-                pendingRequests.remove(result.id)?.call?.reject(result.message)
+                synchronized(requestLock) { pendingRequests[result.id] }?.let { pending ->
+                    rejectNativeRequest(
+                        pending.call, pending.observation, ReownNativeOrigin.WALLET_ERROR, result.message, result.code
+                    )
+                }
             }
         }
 
@@ -348,7 +384,11 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
     }
 
     override fun onRequestExpired(request: Modal.Model.ExpiredRequest) {
-        pendingRequests.remove(request.id)?.call?.reject("Request expired")
+        synchronized(requestLock) { pendingRequests[request.id] }?.let { pending ->
+            rejectNativeRequest(
+                pending.call, pending.observation, ReownNativeOrigin.REQUEST_EXPIRED, "Request expired"
+            )
+        }
     }
 
     override fun onConnectionStateChange(state: Modal.Model.ConnectionState) {
@@ -370,8 +410,14 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         Log.d(TAG, "Pairing state: ${pairingState.isPairingState}")
     }
 
-    private fun finishConfigure(call: PluginCall, chainIds: List<Int>, methods: List<String>, events: List<String>) {
-        AppKit.setChains(chainIds.map { chainFor(it, methods, events) })
+    private fun finishConfigure(
+        call: PluginCall,
+        chainIds: List<Int>,
+        methods: List<String>,
+        optionalMethods: List<String>,
+        events: List<String>
+    ) {
+        AppKit.setChains(chainIds.map { chainFor(it, methods, optionalMethods, events, chainMetadata(call, it)) })
         AppKit.setDelegate(this)
         configured = true
 
@@ -388,6 +434,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         params: String,
         chainId: String,
         resolvesHash: Boolean,
+        observation: ReownRequestObservations.Context,
     ) {
         try {
             val request = Request(
@@ -396,12 +443,22 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
                 chainId = chainId,
             )
 
+            synchronized(requestLock) {
+                requestOwners[observation] = PendingRequest(call, resolvesHash, observation)
+                observations.start(observation)
+            }
             AppKit.request(
                 request = request,
                 onSuccess = { sentRequest ->
                     when (sentRequest) {
                         is SentRequestResult.WalletConnect -> {
-                            pendingRequests[sentRequest.requestId] = PendingRequest(call, resolvesHash)
+                            synchronized(requestLock) {
+                                requestOwners[observation]?.let { pending ->
+                                    observations.published(observation) {
+                                        pendingRequests[sentRequest.requestId] = pending
+                                    }
+                                }
+                            }
                             val payload = JSObject()
                             payload.put("id", sentRequest.requestId)
                             payload.put("topic", sentRequest.sessionTopic)
@@ -411,24 +468,58 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
 
                         is SentRequestResult.Coinbase -> {
                             val value = sentRequest.results.firstOrNull()?.toString() ?: ""
-                            val result = JSObject()
-                            result.put(if (resolvesHash) "hash" else "result", value)
-                            call.resolve(result)
+                            resolveNativeRequest(observation, value)
                         }
                     }
                 },
                 onError = { error ->
-                    call.reject(error.message ?: "Failed to send WalletConnect request")
+                    rejectNativeRequest(call, observation, ReownNativeOrigin.PUBLISH_ERROR, error.message ?: "Failed to send WalletConnect request")
                 }
             )
         } catch (error: Throwable) {
-            call.reject(error.message ?: "Failed to send WalletConnect request")
+            rejectNativeRequest(call, observation, ReownNativeOrigin.PUBLISH_ERROR, error.message ?: "Failed to send WalletConnect request")
         }
     }
 
-    private fun guardConfigured(call: PluginCall, run: () -> Unit) {
+    private fun resolveNativeRequest(observation: ReownRequestObservations.Context, value: String) {
+        val pending = synchronized(requestLock) {
+            val owned = requestOwners.remove(observation) ?: return
+            observations.succeed(observation)
+            pendingRequests.entries.removeIf { it.value.observation === observation }
+            owned
+        }
+        val result = JSObject()
+        result.put(if (pending.resolvesHash) "hash" else "result", value)
+        pending.call.resolve(result)
+    }
+
+    private fun rejectNativeRequest(
+        call: PluginCall,
+        observation: ReownRequestObservations.Context,
+        origin: ReownNativeOrigin,
+        message: String,
+        walletCode: Int? = null
+    ) {
+        val failure = synchronized(requestLock) {
+            val snapshot = observations.fail(observation, origin, walletCode) ?: return
+            requestOwners.remove(observation)
+            pendingRequests.entries.removeIf { it.value.observation === observation }
+            snapshot
+        }
+        call.reject(message, failure.toErrorCode())
+    }
+
+    private fun guardConfigured(
+        call: PluginCall,
+        observation: ReownRequestObservations.Context? = null,
+        run: () -> Unit
+    ) {
         if (!configured) {
-            call.reject("Native Reown is not configured")
+            if (observation != null) {
+                rejectNativeRequest(call, observation, ReownNativeOrigin.UNCONFIGURED, "Native Reown is not configured")
+            } else {
+                call.reject("Native Reown is not configured")
+            }
             return
         }
         run()
@@ -466,6 +557,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         if (session is Session.WalletConnectSession) {
             payload.put("topic", session.topic)
             payload.put("walletName", session.metaData?.name)
+            payload.put("chainIds", approvedChainIds(session))
             selectedSessionTopic = session.topic
         }
 
@@ -490,6 +582,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
             payload.put("accounts", sessionAccounts(session))
             payload.put("address", firstAddress(session))
             firstChainReference(session)?.toIntOrNull()?.let { payload.put("chainId", it) }
+            payload.put("chainIds", approvedChainIds(session))
             payload.put("walletName", session.metaData?.name)
             sessions.put(payload)
         }
@@ -540,21 +633,52 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         return null
     }
 
-    private fun chainFor(chainId: Int, methods: List<String>, events: List<String>): Modal.Model.Chain {
+    // The distinct EVM chain ids that the session approved, in namespace order.
+    // The wallet uses this list to refuse a request on a chain that the session
+    // did not approve (the Sign SDK otherwise fails with "Invalid permissions for call.").
+    private fun approvedChainIds(session: Session.WalletConnectSession): JSArray {
+        val chainIds = JSArray()
+        session.namespaces.values
+            .flatMap { it.accounts }
+            .mapNotNull { account ->
+                val parts = account.split(":")
+                if (parts.size == 3 && parts[0] == "eip155") parts[1].toIntOrNull() else null
+            }
+            .distinct()
+            .forEach { chainIds.put(it) }
+        return chainIds
+    }
+
+    private fun chainMetadata(call: PluginCall, chainId: Int): JSONObject? {
+        val chains = call.data.optJSONArray("chains") ?: return null
+        return (0 until chains.length())
+            .mapNotNull { chains.optJSONObject(it) }
+            .firstOrNull { it.optInt("id") == chainId }
+    }
+
+    private fun chainFor(
+        chainId: Int,
+        methods: List<String>,
+        optionalMethods: List<String>,
+        events: List<String>,
+        metadata: JSONObject?,
+    ): Modal.Model.Chain {
+        val currency = metadata?.optJSONObject("nativeCurrency")
         return Modal.Model.Chain(
-            chainName = if (chainId == DEFAULT_CHAIN_ID) "Sepolia" else "EVM $chainId",
+            chainName = metadata?.optString("name") ?: "EVM $chainId",
             chainNamespace = "eip155",
             chainReference = chainId.toString(),
             requiredMethods = methods,
-            optionalMethods = methods,
+            // The optional-only methods never join requiredMethods.
+            optionalMethods = (methods + optionalMethods).distinct(),
             events = events,
-            token = if (chainId == DEFAULT_CHAIN_ID) {
-                Modal.Model.Token("Sepolia Ether", "SepoliaETH", 18)
-            } else {
-                Modal.Model.Token("Ether", "ETH", 18)
-            },
-            rpcUrl = null,
-            blockExplorerUrl = if (chainId == DEFAULT_CHAIN_ID) "https://sepolia.etherscan.io" else null
+            token = Modal.Model.Token(
+                currency?.optString("name") ?: "Ether",
+                currency?.optString("symbol") ?: "ETH",
+                currency?.optInt("decimals", 18) ?: 18,
+            ),
+            rpcUrl = metadata?.optString("rpcUrl"),
+            blockExplorerUrl = metadata?.optString("explorer"),
         )
     }
 

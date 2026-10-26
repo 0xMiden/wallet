@@ -1,9 +1,18 @@
 import type { Browser } from 'webextension-polyfill';
 
 import { isDesktop, isMobile } from 'lib/platform';
+import { annotateCrash, readPageNavigation } from 'lib/telemetry/crash-diagnostics';
 
-import { deserializeError } from './helpers';
+import { deserializeInternalError, IntercomError } from './helpers';
 import { MessageType, RequestMessage } from './types';
+
+function diagnosticRequestType(payload: unknown): unknown {
+  try {
+    return typeof payload === 'object' && payload !== null && 'type' in payload ? payload.type : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Interface for intercom clients (extension, mobile, and desktop)
@@ -78,8 +87,14 @@ class MobileIntercomClientWrapper implements IIntercomClient {
   }
 
   async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
-    const adapter = await this.getAdapter();
-    return adapter.request(payload, options);
+    const requestType = diagnosticRequestType(payload);
+    try {
+      const adapter = await this.getAdapter();
+      return await adapter.request(payload, options);
+    } catch (error) {
+      annotateCrash(error, { operation: 'intercom_request', requestType });
+      throw error;
+    }
   }
 
   subscribe(callback: (data: any) => void): () => void {
@@ -109,8 +124,14 @@ class DesktopIntercomClientWrapper implements IIntercomClient {
   }
 
   async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
-    const adapter = await this.getAdapter();
-    return adapter.request(payload, options);
+    const requestType = diagnosticRequestType(payload);
+    try {
+      const adapter = await this.getAdapter();
+      return await adapter.request(payload, options);
+    } catch (error) {
+      annotateCrash(error, { operation: 'intercom_request', requestType });
+      throw error;
+    }
   }
 
   subscribe(callback: (data: any) => void): () => void {
@@ -155,10 +176,25 @@ export class IntercomClient implements IIntercomClient {
   private port: any; // Runtime.Port - typed as any to avoid import
   private reqId: number;
   private portReady: Promise<void>;
+  /**
+   * Broadcast subscribers, held on the INSTANCE rather than on a port.
+   *
+   * A `Runtime.Port` dies whenever the MV3 service worker is evicted, restarted
+   * or reloaded, and `buildPort`'s `onDisconnect` handler replaces `this.port`
+   * with a brand-new one. A listener attached directly to the old port object is
+   * gone at that moment and nothing re-attaches it — `request()` survives only
+   * because it re-reads `this.port` per call, which is exactly what made the loss
+   * invisible. Keeping the callbacks here (mirroring the mobile/desktop adapters,
+   * which hold a plain `Set` no transport can drop) lets `buildPort` re-attach one
+   * dispatching listener to every port it creates.
+   */
+  private readonly subscribers = new Set<(data: any) => void>();
   /** Consecutive failed reconnects; drives the backoff. */
   private reconnectAttempts = 0;
   /** Set once the context is orphaned — stops the reconnect loop for good. */
   private stopped = false;
+  /** Set once a reconnect has replaced the first port, so a crash report can say this page reconnected. */
+  private portRebuilt = false;
 
   constructor() {
     this.reqId = 0;
@@ -178,74 +214,103 @@ export class IntercomClient implements IIntercomClient {
    * Makes a request to background process and returns a response promise
    */
   async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
-    await this.portReady;
-    const reqId = this.reqId++;
-    const port = this.port;
+    const requestType = diagnosticRequestType(payload);
+    try {
+      await this.portReady;
+      const reqId = this.reqId++;
+      const port = this.port;
 
-    this.send({ type: MessageType.Req, data: payload, reqId });
+      this.send({ type: MessageType.Req, data: payload, reqId });
 
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const cleanup = () => {
-        if (done) return;
-        done = true;
-        // port may already be disconnected & replaced by onDisconnect — don't
-        // let its onMessage throw through cleanup.
-        try {
-          port.onMessage.removeListener(listener);
-        } catch {
-          /* noop */
+      return await new Promise((resolve, reject) => {
+        let done = false;
+        const cleanup = () => {
+          if (done) return;
+          done = true;
+          // port may already be disconnected & replaced by onDisconnect - don't
+          // let its onMessage throw through cleanup.
+          try {
+            port.onMessage.removeListener(listener);
+          } catch {
+            /* noop */
+          }
+          if (options?.signal) options.signal.removeEventListener('abort', onAbort);
+        };
+        const listener = (msg: any) => {
+          if (msg?.reqId !== reqId) return;
+          if (msg?.type === MessageType.Res) resolve(msg.data);
+          else if (msg?.type === MessageType.Err) reject(deserializeInternalError(msg.data));
+          cleanup();
+        };
+        const onAbort = () => {
+          cleanup();
+          reject(new Error('Aborted'));
+        };
+
+        port.onMessage.addListener(listener);
+        if (options?.signal) {
+          if (options.signal.aborted) {
+            onAbort();
+            return;
+          }
+          options.signal.addEventListener('abort', onAbort);
         }
-        if (options?.signal) options.signal.removeEventListener('abort', onAbort);
-      };
-      const listener = (msg: any) => {
-        if (msg?.reqId !== reqId) return;
-        if (msg?.type === MessageType.Res) resolve(msg.data);
-        else if (msg?.type === MessageType.Err) reject(deserializeError(msg.data));
-        cleanup();
-      };
-      const onAbort = () => {
-        cleanup();
-        reject(new Error('Aborted'));
-      };
-
-      port.onMessage.addListener(listener);
-      if (options?.signal) {
-        if (options.signal.aborted) {
-          onAbort();
-          return;
-        }
-        options.signal.addEventListener('abort', onAbort);
-      }
-    });
+      });
+    } catch (error) {
+      const code = error instanceof IntercomError ? error.code : undefined;
+      annotateCrash(error, {
+        operation: 'intercom_request',
+        requestType,
+        // A dApp approval's Not Found carries the state the background held for it.
+        confirmationHandler: code,
+        // A reload of an approval window is one way to ask for an approval the background no longer holds.
+        pageNavigation: code?.startsWith('confirmation_') ? readPageNavigation() : undefined,
+        portReconnected: this.portRebuilt
+      });
+      throw error;
+    }
   }
 
   /**
-   * Allows to subscribe to notifications channel from background process
+   * Allows to subscribe to notifications channel from background process.
+   *
+   * Registration is against the instance-level {@link subscribers} set, not
+   * against whichever port happens to be live — see that field for why. Safe to
+   * call before the first port exists: every port `buildPort` creates gets the
+   * dispatching listener, so a callback registered at any time receives every
+   * later broadcast.
    */
   subscribe(callback: (data: any) => void) {
-    // Note: This is sync but port might not be ready yet
-    // In practice, this is called after the app is loaded
-    const listener = (msg: any) => {
-      if (msg?.type === MessageType.Sub) {
-        callback(msg.data);
-      }
-    };
-
-    // Wait for port to be ready before subscribing
-    this.portReady.then(() => {
-      this.port.onMessage.addListener(listener);
-    });
-
+    this.subscribers.add(callback);
     return () => {
-      if (this.port) {
-        this.port.onMessage.removeListener(listener);
-      }
+      this.subscribers.delete(callback);
     };
+  }
+
+  /**
+   * Attach the single dispatching `Sub` listener to a freshly-created port. One
+   * throwing subscriber must not stop the others from being notified, nor bubble
+   * into the extension's message plumbing.
+   */
+  private attachSubscriptionListener(port: any) {
+    port.onMessage.addListener((msg: any) => {
+      if (msg?.type !== MessageType.Sub) return;
+      for (const callback of this.subscribers) {
+        try {
+          callback(msg.data);
+        } catch (err) {
+          console.error('[intercom] subscriber threw while handling a broadcast', err);
+        }
+      }
+    });
   }
 
   private buildPort(browser: any) {
     const port = browser.runtime.connect({ name: 'INTERCOM' });
+    // Re-attach on EVERY port, including the ones built by the reconnect below —
+    // otherwise the first service-worker restart silently ends all broadcasts
+    // (lock/StateUpdated, SyncCompleted, NoteClaimStarted) for this page.
+    this.attachSubscriptionListener(port);
 
     // A port that stays up is a working port: clear the backoff so the NEXT
     // service-worker recycle reconnects promptly instead of inheriting the
@@ -282,6 +347,7 @@ export class IntercomClient implements IIntercomClient {
         try {
           const nextBrowser = await getBrowser();
           this.port = this.buildPort(nextBrowser);
+          this.portRebuilt = true;
         } catch (e) {
           // `connect()` throws synchronously once the context is gone.
           if (isContextInvalidated(e)) this.stopped = true;

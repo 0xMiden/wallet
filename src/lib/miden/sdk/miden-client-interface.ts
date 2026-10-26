@@ -1,6 +1,7 @@
 import {
   Account,
   AccountFile,
+  type AccountId,
   Address,
   AuthSecretKey,
   Endpoint,
@@ -20,49 +21,112 @@ import {
   type NoteInclusionProof,
   RpcClient,
   NoteType,
+  type ProvenTransaction,
+  type TransactionExecution,
   TransactionProver,
   TransactionRequest,
   TransactionResult,
+  type GetKeyCallback,
+  type InsertKeyCallback,
+  type SignCallback,
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
+import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
-import { getSpeculationManager, type SpeculationParams } from 'lib/miden/back/speculation-manager';
+import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
+import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
+import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
+  getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
+import {
+  assertOneClickDeadline,
+  assertOneClickFundingDeadlineMatches,
+  isOneClickDeadlineError
+} from 'lib/one-click/deadline';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
+import { annotateCrash, type CrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+import { reportProve } from 'lib/telemetry/report-operation';
+// Deep path, not the `lib/telemetry` barrel: the barrel re-exports
+// `report-flow`, which imports `lib/miden/front` and drags React into the
+// service-worker bundle. `guarantees.test.ts` asserts this.
+import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
+import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 import { WalletType } from 'screens/onboarding/types';
 
-import { NoteExportType } from './constants';
+import { applyAfterSubmit } from './apply-after-submit';
+import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
+import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
   accountRefToSdk,
+  buildConsumeTransactionRequest,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
+  canonicalWalletAccountId,
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
-import { yieldWasmClientLock } from './miden-client';
+import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
+import {
+  assertWasmHoldCurrent,
+  getCurrentWasmLockHold,
+  retireWasmClientForCaughtTrap,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock,
+  type WasmLockHold
+} from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
-import { recordProveTelemetry } from './prove-telemetry';
-import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
-// Guardian helpers are dynamic-imported inside the methods that use them to avoid
-// a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
-// miden-client-interface. Static imports here deadlock init_guardian_manager in the
-// SW bundle (both sides' __esmMin wrappers await each other).
-// guardian/native-http is cycle-safe (it only pulls constants + platform).
-import { insertGuardianAccountMonotonically, type CreatedGuardianKeys } from '../guardian/account';
-import { registerGuardianOrigin } from '../guardian/native-http';
-import { isPrivateNoteType } from '../helpers';
+import { toNft, type NftAsset } from './nft-asset';
+import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
+import { beginProveAttempt } from './prove-telemetry';
+import { readPswapOrderNote } from './pswap-order-note';
+import {
+  isApplyAfterSubmitError,
+  isPipelineKillLink,
+  isSubmitCrossingUnrecorded,
+  markErrorBeforeSubmit
+} from './sdk-error-code';
+import { readSubmitEvidence } from './submit-evidence';
+import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
+import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
+// guardian/index is dynamic-imported inside the methods that use it and is never imported
+// statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
+// is a module init cycle, and a static import deadlocks init_guardian_manager in the SW bundle
+// (both sides' __esmMin wrappers await each other). guardian/account and guardian/native-http
+// are statically imported and cycle-safe.
+import {
+  createGuardianAccount,
+  getSignerDetailsFromAccount,
+  insertGuardianAccountMonotonically,
+  type CreatedGuardianKeys,
+  type GuardianCreateKey,
+  type PendingGuardianRegistration
+} from '../guardian/account';
+import { withGuardianProbe } from '../guardian/native-http';
+import {
+  type ConsumeRestriction,
+  EXPIRATION_DELTA_BLOCKS,
+  isPrivateNoteType,
+  mayConsume,
+  noteConsumeRestriction,
+  reclaimDisabledP2ideTarget
+} from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -70,6 +134,8 @@ export interface GuardianAccountCreationResult {
   // Guardian operator endpoint the account was registered with — persisted onto
   // the WalletAccount so runtime endpoint resolution is per-account.
   guardianEndpoint: string;
+  // The pending registration phase 3 consumes.
+  registration: PendingGuardianRegistration;
 }
 
 /**
@@ -96,25 +162,6 @@ const MAX_RECOVERY_HD_INDEX = 20;
 // guardian response, matching BIP-44 wallet gap-limit conventions.
 const RECOVERY_GAP_LIMIT = 3;
 
-// E2E-build only. The per-step prove-timing markers are useful for the
-// Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
-// machine) but pure noise in normal users' devtools.
-const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
-
-function recordProveTiming(message: string): void {
-  if (!PROVE_TIMING_ENABLED) return;
-  const line = `[prove-timing] ${message}`;
-  // eslint-disable-next-line no-console
-  console.log(line);
-  try {
-    const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
-    if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
-    g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
-  } catch {
-    // ignore — non-global context (web worker etc.)
-  }
-}
-
 /**
  * Feature flag: when true, local proving is dispatched to a
  * `chrome.offscreen` document with a wasm-bindgen-rayon thread pool
@@ -133,11 +180,30 @@ function recordProveTiming(message: string): void {
  */
 const USE_OFFSCREEN_PROVING = process.env.MIDEN_USE_OFFSCREEN_PROVING === 'true';
 
+/**
+ * In-call retries of a private note send, for every client the wallet builds: none. The SDK
+ * retries inside the client's serialized call, and a `retry-after` from the transport replaces
+ * its backoff with no upper bound, so any retry leaves the WASM lock hold around a send
+ * unbounded. At 0 a send is one attempt, bounded by the 10 s gRPC timeout, and the delivery
+ * sweep (`transaction/note-delivery-sweep.ts`) owns every retry. A client without a transport
+ * never sends, so it takes the same value.
+ */
+export const NOTE_TRANSPORT_MAX_RETRIES = 0;
+
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
-  insertKeyCallback?: (key: Uint8Array, secretKey: Uint8Array) => void;
-  getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
-  signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
+  /**
+   * The SDK keystore callbacks, fixed at creation. Supplying any one of them
+   * builds the client on the SDK's external keystore (the SDK's own IndexedDB
+   * keystore is not used; a member left out is refused by name). The realm
+   * singleton always does, passing trampolines that route to
+   * `installRealmKeystore`'s callbacks. Its `getKey` slot is empty during normal
+   * operation and installed only for an authenticated, mutex-held account-file
+   * export; the offscreen document passes its reverse-IPC signer directly.
+   */
+  insertKeyCallback?: InsertKeyCallback;
+  getKeyCallback?: GetKeyCallback;
+  signCallback?: SignCallback;
   onConnectivityIssue?: () => void;
   /**
    * Override the SDK's Web-Worker shim (issue #260, slice 5, design §5.2).
@@ -159,15 +225,68 @@ export type InputNoteDetails = {
   noteId: string;
   senderAccountId: string | undefined;
   assets: FungibleAssetDetails[];
+  /** The note's NFTs, read by the dApp consume preview, never sent to a dApp (like `restriction`). */
+  nonFungibleAssets: NftAsset[];
   noteType: NoteType | undefined;
   nullifier: string;
   state: InputNoteState;
+  /** Who alone can consume the note, when its script settles that; read by the dApp consume guard, never sent to a dApp. */
+  restriction?: ConsumeRestriction;
 };
 
 export type FungibleAssetDetails = {
   amount: string;
   faucetId: string;
 };
+
+/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds among the candidates for each commitment. */
+export type DetailsCommitmentMatches = {
+  /** The matching candidate records that reduce to note details. */
+  notes: InputNoteDetails[];
+  /** The matching candidates that cannot yet be reduced: imported from details alone, not committed by a sync. */
+  uncommitted: number;
+};
+
+function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
+  // A partial (metadata-less) record has no note ID, and, since 0.15
+  // nullifiers fold in metadata, no nullifier either. It cannot be
+  // displayed or consumed, so skip it until sync completes it.
+  const noteId = note.id();
+  const nullifier = note.nullifier();
+  if (!noteId || !nullifier) {
+    return [];
+  }
+  const assets = note
+    .details()
+    .assets()
+    .fungibleAssets()
+    .map(asset => ({
+      amount: asset.amount().toString(),
+      faucetId: getBech32AddressFromAccountId(asset.faucetId())
+    }));
+  const noteMet = note.metadata();
+  const restriction = noteConsumeRestriction(note);
+  return [
+    {
+      noteId: noteId.toString(),
+      noteType: noteMet?.noteType(),
+      senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
+      nullifier,
+      state: note.state(),
+      assets,
+      nonFungibleAssets: note.details().assets().nonFungibleAssets().map(toNft),
+      ...(restriction !== undefined && { restriction })
+    }
+  ];
+}
+
+/**
+ * What the local store knows about a submitted transaction's fate. Only
+ * `'committed'` and `'discarded'` are verdicts; see
+ * {@link MidenClient.getTransactionCommitState} for what each one licenses a
+ * caller to do.
+ */
+export type TransactionCommitState = 'committed' | 'discarded' | 'pending' | 'not-found';
 
 /**
  * One public-backfill op's outcome. The two "come back for more" signals are
@@ -185,6 +304,96 @@ export type RecoveryRangeResult = {
 };
 
 /**
+ * Whether the client this callback belongs to is still live. Shared by
+ * reference between `MidenClientInterface` and the keystore callbacks it hands
+ * the SDK, because those callbacks are built inside `create()` before the
+ * instance exists.
+ */
+export interface ClientLiveness {
+  disposed: boolean;
+}
+
+/**
+ * A caller-supplied post-await liveness re-check (#788), for the reads whose
+ * reach-through happens INSIDE this class rather than at the call site.
+ *
+ * The rule is "re-check ownership before every WASM call that follows a parking
+ * await", and the call site can only apply it either side of the whole method —
+ * useless when the second borrow is a `.serialize()` or a `.metadata()` this
+ * class makes between two of its own awaits. Passing the check in lets the
+ * offscreen dispatch guard those the same way it guards the reductions it does
+ * itself, without this module having to know what a WASM lock hold is.
+ *
+ * Defaults to a no-op ONLY for the callers that genuinely have no hold to check
+ * against — a test double, or a read taken outside a lock. It is deliberately
+ * NOT the shape of the shipping paths: `midenClientProxy` forwards the check on
+ * its inline branch, which is the mobile, desktop, Firefox and flag-off route,
+ * so leaving the parameter off there would have made this guard reachable only
+ * from the offscreen document.
+ *
+ * A callee with more than one re-check passes each one's `step` (named after the
+ * await it follows), and the caller forwards it into its own label, so an
+ * eviction message says which await parked.
+ */
+export type AssertLive = (step?: string) => void;
+
+export interface PswapCancelRequestOptions {
+  /**
+   * Read the order note from the node when this client's output-note store has no record of it: the order was placed
+   * on another device and reached this one through Guardian history recovery (#1487).
+   */
+  allowNodeNote?: boolean;
+}
+
+const noAssertLive: AssertLive = () => {};
+
+/** A leaf's stage stamp; the 'submitting' call carries the evidence read just before the submit (#1081). */
+type LeafStage = (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void;
+
+/** The SDK's `_withInnerWebClient` escape hatch, which its types do not declare. */
+interface InnerClientAccess {
+  _withInnerWebClient<T>(fn: (inner: WasmWebClient) => Promise<T>): Promise<T>;
+}
+
+function hasInnerClientAccess(client: object): client is InnerClientAccess {
+  return '_withInnerWebClient' in client && typeof client._withInnerWebClient === 'function';
+}
+
+/**
+ * A keystore member the creator left out (#878): the SDK's type makes all three
+ * mandatory, so the slot is filled with a refusal that names the member rather
+ * than left `undefined` to fail as a TypeError on its first use.
+ */
+function refuseKeystoreMember(name: 'getKey' | 'insertKey' | 'sign') {
+  return async (): Promise<never> => {
+    throw new Error(`${name} requested on a client created with no ${name} callback`);
+  };
+}
+
+/**
+ * Bracket a keystore sign callback with a WASM-lock-watchdog pause (issue
+ * #775): the sign fires from inside the SDK mid-execute, while the caller's
+ * `withWasmClientLock` hold is live, and can wait as long as the user takes to
+ * authenticate. Wall-clock spent signing must not count against the watchdog
+ * ceiling.
+ *
+ * Skipped once this client is disposed, which is the corpse case. Recovery
+ * disposes or marks the client before releasing the mutex, so a sign firing from a
+ * disposed client belongs to an evicted flow whose lock now belongs to somebody
+ * else — and since the pause cannot be attributed to a hold (the callback is
+ * built per client, not per hold, so it can only ever pause "whoever holds the
+ * mutex"), pausing here would silence the innocent new holder's watchdog for as
+ * long as the corpse's prompt sits unanswered, re-wedging the lock with the
+ * backstop switched off.
+ */
+function wrapSignWithWatchdogPause(sign: SignCallback, liveness: ClientLiveness): SignCallback {
+  return async (publicKey, signingInputs) =>
+    liveness.disposed
+      ? sign(publicKey, signingInputs)
+      : withWasmLockWatchdogPaused(async () => sign(publicKey, signingInputs));
+}
+
+/**
  * Resolves note bytes to a {@link NoteFile} for import.
  *
  * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
@@ -197,21 +406,32 @@ export type RecoveryRangeResult = {
  * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
  * `Note` bytes are fed straight into `NoteFile.deserialize`.
  *
- * The wrapped `NoteDetails` variant carries no tag (`tag: None`,
- * `after_block_num: 0`), so the imported note is stored as `Expected` without
- * tag-based sync tracking. It still becomes consumable: the client's
- * `reconcile_expected_notes` fetches every expected note by ID on each
- * `syncState`, recovering the on-chain metadata and inclusion proof and
- * transitioning it to `Committed`. So dropping the metadata here is safe.
+ * The wrapped variant is the `NoteDetails` one, so the note is stored as
+ * `Expected` until a sync commits it — and it is wrapped with the note's REAL
+ * tag (`metadata().tag()`), because that tag is the only thing that can commit
+ * it. `client.notes.import` resolves an expected note by asking the node for the
+ * notes carrying the file's tag between its after-block hint and the chain tip,
+ * and it subscribes the client to that tag for later syncs. On 0.16
+ * `NoteFile.fromNoteDetails` — what this used to call — is documented as using
+ * "a zero-valued sync hint": it asks for tag 0 instead of the note's own tag, so
+ * the node returns nothing for it and an already-committed private note stayed
+ * `Expected` forever (absent from the claimable list, never consumable), leaving
+ * a dead tag-0 subscription riding every later sync request. Block 0 is the after-block hint because a bare
+ * `Note` carries no block information; scanning from genesis is slower than a
+ * real hint but correct.
  */
 function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
   } catch (noteFileError) {
+    // A trap or a kill (an eviction, a terminated client) is the client's, not the bytes': no fallback call on it, and
+    // importNoteBytes retires a trap.
+    if (isClientFault(noteFileError)) throw noteFileError;
     let note: Note;
     try {
       note = Note.deserialize(noteBytes);
     } catch (noteError) {
+      if (isClientFault(noteError)) throw noteError;
       const noteFileDetail = noteFileError instanceof Error ? noteFileError.message : String(noteFileError);
       const noteDetail = noteError instanceof Error ? noteError.message : String(noteError);
       throw new Error(
@@ -220,68 +440,284 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
           'Pass noteFile.serialize() or note.serialize().'
       );
     }
-    return NoteFile.fromNoteDetails(new NoteDetails(note.assets(), note.recipient()));
+    return NoteFile.fromExpectedNote(new NoteDetails(note.assets(), note.recipient()), note.metadata().tag(), 0);
   }
+}
+
+function isClientFault(error: unknown): boolean {
+  return error instanceof WebAssembly.RuntimeError || isPipelineKillLink(error);
+}
+
+/**
+ * For a catch that counts a failure and moves on: a trap retires the client through the hold and ends the batch, and
+ * a kill (an eviction, a terminated client) ends it too, so nothing runs on that client afterwards and every remaining
+ * item is not failed against it. Anything else is left to the catch.
+ */
+function rethrowClientFault(error: unknown, hold: WasmLockHold): void {
+  if (error instanceof WebAssembly.RuntimeError) {
+    retireWasmClientForCaughtTrap(hold, error);
+    throw error;
+  }
+  if (isPipelineKillLink(error)) throw error;
+}
+
+/** The host of an endpoint, for a log line: an RPC URL may carry a key in its path or query. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '<unparsable endpoint>';
+  }
+}
+
+/** The realm reader slot: see {@link getRealmReaderClient}. */
+type RealmReader = {
+  generation: number;
+  rpcUrl: string;
+  feeFaucetId: string | undefined;
+  client: Promise<WasmWebClient>;
+  /** Consecutive failed builds for this generation, URL and fee faucet. */
+  failures: number;
+  /** When a failed entry's window ends and the next build may start; unset while pending or built. */
+  retryAtMs?: number;
+  /** Set once this build has produced a reader, which replacing it strands. */
+  built?: true;
+};
+let realmReader: RealmReader | undefined;
+
+/**
+ * The ONE raw reader client each realm uses (issue #868): the consumability
+ * read and the guardian PSWAP request build both go through it.
+ *
+ * It used to be a throwaway per call: `WasmWebClient.createClient` per read and
+ * `terminate()` in a `finally`. Before web-sdk 0.17.3 `terminate()` released
+ * nothing for a client built without a worker, so every read stranded a
+ * wasm-bindgen client and an IndexedDB connection - on each sync alarm on the
+ * extension, on each 5 s claimable-notes poll on mobile and desktop - and the
+ * extension renderer died of OOM after 55 hours. Since 0.17.3 `terminate()`
+ * releases such a client and its hold on the IndexedDB store once the calls
+ * queued on it settle; a read that never settles still holds its client, so
+ * the bound stays one reader per realm rather than one per read.
+ *
+ * It is keyed on what makes it stale, not on the MidenClientInterface:
+ * - the client generation, bumped by every lock-recovery replacement in this
+ *   realm and by the extension SW's pre-wallet endpoint reset;
+ * - the effective RPC URL, the ONLY rebuild trigger after an endpoint change in
+ *   the offscreen document and on mobile and desktop, none of which bump the
+ *   generation (the SW sees a new URL only at start-up or through a reset
+ *   that bumps it). It is not redundant;
+ * - the fee faucet it is built with, which an E2E injection or a developer
+ *   override can change while the URL stays (#1482).
+ * Each successful rebuild strands the previous reader: one per client
+ * replacement or endpoint change, not one per read. A build that fails is
+ * terminated by the SDK's `createClient` (since 0.17.3), so it strands
+ * nothing, but a failed entry still stays in the slot and answers with its
+ * error until its window ends, so the node is not asked again on every read:
+ * the sync breaker's backoff for an ordinary failure (30 s doubling to a 5 min
+ * cap) for that generation and URL, never the 30 min fuse, which is for a call
+ * that never answered. Such failures are rare: a store that already holds
+ * genesis builds with no network call, so only a fresh store with the node
+ * unreachable, or an IndexedDB error, fails a build. A replacement or a
+ * repoint builds at once.
+ *
+ * It stays a separate client on purpose. Reading through the main client's
+ * `_withInnerWebClient` would leave an evicted read's window open on the client
+ * a yielded write resumes into, and that write's submit would run inline beside
+ * it - a double borrow.
+ *
+ * Callers hold the realm's WASM lock, as every WASM hold does, and re-check that
+ * hold on BOTH sides of this call: immediately before it (after any earlier
+ * await), because an eviction has already released the lock and bumped the
+ * generation, so a dead flow would otherwise build its successor's reader; and
+ * after it resolves, because the first build can park on a genesis fetch and a
+ * dead flow must not make a WASM call on the reader it acquired. The
+ * guardian PSWAP build does both; getConsumableNotes does both through the
+ * assertLive its caller supplies.
+ */
+export function getRealmReaderClient(): Promise<WasmWebClient> {
+  const generation = wasmClientGeneration();
+  const rpcUrl = getEffectiveRpcUrl();
+  const feeFaucetId = getEffectiveFeeFaucetId();
+  const cached = realmReader;
+  const sameKey =
+    cached !== undefined &&
+    cached.generation === generation &&
+    cached.rpcUrl === rpcUrl &&
+    cached.feeFaucetId === feeFaucetId;
+  // A pending or built reader is shared; a failed one answers with its own error until its window ends.
+  if (cached && sameKey && (cached.retryAtMs === undefined || monotonicNowMs() < cached.retryAtMs)) {
+    return cached.client;
+  }
+  // `useWorker` is pinned to `false` (the SDK's 6th positional parameter, default
+  // `true`). Only the MV3 service worker lacks `Worker`: in the offscreen document,
+  // mobile WebViews and the desktop webview the default would spawn a Web Worker
+  // and a SECOND WASM instance. `false` still yields a distinct wasm-bindgen
+  // client object, which is what keeps this read off the main client.
+  const reason = !cached
+    ? 'first build'
+    : sameKey
+      ? 'backoff window ended'
+      : [
+          cached.generation !== generation ? 'client replaced' : '',
+          cached.rpcUrl !== rpcUrl ? 'endpoint changed' : '',
+          cached.feeFaucetId !== feeFaucetId ? 'fee faucet changed' : ''
+        ]
+          .filter(part => part !== '')
+          .join(' and ');
+  console.log(
+    `[realm-reader] building the reader (${reason}) for generation ${generation} at ${hostOf(rpcUrl)}` +
+      (cached
+        ? `${cached.built ? ' - it strands the previous reader' : ' - replacing the previous build'} ` +
+          `(generation ${cached.generation} at ${hostOf(cached.rpcUrl)})`
+        : '')
+  );
+  const entry: RealmReader = {
+    generation,
+    rpcUrl,
+    feeFaucetId,
+    client: WasmWebClient.createClient(
+      rpcUrl,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      feeFaucetId
+    ),
+    failures: cached && sameKey ? cached.failures : 0
+  };
+  realmReader = entry;
+  // Registered before any caller awaits, so the window is set by the time one sees the rejection. It stamps only
+  // this entry: a stale build can never touch the reader that replaced it.
+  const where = `for generation ${generation} at ${hostOf(rpcUrl)}`;
+  entry.client.then(
+    () => {
+      entry.built = true;
+      if (entry.failures > 0) {
+        console.log(`[realm-reader] build ${where} succeeded (failed builds before it: ${entry.failures})`);
+      }
+    },
+    (error: unknown) => {
+      entry.failures += 1;
+      const windowMs = computeSyncBackoffMs(entry.failures);
+      entry.retryAtMs = monotonicNowMs() + windowMs;
+      // The stamp is unconditional on purpose: the lookup reads an unstamped entry as pending or built, and a build
+      // whose URL moved away and back before any read is its key's entry again. The window is named only while the
+      // build still governs its key; a replaced build, or one whose generation moved, is rebuilt on the next read.
+      const governs =
+        realmReader === entry &&
+        wasmClientGeneration() === generation &&
+        getEffectiveRpcUrl() === rpcUrl &&
+        getEffectiveFeeFaucetId() === feeFaucetId;
+      const outcome = governs
+        ? `failed (${entry.failures} in a row) - next build in ${Math.round(windowMs / 1000)}s`
+        : 'failed after the reader moved on to another client or endpoint';
+      console.warn(`[realm-reader] build ${where} ${outcome}`, error);
+    }
+  );
+  return entry.client;
 }
 
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
 
-  private constructor(client: MidenClient, network: string) {
+  private constructor(
+    client: MidenClient,
+    network: string,
+    liveness: ClientLiveness = { disposed: false },
+    scope = cacheScope()
+  ) {
     this.client = client;
     this.network = network;
+    this.liveness = liveness;
+    bindFeeFaucetClientScope(client, scope);
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
     const network = getEffectiveNetworkName();
+    const scope = cacheScope();
 
-    if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
-      const sdk = await import('@miden-sdk/miden-sdk/lazy');
-      const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
-      return new MidenClientInterface(mockClient, 'mock');
+    const mock = process.env.MIDEN_USE_MOCK_CLIENT === 'true';
+    const useWorker = mock ? false : (options.useWorker ?? !isMobile());
+    let stage: CrashDiagnostics['stage'] = mock ? 'mock_import' : 'client_create';
+    try {
+      if (mock) {
+        const sdk = await import('@miden-sdk/miden-sdk/lazy');
+        stage = 'mock_create';
+        const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
+        return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
+      }
+
+      const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
+      // Shared with the instance below so `free()` can switch the sign wrapper's
+      // watchdog pause off - see wrapSignWithWatchdogPause.
+      const liveness: ClientLiveness = { disposed: false };
+
+      const midenClient = await MidenClient.create({
+        rpcUrl: getEffectiveRpcUrl(),
+        noteTransportUrl: getEffectiveNoteTransportUrl(),
+        noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
+        seed: options.seed,
+        keystore: hasKeystore
+          ? {
+              getKey: options.getKeyCallback ?? refuseKeystoreMember('getKey'),
+              insertKey: options.insertKeyCallback ?? refuseKeystoreMember('insertKey'),
+              // A sign round-trip can block indefinitely on the user (Face ID,
+              // an unlock prompt) while the WASM lock is held - pause the lock
+              // watchdog for its duration so a slow sign is never mistaken for
+              // a wedge (issue #775; mirrors the offscreen write deadline's
+              // sign pause in miden-client-proxy.ts).
+              sign: options.signCallback
+                ? wrapSignWithWatchdogPause(options.signCallback, liveness)
+                : refuseKeystoreMember('sign')
+            }
+          : undefined,
+        feeFaucetId: getEffectiveFeeFaucetId(),
+        proverUrl: getEffectiveProverUrl(),
+        // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
+        // of the SDK's Web-Worker shim. Two independent reasons:
+        //
+        // 1. The shim spawns a worker that owns its own WASM instance and
+        //    runs every client method (including `syncState()`) inside the
+        //    worker - and WKWebView Workers cannot do gRPC-web fetch
+        //    (documented in `mobile-wasm-main-thread.md` memory). The shim
+        //    hangs sync, `lastSyncedAt` freezes, no consumable notes ever
+        //    surface. Empirically: run 25779923813 saw `isSyncing: true`
+        //    with `msSinceLastSync: 184s` at failure time. See PR #240.
+        //
+        // 2. We hand the SDK a `CallbackProver` that routes prove calls
+        //    through the native Rust prover via a Capacitor plugin. The
+        //    shim serializes the prover via `.serialize()` - a format with
+        //    no encoding for the callback variant - and silently downgrades
+        //    it to `"local"`, running an in-worker WASM ST prover and
+        //    bypassing the native bridge. Opt out so the callback survives.
+        //
+        // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
+        // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
+        // overrides to `false` (issue #260, slice 5, design §5.2 - see
+        // MidenClientCreateOptions.useWorker).
+        useWorker,
+        // One observation per client operation, naming the method and its
+        // duration. Registration is process-wide inside the SDK, so a second
+        // client replaces the first one's sink - harmless here, since the
+        // observer is stateless and every client registers the same behavior.
+        // The high-fidelity channel is opt-in at construction and is not asked
+        // for; see the module comment on `lib/telemetry/sdk-observer`.
+        observer: createWalletSdkObserver()
+      });
+
+      return new MidenClientInterface(midenClient, network, liveness, scope);
+    } catch (error) {
+      annotateCrash(error, {
+        operation: 'sdk_initialize',
+        stage,
+        workerMode: useWorker ? 'enabled' : 'disabled',
+        ...wasmStartupEvidence(error)
+      });
+      throw error;
     }
-
-    const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
-
-    const midenClient = await MidenClient.create({
-      rpcUrl: getEffectiveRpcUrl(),
-      noteTransportUrl: getEffectiveNoteTransportUrl(),
-      seed: options.seed,
-      keystore: hasKeystore
-        ? {
-            getKey: options.getKeyCallback!,
-            insertKey: options.insertKeyCallback!,
-            sign: options.signCallback!
-          }
-        : undefined,
-      proverUrl: getEffectiveProverUrl(),
-      // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
-      // of the SDK's Web-Worker shim. Two independent reasons:
-      //
-      // 1. The shim spawns a worker that owns its own WASM instance and
-      //    runs every client method (including `syncState()`) inside the
-      //    worker — and WKWebView Workers cannot do gRPC-web fetch
-      //    (documented in `mobile-wasm-main-thread.md` memory). The shim
-      //    hangs sync, `lastSyncedAt` freezes, no consumable notes ever
-      //    surface. Empirically: run 25779923813 saw `isSyncing: true`
-      //    with `msSinceLastSync: 184s` at failure time. See PR #240.
-      //
-      // 2. We hand the SDK a `CallbackProver` that routes prove calls
-      //    through the native Rust prover via a Capacitor plugin. The
-      //    shim serializes the prover via `.serialize()` — a format with
-      //    no encoding for the callback variant — and silently downgrades
-      //    it to `"local"`, running an in-worker WASM ST prover and
-      //    bypassing the native bridge. Opt out so the callback survives.
-      //
-      // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
-      // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
-      // overrides to `false` (issue #260, slice 5, design §5.2 — see
-      // MidenClientCreateOptions.useWorker).
-      useWorker: options.useWorker ?? !isMobile()
-    });
-
-    return new MidenClientInterface(midenClient, network);
   }
 
   static fromClient(client: MidenClient, network: string) {
@@ -289,21 +725,66 @@ export class MidenClientInterface {
   }
 
   free() {
+    this.liveness.disposed = true;
     this.client.terminate();
+  }
+
+  /**
+   * Mark this client as no longer trustworthy WITHOUT terminating it (issue
+   * #775). For a realm that keeps its own client and deliberately does not
+   * `free()` a displaced one — the offscreen document, where a dispatch that
+   * yielded the mutex resumes on its captured reference — so that the
+   * corpse-detecting guards (`yieldLockUnlessDisposed`,
+   * `wrapSignWithWatchdogPause`) still fire on the client recovery just
+   * declared poisoned. Without this, dropping the module-local reference hides
+   * the client from future callers but leaves every flow already holding it
+   * looking like a healthy owner.
+   */
+  markPoisoned() {
+    this.liveness.disposed = true;
+  }
+
+  /**
+   * Flipped by `free()` — see `yieldLockUnlessDisposed` and
+   * `wrapSignWithWatchdogPause`. An object rather than a boolean field because
+   * the keystore callbacks handed to the SDK are built before the instance
+   * exists and need to observe the same flag.
+   */
+  private readonly liveness: ClientLiveness;
+
+  /**
+   * Disposed by `free()`, or marked poisoned by recovery (issue #775). Public
+   * for callers that resolved a client BEFORE taking the WASM lock: recovery
+   * runs from a timer and an error listener, so a reference captured outside the
+   * lock can be dead by the time the lock is held. Re-resolve when this is true
+   * rather than calling into a corpse.
+   */
+  get isDisposed(): boolean {
+    return this.liveness.disposed;
+  }
+
+  /**
+   * `yieldWasmClientLock`, unless this client has been disposed (issue #775).
+   * Lock recovery always disposes it — or, when the evicted holder still has a
+   * live reference, marks it poisoned, which flips the same flag without freeing
+   * WASM memory out from under a running call — BEFORE releasing the mutex, so a
+   * disposed `this` marks the running flow as an evicted corpse — the lock it
+   * thinks it holds now belongs to someone else, and yielding would release
+   * that innocent holder's lock into a concurrent WASM call. Run the operation
+   * without touching the mutex instead; the flow fails loudly at its next call
+   * against the terminated client.
+   */
+  private yieldLockUnlessDisposed<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.isDisposed) return operation();
+    return yieldWasmClientLock(operation);
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
-      // NOTE: Guardian creation never reaches here — Vault.spawn and
-      // createHDAccount always route Guardian to createGuardianMidenWallet
-      // (which threads the picked endpoint). This branch passes no endpoint
-      // override, so createGuardianAccount binds to the network default (the
-      // frozen global key is no longer consulted for NEW accounts — #408
-      // stage 3). If anything ever routes Guardian through createMidenWallet for
-      // a non-default operator, thread the per-account endpoint here.
-      const { createGuardianAccount } = await import('../guardian/account');
-      const { account } = await createGuardianAccount(this.client, seed);
-      return getBech32AddressFromAccountId(account.id());
+      // Every caller runs this inside a vault hold, and a Guardian creation's guardian calls
+      // run outside one (#1207): a Guardian account is created with createGuardianMidenWallet,
+      // whose callers fetch the key before their hold and register after it.
+      throw new Error('A Guardian account is created with createGuardianMidenWallet, not createMidenWallet');
     }
 
     const isPublic = walletType === WalletType.OnChain;
@@ -321,23 +802,31 @@ export class MidenClientInterface {
   /**
    * Create a 3-key Guardian account. Returns the account ID alongside the hot
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
-   * both before writing them to storage).
+   * both before writing them to storage), plus the pending `registration` to
+   * run after this hold ends. The caller fetched `createKey` (via
+   * `fetchGuardianCreateKey`) before taking its hold, so its guardian 429 wait
+   * does not park inside it (#1207); the caller registers `registration`
+   * afterwards, via `registerGuardianAccount`, outside the hold too.
+   * `assertLive` is the caller's hold re-check, forwarded to
+   * createGuardianAccount, whose account build runs inside that hold.
    */
   async createGuardianMidenWallet(
-    coldSeed?: Uint8Array,
-    guardianEndpoint?: string
+    coldSeed: Uint8Array | undefined,
+    createKey: GuardianCreateKey,
+    assertLive: AssertLive = noAssertLive
   ): Promise<GuardianAccountCreationResult> {
-    const { createGuardianAccount } = await import('../guardian/account');
-    // Forward the caller's picked endpoint as the override so the account binds
-    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
-    // the network default (the frozen global key is no longer consulted for NEW
-    // accounts — #408 stage 3).
     const {
       account,
       keys,
-      guardianEndpoint: usedEndpoint
-    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
+      guardianEndpoint: usedEndpoint,
+      registration
+    } = await createGuardianAccount(this.client, createKey, coldSeed, assertLive);
+    return {
+      accountId: getBech32AddressFromAccountId(account.id()),
+      keys,
+      guardianEndpoint: usedEndpoint,
+      registration
+    };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -346,11 +835,45 @@ export class MidenClientInterface {
     return getBech32AddressFromAccountId(wallet.id());
   }
 
+  async exportAccountFile(accountPublicKey: string, assertLive: AssertLive = noAssertLive): Promise<Uint8Array> {
+    const accountId = canonicalWalletAccountId(accountPublicKey);
+    const accountFile = await this.client.accounts.export(accountId);
+    try {
+      assertLive('after account export');
+      // Bounded on BOTH sides. Zero means the export produced a file that cannot restore the
+      // account. More than one means it folded in a key the user never acknowledged exporting -
+      // the vault reader refuses the commitments it can name, and this is the backstop for the
+      // ones it cannot.
+      const keyCount = accountFile.authSecretKeyCount();
+      if (keyCount !== 1) {
+        // PublicError, not Error: Vault.withError replaces any other error with its generic
+        // 'Failed to export account file', and these two are the security-relevant reasons an
+        // export was refused. A bare Error loses them at that boundary.
+        throw new PublicError(
+          keyCount === 0
+            ? 'Account file does not contain an authentication secret key'
+            : `Account file contains ${keyCount} authentication secret keys, expected exactly one`
+        );
+      }
+      return accountFile.serialize();
+    } finally {
+      // Never unguarded: this runs on the path assertLive may just have proved abandoned, where the
+      // handle is borrowed from a client somebody else now owns. A throw here would replace the
+      // error that is unwinding - including a WasmClientPoisonedError, whose identity the lock's
+      // kill classifiers depend on - with a cleanup failure.
+      try {
+        accountFile.free();
+      } catch (freeError) {
+        console.error('[exportAccountFile] could not free the account file:', freeError);
+      }
+    }
+  }
+
   async importPublicMidenWalletFromSeed(seed: Uint8Array, auth?: AuthScheme) {
     // The SDK reconstructs the account from `seed` + `auth` (default Falcon
     // when omitted). For the wallet's mnemonic-restore path the caller
-    // PROBES with each known auth scheme to find which account id actually
-    // exists on chain — see `Vault.spawn`. Forwarding `auth` only when
+    // imports under the one current auth scheme to find whether the account
+    // exists on chain - see `Vault.spawn`. Forwarding `auth` only when
     // explicitly provided keeps any other call site behaving exactly as
     // before.
     const account = await this.client.accounts.import({
@@ -393,65 +916,177 @@ export class MidenClientInterface {
     deriveColdSeed: (hdIndex: number) => Uint8Array,
     guardianEndpoint: string
   ): Promise<RecoveredGuardianAccount[]> {
-    const [{ withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
+    const recovered: RecoveredGuardianAccount[] = [];
+    let consecutiveMisses = 0;
+
+    // The scan holds `this` across many independently-locked ops; a recovery
+    // mid-scan replaces the singleton and leaves later iterations driving a
+    // poisoned client (issue #775). Fail loudly instead of producing a confusing
+    // partial result on a dead client: at every index, and again after the
+    // lookup, which parks outside the lock and must not adopt on the old client.
+    const refuseIfReplaced = () => {
+      if (this.isDisposed) {
+        throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
+      }
+    };
+    // Not yet bound to an account: on mobile its origin routes through native HTTP
+    // while it is scanned, and for the session only once an account is adopted from it.
+    await withGuardianProbe(
+      guardianEndpoint,
+      async () => {
+        for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+          refuseIfReplaced();
+          const coldSeed = deriveColdSeed(hdIndex);
+          const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
+          const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
+          const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
+
+          const adopted = await this.recoverAndAdoptByKey(coldSk, guardianEndpoint);
+
+          if (adopted.length === 0) {
+            // Tolerate a small gap before giving up, so a non-contiguous index or a
+            // transient empty guardian response doesn't silently drop later accounts.
+            consecutiveMisses++;
+            if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+            continue;
+          }
+          consecutiveMisses = 0;
+
+          for (const bech32 of adopted) {
+            recovered.push({
+              accountId: bech32,
+              hdIndex,
+              coldPublicKey,
+              coldSecretKeyHex
+            });
+          }
+        }
+        return recovered;
+      },
+      found => found.length > 0
+    );
+
+    if (recovered.length === 0) {
+      throw new NoGuardianAccountsFoundError();
+    }
+
+    return recovered;
+  }
+
+  /**
+   * Look up + adopt the Guardian accounts authorized by one key: the shared
+   * per-key body of `recoverGuardianAccountsBySeed` and
+   * `recoverGuardianAccountByHotKey`. An empty return is a MISS, not an error —
+   * the callers own their gap/empty semantics.
+   *
+   * `verifyAccount` (when given) runs inside the WASM lock on the decoded
+   * account BEFORE it is adopted; throwing from it aborts the adoption of that
+   * match and propagates.
+   */
+  private async recoverAndAdoptByKey(
+    sk: AuthSecretKey,
+    guardianEndpoint: string,
+    verifyAccount?: (acc: Account) => Promise<void>
+  ): Promise<string[]> {
+    // Refused before the lookup, which would show that operator the recovery's key.
+    if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
+      const { getMessage } = await import('lib/i18n');
+      throw new Error(getMessage('guardianOtherNetwork'));
+    }
+    const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
       import('../sdk/miden-client'),
       import('@openzeppelin/miden-multisig-client')
     ]);
 
-    const recovered: RecoveredGuardianAccount[] = [];
-    let consecutiveMisses = 0;
+    const lookupClient = new MultisigClient(this.client, {
+      guardianEndpoint,
+      midenRpcEndpoint: getEffectiveRpcUrl()
+    });
+    const lookupSigner = new EcdsaSigner(sk);
+    const matches = await withRpcTimeout(() => lookupClient.recoverByKey(lookupSigner), 'recoverGuardianByKey', {
+      timeoutMs: 30_000,
+      retries: 0
+    });
+    if (this.isDisposed) {
+      throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
+    }
 
-    registerGuardianOrigin(guardianEndpoint);
-    for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
-      const coldSeed = deriveColdSeed(hdIndex);
-      const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
-      const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
-      const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
-
-      const lookupClient = new MultisigClient(this.client, {
-        guardianEndpoint,
-        midenRpcEndpoint: getEffectiveRpcUrl()
-      });
-      const lookupSigner = new EcdsaSigner(coldSk);
-      const matches = await lookupClient.recoverByKey(lookupSigner);
-
-      if (matches.length === 0) {
-        // Tolerate a small gap before giving up, so a non-contiguous index or a
-        // transient empty guardian response doesn't silently drop later accounts.
-        consecutiveMisses++;
-        if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
-        continue;
-      }
-      consecutiveMisses = 0;
-
-      for (const { state } of matches) {
-        // Decode the on-chain account state and adopt it locally so subsequent
-        // SDK calls (.load, executeForSummary) can resolve the account.
-        const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
-        const bech32 = await withWasmClientLock(async () => {
+    const adopted: string[] = [];
+    for (const { state } of matches) {
+      // Decode the on-chain account state and adopt it locally so subsequent
+      // SDK calls (.load, executeForSummary) can resolve the account.
+      const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
+      const bech32 = await withWasmClientLock(
+        async hold => {
           const acc = Account.deserialize(accountBytes);
+          await verifyAccount?.(acc);
+          assertWasmHoldCurrent(hold, 'recover-guardian-adopt after verification');
           // The same account matches at more than one HD index, so this runs
           // twice per recovery; a plain overwrite lets whichever snapshot
           // arrives last win, including a creation-time one.
           await insertGuardianAccountMonotonically(this.client, acc);
-          await this.client.keystore.insert(acc.id(), coldSk);
+          assertWasmHoldCurrent(hold, 'recover-guardian-adopt after the adoption');
+          await this.client.keystore.insert(acc.id(), sk);
           return getBech32AddressFromAccountId(acc.id());
-        });
+        },
+        { label: 'recover-guardian-adopt' }
+      );
+      adopted.push(bech32);
+    }
+    return adopted;
+  }
 
-        recovered.push({
-          accountId: bech32,
-          hdIndex,
-          coldPublicKey,
-          coldSecretKeyHex
-        });
-      }
+  /**
+   * Adopt the Guardian account authorized by a pasted HOT secret key — the
+   * seed-less import flow. One lookup against one operator, no HD walk.
+   *
+   * The guardian's lookup is by key commitment over EVERY registered signer,
+   * so before adopting each match the pasted key is checked against the
+   * on-chain HOT signer slot: a pasted COLD key also produces a lookup hit but
+   * an account imported on it could never sign day-to-day, and a rotated-out
+   * hot key can still be known to the guardian while the on-chain slot holds
+   * its successor. Both are refused with a pointed message.
+   */
+  async recoverGuardianAccountByHotKey(
+    hotSecretKeyHex: string,
+    guardianEndpoint: string
+  ): Promise<{ accountId: string; hotPublicKey: string }[]> {
+    const [{ deserializeHotSecretKey }, { getMessage }] = await Promise.all([
+      import('../guardian/hot-key-import'),
+      import('lib/i18n')
+    ]);
+
+    const sk = deserializeHotSecretKey(hotSecretKeyHex);
+    const publicKey = sk.publicKey();
+    const hotPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
+    const commitmentHandle = publicKey.toCommitment();
+    const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
+    const pastedCommitment = normalizeCommitment(commitmentHandle.toHex());
+    commitmentHandle.free();
+    publicKey.free();
+
+    // Not yet bound to an account: on mobile its origin routes through native HTTP
+    // while it is looked up, and for the session only once an account is adopted from it.
+    const adopted = await withGuardianProbe(
+      guardianEndpoint,
+      () =>
+        this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
+          const { commitment: hotCommitment } = await getSignerDetailsFromAccount(acc, false);
+          if (normalizeCommitment(hotCommitment) === pastedCommitment) return;
+          const { commitment: coldCommitment } = await getSignerDetailsFromAccount(acc, true);
+          if (normalizeCommitment(coldCommitment) === pastedCommitment) {
+            throw new Error(getMessage('importHotKeyIsRecoveryKey'));
+          }
+          throw new Error(getMessage('importHotKeyNotActive'));
+        }),
+      found => found.length > 0
+    );
+
+    if (adopted.length === 0) {
+      throw new NoGuardianAccountsFoundError(getMessage('importHotKeyNoAccount'));
     }
 
-    if (recovered.length === 0) {
-      throw new Error('No Guardian accounts found at this guardian endpoint for this seed');
-    }
-
-    return recovered;
+    return adopted.map(accountId => ({ accountId, hotPublicKey }));
   }
 
   /**
@@ -459,16 +1094,24 @@ export class MidenClientInterface {
    *
    * Resolves to a hex string: the note ID for a metadata-bearing file, or
    * the details commitment for a details-only file. The wallet's
-   * `deserializeNoteFileOrNote` wraps raw `Note` bytes via
-   * `NoteFile.fromNoteDetails`, so for that path the returned hex is a
-   * details commitment, not a note ID.
+   * `deserializeNoteFileOrNote` wraps raw `Note` bytes into the details variant
+   * (`NoteFile.fromExpectedNote`), so for that path the returned hex is a
+   * details commitment, not a note ID. A dApp's `requestConsume` accepts it
+   * once a sync has committed the note ({@link getDetailsCommitmentMatches}, #1389).
    */
-  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
-    const noteFile = deserializeNoteFileOrNote(noteBytes);
-    // String(...) tolerates both return shapes across the 0.15 alpha line:
-    // alpha.4 resolves a NoteId object, current `next` resolves the hex
-    // string directly.
-    return String(await this.client.notes.import(noteFile));
+  async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
+    try {
+      const noteFile = deserializeNoteFileOrNote(noteBytes);
+      // String(...) tolerates both return shapes across the 0.15 alpha line:
+      // alpha.4 resolves a NoteId object, current `next` resolves the hex
+      // string directly.
+      return String(await this.client.notes.import(noteFile));
+    } catch (error) {
+      // A trap from either deserialize, the fallback's conversion or the import: this hold's callers catch a
+      // note's failure and go on, so the lock may never see it.
+      if (error instanceof WebAssembly.RuntimeError) retireWasmClientForCaughtTrap(hold, error);
+      throw error;
+    }
   }
 
   /**
@@ -478,7 +1121,13 @@ export class MidenClientInterface {
    * long enough for queued reads to deadline-kill the realm.
    */
   async drainPrivateNoteTransport(): Promise<void> {
-    await this.client.notes.fetchPrivate({ mode: 'all' });
+    // Cursor-based, NOT a from-zero drain: SDK 0.16 removed the `{ mode: 'all' }`
+    // full-fetch this originally used, so a note the recipient's stored cursor has
+    // already advanced past is not recoverable through this path — and nothing else
+    // recovers it either. The sender-side re-push (`note-delivery-sweep.ts`) covers
+    // only a note the transport never STORED; one it holds is acknowledged as a
+    // duplicate and keeps its original position below the cursor.
+    await this.client.notes.fetchPrivate();
   }
 
   /**
@@ -486,7 +1135,18 @@ export class MidenClientInterface {
    * from pending Guardian `consume_notes` proposals, attaching a node-fetched
    * inclusion proof when one exists.
    */
-  async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+  async decodeGuardianHistory(encoded: string, hold: WasmLockHold) {
+    return decodeGuardianSummary(encoded, hold);
+  }
+
+  async getGuardianResultCommitment(bytes: Uint8Array, hold: WasmLockHold) {
+    return guardianResultCommitment(bytes, hold);
+  }
+
+  async importRecoveryNoteBytes(
+    proposalNoteBytes: Uint8Array[],
+    hold: WasmLockHold
+  ): Promise<{ imported: number; failures: number }> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     let imported = 0;
     let failures = 0;
@@ -496,6 +1156,7 @@ export class MidenClientInterface {
       try {
         notes.push(Note.deserialize(noteBytes));
       } catch (error) {
+        rethrowClientFault(error, hold);
         failures++;
         console.warn('[GuardianRecovery] Failed to deserialize one proposal note:', error);
       }
@@ -523,6 +1184,7 @@ export class MidenClientInterface {
           if (proof) proofs.set(String(entry.noteId), proof);
         }
       } catch (error) {
+        rethrowClientFault(error, hold);
         console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
       }
     }
@@ -544,6 +1206,7 @@ export class MidenClientInterface {
         await this.client.notes.import(NoteFile.fromInputNote(inputNote));
         imported++;
       } catch (error) {
+        rethrowClientFault(error, hold);
         failures++;
         console.warn('[GuardianRecovery] Failed to import one proposal note:', error);
       }
@@ -792,6 +1455,8 @@ export class MidenClientInterface {
           await this.client.notes.import(NoteFile.fromInputNote(inputNote));
           imported++;
         } catch (error) {
+          // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
+          if (isClientFault(error)) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one public note:', error);
         }
@@ -826,55 +1491,107 @@ export class MidenClientInterface {
     return await this.client.notes.list(query);
   }
 
-  async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
+  async getInputNoteDetails(query?: NoteQuery, assertLive: AssertLive = noAssertLive): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
-    return allInputNotes.flatMap(note => {
-      // A partial (metadata-less) record has no note ID — and, since 0.15
-      // nullifiers fold in metadata, no nullifier either. It cannot be
-      // displayed or consumed, so skip it until sync completes it.
-      const noteId = note.id();
-      const nullifier = note.nullifier();
-      if (!noteId || !nullifier) {
-        return [];
-      }
-      const assets = note
-        .details()
-        .assets()
-        .fungibleAssets()
-        .map(asset => ({
-          amount: asset.amount().toString(),
-          faucetId: getBech32AddressFromAccountId(asset.faucetId())
-        }));
-      const noteMet = note.metadata();
-      return [
-        {
-          noteId: noteId.toString(),
-          noteType: noteMet?.noteType(),
-          senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
-          nullifier,
-          state: note.state(),
-          assets
-        }
-      ];
+    assertLive();
+    return allInputNotes.flatMap(reduceInputNoteDetails);
+  }
+
+  /**
+   * The records for each commitment, the id {@link importNoteBytes} returns for a details-only file (#1389).
+   * Results follow the requested order. Only candidate note ids are listed and hashed, once per record.
+   * No records are listed when the candidate ids are empty.
+   */
+  async getDetailsCommitmentMatches(
+    commitments: string[],
+    candidateIds: string[],
+    assertLive: AssertLive = noAssertLive
+  ): Promise<DetailsCommitmentMatches[]> {
+    const records = candidateIds.length === 0 ? [] : await this.client.notes.list({ ids: candidateIds });
+    assertLive();
+    const byCommitment = new Map<string, InputNoteRecord[]>();
+    for (const record of records) {
+      const commitment = noteDetailsCommitment(record.details());
+      byCommitment.set(commitment, [...(byCommitment.get(commitment) ?? []), record]);
+    }
+    return commitments.map(commitment => {
+      const matching = byCommitment.get(normalizedCommitment(commitment)) ?? [];
+      const notes = matching.flatMap(reduceInputNoteDetails);
+      return { notes, uncommitted: matching.length - notes.length };
     });
   }
 
-  async syncState() {
-    return await this.client.sync();
+  async syncState(assertLive: AssertLive = noAssertLive) {
+    return syncAndRecordFeeFaucet(
+      this.client,
+      () => this.client.sync(),
+      () => {
+        if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('sync client was replaced'));
+        assertLive();
+      }
+    );
   }
 
-  async exportNote(noteId: string, exportType: NoteExportType): Promise<Uint8Array> {
+  async exportNote(
+    noteId: string,
+    exportType: NoteExportType,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<Uint8Array> {
     const formatMap: Record<string, NoteExportFormat> = {
       [NoteExportType.ID]: NoteExportFormat.Id,
       [NoteExportType.FULL]: NoteExportFormat.Full,
       [NoteExportType.DETAILS]: NoteExportFormat.Details
     };
     const result = await this.client.notes.export(noteId, { format: formatMap[exportType] ?? NoteExportFormat.Full });
+    assertLive();
     return result.serialize();
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    await this.client.notes.sendPrivate({ note, to });
+    // rc.5 verifies an inclusion proof and drops the scan-after hint.
+    // `sendPrivateOutput` reads the proof sync stored on this client's output
+    // note, which exists once `transactions.waitFor` has synced past the
+    // commitment. Callers wait for that commit before relaying. The call runs
+    // on the client that created the note, the same store the id lookup uses.
+    await this.client.notes.sendPrivateOutput({
+      noteId: note.id().toString(),
+      to: accountRefToSdk(to)
+    });
+  }
+
+  /**
+   * Relay a private output note identified only by its id.
+   *
+   * Same call as {@link sendPrivateNote}, minus the live `Note`. The re-push sweep
+   * runs long after the sending session ended and has nothing but the persisted
+   * transaction row, so requiring a `Note` would mean re-hydrating one purely to
+   * read back the id that `sendPrivateOutput` wants anyway.
+   *
+   * Safe to call repeatedly. `sendPrivateOutput` reads the inclusion proof sync
+   * stored on the output note, so a later call is as correct as the first once
+   * that proof is in this client's store.
+   */
+  async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
+    await this.client.notes.sendPrivateOutput({ noteId, to: accountRefToSdk(to) });
+  }
+
+  /**
+   * Whether one of this client's own output notes has been consumed on chain.
+   *
+   * This is the wallet's only positive proof that a PRIVATE note was delivered.
+   * The chain shows a commitment, never the note body, so the recipient cannot
+   * consume a private note without having received that body through the
+   * transport — which makes the nullifier a delivery receipt. Everything else
+   * available to the sender (a transport ACK, a landed transaction) is consistent
+   * with the recipient never seeing the note at all.
+   *
+   * Unknown ids answer `false` rather than throwing: the sweep treats "not proven
+   * delivered" as the safe reading, and a row whose note this client no longer
+   * tracks should not wedge it.
+   */
+  async isOutputNoteConsumed(noteId: string): Promise<boolean> {
+    const [record] = await this.client.notes.listSent({ ids: [noteId] });
+    return record !== undefined && record.isConsumed();
   }
 
   /**
@@ -889,13 +1606,18 @@ export class MidenClientInterface {
    * SW-inline height. The reduction is behavior-preserving: it relocates the exact
    * reach-through the callers used into one shared reducer.
    */
-  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
-    const records = await this.getConsumableNotes(accountId);
+  async getConsumableNoteDtos(accountId: string, assertLive: AssertLive = noAssertLive): Promise<ConsumableNoteDto[]> {
+    const records = await this.getConsumableNotes(accountId, assertLive);
+    // `getSyncHeight` is a second WASM call on the SHARED client following a
+    // parking await, so the caller's hold has to still be live before it runs.
+    // The reduction below needs no such check: those records were read through
+    // the realm's separate reader client, not this client's RefCell.
+    assertLive('after the listing');
     const syncHeight = await this.client.getSyncHeight();
     return reduceConsumableNoteRecords(records, syncHeight);
   }
 
-  async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
+  async getConsumableNotes(accountId: string, assertLive: AssertLive = noAssertLive): Promise<InputNoteRecord[]> {
     // Use the consumability-annotated listing (raw WebClient) instead of the
     // bare `notes.listAvailable`: a sender-side P2IDE note is "available" but
     // only consumable-as-reclaimer AFTER its reclaim height. The bare listing
@@ -907,38 +1629,109 @@ export class MidenClientInterface {
     // by design and passes this filter — self-sends (where auto-consume would
     // claim the note right back) are blocked at the send-flow entry instead.
     //
-    // Reads through a transient raw WasmWebClient (same IndexedDB store as
-    // the main client, separate WASM object so it can't trip the
-    // single-threaded aliasing guard) — the SDK wrapper exposes no
-    // consumability-annotated listing.
+    // Reads through the realm's reader client: a separate raw client on the
+    // same IndexedDB store, since the SDK wrapper exposes no
+    // consumability-annotated listing. See `getRealmReaderClient` for why it is
+    // separate, what it is keyed on, and the leak the per-call client caused.
     if (this.network === 'mock') {
       return await this.client.notes.listAvailable({ account: accountId });
     }
     const wasm = await getWasmOrThrow();
     const syncHeight = await this.client.getSyncHeight();
-    const inner = await WasmWebClient.createClient(getEffectiveRpcUrl());
-    try {
-      const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
-      return records
-        .filter(record => {
-          // One consumability entry per relevant account; we queried a single
-          // account, so any entry gated on a future block hides the note.
-          // `consumableAfterBlock()` is undefined for consumable-now (and for
-          // never-consumable — those keep the pre-existing behavior).
-          const gatedUntil = record
-            .noteConsumability()
-            .map(entry => entry.consumptionStatus().consumableAfterBlock())
-            .find(after => after !== undefined);
-          return gatedUntil === undefined || gatedUntil <= syncHeight;
-        })
-        .map(record => record.inputNoteRecord());
-    } finally {
-      inner.terminate();
-    }
+    // Re-checked on both sides of the reader lookup. Eviction bumps the client
+    // generation before it releases the mutex, so a dead flow past this point would
+    // reach - or build - its successor's reader; and the first build parks on a
+    // genesis fetch, after which a dead flow must not list through it.
+    assertLive('after the sync-height read');
+    const inner = await getRealmReaderClient();
+    assertLive('after the reader build');
+    const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
+    // The call above took its id by value, which frees the handle, so a P2IDE rule that needs the account parses it
+    // again.
+    let queried: AccountId | undefined;
+    return records.flatMap(record => {
+      // One consumability entry per relevant account; we queried a single
+      // account, so any entry gated on a future block hides the note.
+      // `consumableAfterBlock()` is undefined for consumable-now (and for
+      // never-consumable - those keep the pre-existing behavior).
+      const gatedUntil = record
+        .noteConsumability()
+        .map(entry => entry.consumptionStatus().consumableAfterBlock())
+        .find(after => after !== undefined);
+      if (gatedUntil !== undefined && gatedUntil > syncHeight) return [];
+      // The SDK lists a reclaim-disabled P2IDE as consumable now to its reclaimer, which can never consume it, so
+      // auto-consume, the Accept cards, swap settlement and the dApp listing would each queue a claim that fails.
+      const note = record.inputNoteRecord();
+      const target = reclaimDisabledP2ideTarget(note);
+      return mayConsume(target, () => (queried ??= resolveAccountId(wasm, accountId))) ? [note] : [];
+    });
   }
 
-  async sendTransaction(dbTransaction: SendTransaction): Promise<TransactionResult> {
+  /**
+   * Build, but do not execute, the fee-aware cancel request for a depth-0 PSWAP
+   * tip: from this client's output-note store, else, when the caller allows it,
+   * from the public note the node holds.
+   *
+   * The SDK's `pswap.cancelByOrder` convenience path deliberately uses a bare
+   * request builder and cannot declare the fee-conversion salt a Guardian
+   * account requires. `newPswapCancelTransactionRequest` is the note-based,
+   * fee-aware builder. Output-note records do not expose `toNote()`, so rebuild
+   * the public note from the full record kept by the creator.
+   */
+  async buildPswapCancelRequest(
+    accountId: string,
+    noteId: string,
+    assertLive: AssertLive = noAssertLive,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
+  ): Promise<Uint8Array> {
+    const [record] = await this.client.notes.listSent({ ids: [noteId] });
+    assertLive('after the output-note listing');
+    let note: Note;
+    if (record) {
+      if (record.isConsumed()) throw new Error(`PSWAP cancel output note ${noteId} is already consumed`);
+      if (!record.isCommitted()) throw new Error(`PSWAP cancel output note ${noteId} is not committed yet`);
+
+      const recipient = record.recipient();
+      if (!recipient) throw new Error(`PSWAP cancel output note ${noteId} has no recipient details`);
+      if (record.metadata().sender().toString() !== walletAccountIdToSdk(accountId).toString()) {
+        throw new Error(`PSWAP cancel output note ${noteId} was not created by account ${accountId}`);
+      }
+      note = new Note(record.assets(), record.metadata(), recipient);
+    } else if (allowNodeNote) {
+      // Checked to be this creator's PSWAP note, on RPC clients of the read's own: this client is not called.
+      const read = await readPswapOrderNote(noteId, accountId);
+      assertLive('after the node note read');
+      if (read.kind === 'spent') throw new Error(`PSWAP cancel order note ${noteId} is already consumed on chain`);
+      if (read.kind === 'absent') {
+        throw new Error(`PSWAP cancel order note ${noteId} is not a public order note of account ${accountId}`);
+      }
+      note = read.note;
+    } else {
+      throw new Error(`PSWAP cancel output note ${noteId} is not tracked`);
+    }
+    if (note.id().toString() !== noteId) {
+      throw new Error(`PSWAP cancel output note ${noteId} did not reconstruct to the tracked note id`);
+    }
+
+    const creator = walletAccountIdToSdk(accountId);
+    const request = await this.innerClientAccess()._withInnerWebClient(inner =>
+      inner.newPswapCancelTransactionRequest(note, creator)
+    );
+    assertLive('after the cancel-request build');
+    return request.serialize();
+  }
+
+  async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
+    const oneClick = extraInputs?.oneClick;
+    const fundingDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
+      : undefined;
+    const assertQuotedDeadline = fundingDeadline ? () => assertOneClickDeadline(fundingDeadline) : undefined;
 
     // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
     // producer — send UI, dApp path, epoch bridge — passes an offset). This is
@@ -948,183 +1741,152 @@ export class MidenClientInterface {
     // fail for days (#308).
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
-      const syncResult = await this.client.sync();
-      reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
+      try {
+        const syncResult = await this.syncState();
+        reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
+      } catch (error) {
+        // Before any request exists, so the attempt provably never crossed (#1081).
+        throw markErrorBeforeSubmit(error);
+      }
     }
 
-    return proveWithFallback(async prover => {
-      if (this.shouldUseOffscreenProver(prover)) {
-        // SpeculationParams MUST hash identically to whatever the popup
-        // sent in SPECULATE_SEND_REQUEST so the cache hits. We skip the
-        // cache when reclaimAfter is set (block-height drift between
-        // speculate-time and commit-time would invalidate the cached
-        // reclaim height — corner case, easier to skip than handle).
-        const cacheParams: SpeculationParams | undefined =
-          reclaimAfter == null
-            ? {
+    return proveWithFallback(
+      async (prover, attempt) => {
+        if (this.shouldUseOffscreenProver(prover)) {
+          return await this.proveLocallyViaOffscreen(
+            (wasm, inner) =>
+              buildSendExecuteArgs(
+                wasm,
+                inner,
                 accountId,
-                recipientAccountId: secondaryAccountId,
+                secondaryAccountId,
                 faucetId,
-                // Same coercion the request builder uses, so the key can't say
-                // 'public' for a note built Private (and vice versa).
-                noteType: isPrivateNoteType(noteType) ? 'private' : 'public',
-                amount: BigInt(amount)
-              }
-            : undefined;
-        return await this.proveLocallyViaOffscreen(
-          (wasm, inner) =>
-            buildSendExecuteArgs(wasm, inner, accountId, secondaryAccountId, faucetId, noteType, amount, reclaimAfter),
-          cacheParams
+                noteType,
+                amount,
+                reclaimAfter
+              ),
+            attempt,
+            onStage,
+            assertQuotedDeadline
+          );
+        }
+        // Non-offscreen path (mobile native prover, desktop WASM, delegated
+        // remote): the SDK's all-in-one `transactions.send` runs execute+prove+
+        // submit inside one opaque call, leaving no seam to stamp `proving`/
+        // `submitting`. Drive the staged execute → prove → submit → apply pipeline
+        // instead so the per-step timing UI gets real stage boundaries on every
+        // platform. Build the SAME request the atomic path builds
+        // (`buildSendExecuteArgs`), serialized across the SDK lock boundary and
+        // re-hydrated for execution (a wasm-bindgen request can't be shared across
+        // lock re-acquisitions; the bytes can).
+        const wasm = await getWasmOrThrow();
+        const access = this.innerClientAccess();
+        // The callback returns the serialized request bytes, which cross the lock
+        // boundary safely (a live wasm-bindgen request can't).
+        const requestBytes = await access._withInnerWebClient(async inner => {
+          const { request } = await buildSendExecuteArgs(
+            wasm,
+            inner,
+            accountId,
+            secondaryAccountId,
+            faucetId,
+            noteType,
+            amount,
+            reclaimAfter
+          );
+          return request.serialize();
+        });
+        await onStage?.('executing');
+        // The canonical id, which is what `buildSendExecuteArgs` read the vault
+        // under. Executing against the raw `accountId` would let the account the
+        // request runs on diverge from the one its asset's vault key came from —
+        // the mismatch that silently reinstates the callback-flag bug — and would
+        // reject the composite `<address>_<suffix>` form the read accepts.
+        const executed = await this.client.transactions.executeRequest(
+          walletAccountIdToSdk(accountId).toString(),
+          TransactionRequest.deserialize(requestBytes)
         );
-      }
-      // The sender's local account supplies the outgoing asset's vault key
-      // (callback flag included) — see `buildSendTransactionRequest`.
-      //
-      // Looked up by the CANONICAL id, matching the sender id handed to the
-      // builder on the next line and the guardian path's own read. The raw
-      // `accountId` may be the composite `<address>_<suffix>` form, which
-      // `accounts.get` resolves via the SDK's bech32 parser and which therefore
-      // throws for suffixes whose routing parameters don't decode — a failure
-      // this read would newly introduce, since nothing loaded the account here
-      // before.
-      const senderAccount = await this.client.accounts.get(walletAccountIdToSdk(accountId).toString());
-      const request = buildSendTransactionRequest(
-        senderAccount ?? undefined,
-        walletAccountIdToSdk(accountId),
-        accountRefToSdk(secondaryAccountId),
-        faucetId,
-        BigInt(amount),
-        isPrivateNoteType(noteType) ? NoteType.Private : NoteType.Public,
-        reclaimAfter
-      );
-      // The same canonical id the vault was read with. Handing the raw one here
-      // would let the account the request is EXECUTED against diverge from the
-      // account its asset's vault key came from — the mismatch that silently
-      // reinstates the callback-flag bug — and would reject composite forms the
-      // read above accepts.
-      const { result } = await this.client.transactions.submit(walletAccountIdToSdk(accountId).toString(), request, {
-        prover
-      });
-      return result;
-    }, dbTransaction.delegateTransaction);
-  }
-
-  /**
-   * Run execute + offscreen prove for the given speculation params, return
-   * the serialized bytes WITHOUT submitting or applying. The wallet's
-   * SpeculationManager calls this when the user is on the review screen
-   * and we want to pre-prove for likely-confirm. The returned bytes get
-   * cached and consumed by `proveLocallyViaOffscreen` on actual submit
-   * (skipping a full re-execute + re-prove).
-   *
-   * Caveat: this DOES touch the SW's WASM client (executeTransaction
-   * mutates account state). If the user backs out of review, the
-   * speculation's effects on the SW's account state are discarded only
-   * because we never submit/apply — the executed-but-not-applied state
-   * sits in the TransactionResult bytes. submitProvenTransaction +
-   * applyTransaction are what actually persist; without them the
-   * speculation has zero on-chain or local-DB effect.
-   */
-  async executeAndProveForSpeculation(params: SpeculationParams) {
-    if (!isOffscreenAvailable()) {
-      throw new Error('executeAndProveForSpeculation called without chrome.offscreen available');
-    }
-    const wasm = await getWasmOrThrow();
-    const withInner = (
-      this.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      }
-    )._withInnerWebClient;
-    if (typeof withInner !== 'function') {
-      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-    }
-    // Build args + execute under the SDK's serialization lock. The lock is
-    // released between this block and the offscreen prove so background sync
-    // can run during the ~10s prove wait.
-    const txResult = (await withInner.call(this.client, async (inner: any) => {
-      const { accountId, request } = await buildSendExecuteArgs(
-        wasm,
-        inner,
-        params.accountId,
-        params.recipientAccountId,
-        params.faucetId,
-        params.noteType,
-        params.amount.toString(),
-        undefined
-      );
-      return (await inner.executeTransaction(accountId, request)) as TransactionResult;
-    })) as TransactionResult;
-    const txResultBytes = txResult.serialize();
-    // Tag as speculative so SpeculationManager.abortSpeculativeProve() can
-    // terminate the offscreen doc to interrupt this prove if the user's
-    // form params change before it finishes. Non-speculative proves bump
-    // a counter that blocks the abort path — they must run to completion.
-    const { provenBytes, durationMs } = await yieldWasmClientLock(() =>
-      proveViaOffscreen(txResultBytes, null, { speculative: true })
+        await onStage?.('proving');
+        if (attempt.provesInWorker())
+          return await this.submitWorkerProof(executed, attempt, onStage, assertQuotedDeadline);
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage, assertQuotedDeadline);
+      },
+      dbTransaction.delegateTransaction,
+      this.liveness
     );
-    console.log(`[speculation] pre-proved tx in ${durationMs.toFixed(0)}ms`);
-    return {
-      paramsHash: speculationParamsHash(params),
-      txResultBytes,
-      provenBytes: new Uint8Array(provenBytes)
-    };
   }
 
-  async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
+  async consumeNoteId(transaction: ConsumeTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, noteId, noteIds } = transaction;
 
     // Batch claims consume every note in one transaction (one proof/submit).
     const targetNoteIds = noteIds && noteIds.length > 0 ? noteIds : [noteId];
 
     recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
-    return proveWithFallback(async prover => {
-      recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
-      if (this.shouldUseOffscreenProver(prover)) {
-        return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
-          // The bundled `transactions.consume` resolves string note IDs via
-          // `inner.getInputNote(...)` and unwraps to `Note` via `.toNote()`,
-          // then passes a plain JS array `Note[]` to
-          // `newConsumeTransactionRequest`. wasm-bindgen converts the
-          // array to Vec<Note> internally — DO NOT use `wasm.NoteArray`
-          // here. wasm.NoteArray is a different wasm-bindgen type (a
-          // pre-built Vec<Note> handle); the request builder accepts the
-          // JS array form, and passing the typed-array handle silently
-          // produces a tx with zero input notes (the prove succeeds, then
-          // completeConsumeTransaction trips on `inputNotes().notes()[0]`
-          // being undefined).
+    return proveWithFallback(
+      async (prover, attempt) => {
+        recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
+        if (this.shouldUseOffscreenProver(prover)) {
+          return await this.proveLocallyViaOffscreen(
+            async (wasm, inner) => {
+              // The request is the consume builder's, as on the staged path: each note read from the
+              // store and the expiration delta, equal to the SDK's own consume request apart from the
+              // delta (scripts/consume-request-equivalence.mjs).
+              const notes: Note[] = [];
+              for (const id of targetNoteIds) {
+                recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
+                const inputNoteRecord = await inner.getInputNote(id);
+                recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
+                if (!inputNoteRecord) {
+                  throw new Error(`Note ${id} not found in store`);
+                }
+                notes.push(inputNoteRecord.toNote());
+              }
+              const request: TransactionRequest = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
+              const acctId = resolveAccountId(wasm, accountId);
+              recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
+              return { accountId: acctId, request };
+            },
+            attempt,
+            onStage
+          );
+        }
+        // Staged for every attempt the offscreen prover does not take, so the apply after the
+        // submit is reachable and a failure there classifies as landed (#1233): a worker leg proves
+        // in the prove worker (#945), every other leg proves here. The request is the consume
+        // builder's: each note read from the store and the expiration delta, equal to the SDK's own
+        // consume request apart from the delta (scripts/consume-request-equivalence.mjs). It crosses
+        // the SDK lock as bytes, like the send's.
+        const requestBytes = await this.withInnerClient(async inner => {
           const notes: Note[] = [];
           for (const id of targetNoteIds) {
-            recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
-            const inputNoteRecord = await inner.getInputNote(id);
-            recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
-            if (!inputNoteRecord) {
-              throw new Error(`Note ${id} not found in store`);
-            }
-            notes.push(inputNoteRecord.toNote());
+            const record = await inner.getInputNote(id);
+            if (!record) throw new Error(`Note not found: ${id}`);
+            notes.push(record.toNote());
           }
-          recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-          const request: TransactionRequest = await inner.newConsumeTransactionRequest(notes);
-          recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
-          const acctId = resolveAccountId(wasm, accountId);
-          recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
-          return { accountId: acctId, request };
+          const request = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
+          return request.serialize();
         });
-      }
-      recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
-      try {
-        const { result } = await this.client.transactions.consume({
-          account: accountId,
-          notes: targetNoteIds,
-          prover
-        });
-        recordProveTiming('consumeNoteId SDK consume returned');
-        return result;
-      } catch (error) {
-        const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-        recordProveTiming(`consumeNoteId SDK consume THREW ${detail}`);
-        throw error;
-      }
-    }, transaction.delegateTransaction);
+        try {
+          const executed = await this.client.transactions.executeRequest(
+            walletAccountIdToSdk(accountId).toString(),
+            TransactionRequest.deserialize(requestBytes)
+          );
+          if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
+          // A prove failure is pre-submit, so `proveWithFallback` may re-run this attempt locally on
+          // the same notes; a submit failure is never re-run.
+          const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'consume', onStage);
+          recordProveTiming('consumeNoteId staged consume returned');
+          return result;
+        } catch (error) {
+          const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+          recordProveTiming(`consumeNoteId staged consume THREW ${detail}`);
+          throw error;
+        }
+      },
+      transaction.delegateTransaction,
+      this.liveness
+    );
   }
 
   /**
@@ -1134,72 +1896,246 @@ export class MidenClientInterface {
    * `requestedAmount` of `requestedFaucetId` (partial fills emit a
    * remainder PSWAP note for the unfilled amount).
    *
-   * TODO: offscreen-prover path not wired up — pswapCreate has no
-   * `buildExecuteArgs` builder yet, so this always proves inline via
-   * `withProverFallback`. Add the offscreen path if swap proving is slow.
+   * A delegated attempt proves remotely. A local attempt proves in the prove
+   * worker where the realm has a local prove transport (the offscreen document,
+   * #945), and otherwise in this realm with its local prover (native on mobile);
+   * the service worker's `proveLocallyViaOffscreen` path has no PSWAP builder.
+   * Every attempt is staged, so the apply after the submit is reachable (#1233).
+   * A delegated attempt that fails before `markSubmitting()` falls back to a
+   * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
+  async swapTransaction(
+    transaction: SwapTransaction,
+    onStage?: LeafStage,
+    feeContext?: SwapFeeContext
+  ): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
+    const fee = feeContext ?? getSwapFeeContextSync(extraInputs.balanceScope);
 
-    const withInner = (
-      this.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      }
-    )._withInnerWebClient;
-    if (typeof withInner !== 'function') {
-      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-    }
+    const access = this.innerClientAccess();
 
-    return proveWithFallback(async prover => {
-      // `transactions.pswapCreate` would build, prove and submit in one call, but
-      // it builds the offered asset from faucet id + amount and so always offers
-      // the Disabled callback variant — see `buildPswapCreateRequest`. Split the
-      // build out so the note can be re-emitted against the vault key the
-      // creator actually holds, then submit that instead.
-      //
-      // The canonical id for both the vault read and the submit, for the reason
-      // spelled out on the send path above: the account a request is EXECUTED
-      // against must be the one its asset's vault key came from.
-      const canonicalId = walletAccountIdToSdk(accountId).toString();
-      const creatorAccount = await this.client.accounts.get(canonicalId);
-      const reference = (await withInner.call(this.client, async (inner: any) =>
-        inner.newPswapCreateTransactionRequest(
-          walletAccountIdToSdk(accountId),
-          accountRefToSdk(faucetId),
+    return proveWithFallback(
+      async (prover, attempt) => {
+        // `transactions.pswapCreate` would build, prove and submit in one call, but
+        // it builds the offered asset from faucet id + amount and so always offers
+        // the Disabled callback variant — see `buildPswapCreateRequest`. Split the
+        // build out so the note can be re-emitted against the vault key the
+        // creator actually holds, then submit that instead.
+        //
+        // The canonical id for both the vault read and the submit, for the reason
+        // spelled out on the send path above: the account a request is EXECUTED
+        // against must be the one its asset's vault key came from.
+        const canonicalId = walletAccountIdToSdk(accountId).toString();
+        const hold = getCurrentWasmLockHold();
+        const creatorAccount = await this.client.accounts.get(canonicalId);
+        if (hold) assertWasmHoldCurrent(hold, 'swap execution: after creator account read');
+        assertSwapAccountBalance(
+          creatorAccount,
+          accountId,
+          faucetId,
           BigInt(amount),
-          accountRefToSdk(extraInputs.requestedFaucetId),
-          BigInt(extraInputs.requestedAmount),
-          NoteType.Public,
-          NoteType.Public
-        )
-      )) as TransactionRequest;
-      const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
-      const { result } = await this.client.transactions.submit(canonicalId, request, { prover });
-      return result;
-    }, transaction.delegateTransaction);
+          fee,
+          extraInputs.balanceScope ?? fee.scope
+        );
+        const reference = await access._withInnerWebClient(async inner =>
+          inner.newPswapCreateTransactionRequest(
+            walletAccountIdToSdk(accountId),
+            accountRefToSdk(faucetId),
+            BigInt(amount),
+            accountRefToSdk(extraInputs.requestedFaucetId),
+            BigInt(extraInputs.requestedAmount),
+            NoteType.Public,
+            NoteType.Public
+          )
+        );
+        const request = buildPswapCreateRequest(
+          creatorAccount ?? undefined,
+          reference,
+          faucetId,
+          BigInt(amount),
+          EXPIRATION_DELTA_BLOCKS
+        );
+        // Staged for every attempt (#1233): a worker leg proves in the prove worker (#945), every
+        // other leg proves here, and both submit and apply themselves, so the apply after the submit
+        // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
+        // delegated prove that fails falls back to a local attempt with a freshly built request.
+        const executed = await this.client.transactions.executeRequest(canonicalId, request);
+        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
+      },
+      transaction.delegateTransaction,
+      this.liveness
+    );
   }
 
   async newTransaction(
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    onStage?: LeafStage
   ): Promise<TransactionResult> {
-    const transactionRequest = TransactionRequest.deserialize(requestBytes);
+    return proveWithFallback(
+      async (prover, attempt) => {
+        if (this.shouldUseOffscreenProver(prover)) {
+          return await this.proveLocallyViaOffscreen(
+            async wasm => {
+              // Defensive, not required: every attempt still hydrates its OWN request
+              // from the bytes. The pinned SDK borrows both args in `executeTransaction`
+              // (see the doc above buildSendExecuteArgs), so this stays correct however
+              // a later SDK passes them.
+              const request = TransactionRequest.deserialize(requestBytes);
+              const acctId = resolveAccountId(wasm, accountId);
+              return { accountId: acctId, request };
+            },
+            attempt,
+            onStage
+          );
+        }
+        // Staged execute → prove → submit → apply rather than the all-in-one
+        // `transactions.submit`, for the same reason the send path is staged: it
+        // gives the prove-fallback a seam to stop at, so a failure at or after
+        // submit can never be retried into a second broadcast of this request
+        // (dApp custom transactions and the Agglayer bridged-send both land here).
+        // Each attempt deserializes its own request as a defensive measure: the pinned
+        // SDK borrows the request in `executeRequest` too (its own `executeTransaction`
+        // call - see the doc above buildSendExecuteArgs), so this stays correct however
+        // a later SDK passes it.
+        recordProveTiming(`newTransaction staged: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
+        const executed = await this.client.transactions.executeRequest(
+          accountId,
+          TransactionRequest.deserialize(requestBytes)
+        );
+        recordProveTiming('newTransaction staged: executeRequest returned; proving');
+        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
+        // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
+        // hides the L1 claim (#1233). With no result to return, the dApp's `waitForTransaction`
+        // still answers with an error, one saying the network accepted it and naming its id.
+        const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction', onStage);
+        recordProveTiming('newTransaction staged: apply returned');
+        return result;
+      },
+      delegateTransaction,
+      this.liveness
+    );
+  }
 
-    return proveWithFallback(async prover => {
-      if (this.shouldUseOffscreenProver(prover)) {
-        return await this.proveLocallyViaOffscreen(async wasm => {
-          // `inner.executeTransaction` consumes both args by value. We get a
-          // fresh deserialization of the same bytes so we don't share a
-          // moved-from TransactionRequest with anything outside this scope.
-          const request = TransactionRequest.deserialize(requestBytes);
-          const acctId = resolveAccountId(wasm, accountId);
-          return { accountId: acctId, request };
-        });
-      }
-      const { result } = await this.client.transactions.submit(accountId, transactionRequest, { prover });
-      return result;
-    }, delegateTransaction);
+  private innerClientAccess(): InnerClientAccess {
+    const { client } = this;
+    if (!hasInnerClientAccess(client)) {
+      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+    }
+    return client;
+  }
+
+  private withInnerClient<T>(fn: (inner: WasmWebClient) => Promise<T>): Promise<T> {
+    return this.innerClientAccess()._withInnerWebClient(fn);
+  }
+
+  /**
+   * The worker leg of a staged local attempt (#945): prove `executed` in the realm's
+   * prove worker, then submit that proof and apply it. Everything before
+   * `markSubmitting()` is pre-submit, including every worker failure.
+   */
+  private async submitWorkerProof(
+    executed: TransactionExecution,
+    attempt: ProveAttempt,
+    onStage?: LeafStage,
+    beforeSubmit?: () => void
+  ): Promise<TransactionResult> {
+    const proof = await attempt.proveInWorker(executed.result);
+    // No re-check of the hold between here and `submitProven`: the helper's own
+    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
+    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
+    // microtask before `markSubmitting()`, not a real parking point. An async
+    // `onStage` would need its own re-check.
+    // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
+    if (onStage) {
+      await onStage('submitting', {
+        evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
+      });
+    }
+    if (beforeSubmit && attempt.evicted()) {
+      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
+    }
+    beforeSubmit?.();
+    attempt.markSubmitting();
+    const submitted = await this.client.transactions.submitProven(proof, executed.result);
+    // The node already has the transaction: a failed apply is retried while that is safe, and one
+    // that outlasts the retries classifies as submitted (#1233).
+    await applyAfterSubmit({
+      apply: () => submitted.apply(),
+      result: executed.result,
+      readLocalAccount: accountId => this.client.accounts.get(accountId),
+      holdIsCurrent: () => attempt.holdIsCurrent()
+    });
+    return executed.result;
+  }
+
+  /**
+   * The in-realm leg of a staged attempt, shared by the four plain writes so their point of no
+   * return sits in one place (#1233): prove `executed` in this realm, then submit it and apply it.
+   * Everything before `markSubmitting()` is pre-submit, so `proveWithFallback` may re-run a
+   * delegated attempt locally; nothing after it is ever re-run.
+   */
+  private async proveInRealmAndSubmit(
+    executed: TransactionExecution,
+    prover: TransactionProver | undefined,
+    attempt: ProveAttempt,
+    write: 'send' | 'newTransaction' | 'consume' | 'swap',
+    onStage?: LeafStage,
+    beforeSubmit?: () => void
+  ): Promise<TransactionResult> {
+    // An explicit prover on the delegated path, see `remoteProver`: `prove({})` selects the SDK's
+    // default-prover fallback, which needs an initialized client and so never dispatched in the
+    // offscreen realm, where an earn deposit sat forever with the WASM mutex held while the remote
+    // prover logged no request at all (#718).
+    // Only the delegated prove is bounded: it has no deadline of its own, so a remote prover that
+    // never answers parks the write with the mutex held and starves sync (#718). Bounding it is safe
+    // because it precedes `markSubmitting()`: the fallback re-proves locally rather than submitting
+    // twice, and a remote re-prove after a freeze is just as pre-submit (#473). The #775 watchdog
+    // pause covers the local attempt (a passthrough when delegated).
+    const proven = await attempt.pauseWatchdogForLocalProve(() =>
+      prover === undefined
+        ? proveDelegated(
+            remote => executed.prove(remote ? { prover: remote } : {}),
+            `Delegated ${write} prove`,
+            () => {
+              if (attempt.evicted()) {
+                throw new WasmClientPoisonedError(
+                  'watchdog',
+                  new Error(`operation abandoned before the ${write} remote re-prove`)
+                );
+              }
+            }
+          )
+        : executed.prove({ prover })
+    );
+    recordProveTiming(`${write} staged: prove returned; submitting`);
+    if (onStage) {
+      await onStage('submitting', {
+        evidence: readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent())
+      });
+    }
+    // The prove and the stage stamp both park, and an eviction during either hands the client to a
+    // successor: submitting on it would be a second borrow of a client this write no longer owns.
+    if (attempt.evicted()) {
+      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned after the ${write} prove`));
+    }
+    beforeSubmit?.();
+    // Point of no return: a retry past here would build a fresh request (a new note serial; for a
+    // swap, a second PSWAP note locking the offered asset twice) and submit a second write.
+    attempt.markSubmitting();
+    const submitted = await proven.submit();
+    recordProveTiming(`${write} staged: submit returned; applying`);
+    // The node has the write now: a failed apply is retried while that is safe, and one that
+    // outlasts the retries classifies as submitted, so a Retry cannot pay twice.
+    await applyAfterSubmit({
+      apply: () => submitted.apply(),
+      result: executed.result,
+      readLocalAccount: accountId => this.client.accounts.get(accountId),
+      holdIsCurrent: () => attempt.holdIsCurrent()
+    });
+    return executed.result;
   }
 
   /**
@@ -1235,58 +2171,17 @@ export class MidenClientInterface {
    * once per prove and surfaces a "can't reach node" toast.
    */
   private async proveLocallyViaOffscreen(
-    buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>,
-    cacheParams?: SpeculationParams
+    buildExecuteArgs: (wasm: any, inner: WasmWebClient) => Promise<{ accountId: any; request: TransactionRequest }>,
+    attempt: ProveAttempt,
+    onStage?: LeafStage,
+    beforeSubmit?: () => void
   ): Promise<TransactionResult> {
     try {
       recordProveTiming('proveLocallyViaOffscreen entered');
       const wasm = await getWasmOrThrow();
       recordProveTiming('proveLocallyViaOffscreen got wasm');
-      const withInner = (
-        this.client as unknown as {
-          _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-        }
-      )._withInnerWebClient;
-      if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-      }
+      const access = this.innerClientAccess();
       recordProveTiming('proveLocallyViaOffscreen got withInner');
-
-      // Speculation cache hit path: if the popup pre-proved this exact tx
-      // while the user was on the review screen, the SpeculationManager
-      // has the result. Skip execute + prove and go straight to submit +
-      // apply (~250ms total instead of ~10s). consumeCacheHit removes
-      // the entry so a stale result can't be reused.
-      //
-      // Cache-miss-but-in-flight: if a matching speculation is currently
-      // executing/proving (user clicked Confirm before it finished), wait
-      // for it instead of doing a duplicate execute + prove. We yield the
-      // WASM client lock during the wait — speculation's
-      // executeAndProveForSpeculation also takes that lock, so without
-      // yielding we'd deadlock with whoever holds it (i.e. ourselves).
-      if (cacheParams) {
-        const mgr = getSpeculationManager();
-        let hit = mgr?.consumeCacheHit(cacheParams);
-        if (!hit && mgr?.hasInFlightMatching(cacheParams)) {
-          const tWait = performance.now();
-          await yieldWasmClientLock(() => mgr.awaitMatching(cacheParams));
-          hit = mgr.consumeCacheHit(cacheParams);
-          console.log(
-            `[mt-offscreen-prove] awaited in-flight speculation ${(performance.now() - tWait).toFixed(0)}ms hit=${!!hit}`
-          );
-        }
-        if (hit) {
-          const result = (await withInner.call(this.client, async (inner: any) => {
-            const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
-            const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
-            const height = await inner.submitProvenTransaction(proven, txResult);
-            await inner.applyTransaction(txResult, height);
-            return txResult;
-          })) as TransactionResult;
-          console.log('[mt-offscreen-prove] tx_completed via_speculation=true');
-          return result;
-        }
-      }
 
       // Build args + execute under the SDK lock. We hold the lock here, drop
       // it for the offscreen prove (~10s wait, separate WASM instance — no
@@ -1294,18 +2189,19 @@ export class MidenClientInterface {
       // TransactionResult handle out of the first block is safe: it's a
       // wasm-bindgen reference, alive as long as the JS reference exists,
       // and the next block re-uses it without a fresh WASM call.
+      await onStage?.('executing');
       recordProveTiming('proveLocallyViaOffscreen entering execute under SDK lock');
       const tExec = performance.now();
-      const txResult = (await withInner.call(this.client, async (inner: any) => {
+      const txResult = await access._withInnerWebClient(async inner => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; building exec args');
         const { accountId, request } = await buildExecuteArgs(wasm, inner);
         recordProveTiming('proveLocallyViaOffscreen built exec args; calling executeTransaction');
-        const r = (await inner.executeTransaction(accountId, request)) as TransactionResult;
+        const r = await inner.executeTransaction(accountId, request);
         recordProveTiming(
           `proveLocallyViaOffscreen executeTransaction returned in ${(performance.now() - tExec).toFixed(0)}ms`
         );
         return r;
-      })) as TransactionResult;
+      });
       recordProveTiming('proveLocallyViaOffscreen exited SDK-lock execute block; serializing');
       const txResultBytes = txResult.serialize();
       recordProveTiming(
@@ -1314,16 +2210,37 @@ export class MidenClientInterface {
       // Yield the SW's WASM lock during the offscreen prove. The SDK's
       // _withInnerWebClient lock is already released here (we left the
       // first block), so background sync can run.
-      const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
+      await onStage?.('proving');
+      const { provenBytes, durationMs } = await this.yieldLockUnlessDisposed(() =>
+        proveViaOffscreen(txResultBytes, null)
+      );
       recordProveTiming(
         `proveLocallyViaOffscreen proveViaOffscreen returned in ${durationMs.toFixed(0)}ms (lock reacquired); submitting + applying`
       );
-      await withInner.call(this.client, async (inner: any) => {
-        recordProveTiming('proveLocallyViaOffscreen inside SDK lock; deserializing proven + submit');
-        const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
+      // Deserialized before the stamp, not inside the submit block, so the stamp can carry the proof's evidence
+      // (#1081). Still pre-submit: a failure here never reaches the node.
+      const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
+      if (onStage) {
+        await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
+      }
+      if (beforeSubmit && attempt.evicted()) {
+        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
+      }
+      beforeSubmit?.();
+      // Point of no return — see the identical mark on the inline send path.
+      attempt.markSubmitting();
+      await access._withInnerWebClient(async inner => {
+        recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
-        await inner.applyTransaction(txResult, height);
+        // Same rule as the staged applies (#1233). This block holds the SDK lock and the wallet's,
+        // re-taken after the prove's yield, so the retry reads the account on this inner client.
+        await applyAfterSubmit({
+          apply: () => inner.applyTransaction(txResult, height),
+          result: txResult,
+          readLocalAccount: accountId => inner.getAccount(accountId),
+          holdIsCurrent: () => attempt.holdIsCurrent()
+        });
         recordProveTiming('proveLocallyViaOffscreen apply returned');
       });
       console.log(`[mt-offscreen-prove] tx_completed prove_ms=${durationMs.toFixed(0)}`);
@@ -1344,6 +2261,29 @@ export class MidenClientInterface {
     await importStore(storeName, dump);
   }
 
+  /**
+   * The genesis block header this client's store holds, as the bytes a store
+   * dump carries. Building the client writes genesis into an empty store, so
+   * after a build this is the genesis of the chain the client talks to. The SDK
+   * gives JS no read of a stored header, and exporting the whole store to find
+   * one row costs as much as the store is large, so the row is read directly.
+   */
+  async genesisHeader(): Promise<Uint8Array> {
+    // No schema is declared, so this joins the SDK's store at its own version
+    // and can neither upgrade it nor create one that does not exist.
+    const store = new Dexie(await this.client.storeIdentifier());
+    try {
+      await store.open();
+      const row: unknown = await store.table('blockHeaders').get(0);
+      if (typeof row === 'object' && row !== null && 'header' in row && row.header instanceof Uint8Array) {
+        return row.header;
+      }
+      throw new Error('The client store holds no genesis block header');
+    } finally {
+      store.close();
+    }
+  }
+
   async getTransactionsForAccount(accountId: string) {
     const transactions = await this.client.transactions.list();
     return transactions.filter(tx => getBech32AddressFromAccountId(tx.accountId()) === accountId);
@@ -1353,6 +2293,8 @@ export class MidenClientInterface {
    * Node-authoritative commit state of a specific transaction (by hex id).
    *
    *   - `'committed'` the tx is on chain (TransactionStatus has a block number).
+   *   - `'discarded'` the node REJECTED it. Unlike the two below, this is a
+   *                   verdict: the tx provably did not and will not land.
    *   - `'pending'`   the tx is locally known but not yet committed (still in
    *                   the mempool / awaiting a block) — it was submitted.
    *   - `'not-found'` no local record — INDETERMINATE. The tx may have landed on
@@ -1362,33 +2304,174 @@ export class MidenClientInterface {
    *
    * Used by the send/swap idempotent-retry guard (transaction/cancel.ts
    * `verifySendLanded`) so a Failed row whose original submit actually landed is
-   * never blindly resubmitted (double-send). Mirrors the note-state authority of
-   * `verifyConsumeLanded` but for the OUTPUT side, keyed on the tx id.
+   * never blindly resubmitted (double-send), and by the direct guardian switch's
+   * `didDirectSwitchLand` to decide whether a rotation whose commit wait expired
+   * may be finalized. Mirrors the note-state authority of `verifyConsumeLanded`
+   * but for the OUTPUT side, keyed on the tx id.
+   *
+   * `'discarded'` is read from the status itself rather than inferred from a
+   * missing block number, which a discarded record also has — collapsing the two
+   * reported the node's rejection as a tx still waiting for a block.
    */
-  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+  async getTransactionCommitState(txId: string): Promise<TransactionCommitState> {
     const transactions = await this.client.transactions.list();
     const record = transactions.find(tx => tx.id().toHex() === txId);
     if (!record) return 'not-found';
-    return record.transactionStatus().getBlockNum() !== undefined ? 'committed' : 'pending';
+    const status = record.transactionStatus();
+    if (status.isDiscarded()) return 'discarded';
+    return status.getBlockNum() !== undefined ? 'committed' : 'pending';
   }
 
   async waitForTransactionCommit(
     transactionId: string,
     maxWaitMs: number = 60_000,
-    delayMs: number = 5_000
+    delayMs: number = COMMIT_WAIT_POLL_INTERVAL_MS
   ): Promise<void> {
     await this.client.transactions.waitFor(transactionId, { timeout: maxWaitMs, interval: delayMs });
   }
 }
 
 /**
- * Select the prover and run `fn(prover)` for a transaction. Shared by EVERY
- * wallet transaction path (guardian and non-guardian) so proving behaves
+ * Client-side ceiling on a DELEGATED prove, after which the wallet stops waiting for the
+ * remote prover and proves locally instead.
+ *
+ * Generous on purpose: a backstop against a prover that has stopped answering, NOT a
+ * latency target. It has to sit well above a legitimately slow proof on a loaded machine,
+ * because expiring early costs the user the remote wait AND a full local re-prove.
+ */
+export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
+
+/**
+ * Reject once {@link DELEGATED_PROVE_TIMEOUT_MS} passes without a delegated prove
+ * answering.
+ *
+ * The remote prove is awaited on a gRPC call carrying no deadline of its own, so a prover
+ * that accepts a request and then never responds parks that await forever — while the
+ * client lock is STILL HELD, so every later write queues behind a transaction that can
+ * never finish. Only a REJECTION could reach the local-prover fallback; silence could not,
+ * which is the difference between a prover that fails and one that stalls, and is what
+ * turned a single slow proof into an unbounded claim stall (#718).
+ *
+ * Timing out abandons only the RESPONSE — the request itself cannot be cancelled — so
+ * every call site must be one where re-running the work cannot move funds twice. See each
+ * caller for why it qualifies.
+ *
+ * The budget is RUNNING time (#473): monotonic time minus the stretches the platform froze
+ * our JS, `performance.now()` off mobile. A plain timer expired on resume from a freeze and
+ * threw away a remote proof that may have arrived during it, for a full local re-prove. The
+ * transport deadline `remoteProver` gives the SDK equals this budget; that one is a plain
+ * timer a freeze can still expire, which is what {@link proveDelegated} answers.
+ */
+export function withDelegatedProveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const cancel = setRunningTimeout(
+      () => reject(new Error(`${label} timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms waiting for the remote prover`)),
+      DELEGATED_PROVE_TIMEOUT_MS
+    );
+    promise.then(
+      value => {
+        cancel();
+        resolve(value);
+      },
+      error => {
+        cancel();
+        reject(error);
+      }
+    );
+  });
+}
+
+/**
+ * Run one delegated prove under {@link withDelegatedProveTimeout}, and re-prove it remotely
+ * once when the platform froze our JS while it was in flight (#473).
+ *
+ * The SDK's transport deadline is a plain JS timer inside the wasm client, so a freeze that
+ * outlasts it fails the request on resume although the prover may well have answered. That
+ * is no prover failure, and the local fallback would cost a full on-device prove, so an
+ * attempt that fails with frozen time behind it gets exactly one more attempt with a fresh
+ * remote prover under a fresh deadline. `beforeRetry` runs first and throws when the hold
+ * the prove runs under is gone. A trap is never retried: it belongs to the lock. The retry's
+ * failure, and every other one, propagates to the caller's local fallback.
+ *
+ * Re-proving is safe for the reason the local fallback is: the executed transaction is
+ * borrowed and only the prover is consumed, and every caller proves before it submits.
+ */
+export async function proveDelegated<T>(
+  prove: (prover: TransactionProver | undefined) => Promise<T>,
+  label: string,
+  beforeRetry: () => void
+): Promise<T> {
+  const frozenAtStart = frozenMs();
+  try {
+    return await withDelegatedProveTimeout(prove(remoteProver()), label);
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError || frozenMs() <= frozenAtStart) throw error;
+    console.warn(`[${label}] failed across a frozen stretch; retrying the remote prover once`, error);
+    beforeRetry();
+    return await withDelegatedProveTimeout(prove(remoteProver()), label);
+  }
+}
+
+/**
+ * Handed to every `proveWithFallback` callback so it can declare its point of no
+ * return. See {@link proveWithFallback} for why that matters.
+ */
+export interface ProveAttempt {
+  /**
+   * MUST be called immediately before the attempt's first irreversible network
+   * write (`submit`). After it is called, `proveWithFallback` will never re-run
+   * the callback — a retry could otherwise broadcast the transaction twice.
+   */
+  markSubmitting(): void;
+  /**
+   * Bracket this attempt's PROVE with a WASM-lock watchdog pause when the
+   * attempt is running the local prover, and run it unchanged otherwise (issue
+   * #775). Local proving is deliberately unbounded — it is the fallback for when
+   * delegated proving is down, so capping it would leave nothing to fall back to
+   * — while a delegated prove has its own deadline and stays on the clock.
+   *
+   * Callers wrap only the prove (`executed.prove(...)`), never the whole
+   * callback: pausing the callback would disable the watchdog across
+   * execute → prove → submit → apply, i.e. across exactly the operation #775
+   * wedges.
+   */
+  pauseWatchdogForLocalProve<T>(op: () => Promise<T>): Promise<T>;
+  /**
+   * True when this attempt is local AND the realm installed a local prove transport
+   * (only the offscreen document does, #945). A caller that sees true proves with
+   * {@link proveInWorker} and submits with `submitProven`; its `else` branch is the
+   * in-realm path every delegated attempt and every other realm keeps.
+   */
+  provesInWorker(): boolean;
+  /**
+   * Prove `result` in the realm's prove worker under this write's lock hold. Refuses
+   * with `WasmClientPoisonedError` once the client is disposed or the hold is gone:
+   * an evicted flow's entry hold may already be its successor's.
+   */
+  proveInWorker(result: Pick<TransactionResult, 'serialize'>): Promise<ProvenTransaction>;
+  /**
+   * True while this write still owns the WASM lock it took and its client is live: what a retry
+   * after a parking await has to ask before its next WASM call (#1233). False for a write that
+   * holds no lock, for the reason `proveInWorker` refuses one.
+   */
+  holdIsCurrent(): boolean;
+  /**
+   * True once recovery took this write's client away: the client is disposed or marked poisoned,
+   * or the lock hold the write took is no longer the lock's (#1233). A write that took no hold
+   * answers from its client alone, so the lockless unit tests still run. A pre-submit step that sees
+   * true stops with `WasmClientPoisonedError`: its next WASM call would borrow a client the flow no
+   * longer owns.
+   */
+  evicted(): boolean;
+}
+
+/**
+ * Select the prover and run `fn(prover, attempt)` for a transaction. Shared by
+ * EVERY wallet transaction path (guardian and non-guardian) so proving behaves
  * identically everywhere:
- *  - delegate (setting on) → `fn()` with no explicit prover, so the caller
- *    proves via its remote prover; on failure, fall back to the local/native
- *    prover below.
- *  - otherwise → `fn(localProver)`, where localProver is the native Rust prover
+ *  - delegate (setting on) → `fn(undefined, …)`, so the caller proves via its
+ *    remote prover; on failure, fall back to the local/native prover below.
+ *  - otherwise → `fn(localProver, …)`, where localProver is the native Rust prover
  *    on mobile (off the main thread via @miden/native-prover) and the WASM local
  *    prover on desktop/extension.
  *
@@ -1397,10 +2480,69 @@ export class MidenClientInterface {
  * directly (the guardian pipeline) must pass an explicit remote prover in the
  * delegate branch, since the raw client's default prover is the main-thread WASM
  * one; see `generateGuardianTransaction`.
+ *
+ * FUNDS SAFETY — why the fallback is gated. `fn` is not a prove step: for every
+ * caller it also SUBMITS and APPLIES. Retrying it wholesale after a failure at or
+ * after `submit()` re-broadcasts the transaction — with a freshly built request
+ * (a new random note serial, so a different output note that the node has no
+ * reason to reject as a duplicate), debiting the user twice for one transfer. It
+ * also destroyed the apply-after-submit classification: the original error was
+ * discarded in favour of the retry's, so `isApplyAfterSubmitError` no longer fired
+ * and a transfer that IS on chain was marked Failed, then re-queued by the user's
+ * Retry into a third send. So the retry runs ONLY when the attempt provably never
+ * reached submit: `attempt.markSubmitting()` was not called AND the error is not
+ * the SDK's apply-after-submit variant (belt and braces — a caller whose write is
+ * opaque, with no seam to mark, must call `markSubmitting()` before it). The
+ * guardian pipelines (`runGuardianPipeline`, offscreen `guardianPipeline`) get
+ * this right structurally by re-proving the SAME executed transaction; the
+ * gate is how the callers that own their whole write reach the same guarantee.
+ *
+ * `liveness` is REQUIRED, not conveniently optional: it is the only thing that
+ * stops an evicted flow's local prove from pausing a successor's watchdog (see
+ * the `hold` comment below). An omissible parameter would make the unsafe
+ * variant the shorter one to write.
  */
+/**
+ * The configured remote prover as an EXPLICIT handle, or undefined when no prover
+ * endpoint is resolvable for the effective network (in which case the caller keeps
+ * the SDK's default-prover behaviour).
+ *
+ * Exists because "delegate" is expressed to `proveWithFallback` callbacks as
+ * `prover === undefined`, and passing that straight through to `prove()` selects the
+ * SDK's default-prover fallback — which needs an initialized client and therefore
+ * hangs in the offscreen realm. Naming the prover turns the same call into the pure
+ * computation the SDK documents as safe on a bare client.
+ */
+export function remoteProver(): TransactionProver | undefined {
+  const endpoint = getEffectiveProverUrl();
+  if (!endpoint) return undefined;
+  try {
+    // Name the gRPC deadline. Unset, the SDK applies its own ~10s default, which a
+    // 0.16 consume on a loaded 2-core CI runner routinely exceeds: measured healthy
+    // consumes there took 9.9s and 12.1s, straddling it, which is why the failure
+    // looked non-deterministic. Exceeding it fails the prove with
+    // `DeadlineExceeded: Request timed out`, and the caller then re-proves on the
+    // deliberately unbounded LOCAL prover while holding the offscreen WASM mutex —
+    // turning a proof that was seconds from finishing into a wedged claim (#718).
+    // It is `DELEGATED_PROVE_TIMEOUT_MS` on every platform, so a remote prove that stops
+    // answering leaves the SDK's per-client `_serializeWasmCall` chain within the same
+    // 120 s our own deadline gives up at, and no fallback queues behind it. On mobile
+    // this is a plain JS timer that a freeze can expire on resume; `proveDelegated`
+    // re-proves such an attempt remotely once (#473).
+    return TransactionProver.newRemoteProver(endpoint, BigInt(DELEGATED_PROVE_TIMEOUT_MS));
+  } catch (error) {
+    // A trap is not a construction failure: it goes to the lock this runs under.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    // Never break a prove over prover construction — the caller falls back to the
+    // SDK default, i.e. exactly the previous behaviour.
+    return undefined;
+  }
+}
+
 export async function proveWithFallback<T>(
-  fn: (prover?: TransactionProver) => Promise<T>,
-  delegateTransaction?: boolean
+  fn: (prover: TransactionProver | undefined, attempt: ProveAttempt) => Promise<T>,
+  delegateTransaction: boolean | undefined,
+  liveness: ClientLiveness
 ): Promise<T> {
   recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
   const shouldDelegate = delegateTransaction === true;
@@ -1419,16 +2561,65 @@ export async function proveWithFallback<T>(
     return TransactionProver.newLocalProver();
   };
 
+  // Flipped by the callback right before its first irreversible write. Read in
+  // the catch below to decide whether a retry is safe — see the docstring.
+  let submitReached = false;
+  // Whether the attempt currently running uses the local prover, i.e. whether
+  // `pauseWatchdogForLocalProve` should pause (issue #775). Set immediately
+  // before each `fn(...)` below, so the flag always describes the live attempt.
+  let localProveAttempt = false;
+  // This write's lock hold. Read at entry, which is NOT the start of the locked
+  // section — the write has already awaited the client and the SDK's own layers
+  // — so it is only this flow's own hold while this flow still owns the lock. If
+  // recovery evicted it, the ambient hold is the SUCCESSOR's, and passing that
+  // to a pause would silence the innocent successor's watchdog for the length of
+  // a corpse's local prove: the wedge #775 exists to prevent, with the backstop
+  // switched off. The `liveness` gate below is what makes the read safe, since
+  // recovery always disposes (or marks) the client before releasing the mutex,
+  // so a disposed client identifies the caller as a corpse.
+  const hold = getCurrentWasmLockHold();
+  const attempt: ProveAttempt = {
+    markSubmitting: () => {
+      submitReached = true;
+    },
+    pauseWatchdogForLocalProve: op => {
+      if (!localProveAttempt || liveness.disposed) return op();
+      // The E2E frame-gap check measures the page between these two markers (#945).
+      recordProveTiming('local-prove-window open');
+      return withWasmLockWatchdogPaused(op, hold).finally(() => recordProveTiming('local-prove-window close'));
+    },
+    provesInWorker: () => localProveAttempt && getLocalProveTransport() !== null,
+    // Same gate as the pause above: an evicted flow's entry hold may be its
+    // successor's. `proveInWorker` itself refuses a hold that is no longer current.
+    proveInWorker: result =>
+      liveness.disposed || hold === null
+        ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
+        : proveInWorker(result, hold),
+    holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
+    evicted: () => liveness.disposed || (hold !== null && getCurrentWasmLockHold() !== hold)
+  };
+
   const startedAt = performance.now();
+  // Open for the whole attempt so the SDK's own `proveTransaction` timings,
+  // which arrive through `lib/telemetry/sdk-observer` while `fn` is running,
+  // land on this attempt's entry. Closed in `finally`: an attempt left open
+  // would make the next one's observations ambiguous and get them dropped.
+  const telemetryAttempt = beginProveAttempt();
+  // Starts the prove worker's cold start now, so it overlaps execute and sign (#945).
+  if (!shouldDelegate) getLocalProveTransport()?.prewarm();
   try {
-    const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
+    localProveAttempt = !shouldDelegate;
+    const result = !shouldDelegate ? await fn(localProverFactory(), attempt) : await fn(undefined, attempt);
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
     const durationMs = performance.now() - startedAt;
     recordProveTiming(
       `path=${pathLabel} duration_ms=${durationMs.toFixed(1)} platform=${isMobile() ? 'mobile' : 'desktop'}`
     );
     // #466: always-on structured timing so an occasional 20s+ prove is visible.
-    recordProveTelemetry({ path: pathLabel, durationMs, fellBack: false });
+    telemetryAttempt.record({ path: pathLabel, durationMs, fellBack: false });
+    // Both literals named rather than picked inside the call, so the source scan
+    // in `instrumentation-coverage.test.ts` sees each step reported.
+    reportProve(shouldDelegate ? { startedAt, step: 'prove_delegate' } : { startedAt, step: 'prove_local' });
     // A successful prover call (whether local or remote) means the prover
     // pathway the wallet actually uses is healthy. If we'd previously
     // marked the prover as down, clear it now — the old design never
@@ -1436,7 +2627,27 @@ export async function proveWithFallback<T>(
     clearConnectivityIssue('prover');
     return result;
   } catch (err) {
-    if (shouldDelegate) {
+    if (isOneClickDeadlineError(err)) throw markErrorBeforeSubmit(err);
+    // A failed crossing write stopped the attempt before its submit, and no prover failed (#1081).
+    if (isSubmitCrossingUnrecorded(err)) throw submitReached ? err : markErrorBeforeSubmit(err);
+    // `submitReached` / `isApplyAfterSubmitError`: the attempt got far enough that
+    // re-running it could broadcast the transaction a second time. Propagate the
+    // ORIGINAL error untouched so `generateTransactionsLoop`'s
+    // `isApplyAfterSubmitError` classification still sees it.
+    // A trap is not a delegated-prover failure: re-running would deserialize the request again on the trapped
+    // client, so it takes the non-retryable tail to its lock.
+    if (
+      shouldDelegate &&
+      !submitReached &&
+      !isApplyAfterSubmitError(err) &&
+      !(err instanceof WebAssembly.RuntimeError)
+    ) {
+      // An evicted write must not re-run: the fallback would execute, prove and submit on a client
+      // recovery took away, while the row already takes the kill path (#1233).
+      if (attempt.evicted()) {
+        reportProve({ startedAt, step: 'prove_delegate', error: err });
+        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned before the local fallback'));
+      }
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is
@@ -1452,34 +2663,66 @@ export async function proveWithFallback<T>(
       const fallbackStartedAt = performance.now();
       const fallbackPath = isMobile() ? 'native-mobile' : 'local';
       try {
-        const result = await fn(localProverFactory());
+        localProveAttempt = true;
+        const result = await fn(localProverFactory(), attempt);
         recordProveTiming(
           `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
         );
         // #466: the user waited for the stalled remote attempt AND the local
         // re-prove — record the total wall time + the remote portion, since this
         // remote→local doubling is the prime 20s+ suspect.
-        recordProveTelemetry({
+        telemetryAttempt.record({
           path: fallbackPath,
           durationMs: performance.now() - startedAt,
           fellBack: true,
           remoteDurationMs
         });
+        // Reported as `completed`, because it was — and that is exactly why it
+        // needs reporting. A fallback is invisible in every other signal: the
+        // transaction lands, nothing fails, and the only trace is a user who
+        // waited twice. The `prove_fallback` step is the whole fact.
+        reportProve({ startedAt, step: 'prove_fallback' });
         return result;
       } catch (fallbackErr) {
+        // The fallback proved and then stopped before its submit, so it is no failed prove (#1081).
+        if (isSubmitCrossingUnrecorded(fallbackErr)) {
+          throw submitReached ? fallbackErr : markErrorBeforeSubmit(fallbackErr);
+        }
         // Both remote and local proving failed — a 20s+ that ends in failure is
         // exactly the worst #466 case, so record it before the error propagates.
-        recordProveTelemetry({
+        telemetryAttempt.record({
           path: fallbackPath,
           durationMs: performance.now() - startedAt,
           fellBack: true,
           remoteDurationMs,
           failed: true
         });
-        throw fallbackErr;
+        reportProve({ startedAt, step: 'prove_fallback', error: fallbackErr });
+        // Keep the remote failure attached: the retry's error is the one that
+        // matters (it is the attempt that could have reached the chain), but the
+        // original explains WHY there was a retry at all, and it was previously
+        // dropped entirely. Only set when nothing else owns `cause`. This cannot
+        // mis-classify the row: `isApplyAfterSubmitError` walks the cause chain,
+        // and an apply-after-submit original never reaches this retry (it is
+        // excluded by the gate above).
+        if (fallbackErr instanceof Error && fallbackErr.cause === undefined) {
+          fallbackErr.cause = err;
+        }
+        // Every attempt marks its submit, so an error from one that never did is before its submit (#1081).
+        throw submitReached ? fallbackErr : markErrorBeforeSubmit(fallbackErr);
       }
     }
-    throw err;
+    // The non-delegated path failed and there is nothing to fall back to. Kept
+    // out of the branch above so a local-only prover failure — the whole of
+    // mobile, and any desktop build with delegation off — is not silently the
+    // one prove outcome that goes unreported.
+    reportProve({ startedAt, step: 'prove_local', error: err });
+    // Not retryable (local prove, already-submitted attempt, or an
+    // apply-after-submit failure): the original error propagates, tagged when
+    // its attempt never reached its submit (#1081).
+    throw submitReached ? err : markErrorBeforeSubmit(err);
+  } finally {
+    telemetryAttempt.end();
   }
 }
 
@@ -1494,21 +2737,18 @@ export async function proveWithFallback<T>(
 function isLocalProver(prover: TransactionProver): boolean {
   try {
     return (prover as unknown as { serialize: () => string }).serialize() === 'local';
-  } catch {
+  } catch (error) {
+    // A trap is not an unreadable descriptor: it goes to the lock this runs under.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return false;
   }
 }
 
 /**
  * Build the `(accountId, request)` tuple for a send transaction's execute
- * step, used by both the actual `sendTransaction` flow and the speculation
- * flow. Keeping this in a single function is what makes the two agree on the
- * request they build from a given set of params.
- *
- * The two requests are NOT byte-identical — the note's serial number is random,
- * so no two builds of the same send ever match. The cache doesn't need them to:
- * `speculationParamsHash` keys purely on the params, and a hit replays the
- * cached execution + proof wholesale rather than rebuilding a request.
+ * step, shared by the offscreen-prove and staged send paths so both build the
+ * same request from a given set of params. No two builds are byte-identical:
+ * the note's serial number is random.
  *
  * Note: a fresh `AccountId` is allocated for the subsequent `executeTransaction`
  * rather than sharing one. As of SDK 0.15.9 neither `executeTransaction` nor the
@@ -1529,8 +2769,8 @@ async function buildSendExecuteArgs(
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
-  // noteType arrives as either an SDK enum (real send) or a literal
-  // 'public'/'private' string (speculation) — `isPrivateNoteType` takes both and
+  // noteType arrives as either an SDK enum or the row's literal
+  // 'public'/'private' string; `isPrivateNoteType` takes both and
   // throws on anything else rather than silently downgrading to public. The
   // enum is numeric (`Private = 0`), so the former `typeof === 'object'` arm
   // never matched and every non-'private' value fell through to public.
@@ -1545,19 +2785,11 @@ async function buildSendExecuteArgs(
     faucetId,
     typeof amount === 'string' ? BigInt(amount) : amount,
     nt,
+    EXPIRATION_DELTA_BLOCKS,
     reclaimAfter
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);
   return { accountId: senderIdForExec, request };
-}
-
-/**
- * Hash speculation params into a stable string. MUST stay in sync with
- * the hashParams impl inside SpeculationManager — both sides need the
- * same key for cache-hit detection.
- */
-function speculationParamsHash(p: SpeculationParams): string {
-  return [p.accountId, p.recipientAccountId, p.faucetId, p.noteType, p.amount.toString()].join('|');
 }
 
 /**

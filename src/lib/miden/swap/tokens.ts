@@ -1,186 +1,277 @@
-import { toFixedRoundedDown } from 'lib/i18n/numbers';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
-import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import {
+  getNativeAssetIdSync,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
+// The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
+import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
+import { isE2eFixtureSymbol } from 'lib/prices/constant';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
+import { selectSwapPairs } from 'lib/remote-config/values';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
+
+import { bridgePriceAllowlist, type PricedFaucet } from './bridge-price-allowlist';
+import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
+
+export { _resetNormalizedFaucetIdsForTest, canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 /**
- * Swap starts with this fixed set of devnet DEX test tokens and adds the
- * network's discovered native asset at runtime. The fixed test tokens use
- * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
- * and `stringToBigInt(amount, token.decimals)` converts it to base units.
+ * The swap registry: the tokens the DEX solver lists (`GET /v2/pairs` on the host the network's
+ * bridge config names under `swap.etaUrl`, read with the config's derived values), with the
+ * network's discovered native asset prepended at runtime. Nothing is compiled in: a network
+ * whose document names no solver, or whose solver lists no pair, has no swap registry, and the
+ * swap entry point reads as unavailable (`swapAvailability`).
  *
- * INVARIANT: `SWAP_TOKEN_DECIMALS` must match each fixed test faucet's real
- * on-chain decimals. A mismatch would scale its offered/requested amount by
- * `10^(diff)`. The native entry instead uses its discovered metadata (falling
- * back to the wallet's native metadata).
+ * The user enters a human-readable amount and `stringToBigInt(amount, token.decimals)` converts
+ * it to base units, so each entry's `decimals` must be the faucet's real on-chain decimals: a
+ * mismatch would scale its offered/requested amount by `10^(diff)`. The native entry instead
+ * uses its discovered metadata.
  *
  * Shared between the swap flow (token picker + amount/quote logic) and the
  * Generating-transaction summary badge (resolving symbol/logo/decimals for a
- * persisted swap tx, whose `faucetId`/`extraInputs.requestedFaucetId` are the
- * `mtst1…` strings below).
+ * persisted swap tx, whose `faucetId`/`extraInputs.requestedFaucetId` are the bech32
+ * strings the registry carried when the swap was made).
  */
 export interface SwapToken {
   symbol: string;
+  /**
+   * The SDK's bech32 form of the faucet id, the form every persisted row and balance key
+   * carries. The solver spells a faucet in hex, so until the SDK's WASM can convert it the
+   * entry carries the hex; `getSwapTokenByFaucetId` compares canonically for that reason.
+   */
   faucetId: string;
   decimals: number;
   /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
   logoSymbol: string;
+  /**
+   * The asset this token stands for, as the price feed names it. Set only where the feed prices
+   * that asset; absent means unpriced. Never inferred from `logoSymbol`, which is only a logo.
+   */
+  priceSymbol?: string;
 }
 
-export const SWAP_TOKEN_DECIMALS = 8;
-
-export const TOKEN_IMIDEN: SwapToken = {
-  symbol: 'IMIDEN',
-  faucetId: 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe_qr7qqq9wr6w',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'MIDEN'
-};
-export const TOKEN_IETH: SwapToken = {
-  symbol: 'IETH',
-  faucetId: 'mtst1apfjwvs5f8mey5f6a6s5llnhp533fe5p_qr7qqq9wr6w',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'ETH'
-};
-export const TOKEN_IBTC: SwapToken = {
-  symbol: 'IBTC',
-  faucetId: 'mtst1aqvv35kq9tuvn5fuwkd055vyzuhc5vwl_qr7qqq9wr6w',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'BTC'
-};
-export const TOKEN_IUSDT: SwapToken = {
-  symbol: 'IUSDT',
-  faucetId: 'mtst1ap9q8svy8psvnvt4stqzr4tr4c077f9y_qr7qqq9wr6w',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'USDC'
-};
-
-export const SWAP_TOKENS: SwapToken[] = [TOKEN_IMIDEN, TOKEN_IETH, TOKEN_IUSDT, TOKEN_IBTC];
-
 let _swapTokensOverride: SwapToken[] | undefined;
+let swapTokensVersion = 0;
+const swapTokenListeners = new Set<() => void>();
+
+export const getSwapTokensVersion = (): number => swapTokensVersion;
+
+/** Subscribe to override changes even when the bridge-config snapshot stays the same. */
+export const subscribeSwapTokens = (listener: () => void): (() => void) => {
+  swapTokenListeners.add(listener);
+  return () => {
+    swapTokenListeners.delete(listener);
+  };
+};
+
+/** The marks `components/TokenLogo` ships. */
+const TOKEN_MARKS: readonly string[] = ['MIDEN', 'ETH', 'USDC', 'BTC'];
+
+// The solver names no logo. Its tokens carry the ticker of the asset they stand for behind an 'I'
+// (IETH, IBTC, IMIDEN), so that asset's mark is the fallback; any other token keeps its own ticker.
+function logoSymbolFor(ticker: string): string {
+  const bare = ticker.startsWith('I') ? ticker.slice(1) : ticker;
+  return TOKEN_MARKS.includes(bare) ? bare : ticker;
+}
+
+// A faucet the reviewed document prices (bridged ETH, the Earn USDC) keeps the document's symbol: the solver's
+// assets can be stand-ins, and every reader of a token's price must agree with the spending cap.
+function listedSwapToken(token: SwapPairsToken, allowlist: readonly PricedFaucet[]): SwapToken {
+  const faucetId = normalizedFaucetId(token.faucetId);
+  const priceSymbol =
+    allowlist.find(entry => normalizedFaucetId(entry.faucetId) === faucetId)?.priceSymbol ?? token.binanceAsset;
+  return {
+    symbol: token.ticker,
+    faucetId,
+    decimals: token.decimals,
+    logoSymbol: logoSymbolFor(token.ticker),
+    ...(priceSymbol === undefined ? {} : { priceSymbol })
+  };
+}
+
+/** The solver's tokens in its order, or an E2E suite's override; never the native asset. */
+function listedSwapTokens(): SwapToken[] {
+  if (_swapTokensOverride) return _swapTokensOverride;
+  const tokens = selectSwapPairs(getBridgeConfigSnapshot())?.tokens ?? [];
+  const allowlist = bridgePriceAllowlist();
+  return tokens.map(token => listedSwapToken(token, allowlist));
+}
+
+const sameFaucet = (a: string, b: string): boolean => normalizedFaucetId(a) === normalizedFaucetId(b);
 
 /**
- * Live registry read — all consumers use this so an E2E override takes effect.
+ * Live registry read — all consumers use this so a loaded registry, and an E2E override, take
+ * effect. A component reads it through `useSwapTokens`, which re-renders when the registry lands.
  *
  * The native asset ID is network-derived and may not be available during the
- * first render. Once discovery populates the synchronous cache, include MIDEN
- * alongside the fixed DEX test tokens. Callers naturally re-read this accessor
- * on their next render (for example, when opening the token drawer).
+ * first render. Once discovery populates the synchronous cache, put MIDEN ahead
+ * of the listed tokens. Callers naturally re-read this accessor on their next
+ * render (for example, when opening the token drawer).
  */
 export const getSwapTokens = (): SwapToken[] => {
-  if (_swapTokensOverride) return _swapTokensOverride;
+  const listed = listedSwapTokens();
+  if (_swapTokensOverride) return listed;
 
   const nativeAssetId = getNativeAssetIdSync();
-  if (!nativeAssetId || SWAP_TOKENS.some(token => token.faucetId === nativeAssetId)) return SWAP_TOKENS;
+  if (!nativeAssetId || listed.some(token => sameFaucet(token.faucetId, nativeAssetId))) return listed;
 
   const nativeMetadata = getNativeAssetMetadataSync();
+  if (!nativeMetadata || !hasKnownScale({ ...nativeMetadata, name: nativeMetadata.symbol })) return listed;
   return [
-    ...SWAP_TOKENS,
     {
-      symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
+      symbol: nativeMetadata.symbol,
       faucetId: nativeAssetId,
-      decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
-      logoSymbol: 'MIDEN'
-    }
+      decimals: nativeMetadata.decimals,
+      logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
+    },
+    ...listed
   ];
+};
+
+/**
+ * The tokens `faucetId` swaps with: every token that shares a solver pair with it, in the
+ * registry's order. A pair swaps in both directions, so this is the "To" list for a "From" token
+ * and the reverse. A token in no pair (a native asset the solver does not list) has none. An E2E
+ * override has no pairs, so there every other token is a partner.
+ */
+export const getSwapPartners = (faucetId: string): SwapToken[] => {
+  const others = getSwapTokens().filter(token => !sameFaucet(token.faucetId, faucetId));
+  if (_swapTokensOverride) return others;
+  const pairs = selectSwapPairs(getBridgeConfigSnapshot())?.pairs ?? [];
+  const partnerIds = pairs
+    .filter(pair => pair.faucetIds.some(id => sameFaucet(id, faucetId)))
+    .flatMap(pair => pair.faucetIds.filter(id => !sameFaucet(id, faucetId)));
+  return others.filter(token => partnerIds.some(id => sameFaucet(id, token.faucetId)));
+};
+
+/** Whether the solver lists a pair of these two faucets, in any spelling of either id. */
+export const isSwapPair = (faucetId: string, otherFaucetId: string): boolean =>
+  getSwapPartners(faucetId).some(token => sameFaucet(token.faucetId, otherFaucetId));
+
+export interface SwapPair {
+  offer: SwapToken;
+  request: SwapToken;
+}
+
+/**
+ * The pair the swap form opens on. The pay side is the network's native asset (USDCX on testnet,
+ * discovered in `lib/miden-chain/native-asset`) and the receive side its first partner, when the
+ * solver lists a pair of the native asset. Else it is the solver's first pair, in the order the
+ * pair names its faucets: that is also the pair a cold start shows until discovery of the native
+ * asset has landed, which happens once per network, since the id is stored. An E2E override has
+ * no pairs, so there it is the override's first two tokens.
+ * Null while the registry is not loaded or lists no pair.
+ */
+export const getDefaultSwapPair = (): SwapPair | null => {
+  const listed = listedSwapTokens();
+  if (_swapTokensOverride) {
+    const [offer, request] = listed;
+    return offer && request ? { offer, request } : null;
+  }
+  const nativeId = getNativeAssetIdSync();
+  const native = nativeId ? getSwapTokenByFaucetId(nativeId) : undefined;
+  const [nativePartner] = nativeId ? getSwapPartners(nativeId) : [];
+  if (native && nativePartner) return { offer: native, request: nativePartner };
+  const firstPair = selectSwapPairs(getBridgeConfigSnapshot())?.pairs[0];
+  const [offer, request] = (firstPair?.faucetIds ?? []).map(faucetId =>
+    listed.find(token => sameFaucet(token.faucetId, faucetId))
+  );
+  return offer && request ? { offer, request } : null;
 };
 
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
 export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
   _swapTokensOverride = tokens;
+  swapTokensVersion++;
+  for (const listener of swapTokenListeners) listener();
 };
 
+/** The registry token for a faucet in any spelling of its id (a persisted row's bech32, the solver's hex). */
 export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined =>
-  faucetId ? getSwapTokens().find(token => token.faucetId === faucetId) : undefined;
+  faucetId ? getSwapTokens().find(token => sameFaucet(token.faucetId, faucetId)) : undefined;
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
-/**
- * A single quote for an (offered, requested) pair from the DEX `swap-eta`
- * endpoint. It rolls the oracle fair rate together with live fill signals, so
- * the swap flow needs just this one call instead of two per-token price fetches.
- */
-export interface SwapEta {
-  /** Does the order cross resting liquidity right now (at the asked price)? */
-  canFill: boolean;
-  /** Next-batch ETA in seconds, set when `canFill` is true. */
-  estimatedSeconds: number | null;
-  /** Is the asked price worse than the live oracle? */
-  offMarket: boolean;
-  /** Oracle fair rate: requested whole tokens per 1 offered whole token. */
-  marketPrice: string;
-  /** Median settle time (s) for this pair over the last 24h, null if no data. */
-  median24hSeconds: number | null;
+/** The native fixed quote, verified list assets, then bridge entries. Faucet identity sets coverage. */
+function pricedFaucets(network: string = getEffectiveNetworkName()): { faucetId: string; priceSymbol: string }[] {
+  const nativeId = getNativeAssetIdSync();
+  const metadata = getNativeAssetMetadataSync();
+  const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
+  const fixedNative =
+    nativeId && syncedId && normalizedFaucetId(nativeId) === normalizedFaucetId(syncedId)
+      ? [{ faucetId: nativeId, priceSymbol: 'USDCX' }]
+      : [];
+  return [
+    ...fixedNative,
+    ...Array.from(peekTokenPriceAssets(network) ?? [], ([faucetId, priceSymbol]) => ({
+      faucetId,
+      priceSymbol
+    })),
+    ...bridgePriceAllowlist()
+  ];
+}
+
+function matchPriceSymbol(
+  canonicalId: string,
+  symbol: string,
+  canonicalize: (faucetId: string) => string,
+  network?: string
+): string | undefined {
+  const priced = pricedFaucets(network).find(entry => canonicalize(entry.faucetId) === canonicalId);
+  if (priced) return priced.priceSymbol;
+  return isE2eFixtureSymbol(symbol) ? symbol : undefined;
 }
 
 /**
- * Fetch a `SwapEta` for an offered → requested pair. Amounts are raw base units
- * (bigint); faucets are converted to their canonical hex account ids. The
- * oracle `marketPrice` is amount-independent, so passing `0n` for
- * `requestAmountRaw` still returns a usable rate to seed the receive field.
- *
- * TODO: hardcoded devnet host — move to per-network config before any
- * non-devnet use so quotes point at the correct feed for the active network.
+ * The symbol to look a held token's price up under, when the faucet and an allowlist entry reduce to
+ * one canonical id, whichever encoding each is spelled in; none for any other faucet, whatever its
+ * own symbol. The one exception is the E2E harness's fixture symbol, priced by symbol in E2E builds
+ * only. For display: an id the SDK cannot parse is compared as its raw text.
  */
-const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
-
-/** Abort a quote request that hasn't responded within this window. */
-const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
-
-export async function getSwapEta(
-  offerToken: SwapToken,
-  offerAmountRaw: bigint,
-  requestToken: SwapToken,
-  requestAmountRaw: bigint
-): Promise<SwapEta> {
-  const params = new URLSearchParams({
-    offered_faucet: accountIdStringToSdk(offerToken.faucetId).toString(),
-    offered_amount: offerAmountRaw.toString(),
-    requested_faucet: accountIdStringToSdk(requestToken.faucetId).toString(),
-    requested_amount: requestAmountRaw.toString()
-  });
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SWAP_ETA_FETCH_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!res.ok) {
-    throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
-  }
-  const json: SwapEta = await res.json();
-  return json;
+export function priceSymbolFor(faucetId: string, symbol: string): string | undefined {
+  return matchPriceSymbol(normalizedFaucetId(faucetId), symbol, normalizedFaucetId);
 }
 
 /**
- * Fraction shaved off the fair USD-derived quote so a filler/solver that
- * consumes the PSWAP note has margin to do so profitably. The user receives
- * `1 - SOLVER_MARGIN` of the price-fair amount.
+ * `priceSymbolFor` for the spending cap, over any spelling of the spend's faucet id. The spend's id
+ * and every allowlist entry are canonicalized when it runs, under one network, so an id canonicalized
+ * before a network switch still matches.
+ * Either side the SDK cannot parse throws rather than dropping out of the match, since its raw text
+ * would miss and count a priced spend as nothing. `network` names the verified list to match, so a
+ * valuation keeps the list of the network it started on.
  */
-export const SOLVER_MARGIN = 0.05;
+export function strictPriceSymbolFor(faucetId: string, symbol: string, network?: string): string | undefined {
+  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId, network);
+}
+
+/** The distinct assets for the current network. The first entry for each faucet wins. */
+export function getPriceAssets(): Map<string, string> {
+  const assets = new Map<string, string>();
+  for (const entry of pricedFaucets()) {
+    const id = normalizedFaucetId(entry.faucetId);
+    if (!assets.has(id)) assets.set(id, entry.priceSymbol);
+  }
+  return assets;
+}
+
+export function getPriceSymbols(): string[] {
+  return [...new Set(getPriceAssets().values())];
+}
+
+export const _allowlistedPriceSymbolsForTest = getPriceSymbols;
 
 /**
- * Derive the requested-token amount from the offered amount and the oracle
- * `marketPrice` (requested whole tokens per 1 offered whole token): the fair
- * quote is `offered * marketPrice`, discounted by `SOLVER_MARGIN` so a filler
- * has margin to take the order. Rounded down to the requested token's
- * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
- * or a non-positive result).
+ * A held token's quote uses its verified price asset, or none when the feed does not quote it or
+ * the faucet is not one the wallet prices. A token without a faucet id has no quote.
  */
-export function deriveRequestAmount(offerAmount: string, marketPrice: string | undefined, decimals: number): string {
-  const offered = Number(offerAmount);
-  const rate = Number(marketPrice);
-  if (!offered || !rate || !Number.isFinite(rate)) {
-    return '';
-  }
-  const quote = offered * rate * (1 - SOLVER_MARGIN);
-  if (!Number.isFinite(quote) || quote <= 0) {
-    return '';
-  }
-  const formatted = toFixedRoundedDown(quote, decimals).replace(/\.?0+$/, '');
-  return formatted === '0' ? '' : formatted;
+export function tokenQuote(
+  prices: TokenPrices,
+  faucetId: string | undefined,
+  symbol: string
+): TokenPriceInfo | undefined {
+  return faucetId ? quotedPrice(prices, priceSymbolFor(faucetId, symbol)) : undefined;
 }

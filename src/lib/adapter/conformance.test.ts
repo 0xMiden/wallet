@@ -16,14 +16,34 @@
  *
  * `@miden-sdk/miden-wallet-adapter-miden` only gained `conformance` after the
  * packages moved into `0xMiden/web-sdk`. Until a release ships that, the import
- * fails and this suite skips loudly rather than failing the build. It starts
- * running by itself on the next adapter bump — nothing to remember.
+ * yields no suite and this one skips loudly rather than failing the build.
+ *
+ * Two things had to be true before that skip could ever end, and neither was
+ * free. The adapter publishes only a `module` field — no `main`, no `exports`
+ * — so its ESM bundle needs `transformIgnorePatterns` to let @swc/jest touch
+ * it; without that the `require` below dies on `Unexpected token 'export'`.
+ * And `-base` has a root manual mock, which jest applies to node_modules
+ * automatically, so `-miden` loaded against it and failed to extend a class
+ * that was no longer there. Both are handled (jest.config.ts, and the
+ * `jest.unmock` calls below); the skip now genuinely means "no export yet",
+ * and it ends by itself on the release that ships one.
  */
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 import fs from 'fs';
 import { JSDOM } from 'jsdom';
 import path from 'path';
+
+// `__mocks__/@miden-sdk/miden-wallet-adapter-base.ts` is a root manual mock,
+// which jest applies to a node_modules package without anyone asking. Every
+// other test wants that. This one must not have it: it is the test that loads
+// the real interface, and `-miden` extends a class from `-base`, so the mock
+// turns the import into "Class extends value undefined".
+jest.unmock('@miden-sdk/miden-wallet-adapter-base');
+// Do not unmock adapter-miden here: 0.17.0-rc.3 publishes only `module`
+// (no `main`), and jest.unmock of the package name throws "Cannot find module"
+// before loadConformance's try/catch can skip. The require inside
+// loadConformance still skips until a `main` or `exports` field lands.
 
 type Case = { name: string; run: () => void | Promise<void> };
 type ConformanceModule = {
@@ -53,7 +73,7 @@ const conformance = loadConformance();
  * that nobody records is how the list rots back into being wrong.
  */
 const KNOWN_GAPS: Record<string, string[]> = {
-  'mobile (dApp browser injection script)': ['createAccount'],
+  'mobile (dApp browser injection script)': [],
   'desktop (Tauri injection script)': ['requestGuardianInfo', 'createAccount']
 };
 

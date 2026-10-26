@@ -1,41 +1,164 @@
 /**
- * Top-level launcher composition for the embedded dApp browser.
+ * Top-level launcher composition for the embedded dApp browser: Explore, laid out like an app store.
  *
  * Stack (top → bottom):
- *   <TabHeader/>         "Explore" title + settings button
- *   <HeroSearch/>        search/URL bar
- *   <AppsGrid/>          Two curated faucet app cards
- *   <RecentsRow/>        1-row of up to 4 recent opens
+ *   <TabRootHeader/>    the shared tab-root band: "Explore" title with a search icon top right that
+ *                       swaps the title for a field (it searches the catalog and opens a typed or
+ *                       pasted URL), and under it the category row — All, Finance, Arcade, Others —
+ *                       drawn by the same control, at the same height, as Activity's filters
+ *   <ExploreSections/>  the sections of the effective network's catalog (`lib/explore-config`, drawn
+ *                       through `lib/dapp-browser/explore-catalog`) for the chosen chip, then recents
  *
- * The launcher reads recents from `recent-dapps.ts` storage on mount.
- * Card + tile taps call `onOpen(url)` which the parent
- * (`BrowserScreen`) handles by creating a session and switching to
- * `<DappActive>`.
+ * The launcher reads recents from `recent-dapps.ts` storage on mount. Every tap calls
+ * `onOpen(url)`, which the parent (`BrowserScreen`) handles by creating a session and switching to
+ * `<DappActive>`. On its first mount the page reveals itself top to bottom (`useExploreMotion`).
  */
 
-import React, { type FC, useEffect, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { TabHeader } from 'components/ui';
-import { getRecentDapps, type RecentDapp } from 'lib/dapp-browser';
+import { IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
+import { TabHeaderAction, TabRootHeader } from 'components/ui';
+import type { SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { useExploreMotion } from 'lib/animation';
+import {
+  EXPLORE_FILTERS,
+  getExploreCatalog,
+  getRecentDapps,
+  localizeExploreCatalog,
+  resolveExploreSections,
+  searchExploreCatalog,
+  type ExploreFilter,
+  type RecentDapp,
+  type ResolvedExploreSection
+} from 'lib/dapp-browser';
+import { useExploreCatalog } from 'lib/explore-config/use-explore-catalog';
+import { hapticLight } from 'lib/mobile/haptics';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
-import { AppsGrid } from './AppsGrid';
-import { HeroSearch } from './HeroSearch';
-import { RecentsRow } from './RecentsRow';
+import { ArcadeLanding } from './ArcadeLanding';
+import { type ExploreEmptyState, ExploreSections } from './ExploreSections';
+import { hasRevealed, markRevealed } from './reveal-once';
+import { urlForQuery } from './search-url';
 
 interface DappLauncherProps {
   onOpen: (url: string) => void;
-  /** PR-1's BrowserScreen still passes this; PR-2 reads recents from storage instead.  */
-  recentUrls?: string[];
+  requestedFilter?: ExploreFilter;
+  entryIntent?: number;
+  onChooseFilter?: (filter: ExploreFilter) => void;
 }
 
-export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
-  const { t } = useTranslation();
-  const [recents, setRecents] = useState<RecentDapp[]>([]);
+/** The categories are header chrome now, so the reveal starts at the first section. */
+const FIRST_SECTION_REVEAL = 0;
 
-  // Load recents from preferences on mount.
+export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, onChooseFilter, entryIntent }) => {
+  const { t, i18n } = useTranslation();
+  const active = usePageActive();
+  const motionTokens = useExploreMotion();
+  const [recents, setRecents] = useState<RecentDapp[]>([]);
+  const [keptFilter, setFilter] = useState<ExploreFilter>('all');
+  const filter = requestedFilter ?? keptFilter;
   useEffect(() => {
+    if (requestedFilter) setFilter(requestedFilter);
+  }, [requestedFilter]);
+  const published = useExploreCatalog();
+  // Pending for the one storage read before the network's floor is known: nothing is drawn, not even the empty state.
+  const pending = published === undefined;
+  // The language the rest of the page renders in, so the document's text matches it.
+  const locale = i18n.resolvedLanguage ?? 'en';
+  const catalog = useMemo(
+    () => localizeExploreCatalog(getExploreCatalog(published ?? null), locale, t('recents')),
+    [published, locale, t]
+  );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const searching = query.trim().length > 0;
+  const results = useMemo(() => searchExploreCatalog(catalog, filter, query), [catalog, filter, query]);
+
+  const categories = useMemo<SegmentedControlItem<ExploreFilter>[]>(
+    () => EXPLORE_FILTERS.map(f => ({ id: f.id, label: t(f.labelKey), 'data-testid': `explore-chip-${f.id}` })),
+    [t]
+  );
+
+  // While searching, the sections collapse into one results list (or "No results").
+  const sections = useMemo<ResolvedExploreSection[]>(() => {
+    if (!searching) return resolveExploreSections(catalog, filter);
+    if (results.length === 0) return [];
+    const itemIds = results.map(item => item.id);
+    return [{ section: { id: 'search-results', kind: 'list', title: t('exploreResults'), itemIds }, items: results }];
+  }, [catalog, filter, searching, results, t]);
+
+  const empty: ExploreEmptyState = searching
+    ? {
+        key: 'search',
+        icon: IconName.Search,
+        title: t('exploreNoResultsTitle'),
+        description: t('exploreNoResultsDescription')
+      }
+    : {
+        key: filter,
+        icon: EXPLORE_FILTERS.find(f => f.id === filter)?.icon ?? IconName.Apps,
+        title: t('exploreComingSoonTitle'),
+        description: t('exploreComingSoonDescription')
+      };
+
+  // As on Activity: the header's search button opens and closes the field, and closing clears it.
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery('');
+  }, []);
+  const toggleSearch = () => (searchOpen ? closeSearch() : setSearchOpen(true));
+  useMobileBackHandler(() => {
+    if (!searchOpen) return false;
+    closeSearch();
+    return true;
+  }, [searchOpen, closeSearch]);
+
+  const submitSearch = () => {
+    const url = urlForQuery(query, results[0]?.url);
+    if (!url) return;
+    hapticLight();
+    onOpen(url);
+    closeSearch();
+  };
+
+  // The reveal plays on the first mount of the session only (see `reveal-once.ts`); after that
+  // first commit, a section that enters is answering a chip and comes in without the stagger.
+  const [reveal] = useState(() => motionTokens.reveal && !hasRevealed());
+  // The first reveal ends when the USER replaces what is on the page (a chip, a query), not on the
+  // first commit. Recents arrive from a promise that resolves after mount, so ending it on the
+  // commit made the LAST section rise first, ahead of every section above it. The stagger belongs
+  // to a reveal that is actually playing: on a return from a dApp `reveal` is already false, and a
+  // section arriving late then enters like one answering a chip, with no delay in front of it.
+  const [settled, setSettled] = useState(false);
+  useLayoutEffect(() => {
+    if (entryIntent === undefined) return;
+    // An explicit Home → Arcade push reveals the landing, not a retained search.
+    // Ordinary tab returns, chip replacements and Back keep their search state.
+    setSearchOpen(false);
+    setQuery('');
+    setSettled(true);
+  }, [entryIntent]);
+  useEffect(() => {
+    markRevealed();
+  }, []);
+
+  const chooseFilter = (next: ExploreFilter) => {
+    setSettled(true);
+    setFilter(next);
+    onChooseFilter?.(next);
+  };
+
+  const changeQuery = (next: string) => {
+    setSettled(true);
+    setQuery(next);
+  };
+
+  useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     getRecentDapps()
       .then(list => {
@@ -47,19 +170,64 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [active]);
 
   return (
     <>
-      <TabHeader title={t('explore')} />
+      <TabRootHeader
+        title={t('explore')}
+        search={{
+          open: searchOpen,
+          value: query,
+          onChange: changeQuery,
+          placeholder: t('searchDapps'),
+          onSubmit: submitSearch,
+          onEscape: closeSearch,
+          inputMode: 'url',
+          'data-testid': 'dapp-hero-search'
+        }}
+        actions={
+          <TabHeaderAction
+            label={t('exploreSearch')}
+            icon={IconName.Search}
+            active={searchOpen}
+            onClick={toggleSearch}
+            data-testid="explore-search-toggle"
+          />
+        }
+        filter={{
+          items: categories,
+          value: filter,
+          onChange: chooseFilter,
+          'aria-label': t('exploreCategoriesLabel'),
+          'data-testid': 'explore-category-chips'
+        }}
+      />
 
-      <main className="grow space-y-5 overflow-y-auto pb-24 pt-2" style={{ overscrollBehavior: 'contain' }}>
-        <HeroSearch onSubmit={onOpen} />
-
-        <AppsGrid onOpen={onOpen} />
-
-        <RecentsRow recents={recents} onOpen={onOpen} />
-      </main>
+      {/* `layoutScroll`, so the sections' layout moves measure through the scroll. */}
+      {/* `pt-2` and nothing more: the first section title sits right under the category row. */}
+      <motion.main
+        layoutScroll
+        className="grow overflow-y-auto pt-2 pb-[calc(6rem+var(--wallet-control-safe-bottom,0px))]"
+        style={{ overscrollBehavior: 'contain' }}
+        data-testid="explore-launcher"
+      >
+        {filter === 'arcade' && !searching ? (
+          <ArcadeLanding catalog={catalog} pending={pending} onOpen={onOpen} />
+        ) : (
+          !pending && (
+            <ExploreSections
+              sections={sections}
+              recents={recents}
+              empty={empty}
+              onOpen={onOpen}
+              reveal={reveal}
+              firstRevealIndex={FIRST_SECTION_REVEAL}
+              staggered={reveal && !settled}
+            />
+          )
+        )}
+      </motion.main>
     </>
   );
 };

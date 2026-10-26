@@ -3,11 +3,16 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Numpad } from 'components/Numpad';
+import { PasscodeDots } from 'components/PasscodeDots';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 export const PASSCODE_LENGTH = 6;
 
 export interface PasscodeEntryProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   /** Fired shortly after the sixth digit is entered. */
   onSubmit: (code: string) => void;
   /** Fired on every keypad press with the current value (e.g. to clear a stale error upstream). */
@@ -30,11 +35,13 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
   onSubmit,
   onChange,
   error,
+  errorId,
   subtitle,
   disabled = false,
   isSubmitting = false,
   className
 }) => {
+  useUserVisibleError(error ? errorId : null, 'passcode');
   const { t } = useTranslation();
   const [code, setCode] = useState('');
   // Synchronous mirror of `code`, updated inside the tap handlers so that several
@@ -46,11 +53,14 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
   // unlock, or a fresh inline onSubmit identity) cannot re-fire the same
   // passcode. Guarantees exactly one submit per distinct completed code.
   const submittedCodeRef = useRef<string | null>(null);
+  // Counts errors shown; each new value shakes the dots once.
+  const [errorCount, setErrorCount] = useState(0);
 
   useEffect(() => {
     if (error) {
       setCode('');
       codeRef.current = '';
+      setErrorCount(count => count + 1);
     }
   }, [error]);
 
@@ -97,25 +107,16 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
       className={cn('flex flex-col items-center', className)}
       data-testid="passcode-entry"
     >
-      <div className="flex items-center gap-3.5" aria-hidden="true">
-        {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
-          const filled = index < code.length;
-          return (
-            <div
-              key={index}
-              className={cn('w-3.5 h-3.5 rounded-full border-2 border-[#C7C7CC]', filled && 'bg-[#C7C7CC]')}
-            />
-          );
-        })}
-      </div>
+      <PasscodeDots filled={code.length} length={PASSCODE_LENGTH} errorKey={errorCount} />
       <p
         role="status"
         aria-live="polite"
-        className={cn('min-h-5 text-sm text-center mt-3 wrap-break-word', error ? 'text-red-500' : 'text-text-muted')}
+        className={cn('min-h-5 text-sm text-center mt-3 wrap-break-word', error ? 'text-negative-ink' : 'text-muted')}
       >
         {hint}
       </p>
-      <Numpad className="mt-6" onDigit={handleDigit} onDelete={handleDelete} />
+      {/* The same guards the handlers use, so a refused press does not animate or buzz. */}
+      <Numpad className="mt-6" onDigit={handleDigit} onDelete={handleDelete} disabled={disabled || isSubmitting} />
     </div>
   );
 };

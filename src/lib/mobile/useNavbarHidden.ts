@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Reactively read the `data-hide-navbar` body flag that
- * `useHideNavbarWhileOpen` sets whenever a focused sub-surface is up — the
- * keyboard is visible, a drawer/flow is open, or the send flow is past the
- * recipient step. Consumers use it to suppress ambient gestures that would
- * otherwise fight that surface, e.g. the home carousel's horizontal swipe
- * hijacking a nested send sub-step and overlaying two screens (#481).
+ * Reactively read the `data-hide-navbar` body flag that `useHideNavbarWhileOpen` sets whenever a
+ * drawer, flow, or the send flow past the recipient step is up, or that its sibling
+ * `holdNavbarHidden()` sets while the keyboard is up (called from lib/mobile/keyboard-inset).
+ * Consumers use it to suppress ambient gestures that would otherwise fight that surface, e.g. the
+ * home carousel's horizontal swipe hijacking a nested send sub-step and overlaying two screens
+ * (#481).
  */
 export function useNavbarHidden(): boolean {
   const [hidden, setHidden] = useState(

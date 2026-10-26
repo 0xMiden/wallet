@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 
-import { useLocalStorage } from './local-storage';
+import { useLocalStorage, readLocalStorage, writeLocalStorage } from './local-storage';
 
 // Mock the logger
 jest.mock('shared/logger', () => ({
@@ -103,5 +103,45 @@ describe('useLocalStorage', () => {
 
     expect(result.current[0]).toBe('default');
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+describe('readLocalStorage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  it("returns what another window stored after this window's hook read the key", () => {
+    renderHook(() => useLocalStorage('read-key', 1));
+    localStorage.setItem('read-key', JSON.stringify(6));
+    expect(readLocalStorage('read-key', 1)).toBe(6);
+  });
+});
+
+describe('writeLocalStorage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('stores JSON a later read returns', () => {
+    writeLocalStorage('write-key', { attempt: 4 });
+
+    expect(localStorage.getItem('write-key')).toBe(JSON.stringify({ attempt: 4 }));
+    expect(readLocalStorage('write-key', null)).toEqual({ attempt: 4 });
+  });
+
+  it('returns true when the value lands', () => {
+    expect(writeLocalStorage('write-key', 4)).toBe(true);
+  });
+
+  it('returns false when setItem throws', () => {
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Storage full');
+    });
+
+    expect(writeLocalStorage('write-key', 4)).toBe(false);
+
+    jest.restoreAllMocks();
   });
 });

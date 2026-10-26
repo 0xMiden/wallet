@@ -1,18 +1,44 @@
+import BigNumber from 'bignumber.js';
+import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
+import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
+import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
-import { installSwapTestHooks } from 'lib/miden/swap/test-hooks';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
+import {
+  applyMetadataOverride,
+  applyOverrideFor,
+  canOverrideMetadata,
+  isNativeFaucetId,
+  overrideFor,
+  TokenMetadataOverride,
+  TokenMetadataOverrides,
+  writeTokenMetadataOverride
+} from 'lib/miden/metadata/overrides';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import {
+  parsePersistedSpendingLimit,
+  parseSerializedSpendingLimitAssessment,
+  toSerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
+import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
+import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
-import { fetchBalances } from './utils/fetchBalances';
+import { balancePrice } from './utils/balancePrice';
+import { balanceReadStateForTest, fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
 let intercom: IIntercomClient | null = null;
@@ -26,6 +52,15 @@ function getIntercom(): IIntercomClient {
 // Helper to make requests to backend
 async function request<T extends WalletRequest>(req: T): Promise<WalletResponse> {
   const res = await getIntercom().request(req);
+  // An adapter that has no `case` for this message type falls through to its
+  // `default:` arm and resolves `undefined`. Name the unhandled type instead of
+  // letting `'type' in undefined` throw a bare TypeError — that TypeError used to
+  // surface in the UI as e.g. "Cannot read properties of undefined (reading
+  // 'type')" under the password field of Reveal Hot Key, reading to the user as a
+  // wrong password rather than as a missing handler.
+  if (res == null) {
+    throw new Error(`No handler for request type: ${String(req.type)}`);
+  }
   if (!('type' in res)) {
     throw new Error('Invalid response received.');
   }
@@ -36,6 +71,178 @@ async function request<T extends WalletRequest>(req: T): Promise<WalletResponse>
 function assertResponse(condition: boolean): asserts condition {
   if (!condition) {
     throw new Error('Invalid response received.');
+  }
+}
+
+/**
+ * The faucet's own metadata of each token, as last given to the store.
+ * `assetsMetadata` holds it with the user's override applied, so a cleared override needs this copy.
+ */
+const faucetAssetsMetadata = new Map<string, AssetMetadata>();
+
+/** Exported for tests: the map is module-wide and would otherwise leak between cases. */
+export function __resetFaucetAssetsMetadataForTest(): void {
+  faucetAssetsMetadata.clear();
+}
+
+function faucetMetadataFor(state: WalletStore, faucetId: string): AssetMetadata | undefined {
+  const recorded = faucetAssetsMetadata.get(faucetId);
+  if (recorded) return recorded;
+  // An entry that no override changed is the faucet's own record.
+  return state.tokenMetadataOverrides[faucetId] === undefined ? state.assetsMetadata[faucetId] : undefined;
+}
+
+/**
+ * The faucet's own metadata of a token, never an entry an override made.
+ * Whether a faucet's metadata is fetched or adopted depends on this, not on `assetsMetadata`:
+ * an override on a faucet with no record makes an entry there, and the faucet's record must still come.
+ */
+export function faucetMetadataOf(faucetId: string): AssetMetadata | undefined {
+  return faucetMetadataFor(useWalletStore.getState(), faucetId);
+}
+
+/** The metadata to show. Without the faucet's metadata, an override applies to the unknown-token placeholder. */
+function shownMetadata(
+  base: AssetMetadata | undefined,
+  override: TokenMetadataOverride | undefined
+): AssetMetadata | undefined {
+  if (base) return applyMetadataOverride(base, override);
+  if (override) return applyMetadataOverride(DEFAULT_TOKEN_METADATA, override);
+  return undefined;
+}
+
+/**
+ * Applies `overrides` to the store entries and the balance rows of `faucetIds`.
+ * A row's balance was divided by `10 ** row.metadata.decimals`, so a change of decimals shifts it
+ * by the difference. Home then shows the new scale at once, with no new read.
+ * The native token's rows and each account's display row (`balancesDisplayFaucetId`) keep the reader's build.
+ * Any other faucet that cannot be overridden shows its own record, so an override stored before the wallet named it goes.
+ */
+function withOverrides(
+  state: WalletStore,
+  overrides: TokenMetadataOverrides,
+  faucetIds: string[]
+): Pick<WalletStore, 'tokenMetadataOverrides' | 'assetsMetadata' | 'balances'> {
+  const assetsMetadata = { ...state.assetsMetadata };
+  let balances = state.balances;
+  for (const faucetId of faucetIds) {
+    if (isNativeFaucetId(faucetId)) continue;
+    const shown = shownMetadata(faucetMetadataFor(state, faucetId), overrideFor(overrides, faucetId));
+    if (shown) assetsMetadata[faucetId] = shown;
+    else delete assetsMetadata[faucetId];
+    // Without any metadata, the rows show the placeholder until the next balance read.
+    const rowMetadata = shown ?? DEFAULT_TOKEN_METADATA;
+    balances = Object.fromEntries(
+      Object.entries(balances).map(([account, rows]) => [
+        account,
+        rows.map(row =>
+          row.tokenId === faucetId && faucetId !== state.balancesDisplayFaucetId[account]
+            ? {
+                ...row,
+                metadata: rowMetadata,
+                tokenSlug: rowMetadata.symbol,
+                balance: new BigNumber(row.balance).shiftedBy(row.metadata.decimals - rowMetadata.decimals).toNumber(),
+                ...balancePrice(state.tokenPrices, faucetId, rowMetadata.symbol)
+              }
+            : row
+        )
+      ])
+    );
+  }
+  return { tokenMetadataOverrides: overrides, assetsMetadata, balances };
+}
+
+/**
+ * Lands an account's balance rows with the overrides current now: a read that began before a save or
+ * a reset built its rows from the overrides it read then. It records the account's `midenFaucetId`
+ * first, so `withOverrides` leaves that display row as the reader built it, as it does the native
+ * row. It re-applies every faucet the read built a row with an override for (`overriddenFaucetIds`),
+ * so a reset in flight still lands, and every faucet the store holds a record or an override for.
+ * Any other row stays as built: the store could only replace it with the placeholder.
+ */
+export function withLandedBalances(
+  state: WalletStore,
+  accountAddress: string,
+  rows: WalletStore['balances'][string],
+  midenFaucetId: string | null,
+  overriddenFaucetIds: ReadonlySet<string>,
+  snapshot?: BalanceSnapshot
+): Pick<
+  WalletStore,
+  | 'tokenMetadataOverrides'
+  | 'assetsMetadata'
+  | 'balances'
+  | 'balancesDisplayFaucetId'
+  | 'balancesLoading'
+  | 'balancesLastFetched'
+> {
+  const balancesDisplayFaucetId = { ...state.balancesDisplayFaucetId };
+  if (midenFaucetId === null) delete balancesDisplayFaucetId[accountAddress];
+  else balancesDisplayFaucetId[accountAddress] = midenFaucetId;
+  const landed = { ...state, balances: { ...state.balances, [accountAddress]: rows }, balancesDisplayFaucetId };
+  const faucetIds = rows
+    .map(row => row.tokenId)
+    .filter(
+      id =>
+        overriddenFaucetIds.has(id) ||
+        state.tokenMetadataOverrides[id] !== undefined ||
+        faucetMetadataFor(state, id) !== undefined
+    );
+  const result = {
+    ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
+    balancesDisplayFaucetId,
+    balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
+    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
+  };
+  const finalRows = result.balances[accountAddress];
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  return result;
+}
+
+function withTokenMetadataOverride(
+  state: WalletStore,
+  faucetId: string,
+  override: TokenMetadataOverride | undefined
+): Pick<WalletStore, 'tokenMetadataOverrides' | 'assetsMetadata' | 'balances'> {
+  const overrides = { ...state.tokenMetadataOverrides };
+  if (override === undefined) delete overrides[faucetId];
+  else overrides[faucetId] = override;
+  return withOverrides(state, overrides, [faucetId]);
+}
+
+/**
+ * Shows the change at once, then stores it.
+ * When the write fails, the previous override of this faucet comes back, and the call rejects.
+ */
+async function changeTokenMetadataOverride(
+  faucetId: string,
+  override: TokenMetadataOverride | undefined
+): Promise<void> {
+  const previous = useWalletStore.getState().tokenMetadataOverrides[faucetId];
+  useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, override));
+  try {
+    await writeTokenMetadataOverride(faucetId, override);
+  } catch (error) {
+    useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, previous));
+    throw error;
+  }
+}
+
+/**
+ * Drops the decimals from the override of each faucet whose own record has a known scale.
+ * The user stated them while the scale was unknown. Kept, they would come back as a known scale
+ * whenever the record is missing again: a failed fetch, a schema clear, a start before the cache loads.
+ * Runs wherever a record or an override arrives, after the state that records it.
+ */
+function retireStatedDecimals(faucetIds: string[]): void {
+  const state = useWalletStore.getState();
+  for (const faucetId of faucetIds) {
+    const override = state.tokenMetadataOverrides[faucetId];
+    if (override?.decimals === undefined || !canOverrideMetadata(faucetId)) continue;
+    if (!hasKnownScale(faucetMetadataFor(state, faucetId))) continue;
+    changeTokenMetadataOverride(faucetId, { name: override.name, symbol: override.symbol }).catch(error =>
+      console.warn('Token metadata override update failed', error)
+    );
   }
 }
 
@@ -53,9 +260,11 @@ export const useWalletStore = create<WalletStore>()(
     balances: {},
     balancesLoading: {},
     balancesLastFetched: {},
+    balancesDisplayFaucetId: {},
 
     // Initial assets state
     assetsMetadata: {},
+    tokenMetadataOverrides: {},
 
     // Initial UI state
     selectedNetworkId: null,
@@ -66,6 +275,7 @@ export const useWalletStore = create<WalletStore>()(
     fiatRates: null,
     fiatRatesLoading: false,
     tokenPrices: {},
+    tokenPricesStatus: 'loading',
 
     // Initial sync state
     isInitialized: false,
@@ -87,7 +297,6 @@ export const useWalletStore = create<WalletStore>()(
 
     // Initial extension sync state
     extensionClaimableNotes: null,
-    extensionClaimingNoteIds: new Set<string>(),
 
     // Sync action - updates store from backend state
     syncFromBackend: (state: MidenState) => {
@@ -101,36 +310,30 @@ export const useWalletStore = create<WalletStore>()(
         networks: state.networks,
         settings: state.settings,
         ownMnemonic: state.ownMnemonic,
+        seedPhraseStatus: state.seedPhraseStatus,
         isInitialized: true,
         lastSyncedAt: Date.now()
       });
 
-      // Immediately fetch balances when wallet becomes Ready (before any React effects)
+      // Immediately fetch balances when wallet becomes Ready (before any React effects).
+      // Through the store action: with nothing on screen it queues for the WASM lock rather
+      // than skipping, and called here it holds the lock before the first sync tick can, so an
+      // import's balance lands in one local read instead of after the sync (#1123).
       // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
       if (justBecameReady && state.currentAccount && !isExtension()) {
         const address = state.currentAccount.publicKey;
-        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
-          .then(balances => {
-            // `null` = WASM client was busy and the read was skipped; leave any
-            // prior balances in place and let a later poll refresh.
-            if (balances === null) return;
-            set(s => ({
-              balances: { ...s.balances, [address]: balances },
-              balancesLoading: { ...s.balancesLoading, [address]: false },
-              balancesLastFetched: { ...s.balancesLastFetched, [address]: Date.now() }
-            }));
-          })
+        get()
+          .fetchBalances(address, get().assetsMetadata)
           .catch(err => {
+            // Loading is left as it was: with nothing read yet, clearing it would show the
+            // zero placeholder as a real "$0.00". The balance poll retries.
             console.warn('[syncFromBackend] Initial balance fetch failed:', err);
-            set(s => ({
-              balancesLoading: { ...s.balancesLoading, [address]: false }
-            }));
           });
       }
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
@@ -138,18 +341,31 @@ export const useWalletStore = create<WalletStore>()(
         password,
         mnemonic,
         ownMnemonic,
-        guardianEndpoint
+        guardianEndpoint,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.NewWalletFromHotKeyRequest,
+        password,
+        keyPairPayload,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
+      // State will be synced via StateUpdated notification
+    },
+
+    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
-        walletAccounts
+        walletAccounts,
+        importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
@@ -229,6 +445,31 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    removeSeedPhrase: async password => {
+      const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
+      assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
+      const state = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(state.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(state.state);
+    },
+    provideRecoverySeed: async (transactionId, mnemonic, action) => {
+      const res = await request({
+        type: WalletMessageType.ProvideRecoverySeedRequest,
+        transactionId,
+        mnemonic,
+        action
+      });
+      assertResponse(res.type === WalletMessageType.ProvideRecoverySeedResponse);
+    },
+    prepareRecoveryTransaction: async transactionId => {
+      const res = await request({ type: WalletMessageType.PrepareRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.PrepareRecoveryResponse);
+      return { ready: res.ready, coldPublicKey: res.coldPublicKey };
+    },
+    releaseRecoveryAuthorization: async transactionId => {
+      const res = await request({ type: WalletMessageType.ReleaseRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.ReleaseRecoveryResponse);
+    },
     revealMnemonic: async password => {
       const res = await request({
         type: WalletMessageType.RevealMnemonicRequest,
@@ -236,6 +477,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.RevealMnemonicResponse);
       return res.mnemonic;
+    },
+
+    exportWalletBackupMaterial: async password => {
+      const res = await request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportWalletBackupMaterialResponse);
+      return res.material;
     },
 
     revealPrivateKey: async (accountPublicKey, password) => {
@@ -248,6 +498,23 @@ export const useWalletStore = create<WalletStore>()(
       return res.privateKey;
     },
 
+    exportAccountFile: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
+      // Buffer is IMPORTED, never the bare global, so the decode does not depend on whatever global
+      // Buffer a realm has: a stub whose `from()` ignores the encoding (as public/globals.js once
+      // installed) returns an EMPTY array, and the user is handed a 0-byte account file with a success message.
+      // A VIEW over the decoded buffer, not a copy of it, so the array the export screen zeroes is
+      // the only mutable plaintext of the account's auth key this realm holds. The three-argument
+      // form is bounded to this buffer's own region, so Node's shared pool is never exposed.
+      const decoded = Buffer.from(res.accountFileBase64, 'base64');
+      return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+    },
+
     revealHotKey: async (accountPublicKey, password) => {
       const res = await request({
         type: WalletMessageType.RevealHotKeyRequest,
@@ -255,21 +522,7 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
-      return res.hotPrivateKey;
-    },
-
-    revealGuardianKeys: async (accountPublicKey, password) => {
-      const res = await request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey,
-        password
-      });
-      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
-      return {
-        coldPrivateKey: res.coldPrivateKey,
-        coldPublicKey: res.coldPublicKey,
-        hotPublicKey: res.hotPublicKey
-      };
+      return res.keyPairPayload;
     },
 
     importAccount: async (privateKey, name) => {
@@ -305,6 +558,50 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    readSpendingLimit: async accountId => {
+      const res = await request({
+        type: WalletMessageType.GetSpendingLimitRequest,
+        accountId
+      });
+      assertResponse(res.type === WalletMessageType.GetSpendingLimitResponse);
+      return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
+    },
+
+    saveSpendingLimit: async (draft, observedRevision, strictlyAuthenticated) => {
+      const res = await request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: toSerializedSpendingLimitDraft(draft),
+        observedRevision,
+        strictlyAuthenticated
+      });
+      assertResponse(res.type === WalletMessageType.SaveSpendingLimitResponse);
+      return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
+    },
+
+    assessSpendingLimit: async (accountId, spends) => {
+      const res = await request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId,
+        spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: spend.amount.toString() }))
+      });
+      assertResponse(res.type === WalletMessageType.AssessSpendingLimitResponse);
+      return res.assessment === undefined ? undefined : parseSerializedSpendingLimitAssessment(res.assessment);
+    },
+
+    getStrictAuthenticationProtectors: async () => {
+      const res = await request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      assertResponse(res.type === WalletMessageType.GetStrictAuthenticationProtectorsResponse);
+      return res.protectors;
+    },
+
+    verifyStrictActionAuthentication: async credential => {
+      const res = await request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential
+      });
+      assertResponse(res.type === WalletMessageType.VerifyStrictActionAuthenticationResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({
@@ -327,9 +624,10 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
-    signWord: async (publicKey, wordHex) => {
+    signWord: async (publicKey, wordHex, transactionId) => {
       const res = await request({
         type: WalletMessageType.SignWordRequest,
+        transactionId,
         publicKey,
         wordHex
       });
@@ -356,13 +654,23 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
     },
 
-    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey) => {
       const res = await request({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey,
-        newHotPubKey
+        newHotPubKey,
+        expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
+    },
+
+    importHotKeyPair: async (accountPublicKey, keyPairPayload) => {
+      const res = await request({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey,
+        keyPairPayload
+      });
+      assertResponse(res.type === WalletMessageType.ImportHotKeyPairResponse);
     },
 
     setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
@@ -372,6 +680,17 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
+    },
+
+    revertGuardianEndpointAfterDiscard: async (accountPublicKey, discardedEndpoint, revertTo) => {
+      const res = await request({
+        type: WalletMessageType.RevertGuardianEndpointRequest,
+        accountPublicKey,
+        discardedEndpoint,
+        revertTo
+      });
+      assertResponse(res.type === WalletMessageType.RevertGuardianEndpointResponse);
+      return res.outcome;
     },
 
     setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
@@ -392,6 +711,25 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
     },
 
+    markHotKeyRotatedOut: async (accountPublicKey, hotPublicKey, onChainHotCommitment) => {
+      const res = await request({
+        type: WalletMessageType.MarkHotKeyRotatedOutRequest,
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      });
+      assertResponse(res.type === WalletMessageType.MarkHotKeyRotatedOutResponse);
+    },
+
+    retireRotatedOutHotKey: async (accountPublicKey, expectedHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.RetireRotatedOutHotKeyRequest,
+        accountPublicKey,
+        expectedHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
+    },
+
     checkGuardianDrift: async accountPublicKey => {
       const res = await request({
         type: WalletMessageType.CheckGuardianDriftRequest,
@@ -408,7 +746,7 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.ApplyUserGuardianEndpointResponse);
-      return res.applied;
+      return res.outcome;
     },
 
     startGuardianRecovery: async accountPublicKey => {
@@ -454,7 +792,19 @@ export const useWalletStore = create<WalletStore>()(
         id
       });
       assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
-      return { summaryBytes: res.summaryBytes, error: res.error };
+      return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
+    },
+
+    estimateUsdcxBurnFee: async (accountPublicKey, destinationChainId) => {
+      const res = await request({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey,
+        destinationChainId
+      });
+      assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
+      return res.outcome === 'measured'
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        : { outcome: res.outcome };
     },
 
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
@@ -514,12 +864,21 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
-    confirmDAppTransaction: async (id, confirmed, delegate) => {
+    confirmDAppUnlock: async id => {
+      const res = await request({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppUnlockConfirmationResponse);
+    },
+
+    confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id,
         confirmed,
-        delegate
+        delegate,
+        ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
       });
       assertResponse(res.type === MidenMessageType.DAppTransactionConfirmationResponse);
     },
@@ -555,40 +914,41 @@ export const useWalletStore = create<WalletStore>()(
 
     // Balance actions
     fetchBalances: async (accountAddress, tokenMetadatas) => {
-      const { balancesLoading, setAssetsMetadata } = get();
-
-      // Skip if already loading
-      if (balancesLoading[accountAddress]) {
-        return;
-      }
-
-      set({
-        balancesLoading: { ...balancesLoading, [accountAddress]: true }
-      });
+      // The one implementation of a balance read: the Ready-time read and the useAllBalances poll
+      // both come through here. The in-flight guard, not `balancesLoading`: Home shows its skeleton
+      // while loading, so a refresh that set it would swap the figures on screen for it (#1123).
+      if (fetchingAddresses.has(accountAddress)) return;
+      fetchingAddresses.add(accountAddress);
 
       try {
+        const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+        const network = effectiveNetwork();
+        const overridden = new Set<string>();
+        // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
+        let midenFaucetId: string | null = null;
+        let snapshot: BalanceSnapshot | undefined;
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
-          setAssetsMetadata,
-          tokenPrices: get().tokenPrices
+          setAssetsMetadata: get().setAssetsMetadata,
+          faucetMetadataOf,
+          onOverrideApplied: faucetId => overridden.add(faucetId),
+          onDisplayFaucetId: faucetId => {
+            midenFaucetId = faucetId;
+          },
+          onSnapshot: value => {
+            snapshot = value;
+          },
+          tokenPrices: get().tokenPrices,
+          waitForLock: get().balances[accountAddress] === undefined
         });
-        // `null` = WASM client was busy and the read was skipped; clear the
-        // loading flag but keep any prior balances and retry later.
-        if (balances === null) {
-          set(state => ({
-            balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
-          }));
-          return;
-        }
-        set(state => ({
-          balances: { ...state.balances, [accountAddress]: balances },
-          balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
-          balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
-        }));
-      } catch (error) {
-        set(state => ({
-          balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
-        }));
-        throw error;
+        // `null` = a refresh found the lock busy or the balance probe is fused; keep any
+        // prior balances. Only a landed read ends loading.
+        if (balances === null) return;
+        // A Developer Settings save repointed this realm while the read was out: these are the old
+        // node's balances. The metadata it wrote stays, each faucet's own record on any network.
+        if (effectiveNetwork() !== network) return;
+        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
+      } finally {
+        fetchingAddresses.delete(accountAddress);
       }
     },
 
@@ -598,23 +958,65 @@ export const useWalletStore = create<WalletStore>()(
       }));
     },
 
+    clearBalances: () => {
+      set({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+    },
+
     // Asset actions
     setAssetsMetadata: metadata => {
+      // A storage change event gives `undefined` for a removed key.
+      const entries = Object.entries(metadata ?? {});
+      for (const [faucetId, value] of entries) faucetAssetsMetadata.set(faucetId, value);
       set(state => ({
-        assetsMetadata: { ...state.assetsMetadata, ...metadata }
+        assetsMetadata: {
+          ...state.assetsMetadata,
+          ...Object.fromEntries(
+            entries.map(([faucetId, value]) => [
+              faucetId,
+              applyOverrideFor(faucetId, value, state.tokenMetadataOverrides)
+            ])
+          )
+        }
       }));
+      retireStatedDecimals(entries.map(([faucetId]) => faucetId));
     },
 
     fetchAssetMetadata: async assetId => {
       try {
-        const { base } = await fetchTokenMetadata(assetId);
+        const metadata = await fetchTokenMetadata(assetId);
+        faucetAssetsMetadata.set(assetId, metadata);
         set(state => ({
-          assetsMetadata: { ...state.assetsMetadata, [assetId]: base }
+          assetsMetadata: {
+            ...state.assetsMetadata,
+            [assetId]: applyOverrideFor(assetId, metadata, state.tokenMetadataOverrides)
+          }
         }));
-        return base;
+        retireStatedDecimals([assetId]);
+        return metadata;
       } catch {
         return null;
       }
+    },
+
+    setTokenMetadataOverride: async (faucetId, override) => {
+      if (!canOverrideMetadata(faucetId)) {
+        throw new Error('The metadata of this token cannot be overridden');
+      }
+      await changeTokenMetadataOverride(faucetId, override);
+    },
+
+    clearTokenMetadataOverride: async faucetId => {
+      if (get().tokenMetadataOverrides[faucetId] === undefined) return;
+      await changeTokenMetadataOverride(faucetId, undefined);
+    },
+
+    hydrateTokenMetadataOverrides: overrides => {
+      set(state => {
+        // A faucet that loses its override needs its entry back, so both maps' faucets are applied again.
+        const faucetIds = new Set([...Object.keys(state.tokenMetadataOverrides), ...Object.keys(overrides)]);
+        return withOverrides(state, overrides, [...faucetIds]);
+      });
+      retireStatedDecimals(Object.keys(overrides));
     },
 
     // Fiat currency actions
@@ -696,23 +1098,27 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Note toast actions (mobile only)
-    checkForNewNotes: (currentNoteIds: string[]) => {
+    checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => {
       const { seenNoteIds } = get();
 
       // Find note IDs that weren't previously seen
       const newNoteIds = currentNoteIds.filter(id => !seenNoteIds.has(id));
 
       if (newNoteIds.length > 0) {
-        // Update seen notes and show toast
         const updatedSeenNotes = new Set(seenNoteIds);
         for (const id of newNoteIds) {
           updatedSeenNotes.add(id);
         }
-        set({
-          seenNoteIds: updatedSeenNotes,
-          isNoteToastVisible: true,
-          noteToastShownAt: Date.now()
-        });
+        // Every new note is recorded as seen, but only one the user has to claim by hand shows the
+        // toast: a note first listed while the wallet was claiming it must not toast later, when a fee
+        // or setting change makes it manual (#811).
+        const notifiable = notifiableNoteIds ? new Set(notifiableNoteIds) : null;
+        const showToast = !notifiable || newNoteIds.some(id => notifiable.has(id));
+        set(
+          showToast
+            ? { seenNoteIds: updatedSeenNotes, isNoteToastVisible: true, noteToastShownAt: Date.now() }
+            : { seenNoteIds: updatedSeenNotes }
+        );
 
         // Persist to chrome.storage.local so service worker can read them
         if (isExtension()) {
@@ -745,60 +1151,226 @@ export const useWalletStore = create<WalletStore>()(
     // Extension sync actions
     setExtensionClaimableNotes: notes => {
       set({ extensionClaimableNotes: notes });
-    },
-
-    addExtensionClaimingNoteId: noteId => {
-      set(state => ({
-        extensionClaimingNoteIds: new Set([...state.extensionClaimingNoteIds, noteId])
-      }));
-    },
-
-    removeExtensionClaimingNoteIds: noteIds => {
-      if (noteIds.length === 0) return;
-      set(state => {
-        const next = new Set(state.extensionClaimingNoteIds);
-        let changed = false;
-        for (const id of noteIds) {
-          if (next.delete(id)) changed = true;
-        }
-        return changed ? { extensionClaimingNoteIds: next } : {};
-      });
-    },
-
-    clearExtensionClaimingNoteIds: () => {
-      set({ extensionClaimingNoteIds: new Set<string>() });
     }
   }))
 );
 
+// The switch changes what the price helpers return for the same tokenPrices, so a memo or selector
+// keyed on tokenPrices would keep its old figure. The same prices as a new object make each recompute;
+// nothing is refetched.
+subscribeNominalUnquotedPrice(() => {
+  useWalletStore.setState(state => ({ tokenPrices: { ...state.tokenPrices } }));
+});
+
 // Export the intercom getter for use in sync hook
 export { getIntercom };
+
+// `reloadEndpointOverridesInSW`'s request must always settle so it can't wedge a caller
+// that awaits it before navigating (e.g. Developer Settings' handleSave) — see below.
+const RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS = 4000;
+
+/**
+ * Tell the service worker to reload its endpoint-override cache and dispose
+ * its Miden client singleton(s), so the next `getMidenClient()` call there
+ * rebuilds against the just-saved override. No-op on mobile/desktop, which
+ * share the frontend's JS realm — `applyEndpointOverride` alone already
+ * takes effect there. Awaitable so callers (Developer Settings' handleSave)
+ * can order navigation after the SW has re-hydrated; best-effort otherwise —
+ * a failed nudge just means the override applies after the next SW restart.
+ *
+ * Bounded to `RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS`: `IntercomClient.request`
+ * never rejects if the SW port disconnects mid-request, so an un-bounded await
+ * here could hang forever and wedge a caller's UI (e.g. leave Developer
+ * Settings' `pending` stuck).
+ * The underlying request keeps running and its own `.catch` still swallows a
+ * late failure — this just stops the caller from waiting on it past the timeout.
+ */
+export function reloadEndpointOverridesInSW(): Promise<void> {
+  const request = getIntercom()
+    .request({ type: WalletMessageType.ReloadEndpointOverridesRequest })
+    .then(() => {})
+    .catch(err => {
+      console.warn('[reloadEndpointOverridesInSW] failed to nudge SW:', err);
+    });
+
+  const timeout = new Promise<void>(resolve => {
+    setTimeout(resolve, RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS);
+  });
+
+  return Promise.race([request, timeout]);
+}
 
 // Derived selectors for common patterns
 export const selectIsReady = (state: WalletStore) => state.status === WalletStatus.Ready;
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
 
+/**
+ * The claim guard of a page's unattended claim writers: the claim queue asks it right before each row it writes, so a
+ * lock that lands mid-pass queues nothing. Every page realm keeps this store's status in step with the backend's lock.
+ */
+export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getState());
+
 // Expose store and intercom for E2E test introspection (only in E2E builds).
 // Use globalThis (not window) so this works in both extension pages and the
 // service worker context where window is undefined.
 if (process.env.MIDEN_E2E_TEST === 'true') {
+  Reflect.set(globalThis, '__TEST_BALANCE_READ_STATE__', balanceReadStateForTest);
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
-  // Point the bridge-OUT AggLayer "Slow" route at a runtime-created test faucet
-  // (the real bridge faucet is un-mintable). Read front-side by createB2AggNote +
-  // the send-flow route gate. Zero production impact (E2E-gated).
-  (globalThis as any).__TEST_SET_AGGLAYER_FAUCET__ = setAgglayerFaucetForE2E;
+  Reflect.set(
+    globalThis,
+    '__TEST_RUN_SPENDING_LIMIT_RACE__',
+    async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
+      const [{ SendTransaction, ITransactionStatus }, { NoteTypeEnum }, { queueOutgoingTransaction, spendsOf }, Repo] =
+        await Promise.all([
+          import('lib/miden/db/types'),
+          import('lib/miden/types'),
+          import('lib/miden/spending-limits/queue'),
+          import('lib/miden/repo')
+        ]);
+      const accountId = useWalletStore.getState().currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('Spending-limit race hook found no current account');
+      const amount = BigInt(input.amountBaseUnits);
+      const candidates = [
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public),
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public)
+      ];
+      const now = Math.floor(Date.now() / 1000);
+      for (const candidate of candidates) {
+        candidate.status = ITransactionStatus.Completed;
+        candidate.completedAt = now;
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          candidates.map(candidate => queueOutgoingTransaction(candidate, spendsOf(candidate)))
+        );
+        const inserted = await Repo.transactions.bulkGet(candidates.map(candidate => candidate.id));
+        return {
+          fulfilledCount: results.filter(result => result.status === 'fulfilled').length,
+          rejectedCount: results.filter(result => result.status === 'rejected').length,
+          insertedCount: inserted.filter(row => row !== undefined).length,
+          rejectionCodes: results.flatMap(result => {
+            if (result.status !== 'rejected') return [];
+            const reason = result.reason as { code?: unknown };
+            return typeof reason?.code === 'string' ? [reason.code] : [];
+          })
+        };
+      } finally {
+        await Repo.transactions.bulkDelete(candidates.map(candidate => candidate.id));
+      }
+    }
+  );
+  // The Slow bridge-out E2E reads the real registry for the bridge's own faucet, then bridges a runtime
+  // faucet the registry never lists. The send flow checks the registry in this (page) realm, so both
+  // the check and the allowlist entry run here.
+  Reflect.set(globalThis, '__TEST_CHECK_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ isAgglayerFaucetAllowed }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    return isAgglayerFaucetAllowed(faucetRef, getEffectiveRpcUrl());
+  });
+  Reflect.set(globalThis, '__TEST_ALLOW_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ allowAgglayerFaucetForE2E }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    await allowAgglayerFaucetForE2E(faucetRef, getEffectiveRpcUrl());
+  });
+  // A dApp custom/execute request is opaque base64 `TransactionRequest` bytes, which only the SDK
+  // can produce - a fixture dApp page has no SDK and no vault. Built here through the very builder
+  // every wallet send uses, so the bytes the suite hands to `requestTransaction` are the shape a
+  // real dApp sends: one P2ID output note moving `amountBaseUnits` out of the current account.
+  Reflect.set(
+    globalThis,
+    '__TEST_BUILD_CUSTOM_TRANSACTION_REQUEST__',
+    async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
+      const [
+        { NoteType },
+        { accountRefToSdk, buildSendTransactionRequest, feeAwareRequestBuilder, randomFeeSalt, walletAccountIdToSdk },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { u8ToB64 },
+        { EXPIRATION_DELTA_BLOCKS }
+      ] = await Promise.all([
+        import('@miden-sdk/miden-sdk/lazy'),
+        import('lib/miden/sdk/helpers'),
+        import('lib/miden/sdk/miden-client'),
+        import('lib/shared/helpers'),
+        import('lib/miden/helpers')
+      ]);
+      const accountId = useWalletStore.getState().currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('Custom-request hook found no current account');
+
+      const requestBytes = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the client build');
+          const account = await client.getAccount(walletAccountIdToSdk(accountId).toString());
+          // The Account is borrowed from the client's RefCell and the build reads its vault.
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the account read');
+          const baseBuilder = await feeAwareRequestBuilder(
+            client.client,
+            walletAccountIdToSdk(accountId).toString(),
+            randomFeeSalt()
+          );
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the fee-aware builder');
+          return buildSendTransactionRequest(
+            account ?? undefined,
+            walletAccountIdToSdk(accountId),
+            accountRefToSdk(input.recipientAddress),
+            input.faucetId,
+            BigInt(input.amountBaseUnits),
+            NoteType.Public,
+            EXPIRATION_DELTA_BLOCKS,
+            undefined,
+            baseBuilder
+          ).serialize();
+        },
+        { label: 'e2e-custom-request' }
+      );
+      return u8ToB64(requestBytes);
+    }
+  );
+  Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [{ assertWasmHoldCurrent, getMidenClient, withWasmClientLock }, { resolvePublicKeyCommitments }] =
+        await Promise.all([
+          import('lib/miden/sdk/miden-client'),
+          import('lib/miden/sdk/resolve-public-key-commitments')
+        ]);
+      const publicKeyCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the client build');
+          const account = await client.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the account read');
+          if (!account) throw new Error('Account not found');
+
+          const commitments = resolvePublicKeyCommitments(account);
+          if (commitments.length !== 1) throw new Error('Account does not have exactly one signing key');
+          return commitments[0]!.toHex().replace(/^0x/, '');
+        },
+        { label: 'e2e-account-sign' }
+      );
+      return await useWalletStore.getState().signWord(publicKeyCommitment, wordHex);
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
-  // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
-  // that `lib/epoch/earn` pulls in is NOT loaded into the main page bundle at boot — only
-  // when the test calls the hook (by which point the earn route has loaded it anyway). The
-  // fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet node. Zero prod impact.
+  // The Earn screens, `openEarnPosition` and the price allowlist read it page-side, so the
+  // override must be set in THIS (page) realm; a served document cannot name a faucet the
+  // suite creates at runtime. Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
-    const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
-    setEarnCollateralFaucetForTest(faucetHex);
+    setEarnCollateralFaucetOverride({ faucetId: faucetHex });
+  };
+  (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {
+    const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
+    await setFeeFaucetIdForTest(faucetId);
   };
   // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side
   // earn-test-hooks: the `earn-withdraw` tracking row is created AND advanced
@@ -806,19 +1378,50 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // note-id reconcile flips it), so the SW's Repo view never sees it. The e2e
   // reads these via `walletA.page.evaluate` (the deposit rows, created SW-side,
   // stay on the SW hooks). Lazy Repo import — E2E-gated, zero prod impact.
-  (globalThis as any).__TEST_LATEST_EARN_WITHDRAW__ = async () => {
+  const toEarnWithdrawView = async (row: ITransaction | undefined) => {
+    if (!row || row.type !== 'earn-withdraw') return null;
+    const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
     const Repo = await import('lib/miden/repo');
-    const rows = await Repo.transactions.filter((tx: any) => tx.type === 'earn-withdraw').toArray();
-    rows.sort((a: any, b: any) => (b.initiatedAt ?? 0) - (a.initiatedAt ?? 0));
-    const row: any = rows[0];
-    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+    const consumes = await Repo.transactions
+      .filter(tx => {
+        const extra: IConsumeBridgeInExtraInputs | undefined = tx.extraInputs;
+        return tx.type === 'consume' && extra?.bridgeIn?.earnWithdrawTxId === row.id;
+      })
+      .toArray();
+    return {
+      id: row.id,
+      phase: inputs?.phase,
+      displayMessage: row.displayMessage,
+      submissionState: inputs?.submissionState,
+      withdrawIntentNonce: inputs?.withdrawIntentNonce,
+      preparedExecution: inputs?.preparedExecution,
+      midenNoteId: inputs?.midenNoteId,
+      receipts: consumes.map(tx => {
+        const extra: IConsumeBridgeInExtraInputs | undefined = tx.extraInputs;
+        return {
+          id: tx.id,
+          status: tx.status,
+          transactionId: tx.transactionId,
+          noteIds: tx.inputNoteIds ?? tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
+          intentOwner: extra?.bridgeIn?.intentOwner,
+          intentNonce: extra?.bridgeIn?.intentNonce,
+          attemptId: extra?.bridgeIn?.earnWithdrawAttemptId,
+          midenNoteId: extra?.bridgeIn?.midenNoteId
+        };
+      })
+    };
   };
-  (globalThis as any).__TEST_EARN_WITHDRAW_STATE__ = async (txId: string) => {
+  Reflect.set(globalThis, '__TEST_LATEST_EARN_WITHDRAW__', async () => {
     const Repo = await import('lib/miden/repo');
-    const row: any = await Repo.transactions.where({ id: txId }).first();
-    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
-  };
-  // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
+    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
+    rows.sort((a, b) => b.initiatedAt - a.initiatedAt);
+    return toEarnWithdrawView(rows[0]);
+  });
+  Reflect.set(globalThis, '__TEST_EARN_WITHDRAW_STATE__', async (txId: string) => {
+    const Repo = await import('lib/miden/repo');
+    return toEarnWithdrawView(await Repo.transactions.where({ id: txId }).first());
+  });
+  // Hex-to-bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails
   // and the wallet's `attachMetadataToNotes` hides the consumable note).
@@ -828,24 +1431,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // Dynamic-import inside the call (used to live here) contended with the
   // wallet's own WASM lock and serialized behind in-flight SDK calls,
   // blowing past the 30s WebDriver execute_async_script budget.
-  void (async () => {
-    try {
-      const sdk = await import('@miden-sdk/miden-sdk/lazy');
-      (globalThis as any).__TEST_HEX_TO_BECH32_FAUCET__ = (
-        hex: string,
-        network: 'testnet' | 'devnet' = 'testnet'
-      ): string => {
-        const id = sdk.AccountId.fromHex(hex);
-        const netId = network === 'devnet' ? sdk.NetworkId.devnet() : sdk.NetworkId.testnet();
-        return sdk.Address.fromAccountId(id, 'BasicWallet').toBech32(netId);
-      };
-    } catch (e) {
-      // E2E-only path; failure here just means the iOS metadata-injection
-      // workaround won't work and we'd hit the original symptom (note
-      // hidden by attachMetadataToNotes filter).
-      console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
-    }
-  })();
+  void installFaucetAddressTestHook().catch(e => {
+    // E2E-only path; failure here just means the iOS metadata-injection
+    // workaround won't work and we'd hit the original symptom (note
+    // hidden by attachMetadataToNotes filter).
+    console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
+  });
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
   // thresholds + the active guardian-operator commitment) for E2E assertions —
@@ -906,30 +1497,112 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // on MIDEN_E2E_TEST, tree-shaken from production.
     setTestSyncPaused(true);
     try {
-      const [{ AccountInspector }, { getMidenClient }, { getGuardianCommitmentFromAccount }] = await Promise.all([
+      const [
+        { AccountInspector },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { getGuardianCommitmentFromAccount }
+      ] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
         import('lib/miden/sdk/miden-client'),
         import('lib/miden/guardian/account')
       ]);
-      const account = await (await getMidenClient()).getAccount(accountPublicKey);
-      if (!account) {
-        return { error: `Guardian account ${accountPublicKey} not found in local client` };
-      }
-      const config = AccountInspector.fromAccount(account);
-      return {
-        threshold: config.threshold,
-        signerCommitments: config.signerCommitments,
-        procedureThresholds: Object.fromEntries(config.procedureThresholds),
-        // Active guardian-operator commitment — a SEPARATE storage slot
-        // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
-        // A guardian switch changes this while the signer set / threshold
-        // stay put, so this is the field that actually verifies a switch.
-        guardianCommitment: getGuardianCommitmentFromAccount(account)
-      };
+      // One hold from the read through the inspection of the account it returned
+      // (borrowed from the client's RefCell): this realm's reads and writes share one
+      // client, and the transaction loop holds this lock on mobile and desktop (#878).
+      return await withWasmClientLock(
+        async hold => {
+          const mc = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-guardian-auth after the client build');
+          const account = await mc.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-guardian-auth after the account read');
+          if (!account) {
+            return { error: `Guardian account ${accountPublicKey} not found in local client` };
+          }
+          const config = AccountInspector.fromAccount(account);
+          return {
+            threshold: config.threshold,
+            signerCommitments: config.signerCommitments,
+            procedureThresholds: Object.fromEntries(config.procedureThresholds),
+            // Active guardian-operator commitment — a SEPARATE storage slot
+            // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
+            // A guardian switch changes this while the signer set / threshold
+            // stay put, so this is the field that actually verifies a switch.
+            guardianCommitment: getGuardianCommitmentFromAccount(account)
+          };
+        },
+        { label: 'e2e-guardian-auth' }
+      );
     } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: describeHookError(e) };
     } finally {
       setTestSyncPaused(false);
     }
   };
+  // What a guardian OPERATOR holds for an account (#1233), for the switch E2E: the commitment of its
+  // stored state, and whether it released the account. Signed with this device's hot key, which both
+  // operators' allowlists carry across a switch. Release is read off a mutation the operator refuses
+  // for a released account before anything else: signing a proposal that cannot exist answers
+  // `account_released` once released and "not found" before, and writes nothing either way.
+  Reflect.set(globalThis, '__TEST_GUARDIAN_OPERATOR_VIEW__', async (accountPublicKey: string, endpoint: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [
+        { GuardianHttpClient },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { getSignerDetailsFromAccount },
+        { isGuardianAccountReleased },
+        { WalletSigner },
+        { registerGuardianOrigin },
+        { canonicalWalletAccountId, sameWalletAccountId }
+      ] = await Promise.all([
+        import('@openzeppelin/miden-multisig-client'),
+        import('lib/miden/sdk/miden-client'),
+        import('lib/miden/guardian/account'),
+        import('lib/miden/guardian/direct-switch'),
+        import('lib/miden/guardian/signer'),
+        import('lib/miden/guardian/native-http'),
+        import('lib/miden/sdk/helpers')
+      ]);
+      const walletAccount = useWalletStore
+        .getState()
+        .accounts.find(account => sameWalletAccountId(account.publicKey, accountPublicKey));
+      if (!walletAccount?.hotPublicKey) return { error: `No hot key for ${accountPublicKey}` };
+      const hotPublicKey = walletAccount.hotPublicKey;
+      const hotCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the client build');
+          const account = await client.getAccount(walletAccount.publicKey);
+          assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the account read');
+          if (!account) throw new Error(`Guardian account ${accountPublicKey} not found in local client`);
+          return (await getSignerDetailsFromAccount(account)).commitment;
+        },
+        { label: 'e2e-guardian-operator-view' }
+      );
+      registerGuardianOrigin(endpoint);
+      const guardian = new GuardianHttpClient(endpoint);
+      guardian.setSigner(
+        new WalletSigner(`0x${hotPublicKey}`, `0x${hotCommitment}`, (publicKey: string, wordHex: string) =>
+          useWalletStore.getState().signWord(publicKey, wordHex)
+        )
+      );
+      const accountId = canonicalWalletAccountId(walletAccount.publicKey);
+      const { commitment } = await guardian.getState(accountId);
+      let released = false;
+      try {
+        await guardian.signDeltaProposal({
+          accountId,
+          commitment: `0x${'ab'.repeat(32)}`,
+          signature: { scheme: 'ecdsa', signature: '00' }
+        });
+      } catch (probeError) {
+        released = isGuardianAccountReleased(probeError);
+      }
+      return { commitment, released };
+    } catch (e) {
+      return { error: describeHookError(e) };
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
 }

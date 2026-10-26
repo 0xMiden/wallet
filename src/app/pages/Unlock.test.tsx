@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 
-import Unlock from './Unlock';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
+import Unlock, { retireLockoutRecord, useRetireLockoutOnReady } from './Unlock';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mutable platform / env state (mock-prefixed so jest's hoisted factories may
@@ -18,18 +22,20 @@ let mockCompact = false;
 // drive `attempt` / `timelock`; reset to `{}` in beforeEach for defaults.
 let mockLsStore: Record<string, unknown> = {};
 
+// Every value a setter or writeLocalStorage was called with, in order, recorded in the call itself: the
+// state updater can run more than once, which would double-count.
+let mockLsWrites: Array<[string, unknown]> = [];
+
+// False models storage that cannot persist (quota, a blocked origin): every write, through a setter or
+// writeLocalStorage, is attempted and recorded but never lands, and writeLocalStorage reports false.
+let mockLsWritesLand = true;
+
 const mockUnlock = jest.fn();
 const mockNavigate = jest.fn();
 const mockOpenInFullPage = jest.fn();
 const mockBioHasKey = jest.fn();
 const mockDesktopHasKey = jest.fn();
 const mockHasPasswordProtector = jest.fn();
-const mockFormAnalytics = {
-  trackSubmit: jest.fn(),
-  trackSubmitSuccess: jest.fn(),
-  trackSubmitFail: jest.fn()
-};
-
 // Identity translator: assertions match raw i18n keys.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -50,10 +56,6 @@ jest.mock('app/env', () => ({
   useAppEnv: () => ({ compact: mockCompact })
 }));
 
-jest.mock('lib/analytics', () => ({
-  useFormAnalytics: () => mockFormAnalytics
-}));
-
 jest.mock('lib/miden/types', () => ({
   MidenSharedStorageKey: {
     DAppEnabled: 'DAppEnabled',
@@ -70,17 +72,23 @@ jest.mock('lib/miden/front', () => {
   return {
     __esModule: true,
     useMidenContext: () => ({ unlock: mockUnlock }),
+    readLocalStorage: (key: string, fallback: unknown) =>
+      Object.prototype.hasOwnProperty.call(mockLsStore, key) ? mockLsStore[key] : fallback,
+    writeLocalStorage: (key: string, value: unknown) => {
+      mockLsWrites.push([key, value]);
+      if (!mockLsWritesLand) return false;
+      mockLsStore[key] = value;
+      return true;
+    },
     useLocalStorage: (key: string, initial: unknown) => {
       const [value, setValue] = R.useState(
         Object.prototype.hasOwnProperty.call(mockLsStore, key) ? mockLsStore[key] : initial
       );
       const setter = R.useCallback(
         (next: unknown) => {
-          setValue((prev: unknown) => {
-            const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(prev) : next;
-            mockLsStore[key] = resolved;
-            return resolved;
-          });
+          mockLsWrites.push([key, next]);
+          if (mockLsWritesLand) mockLsStore[key] = next;
+          setValue(next);
         },
         [key]
       );
@@ -90,7 +98,11 @@ jest.mock('lib/miden/front', () => {
 });
 
 // Dynamic-import targets exercised by the mount hardware-unlock effect.
-jest.mock('lib/biometric', () => ({ hasHardwareKey: () => mockBioHasKey() }));
+const mockBiometryType = jest.fn(() => Promise.resolve({ biometryType: 'face' }));
+jest.mock('lib/biometric', () => ({
+  hasHardwareKey: () => mockBioHasKey(),
+  checkBiometricAvailability: () => mockBiometryType()
+}));
 jest.mock('lib/desktop/secure-storage', () => ({ hasHardwareKey: () => mockDesktopHasKey() }));
 jest.mock('lib/miden/back/vault', () => ({
   Vault: { hasPasswordProtector: () => mockHasPasswordProtector() }
@@ -122,7 +134,8 @@ jest.mock('components/Button', () => ({
     onClick,
     type,
     disabled,
-    isLoading
+    isLoading,
+    className
   }: {
     id?: string;
     title?: string;
@@ -130,6 +143,7 @@ jest.mock('components/Button', () => ({
     type?: 'button' | 'submit' | 'reset';
     disabled?: boolean;
     isLoading?: boolean;
+    className?: string;
   }) => (
     <button
       id={id}
@@ -137,6 +151,7 @@ jest.mock('components/Button', () => ({
       onClick={onClick}
       disabled={disabled}
       data-loading={isLoading ? 'true' : 'false'}
+      className={className}
     >
       {title}
     </button>
@@ -172,14 +187,42 @@ jest.mock('components/Input', () => ({
 }));
 
 jest.mock('components/Numpad', () => ({
-  Numpad: ({ onDigit, onDelete }: { onDigit: (d: string) => void; onDelete: () => void }) => (
+  // Both refusal props are forwarded onto the keys, as the real component does: a stub that dropped
+  // them would make every assertion about a refused press a statement about the stub. The two are
+  // separate because a lockout refuses entry while the biometric key stays usable.
+  Numpad: ({
+    onDigit,
+    onDelete,
+    onBiometric,
+    biometryType,
+    disabled,
+    biometricDisabled
+  }: {
+    onDigit: (d: string) => void;
+    onDelete: () => void;
+    onBiometric?: () => void;
+    biometryType?: string;
+    disabled?: boolean;
+    biometricDisabled?: boolean;
+  }) => (
     <div data-testid="numpad">
+      {onBiometric && (
+        <button
+          type="button"
+          data-testid="numpad-biometric"
+          data-biometry={biometryType}
+          disabled={biometricDisabled}
+          onClick={onBiometric}
+        >
+          bio
+        </button>
+      )}
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
-        <button key={d} type="button" data-testid={`digit-${d}`} onClick={() => onDigit(d)}>
+        <button key={d} type="button" data-testid={`digit-${d}`} disabled={disabled} onClick={() => onDigit(d)}>
           {d}
         </button>
       ))}
-      <button type="button" data-testid="numpad-delete" onClick={onDelete}>
+      <button type="button" data-testid="numpad-delete" disabled={disabled} onClick={onDelete}>
         del
       </button>
     </div>
@@ -211,8 +254,24 @@ async function renderUnlock(props: { openForgotPasswordInFullPage?: boolean } = 
   return utils;
 }
 
+// Scoped to one window's container: two windows rendered side by side share the field's id, so a
+// document-wide lookup (a label's `for`, `getByLabelText`) would land in the first window.
+function passwordField(container: HTMLElement) {
+  const field = container.querySelector('#unlock-password');
+  if (!field) throw new Error('no password field in this window');
+  return field;
+}
+
+function submitPassword(container: HTMLElement, value: string) {
+  const form = container.querySelector('form');
+  if (!form) throw new Error('no password form in this window');
+  fireEvent.change(passwordField(container), { target: { value } });
+  fireEvent.submit(form);
+}
+
 beforeEach(() => {
   jest.useFakeTimers();
+  jest.mocked(reportUserVisibleError).mockClear();
   jest.setSystemTime(BASE);
 
   mockIsExtension = false;
@@ -220,6 +279,8 @@ beforeEach(() => {
   mockIsMobile = false;
   mockCompact = false;
   mockLsStore = {};
+  mockLsWrites = [];
+  mockLsWritesLand = true;
 
   mockUnlock.mockReset();
   mockNavigate.mockReset();
@@ -227,9 +288,6 @@ beforeEach(() => {
   mockBioHasKey.mockReset();
   mockDesktopHasKey.mockReset();
   mockHasPasswordProtector.mockReset();
-  mockFormAnalytics.trackSubmit.mockClear();
-  mockFormAnalytics.trackSubmitSuccess.mockClear();
-  mockFormAnalytics.trackSubmitFail.mockClear();
 
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -276,9 +334,7 @@ describe('Unlock — extension password form', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await flushMicro();
 
-    expect(mockFormAnalytics.trackSubmit).toHaveBeenCalledTimes(1);
     expect(mockUnlock).toHaveBeenCalledWith('hunter2');
-    expect(mockFormAnalytics.trackSubmitSuccess).toHaveBeenCalledTimes(1);
     expect(mockLsStore.PasswordAttempts).toBe(1);
     // Extension reloads to sync with the background worker (window.location.reload
     // is a jsdom no-op) — the tell-tale of that branch is that it never navigates.
@@ -294,13 +350,349 @@ describe('Unlock — extension password form', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await advance(500); // clears the 300ms pre-error delay
 
-    expect(mockFormAnalytics.trackSubmitFail).toHaveBeenCalledTimes(1);
     expect(screen.getByText('incorrectPassword')).toBeInTheDocument();
     expect(mockLsStore.PasswordAttempts).toBe(2); // 1 -> 2, no time-lock yet
 
     // Typing again clears the error subtitle (onPasswordChange isError branch).
     fireEvent.change(input, { target: { value: 'wrong2' } });
     expect(screen.queryByText('incorrectPassword')).not.toBeInTheDocument();
+  });
+
+  // The refusal before the post-lockout sleep is the fast path: without it the post-sleep re-check
+  // still refuses, but only after the guess has spun for the 1-3s sleep (#1192).
+  it('refuses a guess at once while another window holds a lockout, and shows it (#1192)', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    const { container } = await renderUnlock();
+    // Another window failed its way into a lockout after this one mounted.
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = BASE;
+
+    submitPassword(container, 'guess');
+    await advance(0); // well inside the 1000ms a guess past the fast path would still be sleeping
+
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(passwordField(container)).toBeDisabled();
+    expect(mockUnlock).not.toHaveBeenCalled();
+
+    await advance(1100);
+    expect(mockUnlock).not.toHaveBeenCalled();
+    // A refused guess is never counted: the only count this window may write is the one it adopted.
+    expect(mockLsWrites.filter(([key, value]) => key === 'PasswordAttempts' && Number(value) > 6)).toEqual([]);
+  });
+
+  it("counts a wrong guess from the stored attempt, not this window's (#1192)", async () => {
+    mockUnlock.mockRejectedValue(new Error('bad'));
+    const { container } = await renderUnlock();
+    // Another window's fourth failure left 5, and that lockout has run out and been cleared; this one holds 1.
+    mockLsStore.PasswordAttempts = 5;
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(3100);
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+    expect(mockLsStore.PasswordAttempts).toBe(6);
+    expect(Number(mockLsStore.TimeLock)).toBeGreaterThanOrEqual(BASE);
+  });
+
+  it('does not erase a lockout another window armed when its own old stamp runs out (#1192)', async () => {
+    // This window mounted during an older lockout that has just run out (60 s tier).
+    mockLsStore = { PasswordAttempts: 3, TimeLock: BASE - 61_000 };
+    await renderUnlock();
+    // Meanwhile another window armed a fresh lockout.
+    mockLsStore.TimeLock = BASE;
+
+    await advance(1100);
+
+    expect(mockLsStore.TimeLock).toBe(BASE);
+    // Adopting the newer stamp is itself a write (storage already holds it, so nothing is erased);
+    // what must never happen is a clear-to-0 write.
+    expect(mockLsWrites.filter(([key, value]) => key === 'TimeLock' && value === 0)).toEqual([]);
+  });
+
+  // Before #1192 the tick always wrote 0 and re-rendered; adopting a stale stamp instead of clearing
+  // it must not leave this window frozen disabled once storage moves on without it.
+  it('adopts what storage holds once its own stamp is gone, instead of freezing disabled (#1192)', async () => {
+    const { container } = await renderUnlock();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = BASE;
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(3100); // the fast path adopted at once; the ticks at 1s, 2s and 3s judge the adopted stamp
+
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(container.querySelector('#unlock-password')).toBeDisabled();
+
+    // Another window succeeds, resetting the stored count and clearing the stamp this one adopted.
+    mockLsStore.PasswordAttempts = 1;
+    mockLsStore.TimeLock = 0;
+    await advance(1100);
+
+    expect(container.querySelector('#unlock-password')).not.toBeDisabled();
+    expect(screen.queryByText(/unlockPasswordErrorDelay/)).not.toBeInTheDocument();
+  });
+
+  it('adopts a fresh lockout another window armed once its own stamp is gone, and shows its countdown (#1192)', async () => {
+    const { container } = await renderUnlock();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = BASE;
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(3100);
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+
+    // The stamp this window adopted is another window's provisional one, for a guess still in flight
+    // (a guess once the count reaches 3 records it before unlock()). That guess's rejection re-stamps it
+    // later and leaves the count at 6, so storage has moved on before this window's tick finds its own
+    // stamp expired.
+    const NEW_STAMP = Date.now();
+    mockLsStore.TimeLock = NEW_STAMP;
+
+    // To just after the tick at BASE + 121s, the first past the ORIGINAL stamp's two-minute level:
+    // the one that notices storage moved on and adopts the newer stamp.
+    await advance(118_000);
+
+    expect(mockLsStore.TimeLock).toBe(NEW_STAMP); // adopted, not erased
+    expect(mockLsStore.PasswordAttempts).toBe(6);
+    expect(container.querySelector('#unlock-password')).toBeDisabled();
+    // The adopting tick counts down from the stamp it adopted (NEW_STAMP + 120000 - the tick's own
+    // BASE + 121000), not the expired one it replaced.
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay 00:02');
+  });
+
+  // submitPasscode reads storage once, before the 1-3s post-lockout sleep; without a re-check just
+  // before unlock(), a lockout another window armed during that sleep is never seen (#1192).
+  it('re-checks storage after the post-lockout sleep, refusing a guess a fresh lockout armed meanwhile (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE - 10 * 60_000 };
+    jest.spyOn(Math, 'random').mockReturnValue(0.25); // the post-lockout sleep -> exactly 1500ms
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(1200); // inside this window's 1500ms sleep, so the lockout below reaches only the re-check at its end
+
+    // Another window's failure at count 4 records 5 and a stamp while this one is still sleeping.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 5;
+    mockLsStore.TimeLock = otherWindowStamp;
+
+    await advance(400); // the remaining sleep, then the post-sleep re-check
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    // The refused guess recorded nothing: no count above the other window's was ever written, even one an
+    // adoption then wrote back over, and the count and stamp are still the other window's.
+    expect(mockLsWrites.filter(([key, value]) => key === 'PasswordAttempts' && Number(value) > 5)).toEqual([]);
+    expect(mockLsStore.PasswordAttempts).toBe(5);
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+
+    // Once the adopted lockout (the other window's stamp plus one minute at attempt 5) runs out, the
+    // window guesses again: the refusal released the form, not only the in-flight guard.
+    await advance(61_000);
+    expect(passwordField(container)).not.toBeDisabled();
+    submitPassword(container, 'guess');
+    await advance(1600);
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  // A guess is counted from the stored record it reads after the sleep, so a reset another window wrote
+  // meanwhile stands: counted from it, the guess records 2 and no stamp (#1192).
+  it('counts a guess from a reset another window wrote during the post-lockout sleep (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE - 10 * 60_000 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    mockUnlock.mockRejectedValue(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(200);
+
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 }; // as another window's success writes it
+
+    await advance(1200); // the remaining sleep, this window's own rejection, and the 300ms error delay
+
+    expect(mockLsStore.PasswordAttempts).toBe(2);
+    expect(mockLsStore.TimeLock).toBe(0);
+  });
+
+  // A guess counted only once unlock() rejects leaves the count and stamp untouched while it is in
+  // flight, so a second window spends a guess too; at stored attempt 3 there is no sleep at all (#1192).
+  it('counts a guess before unlock(), so a second window refuses while it is in flight (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockImplementation(() => new Promise(() => {})); // every unlock() stays in flight
+    const { container: windowA } = await renderUnlock();
+    const { container: windowB } = await renderUnlock();
+
+    submitPassword(windowA, 'guess-a');
+    await advance(100);
+    submitPassword(windowB, 'guess-b');
+    await advance(0);
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+    expect(within(windowB).getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(passwordField(windowB)).toBeDisabled();
+    // B's refused guess recorded nothing: the store still holds A's count and A's provisional stamp.
+    expect(mockLsStore.PasswordAttempts).toBe(4);
+    expect(mockLsStore.TimeLock).toBe(BASE);
+  });
+
+  // The failure re-stamps only over this guess's own provisional stamp: a different one is a lockout
+  // another window armed while the guess was in flight, and the failure must not move it (#1192).
+  it('keeps a stamp another window wrote while this guess was in flight when the guess fails (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'wrong');
+    await advance(500);
+    expect(mockLsStore.TimeLock).toBe(BASE); // this guess's provisional stamp
+    const otherWindowStamp = Date.now();
+    mockLsStore.TimeLock = otherWindowStamp;
+    await advance(500);
+
+    await act(async () => rejectUnlock(new Error('bad')));
+    await flushMicro();
+
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+  });
+
+  // Storage that cannot persist must not make guessing free: the window counts and locks out from what
+  // its own writes could not store, as it did before #1192.
+  it('counts its own guesses and locks itself out when storage cannot persist them (#1192)', async () => {
+    mockLsWritesLand = false;
+    mockUnlock.mockRejectedValue(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    for (let guess = 0; guess < 4; guess++) {
+      submitPassword(container, 'wrong');
+      await advance(500);
+    }
+
+    expect(mockUnlock).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(passwordField(container)).toBeDisabled();
+    expect(mockLsStore).toEqual({});
+  });
+
+  it('opens its own lockout at a full tier from the failure when storage cannot persist it (#1192)', async () => {
+    mockLsWritesLand = false;
+    mockUnlock
+      .mockRejectedValueOnce(new Error('bad'))
+      .mockRejectedValueOnce(new Error('bad'))
+      .mockImplementationOnce(() => new Promise((_, reject) => setTimeout(() => reject(new Error('bad')), 1500)));
+    const { container } = await renderUnlock();
+    submitPassword(container, 'wrong');
+    await advance(500);
+    submitPassword(container, 'wrong');
+    await advance(500);
+
+    submitPassword(container, 'wrong');
+    await advance(1500); // the third unlock() rejects
+
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+  });
+
+  // With storage working, nothing this window wrote is held back, so a reset another window wrote while
+  // the guess was in flight (its success, or the retire) stands when the guess fails.
+  it('leaves a reset another window wrote while this guess was in flight when the guess fails (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'wrong');
+    await advance(500);
+    mockLsStore.PasswordAttempts = 1;
+    mockLsStore.TimeLock = 0;
+
+    await act(async () => rejectUnlock(new Error('bad')));
+    await flushMicro();
+
+    expect(mockLsStore.PasswordAttempts).toBe(1);
+  });
+
+  // The stamp a threshold guess writes before unlock() is provisional; the failure re-stamps it, so
+  // the first tier opens at a full minute from the rejection, as the E2E lockout spec measures.
+  it('opens the countdown at a full tier measured from the failure, not from the guess (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockImplementationOnce(
+      () => new Promise((_, reject) => setTimeout(() => reject(new Error('bad')), 1500))
+    );
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'wrong');
+    await advance(1500); // unlock() rejects
+
+    expect(mockLsStore.TimeLock).toBe(BASE + 1500);
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+  });
+
+  // The count and stamp a guess records go to storage only: through this window's own state they
+  // would disable its form while a correct guess at the threshold is still in flight.
+  it('keeps the form usable while a correct threshold guess is in flight, then resets the count (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    let resolveUnlock: (value: unknown) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveUnlock = resolve;
+        })
+    );
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'right');
+    await advance(0);
+
+    expect(mockUnlock).toHaveBeenCalledWith('right');
+    expect(passwordField(container)).not.toBeDisabled();
+    expect(screen.getByTestId('unlock-error')).toBeEmptyDOMElement();
+
+    await act(async () => resolveUnlock(undefined));
+    await flushMicro();
+    expect(mockLsStore.PasswordAttempts).toBe(1);
+  });
+
+  // Against the expired stamp this window still holds, its own guess's provisional stamp would read as
+  // another window's lockout; the tick leaves the guess to its own catch or success (#1192).
+  it('keeps the form usable past a tick while its own threshold guess is in flight (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: BASE - 10 * 60_000 };
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'right');
+    await advance(1100);
+
+    expect(passwordField(container)).not.toBeDisabled();
+    expect(screen.getByTestId('unlock-error')).toBeEmptyDOMElement();
+  });
+
+  // The same clear reaches this arm: the password form's error line derives from the same isError
+  // the passcode screen's does, and the lockout interval is shared.
+  it('empties the error line once a lockout ends', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    const input = container.querySelector('#unlock-password') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'wrong' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(500);
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay');
+
+    await advance(61_000);
+
+    expect(screen.getByTestId('unlock-error')).toBeEmptyDOMElement();
   });
 
   it('toggles password visibility via the eye button', async () => {
@@ -326,7 +718,6 @@ describe('Unlock — extension password form', () => {
     await flushMicro();
 
     expect(mockUnlock).not.toHaveBeenCalled();
-    expect(mockFormAnalytics.trackSubmit).not.toHaveBeenCalled();
   });
 
   it('disables the form and shows the countdown after too many attempts', async () => {
@@ -399,10 +790,6 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByText('enterYour6DigitCode')).toBeInTheDocument();
     expect(mockBioHasKey).toHaveBeenCalledTimes(1);
     expect(mockUnlock).not.toHaveBeenCalled();
-
-    // Interval tick with no time-lock hits the Date.now()-timelock > lockLevel branch.
-    await advance(1100);
-    expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
   });
 
   it('accumulates six digits (with a delete) and auto-submits successfully', async () => {
@@ -416,7 +803,6 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(200); // fire the 150ms auto-submit timer
 
     expect(mockUnlock).toHaveBeenCalledWith('123456');
-    expect(mockFormAnalytics.trackSubmitSuccess).toHaveBeenCalledTimes(1);
     expect(mockLsStore.PasswordAttempts).toBe(1);
     // Mobile navigates instead of reloading.
     expect(mockNavigate).toHaveBeenCalledWith('/');
@@ -439,7 +825,6 @@ describe('Unlock — mobile passcode numpad', () => {
     type(container, '111111');
     await advance(600); // 150ms auto-submit + 300ms pre-error delay
 
-    expect(mockFormAnalytics.trackSubmitFail).toHaveBeenCalledTimes(1);
     expect(screen.getByText('incorrectPasscode')).toBeInTheDocument();
     expect(mockLsStore.PasswordAttempts).toBe(2);
 
@@ -450,24 +835,30 @@ describe('Unlock — mobile passcode numpad', () => {
   });
 
   it('applies the random back-off delay and time-lock past the last attempt', async () => {
-    // attempt 5 (> LAST_ATTEMPT) triggers the randomized pre-unlock delay and,
-    // on failure, sets the time-lock (attempt >= LAST_ATTEMPT).
+    // attempt 5 (> LAST_ATTEMPT) sleeps the randomized delay before unlock(), and the guess in flight
+    // holds the count and the provisional stamp it recorded. The rejection's re-stamp is pinned by
+    // 'opens the countdown at a full tier measured from the failure'.
     jest.spyOn(Math, 'random').mockReturnValue(0); // delay -> 1000ms
-    mockUnlock.mockRejectedValue(new Error('nope'));
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
     mockLsStore = { PasswordAttempts: 5, TimeLock: 0 };
     const { container } = await renderUnlock();
 
     type(container, '222222');
-    // 150 auto-submit + 1000 back-off + 300 error = ~1450ms. Stay under 2000ms
-    // so the once-per-second interval (which resets an *expired* time-lock)
-    // can't fire again after the failure sets it.
-    await advance(1700);
+    await advance(1149); // 150ms auto-submit + 1000ms back-off: unlock() is due at 1150ms
+    expect(mockUnlock).not.toHaveBeenCalled();
 
+    await advance(1);
     expect(mockUnlock).toHaveBeenCalledWith('222222');
-    expect(mockFormAnalytics.trackSubmitFail).toHaveBeenCalledTimes(1);
     expect(mockLsStore.PasswordAttempts).toBe(6);
-    expect(typeof mockLsStore.TimeLock).toBe('number');
-    expect(mockLsStore.TimeLock).not.toBe(0); // setTimeLock(Date.now()) ran
+    expect(mockLsStore.TimeLock).toBe(BASE + 1150);
+
+    await act(async () => rejectUnlock(new Error('nope')));
   });
 
   it('clears the incorrect-passcode error when a digit is deleted', async () => {
@@ -489,8 +880,12 @@ describe('Unlock — mobile passcode numpad', () => {
     mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
     const { container } = await renderUnlock();
 
-    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
-    expect(screen.getByText(/10:00/)).toBeInTheDocument();
+    // Announced once, with the time left (all of it, as the lockout starts here); shown separately as
+    // a ticking countdown.
+    const status = screen.getByRole('status');
+    const visible = screen.getByTestId('passcode-message');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+    expect(visible).toHaveTextContent('unlockPasswordErrorDelay 10:00');
 
     // Digits and delete are ignored while disabled (handleDigit/handleDelete guards).
     type(container, '5');
@@ -500,7 +895,286 @@ describe('Unlock — mobile passcode numpad', () => {
 
     // Interval keeps counting without lifting the lock (false branch).
     await advance(1100);
-    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(visible).toHaveTextContent('unlockPasswordErrorDelay');
+    // The countdown the user SEES moves; the live region does not. Inside the region the time was
+    // re-announced once a second for the whole lockout.
+    expect(visible).not.toHaveTextContent('10:00');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+  });
+
+  it('announces the time LEFT on a screen opened mid-lockout, and still never ticks', async () => {
+    // A 10-minute lockout that started 9 minutes ago: one minute left, not ten.
+    mockLsStore = { PasswordAttempts: 30, TimeLock: BASE - 9 * 60_000 };
+    await renderUnlock();
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+
+    await advance(1100);
+    expect(screen.getByTestId('passcode-message')).not.toHaveTextContent('01:00');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+  });
+
+  // A lockout that ends is not the moment to repeat the failure that started it: the line and the
+  // live region both read the instruction again.
+  it('drops the failure that started a lockout once the lockout ends', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+
+    await advance(61_000);
+    expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
+    expect(screen.getByRole('status')).not.toHaveClass('text-negative-ink');
+  });
+
+  // THE TRAP: a clear hung off the interval's tick would wipe this error the moment a tick lands,
+  // which the stale-stamp test below also guards.
+  it('keeps an error from a failure that started no lockout', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    await advance(2000);
+
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+  });
+
+  // The same trap with a stale stamp: a lockout that expired while this screen was unmounted, or a
+  // biometric unlock taken during one, leaves TimeLock set with no lockout on screen.
+  it('keeps that error when a stale expired lockout stamp is still stored', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: BASE - 10 * 60_000 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    await advance(2000);
+
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+  });
+
+  // Every 1 s interval callback registered so far, oldest first.
+  const intervalTicks = (spy: jest.SpyInstance) =>
+    (spy.mock.calls as unknown as Array<[() => void, number]>).filter(([, ms]) => ms === 1_000).map(([cb]) => cb);
+
+  // The stub's setter is stable, so the interval is not re-created on every render as it is in the
+  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run by
+  // hand once the rejection has re-stamped the lockout, before React commits (#1079). The tick fires
+  // while the guess still holds its guard, so what it controls is the countdown: 01:00 formatted from
+  // the live stamp, not 00:00 from the 0 in its closure.
+  it('keeps a lockout armed against a tick from before it', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
+      staleTick();
+    });
+    await advance(450);
+    expect(mockLsStore.TimeLock).toBe(BASE + 150);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  // Cross-window form of the #1079 race above: this window's attempt count never left 1 while another
+  // window pushed the stored count to 5 after mount, so the guess arms the two-minute tier while the
+  // tick's closure holds level 0 (#1192). The guess holds its guard through the catch, so the tick only
+  // sets the countdown: 02:00 at the re-stamp instant, 00:00 from its closure's stamp or level.
+  it("keeps a lockout armed against a tick from before it, armed from another window's stored attempt (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fourth failure left 5 after this window mounted; that lockout has run out and been cleared.
+    mockLsStore.PasswordAttempts = 5;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires
+      await jest.advanceTimersByTimeAsync(1000); // storedAttempt(5) > LAST_ATTEMPT sleep, then unlock rejects
+      staleTick();
+    });
+    await advance(450);
+
+    expect(mockLsStore.TimeLock).toBe(BASE + 1150);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 02:00');
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  // The fast path adopts another window's lockout without taking the guard, so the tick from before it
+  // judges the adopted stamp there: by its closure's level (0) it would clear that stamp, and from its
+  // closure's stamp (0) or level it would count down 00:00 (#1192).
+  it("keeps another window's lockout the fast path adopted against a tick from before it (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fifth failure, after this window mounted, armed the two-minute tier.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = otherWindowStamp;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires and the fast path adopts; React has not committed
+      staleTick();
+    });
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 01:59');
+  });
+
+  // The re-check after the post-lockout sleep refuses without a rejection, so its finally releases the
+  // guard at once, before React commits the lockout it adopted: the same tick judges there (#1192).
+  it("keeps another window's lockout the post-sleep re-check adopted against a tick from before it (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fourth failure left 5 after this window mounted, and that lockout has run out and
+    // been cleared, so this guess passes the fast path and sleeps.
+    mockLsStore.PasswordAttempts = 5;
+
+    type(container, '111111');
+    await advance(700); // the auto-submit fired at 150ms and the sleep runs to 1150ms, so what follows lands in it
+    // That window's fifth failure lands during the sleep and arms the two-minute tier.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = otherWindowStamp;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(450); // the sleep ends and the re-check refuses; React has not committed
+      staleTick();
+    });
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 01:59');
+  });
+
+  it('writes nothing to storage while no lockout is armed', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    await renderUnlock();
+
+    await advance(3_000);
+
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([]);
+  });
+
+  it('clears an expired stored lockout stamp once', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: BASE - 10 * 60_000 };
+    await renderUnlock();
+
+    await advance(3_000);
+
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([['TimeLock', 0]]);
+  });
+
+  it('draws the shared passcode screen with the keypad docked at the bottom', async () => {
+    await renderUnlock();
+
+    const root = screen.getByTestId('unlock-passcode');
+    expect(root).toContainElement(screen.getByTestId('passcode-screen-layout'));
+    expect(screen.getByTestId('passcode-keypad-dock')).toContainElement(screen.getByTestId('numpad'));
+    // Forgot passcode is a 44px text action centred under the keypad, after it in DOM order.
+    const forgot = root.querySelector('#forgot-password') as HTMLButtonElement;
+    expect(forgot).toHaveClass('text-accent-tint-ink', 'min-h-11');
+    expect(screen.getByTestId('passcode-screen-action')).toContainElement(forgot);
+    expect(
+      screen.getByTestId('numpad').compareDocumentPosition(forgot) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('has no biometric key when the device holds no biometric key', async () => {
+    await renderUnlock();
+
+    expect(screen.queryByTestId('numpad-biometric')).not.toBeInTheDocument();
+  });
+
+  it('shakes the dots and shows the error line in negative-ink on a wrong passcode', async () => {
+    mockUnlock.mockRejectedValue(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    expect(screen.getByTestId('passcode-dots')).not.toHaveAttribute('data-shake');
+    type(container, '111111');
+    await advance(600);
+
+    expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+    expect(screen.getByRole('status')).toHaveClass('text-negative-ink');
+  });
+
+  // The catch adopts the stored lockout at once but clears the code only after its 300ms pre-error
+  // delay, so the dots empty together with the shake rather than before it.
+  it('keeps the dots filled until a wrong passcode shows, then empties them with the shake', async () => {
+    mockUnlock.mockRejectedValue(new Error('nope'));
+    const { container } = await renderUnlock();
+    const filledDots = () =>
+      screen.getAllByTestId('passcode-dot').filter(dot => dot.getAttribute('data-filled') === 'true').length;
+
+    type(container, '111111');
+    await advance(150); // the auto-submit fires and unlock() rejects
+
+    expect(mockUnlock).toHaveBeenCalledWith('111111');
+    expect(filledDots()).toBe(6);
+    expect(screen.getByTestId('passcode-dots')).not.toHaveAttribute('data-shake');
+
+    await advance(300); // the pre-error delay
+    expect(filledDots()).toBe(0);
+    expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+  });
+
+  const filledDotCount = (container: HTMLElement) =>
+    container.querySelectorAll('[data-testid="passcode-dot"][data-filled="true"]').length;
+
+  // A refused code is cleared as a rejected one is, so the keypad never holds six dots it will not
+  // submit, whether the fast path refuses it or the re-check after the post-lockout sleep does (#1192).
+  it("clears a code another window's lockout refuses at once (#1192)", async () => {
+    const { container } = await renderUnlock();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = Date.now();
+
+    type(container, '123456');
+    await advance(150); // the auto-submit fires and the fast path refuses
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(filledDotCount(container)).toBe(0);
+  });
+
+  it('clears a code a lockout armed during the post-lockout sleep refuses (#1192)', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    mockLsStore = { PasswordAttempts: 4, TimeLock: 0 };
+    const { container } = await renderUnlock();
+
+    type(container, '123456');
+    await advance(700); // the auto-submit fired at 150ms; the sleep runs to 1150ms
+    // Another window's failure at count 4 records 5 and a stamp.
+    mockLsStore.PasswordAttempts = 5;
+    mockLsStore.TimeLock = Date.now();
+    // Past the re-check at 1150ms, and before a code left in place would auto-submit again at 1300ms.
+    await advance(460);
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(filledDotCount(container)).toBe(0);
   });
 
   it('routes forgot-passcode to the reset info screen', async () => {
@@ -574,12 +1248,49 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(screen.getByText('tryAgain')).toBeInTheDocument();
     expect(screen.getByText('resetWallet')).toBeInTheDocument();
 
+    // Both hardware-unlock buttons used to carry an inline style object
+    // (fontSize/lineHeight/padding) fighting the canonical Button anatomy;
+    // only layout (`w-full`, `mb-3`) should remain.
+    const retryBtn = container.querySelector('#retry-biometric') as HTMLButtonElement;
+    const resetBtn = container.querySelector('#reset-wallet') as HTMLButtonElement;
+    expect(retryBtn).toHaveClass('w-full', 'mb-3');
+    expect(retryBtn.className).not.toMatch(/justify-center/);
+    expect(resetBtn).toHaveClass('w-full');
+    expect(resetBtn.className).not.toMatch(/justify-center/);
+
     // Retry succeeds -> setAttempt(1) + navigate('/').
     fireEvent.click(container.querySelector('#retry-biometric') as HTMLButtonElement);
     await flushMicro();
     expect(mockUnlock).toHaveBeenCalledTimes(2);
     expect(mockLsStore.PasswordAttempts).toBe(1);
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  // The only unlock control on this screen: it must show its attempt, like the password form's own
+  // button does, instead of looking idle for the whole OS prompt while a second tap is dropped.
+  it('disables the retry button while its attempt is in flight', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(false);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    let rejectRetry: (error: Error) => void = () => undefined;
+    const { container } = await renderUnlock();
+
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectRetry = reject;
+        })
+    );
+    const retry = container.querySelector('#retry-biometric') as HTMLButtonElement;
+    fireEvent.click(retry);
+    await flushMicro();
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAttribute('data-loading', 'true');
+
+    await act(async () => rejectRetry(new Error('cancelled again')));
+    await flushMicro();
+    expect(container.querySelector('#retry-biometric')).not.toBeDisabled();
   });
 
   it('logs and stays on the biometric UI when the retry fails', async () => {
@@ -613,6 +1324,23 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockHasPasswordProtector).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
     expect(screen.queryByText('biometricUnlockRequired')).not.toBeInTheDocument();
+  });
+
+  it('offers a biometric key on the keypad when the biometric unlock was cancelled', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+
+    await renderUnlock();
+
+    const key = screen.getByTestId('numpad-biometric');
+    // Tapping it retries the same hardware unlock (no passcode argument).
+    mockUnlock.mockResolvedValueOnce(undefined);
+    fireEvent.click(key);
+    await flushMicro();
+    expect(mockUnlock).toHaveBeenLastCalledWith();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('swallows a password-protector check error and still shows the fallback UI', async () => {
@@ -654,4 +1382,434 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockUnlock).not.toHaveBeenCalled();
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
   });
+});
+
+// One unlock() at a time. The keypad's biometric key and the auto-submitting passcode share a
+// screen, so without a shared in-flight guard they could both reach unlock(). The guard is taken at
+// the ENTRY of each path: submitPasscode can sleep 1-3s for the post-lockout throttle before it
+// calls unlock(), and a guard taken at the call would leave that window open.
+describe('the biometric key and the passcode never unlock concurrently', () => {
+  const type = (container: HTMLElement, digits: string) => {
+    for (const d of digits) {
+      fireEvent.click(container.querySelector(`[data-testid="digit-${d}"]`) as HTMLButtonElement);
+    }
+  };
+
+  // A mobile wallet with a biometric key whose mount-time unlock was cancelled, so the keypad shows
+  // with the biometric key on it.
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+  });
+
+  it('refuses a biometric tap while a passcode submit is in flight', async () => {
+    const { container } = await renderUnlock();
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the passcode never settles
+    type(container, '123456');
+    await advance(200); // past the auto-submit delay: submitPasscode now holds the guard
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    // Once at mount, once for the passcode - and NOT a third time for the biometric tap.
+    expect(mockUnlock).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a biometric tap during the post-lockout throttle, before unlock() is reached', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // throttle -> 1000ms
+    mockLsStore = { PasswordAttempts: 5, TimeLock: 0 };
+    const { container } = await renderUnlock();
+    type(container, '123456');
+    await advance(400); // submitPasscode has started and is sleeping; it has NOT called unlock() yet
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1); // the mount attempt only
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a failed biometric attempt on screen', async () => {
+    await renderUnlock();
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+  });
+
+  it('lets the biometric key try again after a failed attempt', async () => {
+    await renderUnlock();
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    // The guard was released in `finally`. A latch that is never cleared - which is what the
+    // mount-time `unlockInProgressRef` is - would turn this second tap into a silent no-op.
+    mockUnlock.mockResolvedValueOnce(undefined);
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(3);
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
+// The attempt in flight is visible to every input, not just to the guard: a keypad, auto-submit or
+// password form that started behind it would be refused by the guard without a word. And the most
+// recent failure, from either path, is what the screen shows.
+describe('an unlock attempt in flight holds every input, and the latest failure shows', () => {
+  const type = (container: HTMLElement, digits: string) => {
+    for (const d of digits) {
+      fireEvent.click(container.querySelector(`[data-testid="digit-${d}"]`) as HTMLButtonElement);
+    }
+  };
+  const filledDots = () =>
+    screen.getAllByTestId('passcode-dot').filter(dot => dot.getAttribute('data-filled') === 'true').length;
+
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+  });
+
+  it('refuses the biometric key while the mount-time attempt is still in flight', async () => {
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the mount attempt never settles
+    await renderUnlock();
+    await flushMicro();
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('once the mount-time attempt was cancelled', () => {
+    beforeEach(() => {
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    });
+
+    it('holds the keypad while a biometric retry is in flight, then takes the passcode', async () => {
+      const { container } = await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      type(container, '123456');
+      await advance(200);
+      expect(filledDots()).toBe(0);
+      expect(mockUnlock).toHaveBeenCalledTimes(2); // mount, then the retry - nothing for the code
+
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+      type(container, '123456');
+      await advance(200);
+      expect(mockUnlock).toHaveBeenLastCalledWith('123456');
+    });
+
+    it('holds delete too while a biometric retry is in flight', async () => {
+      const { container } = await renderUnlock();
+      type(container, '12');
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      fireEvent.click(screen.getByTestId('numpad-delete'));
+
+      expect(filledDots()).toBe(2);
+    });
+
+    it('shows a failed biometric attempt after a wrong passcode, not the stale passcode error', async () => {
+      const { container } = await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('wrong passcode'));
+      type(container, '111111');
+      await advance(600);
+      expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+
+    it('refuses the entry keys during a lockout while the biometric key still works', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      const { container } = await renderUnlock();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).toBeDisabled();
+      expect(container.querySelector('[data-testid="numpad-delete"]')).toBeDisabled();
+      // The biometric key is a separate factor the OS rate-limits, and it stays usable.
+      const bio = screen.getByTestId('numpad-biometric');
+      expect(bio).not.toBeDisabled();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(bio);
+      await flushMicro();
+      expect(mockUnlock).toHaveBeenCalledTimes(2); // the mount attempt, then this one
+    });
+
+    it('refuses every key while an attempt is in flight, and releases them when it fails', async () => {
+      const { container } = await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).toBeDisabled();
+      expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
+
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).not.toBeDisabled();
+      expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
+    });
+
+    it('announces the lockout WITH a biometric failure, never instead of it', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('biometricFailed');
+      // The countdown is aria-hidden, so a region naming only the failure would leave a screen
+      // reader with no way to learn the wallet is locked or for how long.
+      expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+    });
+
+    it('clears a partly typed code when a biometric retry fails, as a rejected passcode does', async () => {
+      const { container } = await renderUnlock();
+      type(container, '12');
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      // The dots are empty when they shake: PasscodeDots replays the row from rest on a new errorKey.
+      expect(filledDots()).toBe(0);
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+    });
+
+    it('during a lockout, shakes the dots and announces a failed biometric while the countdown stays', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      await renderUnlock();
+      // The mount-time attempt was cancelled: not an error, so nothing shook.
+      expect(screen.getByTestId('passcode-dots')).not.toHaveAttribute('data-shake');
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+      expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    });
+
+    // The announcement is captured, so every time it is re-derived it must capture again: otherwise
+    // the tap after a failed attempt announces the time the screen was opened with.
+    it('recaptures the time left when the announcement returns after a failed biometric', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE }; // a 10-minute lockout, from now
+      await renderUnlock();
+      await advance(5 * 60_000);
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the next attempt stays pending
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay 05:00');
+    });
+
+    it('drops a biometric failure from during a lockout once the lockout ends', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE }; // a 60-second lockout
+      await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      await advance(61_000);
+
+      expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
+    });
+
+    it('still reports a retry that fails after the lockout lifted under it', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE };
+      await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      await advance(61_000); // the lockout lifts while the retry is still in flight
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+
+    // Only a passcode guess holds the tick: through a biometric retry the lockout lifts on time, so the
+    // lift cannot land after the retry fails and wipe its error (#1192).
+    it('keeps a failed retry on screen past the tick after the lockout lifted under it (#1192)', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE };
+      await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      await advance(61_000);
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+      await advance(1100);
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+  });
+});
+
+describe('the desktop password form waits for the mount-time Touch ID attempt', () => {
+  it('disables Unlock while the attempt is in flight, then takes the password', async () => {
+    mockIsDesktop = true;
+    mockDesktopHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    let rejectMount: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectMount = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+    await flushMicro();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'hunter2' }
+    });
+    const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submit).toBeDisabled();
+
+    await act(async () => rejectMount(new Error('cancelled')));
+    await flushMicro();
+    expect(submit).not.toBeDisabled();
+
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+    expect(mockUnlock).toHaveBeenLastCalledWith('hunter2');
+  });
+});
+
+// The glyph is chosen from the sensor Unlock reads at mount. Without a case here, a typo in that
+// call would be swallowed by the defensive catch around it and ship the fallback glyph to every
+// device with this suite green.
+describe('the biometric key shows the sensor the device actually has', () => {
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+  });
+
+  it.each(['face', 'fingerprint'] as const)('hands the keypad a %s sensor', async biometryType => {
+    mockBiometryType.mockResolvedValueOnce({ biometryType });
+    await renderUnlock();
+
+    expect(screen.getByTestId('numpad-biometric')).toHaveAttribute('data-biometry', biometryType);
+  });
+
+  it('still unlocks when the sensor cannot be read', async () => {
+    mockBiometryType.mockRejectedValueOnce(new Error('plugin missing'));
+    mockUnlock.mockReset();
+    mockUnlock.mockResolvedValueOnce(undefined);
+    await renderUnlock();
+
+    // Only the glyph depends on the sensor, so failing to read it must not stop the unlock.
+    expect(mockUnlock).toHaveBeenCalledWith();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
+// A guess is recorded before unlock(), so a correct one whose window went away mid-call leaves a
+// phantom failure, and at the threshold a provisional stamp; the window that turns ready retires it.
+describe('retiring the guess record once the wallet is ready (#1192)', () => {
+  it('resets a count and stamp left behind to 1 and 0', () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE };
+
+    retireLockoutRecord();
+
+    expect(mockLsStore).toEqual({ PasswordAttempts: 1, TimeLock: 0 });
+    expect(mockLsWrites).toEqual([
+      ['PasswordAttempts', 1],
+      ['TimeLock', 0]
+    ]);
+  });
+
+  it.each([
+    ['holds 1 and 0', { PasswordAttempts: 1, TimeLock: 0 }],
+    ['holds nothing', {}]
+  ])('writes nothing when storage already %s', (_label, stored) => {
+    mockLsStore = stored;
+
+    retireLockoutRecord();
+
+    expect(mockLsWrites).toEqual([]);
+  });
+
+  it('retires through the hook only once the wallet turns ready', () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE };
+    const { rerender } = renderHook(({ ready }) => useRetireLockoutOnReady(ready), {
+      initialProps: { ready: false }
+    });
+    expect(mockLsWrites).toEqual([]);
+
+    rerender({ ready: true });
+
+    expect(mockLsStore).toEqual({ PasswordAttempts: 1, TimeLock: 0 });
+  });
+});
+
+it('a wrong password reports incorrectPassword on passcode once per attempt', async () => {
+  mockIsExtension = true;
+  mockUnlock.mockRejectedValue(new Error('private unlock error'));
+  const { container } = await renderUnlock();
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    submitPassword(container, `wrong-${attempt}`);
+    await advance(300);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(attempt - 1);
+    await advance(1000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(attempt);
+    expect(reportUserVisibleError).toHaveBeenLastCalledWith('incorrectPassword', 'passcode');
+    await advance(700);
+  }
 });

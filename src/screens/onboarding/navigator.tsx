@@ -1,17 +1,26 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
-import classNames from 'clsx';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useTranslation } from 'react-i18next';
+import { AnimatePresence, useReducedMotion } from 'framer-motion';
 
-import { Button, ButtonVariant } from 'components/Button';
+import { PageHeader } from 'components/PageHeader';
 import { ProgressIndicator } from 'components/ProgressIndicator';
+import { pageSlideEntrance, usePreset } from 'lib/animation';
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
+import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
+import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isMobile } from 'lib/platform';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { cn } from 'lib/ui/util';
 
-import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
+import { GuardianIntroScreen } from './common/GuardianIntro';
+import { MainnetAccessScreen } from './common/MainnetAccess';
+import { MeetGuardianScreen } from './common/MeetGuardian';
+import { NetworkNoticeScreen } from './common/NetworkNotice';
+import { OnboardingStepLayer } from './common/OnboardingStepLayer';
+import { ReusedPhraseScreen } from './common/ReusedPhrase';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -19,12 +28,29 @@ import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
 import { SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
+import { ImportHotKeyScreen } from './import-wallet-flow/ImportHotKey';
 import { ImportRecoveryMethodScreen } from './import-wallet-flow/ImportRecoveryMethod';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
-import { GuardianProbeState, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
+import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
+import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
+import {
+  EMPTY_MEET_GUARDIAN_PROGRESS,
+  GuardianProbeState,
+  ImportType,
+  OnboardingAction,
+  OnboardingStep,
+  OnboardingType,
+  WalletType
+} from './types';
 
 export interface OnboardingFlowProps {
-  wordslist: string[];
+  inviteOnly?: boolean;
+  onUnlockInviteOnly?: () => void;
+  /** Welcome offers recovery only (ForgotPassword on an invite-only network). */
+  recoverOnly?: boolean;
+  /** The node refused the access code a registration carried; the code step says so. */
+  mainnetAccessRejected?: boolean;
+  wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
   step: OnboardingStep;
@@ -32,19 +58,48 @@ export interface OnboardingFlowProps {
   isLoading?: boolean;
   useBiometric?: boolean;
   isHardwareSecurityAvailable?: boolean;
+  /**
+   * The host skips the create flow's protection chooser on mobile too (Welcome does where the vault's
+   * hardware probe answered false), so that flow is one step shorter, as it is off mobile.
+   */
+  skipProtectionChoice?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
-  guardianLookupError?: boolean;
+  /** The last Guardian lookup failure's display text, or `null`. */
+  guardianLookupFailure?: string | null;
+  guardianLookupFailureId?: UserErrorId | null;
   /** Registration/recovery failure text to surface on the confirmation step (#630). */
   recoveryError?: string | null;
+  recoveryErrorId?: UserErrorId | null;
   /**
    * Progress of the background guardian auto-detection probe (issue #418).
    * Left undefined by hosts that don't run the probe, which makes the import
    * recovery-method screen fall back to its classic manual picker.
    */
   guardianProbe?: GuardianProbeState;
-  /** Side panel handoff (Chrome): wallet is being created in the background. */
+  /**
+   * The network a recovery restores into, whose Guardian operators the recovery-method step offers. Omitted => the
+   * effective network.
+   */
+  guardianNetwork?: MIDEN_NETWORK_NAME;
+  /** Side panel handoff (Chrome): wallet is being registered (created or restored) in the background. */
   confirmCreating?: boolean;
+  /**
+   * The import flow is running on a pasted hot key rather than a seed phrase:
+   * the recovery-method step pins Guardian (a hot key only ever belongs to a
+   * Guardian multisig account).
+   */
+  importViaKey?: boolean;
+  /**
+   * Whether the recovery-method step may offer a new account from the entered phrase when no backup is
+   * found. Off where the host cannot create one (a password reset, an invite-only network).
+   */
+  canCreateWithPhrase?: boolean;
+  /**
+   * Whether the header offers back. Hosts turn it off on a step that cannot be left safely (the
+   * wallet is being created, or already exists). Welcome never shows it: nothing comes before it.
+   */
+  canGoBack?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -53,8 +108,15 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.ChooseProtection]: 1,
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
-  [OnboardingStep.ChooseGuardian]: 3,
-  [OnboardingStep.ImportFromSeed]: 1,
+  // The guardian decision takes two segments: what a Guardian is, then who it is.
+  [OnboardingStep.GuardianIntro]: 3,
+  [OnboardingStep.MeetGuardian]: 4,
+  [OnboardingStep.SelectImportType]: 1,
+  // This change inserts the import-type choice at tier 1, so seed entry moves to
+  // tier 2 and the key-paste step, its sibling, moves with it.
+  [OnboardingStep.ImportFromSeed]: 2,
+  [OnboardingStep.ImportFromFile]: 2,
+  [OnboardingStep.ImportFromKey]: 2,
   [OnboardingStep.BackupSeedPhrase]: 1,
   [OnboardingStep.VerifySeedPhrase]: 2,
   [OnboardingStep.CreatePassword]: 3,
@@ -63,26 +125,37 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.Confirmation]: 4
 };
 
+/**
+ * Every step's header: the shared `PageHeader` row with the back button on the left and the flow's
+ * progress centred in it. Back is the onboarding state machine's own step back (`onAction('back')`,
+ * the same one the mobile back gesture takes), never the router's history.
+ */
 const Header: React.FC<{
-  onBack: () => void;
+  onBack?: () => void;
   currentStep: number | null;
   totalSteps: number;
-  onboardingType?: 'import' | 'create' | null;
-}> = ({ currentStep, totalSteps }) => {
-  return (
-    <div className="w-full flex items-center px-4 pt-4">
-      <div className="flex-1 flex justify-center">
-        <ProgressIndicator
-          currentStep={currentStep ?? 1}
-          steps={totalSteps}
-          className={currentStep ? '' : 'opacity-0'}
-        />
-      </div>
-    </div>
-  );
-};
+}> = ({ onBack, currentStep, totalSteps }) => (
+  <PageHeader
+    className="relative px-4"
+    onBack={onBack}
+    backTestId="onboarding-back"
+    actions={
+      <ProgressIndicator
+        currentStep={currentStep ?? 1}
+        steps={totalSteps}
+        // Centred on the row whether or not the back button is there; decorative, the step's title says where you are.
+        aria-hidden="true"
+        className={cn('pointer-events-none absolute left-1/2 -translate-x-1/2', !currentStep && 'opacity-0')}
+      />
+    }
+  />
+);
 
 export const OnboardingFlow: FC<OnboardingFlowProps> = ({
+  inviteOnly,
+  onUnlockInviteOnly,
+  recoverOnly,
+  mainnetAccessRejected = false,
   wordslist,
   seedPhrase,
   onboardingType,
@@ -90,16 +163,22 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
+  skipProtectionChoice = false,
   biometricAttempts = 0,
   biometricError = null,
-  guardianLookupError = false,
+  guardianLookupFailure = null,
+  guardianLookupFailureId,
   recoveryError = null,
+  recoveryErrorId,
   guardianProbe,
+  guardianNetwork,
   confirmCreating = false,
+  importViaKey = false,
+  canCreateWithPhrase = false,
+  canGoBack = true,
   onBiometricChange,
   onAction
 }) => {
-  const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
@@ -110,18 +189,36 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   useEffect(() => {
     setProgressOverride(null);
   }, [step]);
-  // The choose-protection step only exists where biometric can work (mobile).
-  // On the extension/desktop it's skipped, so the create flow is one step
-  // shorter — render 3 segments and shift every position down by one.
-  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && !isMobile();
+
+  // Meet your Guardian is left for the intro or the next step and come back to, so its locked operator
+  // lives here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
+  const [meetGuardianProgress, setMeetGuardianProgress] = useState(EMPTY_MEET_GUARDIAN_PROGRESS);
+  useEffect(() => {
+    if (step === OnboardingStep.Welcome) setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
+  }, [step]);
+  useEffect(() => {
+    setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
+  }, [seedPhrase]);
+  // The choose-protection step only exists where biometric can work: on mobile,
+  // unless the host skips it. Where it's skipped the create flow is one step
+  // shorter, so render 3 segments and shift every position down by one.
+  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && (!isMobile() || skipProtectionChoice);
   // In that shortened create flow the password screen replaces passcode setup,
   // so it sits at the protection-step position rather than its import-flow one.
+  // The create flow's two guardian screens make it one segment longer than the import flow, whose
+  // confirmation stays its fourth; the create flow's confirmation is its fifth.
+  const isCreate = onboardingType === OnboardingType.Create;
   const baseStep =
     step === OnboardingStep.CreatePassword && protectionChoiceSkipped
       ? (STEP_TO_PROGRESS[OnboardingStep.SetupPasscode] ?? null)
-      : (STEP_TO_PROGRESS[step] ?? null);
+      : step === OnboardingStep.Confirmation && isCreate
+        ? 5
+        : // On mobile the create flow reaches the password only after the guardian (biometric without hardware).
+          step === OnboardingStep.CreatePassword && isCreate
+          ? 4
+          : (STEP_TO_PROGRESS[step] ?? null);
   const rawProgress = progressOverride ?? baseStep;
-  const totalSteps = protectionChoiceSkipped ? 3 : 4;
+  const totalSteps = (protectionChoiceSkipped ? 3 : 4) + (isCreate ? 1 : 0);
   const currentProgress = protectionChoiceSkipped && rawProgress !== null ? rawProgress - 1 : rawProgress;
 
   const onForwardAction = useCallback(
@@ -132,9 +229,19 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     [onAction]
   );
 
+  const onBack = useCallback(() => {
+    setNavigationDirection('backward');
+    onAction?.({ id: 'back' });
+  }, [onAction]);
+
   const renderStep = useCallback(() => {
-    const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
+    const onWelcomeAction = (action: 'mainnet-access' | 'select-wallet-type' | 'select-import-type') => {
       switch (action) {
+        case 'mainnet-access':
+          onForwardAction?.({
+            id: 'mainnet-access'
+          });
+          break;
         case 'select-wallet-type':
           onForwardAction?.({
             id: 'choose-protection'
@@ -147,6 +254,17 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           break;
         default:
           break;
+      }
+    };
+
+    const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
+    const onMainnetAccessGranted = (code: string) => onForwardAction?.({ id: 'mainnet-access-granted', payload: code });
+
+    const onSelectImportTypeSubmit = (payload: ImportType) => {
+      if (payload === ImportType.SeedPhrase) {
+        onForwardAction?.({ id: 'import-from-seed' });
+      } else if (payload === ImportType.WalletFile) {
+        onForwardAction?.({ id: 'import-from-file' });
       }
     };
 
@@ -177,6 +295,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onImportSeedPhraseSubmit = (seedPhrase: string) =>
       onForwardAction?.({ id: 'import-seed-phrase-submit', payload: seedPhrase });
 
+    const onImportWalletFileSubmit = (payload: DecryptedWalletFile) =>
+      onForwardAction?.({ id: 'import-wallet-file-submit', payload });
+
     const onSelectBiometric = () => onForwardAction?.({ id: 'setup-biometric' });
     const onSelectPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
     const onSetupPasscodeSubmit = (code: string) => onForwardAction?.({ id: 'setup-passcode-submit', payload: code });
@@ -187,7 +308,18 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     switch (step) {
       case OnboardingStep.Welcome:
-        return <WelcomeScreen onSubmit={onWelcomeAction} />;
+        return (
+          <WelcomeScreen
+            inviteOnly={inviteOnly}
+            onUnlockInviteOnly={onUnlockInviteOnly}
+            recoverOnly={recoverOnly}
+            onSubmit={onWelcomeAction}
+          />
+        );
+      case OnboardingStep.MainnetAccess:
+        return <MainnetAccessScreen rejected={mainnetAccessRejected} onSubmit={onMainnetAccessGranted} />;
+      case OnboardingStep.NetworkNotice:
+        return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
         return <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />;
       case OnboardingStep.SetupPasscode:
@@ -201,8 +333,17 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return (
           <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
         );
-      case OnboardingStep.ChooseGuardian:
-        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
+      case OnboardingStep.GuardianIntro:
+        return <GuardianIntroScreen onContinue={() => onForwardAction?.({ id: 'guardian-intro-submit' })} />;
+      case OnboardingStep.MeetGuardian:
+        return (
+          <MeetGuardianScreen
+            progress={meetGuardianProgress}
+            onProgressChange={setMeetGuardianProgress}
+            onSubmit={onChooseGuardianSubmit}
+            showNoGuardianOption={getEffectiveAllowNoGuardian()}
+          />
+        );
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
@@ -216,7 +357,24 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           />
         );
       case OnboardingStep.ImportFromSeed:
-        return <ImportSeedPhraseScreen wordslist={wordslist} onSubmit={onImportSeedPhraseSubmit} />;
+        return (
+          <ImportSeedPhraseScreen
+            descriptionKey="importSeedPhraseHint"
+            wordslist={wordslist}
+            onSubmit={onImportSeedPhraseSubmit}
+            onImportWithKey={() => onForwardAction?.({ id: 'import-with-key' })}
+          />
+        );
+      case OnboardingStep.ImportFromKey:
+        return (
+          <ImportHotKeyScreen
+            onSubmit={keyPairPayload => onForwardAction?.({ id: 'import-hot-key-submit', payload: keyPairPayload })}
+          />
+        );
+      case OnboardingStep.SelectImportType:
+        return <SelectImportTypeScreen onSubmit={onSelectImportTypeSubmit} />;
+      case OnboardingStep.ImportFromFile:
+        return <ImportWalletFileScreen onSubmit={onImportWalletFileSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:
@@ -224,12 +382,18 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.ImportSelectRecoveryMethod:
         return (
           <ImportRecoveryMethodScreen
-            isError={guardianLookupError}
+            error={guardianLookupFailure}
+            errorId={guardianLookupFailureId}
             probe={guardianProbe}
+            guardianOnly={importViaKey}
+            network={guardianNetwork}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
+            onCreateNew={canCreateWithPhrase ? () => onForwardAction?.({ id: 'create-with-phrase' }) : undefined}
             onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
         );
+      case OnboardingStep.ReusedPhrase:
+        return <ReusedPhraseScreen onSubmit={() => onForwardAction?.({ id: 'reused-phrase-acknowledge' })} />;
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
       case OnboardingStep.Confirmation:
@@ -239,7 +403,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             biometricAttempts={biometricAttempts}
             biometricError={biometricError}
             recoveryError={recoveryError}
+            recoveryErrorId={recoveryErrorId}
             creating={confirmCreating}
+            onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
           />
@@ -249,7 +415,12 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
+    inviteOnly,
+    onUnlockInviteOnly,
+    recoverOnly,
+    mainnetAccessRejected,
     step,
+    meetGuardianProgress,
     isLoading,
     onForwardAction,
     seedPhrase,
@@ -259,77 +430,54 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onBiometricChange,
     biometricAttempts,
     biometricError,
-    guardianLookupError,
+    guardianLookupFailure,
+    guardianLookupFailureId,
     recoveryError,
+    recoveryErrorId,
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
-    confirmCreating
+    guardianNetwork,
+    confirmCreating,
+    importViaKey,
+    canCreateWithPhrase,
+    onboardingType
   ]);
 
-  const onBack = () => {
-    setNavigationDirection('backward');
-    onAction?.({ id: 'back' });
-  };
+  // A step moves like a pushed page (the `page` preset): going forward it slides in from the right
+  // over the step it replaces, which parks at `pageSlideCovered` under the `pageSlideDim` dim; going
+  // back the step on top slides out to the right and uncovers the one beneath. Only mobile animates
+  // (the extension swaps at once, as its pages do), and reduced motion is instant everywhere.
+  const pagePreset = usePreset('page');
+  const stepTransition = reduceMotion || isMobile() ? pagePreset.transition : { ...pageSlideEntrance, duration: 0 };
 
   return (
     <div
       data-onboarding-root="true"
-      className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}
+      className="mx-auto flex h-full w-full flex-col overflow-hidden bg-app-bg"
       style={{ maxWidth: 420 }}
     >
       <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
           {step !== OnboardingStep.Welcome && (
             <Header
-              onBack={onBack}
+              onBack={canGoBack ? onBack : undefined}
               currentStep={currentProgress}
               totalSteps={totalSteps}
-              onboardingType={onboardingType}
               key={'header'}
             />
           )}
         </AnimatePresence>
-        <AnimatePresence mode={'wait'} initial={false}>
-          <motion.div
-            className="flex flex-col flex-1 min-h-0"
-            key={step}
-            initial="initialState"
-            animate="animateState"
-            exit="exitState"
-            transition={{
-              type: 'tween',
-              // Only animate on mobile (disable for Chrome extension)
-              duration: isMobile() ? 0.2 : 0
-            }}
-            variants={{
-              initialState: {
-                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '1vw' : '-1vw',
-                opacity: 0
-              },
-              animateState: {
-                x: 0,
-                opacity: 1
-              },
-              exitState: {
-                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '-1vw' : '1vw',
-                opacity: 0
-              }
-            }}
-          >
-            {renderStep()}
-            {step !== OnboardingStep.Welcome &&
-              step !== OnboardingStep.ChooseProtection &&
-              step !== OnboardingStep.SetupPasscode &&
-              step !== OnboardingStep.SetupBiometric &&
-              step !== OnboardingStep.ChooseGuardian &&
-              step !== OnboardingStep.Confirmation && (
-                <div className="px-4 pt-2 pb-4">
-                  <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />
-                </div>
-              )}
-          </motion.div>
-        </AnimatePresence>
+        {/* Both steps are on screen while they cross, stacked in one grid cell, as a page and the page
+            beneath it are; the leaving one is inert (`OnboardingStepLayer`). `custom` hands the
+            leaving step the direction of the move that removes it. */}
+        <div className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-1 overflow-hidden">
+          <AnimatePresence initial={false} custom={navigationDirection}>
+            <OnboardingStepLayer key={step} direction={navigationDirection} transition={stepTransition}>
+              {renderStep()}
+            </OnboardingStepLayer>
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );

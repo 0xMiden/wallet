@@ -3,6 +3,7 @@ import { isExtension } from 'lib/platform';
 import {
   canHandoffToSidePanel,
   closeOnboardingTab,
+  ONBOARDING_HANDOFF_ROUTES,
   openSidePanelToWallet,
   postOnboardingRoute
 } from './side-panel-handoff';
@@ -28,7 +29,7 @@ function makeChrome(): ChromeMock {
       open: jest.fn().mockResolvedValue(undefined),
       setPanelBehavior: jest.fn().mockResolvedValue(undefined)
     },
-    action: { setPopup: jest.fn() },
+    action: { setPopup: jest.fn().mockResolvedValue(undefined) },
     windows: { getLastFocused: jest.fn().mockResolvedValue({ id: 7 }) },
     tabs: {
       getCurrent: jest.fn().mockResolvedValue({ id: 5, windowId: 2 }),
@@ -128,6 +129,17 @@ describe('postOnboardingRoute', () => {
   });
 });
 
+describe('ONBOARDING_HANDOFF_ROUTES', () => {
+  it('is exactly the consent prompt and the handoff screen', () => {
+    expect(ONBOARDING_HANDOFF_ROUTES).toEqual(new Set(['/finish-side-panel', '/help-improve-wallet']));
+  });
+
+  it('holds the route postOnboardingRoute takes when the handoff is available', () => {
+    setChrome(makeChrome());
+    expect(ONBOARDING_HANDOFF_ROUTES.has(postOnboardingRoute())).toBe(true);
+  });
+});
+
 describe('openSidePanelToWallet', () => {
   it('opens the panel for the focused window and enables side-panel mode', async () => {
     const chrome = makeChrome();
@@ -176,6 +188,24 @@ describe('openSidePanelToWallet', () => {
     // Open succeeded; the post-open surface switch failing is non-fatal.
     await expect(openSidePanelToWallet()).resolves.toBe(true);
     expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 7 });
+  });
+
+  it('warns and still saves side-panel mode when clearing the popup fails', async () => {
+    const chrome = makeChrome();
+    chrome.action.setPopup.mockRejectedValueOnce(new Error('setPopup failed'));
+    setChrome(chrome);
+
+    await expect(openSidePanelToWallet()).resolves.toBe(true);
+
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: true });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[side-panel-handoff] clearing the popup failed; the next start retries it:',
+      expect.any(Error)
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      '[side-panel-handoff] enabling side-panel mode failed (panel still open):',
+      expect.any(Error)
+    );
   });
 });
 

@@ -4,12 +4,9 @@ import { AssetMetadata } from './types';
  * The unknown-token placeholder's identifying fields, declared here rather than
  * read off `DEFAULT_TOKEN_METADATA` so that asking this question costs nothing.
  *
- * `defaults.ts` builds its `thumbnailUri` by calling into `lib/platform` at
- * module scope, so importing it has a side effect at load time. This predicate
- * is imported by every screen that displays a quantity; making all of them
- * depend on a platform probe to ask "are these decimals real" is the wrong
- * shape, and it made unrelated suites fail to load. `DEFAULT_TOKEN_METADATA`
- * spreads these fields in, so the two cannot drift.
+ * This predicate is imported by every screen that displays a quantity, so this
+ * module has no imports with load-time work. `DEFAULT_TOKEN_METADATA` spreads
+ * these fields in, so the two cannot drift.
  */
 export const UNKNOWN_TOKEN_IDENTITY = {
   decimals: 6,

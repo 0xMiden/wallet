@@ -20,6 +20,8 @@ export interface StressOptions {
   sendAmountMin: number;
   sendAmountMax: number;
   claimAfterSendProb: number;
+  /** Budget for the claim after a send: the suite's network- and Guardian-aware claim window (#1266). */
+  claimBudgetMs: number;
   idleEvery: number;
   idleMinMs: number;
   idleMaxMs: number;
@@ -30,11 +32,10 @@ export interface StressOptions {
   /**
    * Probability [0,1] that each private-note send gets its transport
    * request intercepted and forced to fail (via Playwright `page.route`).
-   * Exercises the SDK's durable relay outbox (miden-client#2127): on
-   * failure the wallet marks the tx Completed (the on-chain commit is
-   * durable) and the SDK persists the relay payload, retrying it on the
-   * next sync. Final balance conservation should still hold. 0 disables
-   * (default).
+   * Exercises the wallet's delivery sweep: on failure the wallet marks the
+   * tx Completed (the on-chain commit is durable) with the note undelivered,
+   * and the sweep re-pushes it on its schedule. Final balance conservation
+   * should still hold. 0 disables (default).
    */
   transportFailProb: number;
   seed: number;
@@ -119,8 +120,8 @@ export interface StressDriverInputs {
   walletB: ChromeWalletPageApi;
   addressA: string;
   addressB: string;
-  /** Token symbol to send (defaults to the custom-faucet "TST"). */
-  tokenSymbol?: string;
+  /** Exact bech32 faucet ID whose value this run conserves. */
+  faucetId: string;
 }
 
 export async function runStressDriver(
@@ -128,7 +129,7 @@ export async function runStressDriver(
   timeline: TimelineRecorder,
   opts: StressOptions
 ): Promise<StressResult> {
-  const { walletA, walletB, addressA, addressB, tokenSymbol = 'TST' } = inputs;
+  const { walletA, walletB, addressA, addressB, faucetId } = inputs;
   const rng = makeRng(opts.seed);
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
@@ -149,8 +150,8 @@ export async function runStressDriver(
   // so it can maintain expected deltas and compare against the wallet's
   // actual reported state (consumed + pending). First divergent op pinpoints
   // where tokens started going missing.
-  const initA = await walletA.quickBalanceSnapshot();
-  const initB = await walletB.quickBalanceSnapshot();
+  const initA = await walletA.quickBalanceSnapshot({ faucetId });
+  const initB = await walletB.quickBalanceSnapshot({ faucetId });
   const initialA = initA.totalReportable;
   const initialB = initB.totalReportable;
   let expectedDeltaA = 0;
@@ -254,7 +255,12 @@ export async function runStressDriver(
         const secondaryStart = Date.now();
         const [primary, secondary] = await Promise.allSettled([
           withTimeout(
-            sender.sendTokens({ recipientAddress: receiverAddress, amount: String(amount), isPrivate, tokenSymbol }),
+            sender.sendTokens({
+              recipientAddress: receiverAddress,
+              amount: String(amount),
+              isPrivate,
+              tokenId: faucetId
+            }),
             opts.perTurnSendTimeoutMs,
             `op#${idx} concurrent primary (${senderLabel}->${receiverLabel})`
           ),
@@ -263,7 +269,7 @@ export async function runStressDriver(
               recipientAddress: addrs[senderLabel],
               amount: String(secondaryAmount),
               isPrivate: secondaryIsPrivate,
-              tokenSymbol
+              tokenId: faucetId
             }),
             opts.perTurnSendTimeoutMs,
             `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`
@@ -300,7 +306,7 @@ export async function runStressDriver(
             recipientAddress: receiverAddress,
             amount: String(amount),
             isPrivate,
-            tokenSymbol
+            tokenId: faucetId
           }),
           opts.perTurnSendTimeoutMs,
           `op#${idx} sendTokens (${senderLabel}->${receiverLabel})`
@@ -369,7 +375,10 @@ export async function runStressDriver(
     }
 
     // Read actual — parallel, ~100ms total
-    const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+    const [snapA, snapB] = await Promise.all([
+      walletA.quickBalanceSnapshot({ faucetId }),
+      walletB.quickBalanceSnapshot({ faucetId })
+    ]);
     const observedDeltaA = snapA.totalReportable - initialA;
     const observedDeltaB = snapB.totalReportable - initialB;
     const divergenceA = observedDeltaA - expectedDeltaA;
@@ -408,12 +417,11 @@ export async function runStressDriver(
       }
     });
 
-    // Optional immediate claim on the receiver — mimics an attentive user.
-    // Budget is generous because this is a correctness test: the new drain
-    // loop iterates ~6s per cycle, so 240s = ~40 iterations.
+    // Optional immediate claim on the receiver, as an attentive user would make. The budget is the
+    // suite's own claim window, which is wider for Guardian accounts.
     if (status === 'ok' && rng() < opts.claimAfterSendProb) {
       try {
-        await receiver.claimAllNotes(240_000);
+        await receiver.claimAllNotes(opts.claimBudgetMs);
       } catch (e) {
         timeline.emit({
           category: 'stress_op',
@@ -502,8 +510,8 @@ export async function runStressDriver(
   // ── Drain: multiple claim cycles so no note is left in the queue ────────
   // `claimAllNotes` now loops until the consumable-notes cache is empty for
   // two consecutive syncs, so in the steady state each cycle is a fast no-op.
-  // The 5-min per-cycle cap only matters when something is genuinely stuck —
-  // which is exactly the signal we want surfaced rather than silently clipped.
+  // A cycle gives up at its 5-min budget only once the queue has stopped moving; a queue still
+  // moving gets up to 10 min (see `startDrainDeadline`), so a stuck one is still surfaced.
   timeline.emit({
     category: 'test_lifecycle',
     severity: 'info',

@@ -1,7 +1,11 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
 
+import { hexFaucetToBech32 } from './faucet-address';
+import { forgetFixtureConfig, setEligibilityFixtureConfig } from './feature-eligibility';
+import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
+import { IS_LOCALNET } from '../config/environments';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 /**
@@ -10,7 +14,7 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
  *
  *  - `fundSwapPair` stands up two faucets + funds the maker with the OFFER token
  *    and the taker with the REQUEST token, points both wallets' swap registries
- *    at them, and stubs the external price feed.
+ *    at them, and stubs the swap quote service.
  *  - `createSwapOrder` drives the real `#/swap` UI to mint a maker note and
  *    returns its on-chain orderId.
  *  - `fillSwapOrder` / `cancelSwapOrder` run in the taker/maker SERVICE WORKER
@@ -24,8 +28,22 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 type Wallet = ChromeWalletPageApi;
 
-/** External swap price feed — stubbed so specs don't depend on the network. */
-const PRICE_FEED_GLOB = '**/35-175-40-181.sslip.io/**';
+/** The quote service the stub localnet document names. No such host exists, so only the stubs below answer it. */
+const STUB_QUOTE_URL = 'https://swap-quotes.test';
+/** The testnet document's solver (`swap.etaUrl`), answered by the same stubs so a testnet run never reaches it. */
+const TESTNET_QUOTE_URL = 'https://35-175-40-181.sslip.io';
+const isStubQuoteHost = (url: URL): boolean => url.origin === STUB_QUOTE_URL || url.origin === TESTNET_QUOTE_URL;
+
+// Localnet publishes no config document, so without this one the page names no quote service and the Swap press
+// refuses before any request.
+const STUB_LOCALNET_DOCUMENT = {
+  network: 'localnet',
+  version: 1,
+  features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  swap: { etaUrl: STUB_QUOTE_URL }
+};
+
+const QUOTE_HEADERS = { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin' };
 
 /** Default base-unit amount minted to each side's faucet. */
 export const DEFAULT_FUND_AMOUNT = 100_000_000_000;
@@ -56,17 +74,6 @@ export function swOf(w: Wallet) {
   return sw;
 }
 
-/**
- * CLI faucet ids are hex; the wallet keys balances (and the swap review's
- * balance gate) by the bech32 form. Convert via the store hook. R0 finding.
- */
-export function hexFaucetToBech32(w: Wallet, hex: string): Promise<string> {
-  return w.page.evaluate(
-    h => (window as never as { __TEST_HEX_TO_BECH32_FAUCET__: (h: string) => string }).__TEST_HEX_TO_BECH32_FAUCET__(h),
-    hex
-  );
-}
-
 export interface FundSwapPairOptions {
   offerSymbol: string;
   requestSymbol: string;
@@ -76,12 +83,107 @@ export interface FundSwapPairOptions {
   requestDecimals?: number;
   /** per-side balance-wait/claim budget (default 150s; raise for guardian accounts). */
   balanceTimeoutMs?: number;
+  /**
+   * Serve the stub config document and quote answers (default true). False for a spec that routes its own: a
+   * later `page.route` wins, so these would shadow it. The testnet solver is aborted either way.
+   */
+  stubQuoteService?: boolean;
+}
+
+/**
+ * The quote service's answers for the funded pair: a price of 1 at the faucets' own decimals, and every ask at
+ * market and filled in full with settlements running, which the pre-submit check accepts. Any other path aborts.
+ */
+function answerQuote(route: Route, decimalsOf: (faucetHex: string | null) => number | undefined): Promise<void> {
+  const url = new URL(route.request().url());
+  const query = url.searchParams;
+  const json = (body: unknown, status = 200) =>
+    route.fulfill({ status, contentType: 'application/json', headers: QUOTE_HEADERS, body: JSON.stringify(body) });
+  if (route.request().method() !== 'GET') return route.abort();
+  switch (url.pathname) {
+    case '/v2/pairs':
+      return json({ tokens: [], pairs: [] });
+    case '/v2/pair-price': {
+      const offeredDecimals = decimalsOf(query.get('offered_faucet'));
+      const requestedDecimals = decimalsOf(query.get('requested_faucet'));
+      if (offeredDecimals === undefined || requestedDecimals === undefined) {
+        return json({ error: 'no_market', message: 'the stub quotes only the funded pair' }, 503);
+      }
+      return json({
+        offeredFaucet: query.get('offered_faucet'),
+        requestedFaucet: query.get('requested_faucet'),
+        marketPrice: '1',
+        fillPrice: '1',
+        feePpm: 0,
+        offeredDecimals,
+        requestedDecimals,
+        asOf: Math.floor(Date.now() / 1000)
+      });
+    }
+    case '/v2/swap-eta': {
+      const offeredAmount = query.get('offered_amount');
+      const requestedAmount = query.get('requested_amount');
+      return json({
+        offeredFaucet: query.get('offered_faucet'),
+        requestedFaucet: query.get('requested_faucet'),
+        offeredAmount,
+        requestedAmount,
+        priceBand: 'at_market',
+        fillStatus: 'full',
+        reason: null,
+        fillableOfferedAmount: offeredAmount,
+        fillableRequestedAmount: requestedAmount,
+        maxOfferedAmount: offeredAmount,
+        expectedRequestedAmount: requestedAmount,
+        feePpm: 0,
+        feeAmount: '0',
+        marketPrice: '1',
+        fillPrice: '1',
+        settlementsRunning: true,
+        estimatedSeconds: 30,
+        median24hSeconds: null
+      });
+    }
+    default:
+      return route.abort();
+  }
+}
+
+/**
+ * Share the localnet policy with every realm and the eligibility endpoint, then reload this page with quote
+ * routes installed. Reading the stub's pairs confirms the page accepted the configured solver.
+ */
+async function serveStubQuoteService(
+  page: Page,
+  decimalsOf: (faucetHex: string | null) => number | undefined
+): Promise<void> {
+  if (IS_LOCALNET) {
+    await setEligibilityFixtureConfig(STUB_LOCALNET_DOCUMENT);
+    await forgetFixtureConfig(page, 'localnet');
+  }
+  await page.route(isStubQuoteHost, route => answerQuote(route, decimalsOf));
+  const pairsRead: Promise<unknown> = IS_LOCALNET
+    ? page
+        .waitForResponse(response => response.url() === `${STUB_QUOTE_URL}/v2/pairs`, { timeout: 30_000 })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        )
+    : Promise.resolve(undefined);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const missed = await pairsRead;
+  if (missed !== undefined) {
+    throw new Error(
+      `the page never read the stub quote service's pairs after the reload: ` +
+        (missed instanceof Error ? missed.message : String(missed))
+    );
+  }
 }
 
 /**
  * Stand up a swap-ready pair: two faucets, maker funded with the OFFER token and
  * taker with the REQUEST token, both wallets' swap registries pointed at them,
- * and the external price feed stubbed. Both wallets must already be created.
+ * and the swap quote service stubbed. Both wallets must already be created.
  */
 export async function fundSwapPair(
   midenCli: MidenCli,
@@ -120,12 +222,25 @@ export async function fundSwapPair(
     logoSymbol: 'ETH'
   };
   const tokens = [offer, request];
+  const decimalsByFaucet = new Map([
+    [offerFaucetHex.toLowerCase(), offer.decimals],
+    [requestFaucetHex.toLowerCase(), request.decimals]
+  ]);
+  const decimalsOf = (faucetHex: string | null) =>
+    faucetHex === null ? undefined : decimalsByFaucet.get(faucetHex.toLowerCase());
   for (const w of [maker, taker]) {
+    if (opts.stubQuoteService ?? true) await serveStubQuoteService(w.page, decimalsOf);
+    else await w.page.route(`${TESTNET_QUOTE_URL}/**`, route => route.abort());
+    // The override lives in the page realm's memory, so it is set after the reload, once the hook is back.
+    await w.page.waitForFunction(
+      () => typeof (window as never as { __TEST_SET_SWAP_TOKENS__?: unknown }).__TEST_SET_SWAP_TOKENS__ === 'function',
+      undefined,
+      { timeout: 60_000 }
+    );
     await w.page.evaluate(
       t => (window as never as { __TEST_SET_SWAP_TOKENS__: (t: unknown) => void }).__TEST_SET_SWAP_TOKENS__(t),
       tokens
     );
-    await w.page.route(PRICE_FEED_GLOB, r => r.abort());
   }
   return { offer, request, offerFaucetHex, requestFaucetHex };
 }
@@ -133,7 +248,9 @@ export async function fundSwapPair(
 export interface CreateOrderOptions {
   offerSymbol: string;
   requestSymbol: string;
-  /** human amounts as typed in the UI, e.g. '10'. */
+  /** Only this side is typed; the opposite side must match its quoted expected amount. */
+  amountAnchor: 'pay' | 'receive';
+  /** Expected human amounts, e.g. '10'. */
   payAmount: string;
   receiveAmount: string;
 }
@@ -150,25 +267,49 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
 
   await page.getByTestId('send-token-selector').first().click();
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();
-  await page.getByTestId('send-amount-input').first().fill(opts.payAmount);
   await page.getByTestId('send-token-selector').nth(1).click();
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
-  await page.getByTestId('send-amount-input').nth(1).fill(opts.receiveAmount);
+  const payInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
+  const receiveInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
+  if (opts.amountAnchor === 'pay') await payInput.fill(opts.payAmount);
+  else await receiveInput.fill(opts.receiveAmount);
+  await expect(payInput).toHaveValue(opts.payAmount);
+  await expect(receiveInput).toHaveValue(opts.receiveAmount);
 
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').click();
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
 
   let orderId = '';
-  await expect
-    .poll(
-      async () => {
-        orderId = (await readSwapOrderIds(page)).find(id => !before.has(id)) ?? '';
-        return orderId;
-      },
-      { timeout: 90_000, intervals: [3000] }
-    )
-    .not.toBe('');
+  try {
+    await expect
+      .poll(
+        async () => {
+          orderId = (await readSwapOrderIds(page)).find(id => !before.has(id)) ?? '';
+          return orderId;
+        },
+        { timeout: 90_000, intervals: [3000] }
+      )
+      .not.toBe('');
+  } catch (pollError) {
+    // "No new order id" is a symptom; the reason is on the transaction row. Without this the
+    // failure reads as a bare timeout on a predicate, which says nothing about WHY the swap
+    // never completed -- on a fee-charging chain that is usually an unpayable fee, and the
+    // kernel error naming it is already persisted.
+    const rows = await readTransactionRows(page).catch(() => []);
+    const failed = rows
+      .filter(r => r.status === 3)
+      .map(
+        r =>
+          `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+          (r.rawError ? `\n      raw: ${r.rawError}` : '')
+      )
+      .join('');
+    throw new Error(
+      `${(pollError as Error).message}\n  swap never produced a new order id.` +
+        (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
+    );
+  }
   return orderId;
 }
 
@@ -200,17 +341,27 @@ async function readSwapOrderIds(page: Page): Promise<string[]> {
 /** Raw sent-note info for the maker (id + tag + noteType per output note). */
 async function readMakerSent(
   maker: Wallet
-): Promise<Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }>> {
+): Promise<
+  Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string; isFee?: boolean }>
+> {
   const info = (await swOf(maker).evaluate(() =>
     (globalThis as unknown as { __TEST_PSWAP_ORDER_INFO__: () => unknown }).__TEST_PSWAP_ORDER_INFO__()
-  )) as { sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }> };
+  )) as {
+    sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string; isFee?: boolean }>;
+  };
   return info?.sent ?? [];
 }
 
 /** The maker's swap note id (full hex). Single-order specs have exactly one sent note. */
-export async function readMakerNoteId(maker: Wallet): Promise<string | undefined> {
+export async function readMakerNoteId(maker: Wallet, orderId: string): Promise<string | undefined> {
   const sent = await readMakerSent(maker);
-  return sent.find(s => s.fullId && s.fullId !== '?')?.fullId;
+  // A discriminator is REQUIRED, not optional. A fee-charging chain makes the maker's create
+  // transaction emit a fee note alongside the swap note, so "the first sent note" is a coin
+  // flip — and handing the fee note to the taker fails PSWAP's script-root check with an error
+  // that points at the note script rather than at the selection. The optional-with-positional-
+  // fallback shape this replaced would have silently reintroduced exactly that whenever a
+  // caller omitted the id, which is how the bug arrived the first time.
+  return sent.filter(s => s.fullId && s.fullId !== '?' && !s.isFee).find(s => s.orderId === orderId)?.fullId;
 }
 
 /**
@@ -243,7 +394,9 @@ export async function exportMakerNote(maker: Wallet, noteId: string, timeoutMs =
 
 /** The maker's own note tag (the taker discovers by this; buildSwapTag can't reproduce it). */
 export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
-  return (await readMakerSent(maker))[0]?.tag;
+  // Index 0 of the raw list is the kernel's fee note whenever it ordered that one first,
+  // and subscribing the taker to the FEE tag discovers nothing.
+  return (await readMakerSent(maker)).filter(s => !s.isFee)[0]?.tag;
 }
 
 /**
@@ -252,7 +405,10 @@ export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
  * every tag to be sure the swap note is among the synced notes.
  */
 export async function readMakerTags(maker: Wallet): Promise<string[]> {
-  const tags = (await readMakerSent(maker)).map(s => s.tag).filter((t): t is string => !!t && t !== '?');
+  const tags = (await readMakerSent(maker))
+    .filter(s => !s.isFee)
+    .map(s => s.tag)
+    .filter((t): t is string => !!t && t !== '?');
   return [...new Set(tags)];
 }
 
@@ -297,8 +453,13 @@ export interface FillResult {
 export async function fillSwapOrder(o: FillSwapOptions): Promise<FillResult> {
   let noteFileHex = o.noteFileHex;
   if (!noteFileHex && o.maker) {
-    const noteId = await readMakerNoteId(o.maker);
-    if (!noteId) throw new Error('fillSwapOrder: maker has no exportable swap note');
+    const noteId = await readMakerNoteId(o.maker, o.orderId);
+    if (!noteId) {
+      const sent = await readMakerSent(o.maker);
+      throw new Error(
+        `fillSwapOrder: maker has no sent note carrying order id ${o.orderId}; sent notes were ${JSON.stringify(sent)}`
+      );
+    }
     noteFileHex = await exportMakerNote(o.maker, noteId);
   }
   return swOf(o.taker).evaluate(

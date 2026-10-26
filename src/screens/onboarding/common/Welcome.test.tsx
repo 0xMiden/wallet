@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, createEvent, render, screen, fireEvent } from '@testing-library/react';
+
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { WelcomeScreen } from './Welcome';
 
@@ -14,17 +16,14 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// `isMobile` gates the top-padding class on the button column. A mutable holder
-// lets individual tests flip the platform to exercise both the mobile (`pt-8`)
-// and non-mobile (`pt-6`) branches.
 const mockPlatform = { isMobile: false };
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockPlatform.isMobile
+  isMobile: () => mockPlatform.isMobile,
+  isExtension: () => false
 }));
 
 // `hapticLight`/`hapticMedium` are native Capacitor wrappers; replace them with
-// spies so the recover-link and logo-unlock tap wiring can be asserted without
-// touching the plugin.
+// spies so the logo-unlock tap wiring can be asserted without touching the plugin.
 const hapticLight = jest.fn();
 const hapticMedium = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
@@ -39,22 +38,89 @@ jest.mock('lib/woozie', () => ({
   navigate: (to: string) => mockNavigate(to)
 }));
 
-// `app/icons/v2` — replace the SVG barrel with a lightweight marker exposing the
-// only `IconName` member the component references.
-jest.mock('app/icons/v2', () => ({
-  Icon: (props: { name?: string }) => <span data-testid="icon" data-name={props.name} />,
-  IconName: { ChevronRight: 'ChevronRight' }
+// The remote config snapshot Welcome waits on before it shows its actions. The runtime itself reads
+// storage and the network, so the hook returns this mutable snapshot instead.
+const ALL_OFF = { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
+const snapshotWith = (
+  onboarding: { inviteOnly: boolean } | undefined,
+  status: BridgeConfigSnapshot['status'] = 'ready'
+): BridgeConfigSnapshot => ({
+  network: 'testnet',
+  status,
+  config: {
+    network: 'testnet',
+    version: 1,
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
+    features: ALL_OFF,
+    ...(onboarding === undefined ? {} : { onboarding })
+  },
+  derived: null,
+  lastFetch: null
+});
+const LOADING: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
+let mockSnapshot: BridgeConfigSnapshot = snapshotWith(undefined);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => mockSnapshot
 }));
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockSnapshot }));
 
 // `Button` — render the title and forward the click / tabIndex so the primary
-// "get started" wiring can be verified. A `btn-<title>` test id makes the CTA
-// addressable.
+// wiring can be verified. A `btn-<title>` test id makes the CTA addressable.
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, tabIndex }: { title: string; onClick?: () => void; tabIndex?: number }) => (
-    <button data-testid={`btn-${title}`} data-tabindex={String(tabIndex)} onClick={onClick}>
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({
+    title,
+    onClick,
+    tabIndex,
+    id,
+    variant,
+    className
+  }: {
+    title: string;
+    onClick?: () => void;
+    tabIndex?: number;
+    id?: string;
+    variant?: string;
+    className?: string;
+  }) => (
+    <button
+      id={id}
+      className={className}
+      data-testid={`btn-${title}`}
+      data-tabindex={String(tabIndex)}
+      data-variant={variant ?? 'primary'}
+      onClick={onClick}
+    >
       {title}
     </button>
   )
+}));
+
+// Vaul renders through a portal that jsdom cannot drive. A flat stand-in that renders its
+// children only while open is sufficient for the open, close and recover wiring.
+jest.mock('./NoCodeSheet', () => ({
+  NoCodeSheet: ({
+    open,
+    onOpenChange,
+    onRecover
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onRecover: () => void;
+  }) =>
+    open ? (
+      <div data-testid="no-code-sheet">
+        <button type="button" data-testid="no-code-sheet-close" onClick={() => onOpenChange(false)} />
+        <button type="button" data-testid="no-code-sheet-recover" onClick={onRecover} />
+      </div>
+    ) : null
 }));
 
 // ---------------------------------------------------------------------------
@@ -64,8 +130,14 @@ jest.mock('components/Button', () => ({
 const renderComponent = (props: Partial<React.ComponentProps<typeof WelcomeScreen>> = {}) =>
   render(<WelcomeScreen {...props} />);
 
+const tapLogo = (times: number) => {
+  const logo = screen.getByTestId('onboarding-bread-logo');
+  for (let i = 0; i < times; i++) fireEvent.click(logo);
+};
+
 beforeEach(() => {
   mockPlatform.isMobile = false;
+  mockSnapshot = snapshotWith(undefined);
   hapticLight.mockClear();
   hapticMedium.mockClear();
   mockNavigate.mockClear();
@@ -81,11 +153,17 @@ describe('WelcomeScreen', () => {
     expect(screen.getByTestId('onboarding-welcome')).toBeInTheDocument();
   });
 
-  it('renders the bread logo svg with the fixed width sizing', () => {
+  it('renders the bread logo and the hero on the shared layout, the actions pinned in its footer', () => {
     const { container } = renderComponent();
-    const svg = container.querySelector('svg');
-    expect(svg).toBeInTheDocument();
-    expect(svg).toHaveStyle({ width: '130px' });
+    expect(container.querySelector('svg')).toHaveClass('w-[140px]');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('font-heading', 'text-ink');
+    // 56px on a normal screen, smaller on the narrowest, and a long translated word wraps rather than clips.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-[min(56px,15vw)]', '[overflow-wrap:anywhere]');
+    expect(screen.getByText('breadWalletDescription')).toHaveClass('text-muted');
+    // The actions share one column in the footer, which the loading spinner overlays.
+    const footer = screen.getByTestId('btn-getStarted').closest('[data-slot="footer"]');
+    expect(footer).toBeInTheDocument();
+    expect(footer).toContainElement(document.getElementById('import-link'));
   });
 
   it('renders the translated heading copy across its spans', () => {
@@ -96,24 +174,21 @@ describe('WelcomeScreen', () => {
     expect(heading).toHaveTextContent('midenWallet');
   });
 
-  it('renders the translated description copy', () => {
-    renderComponent();
-    expect(screen.getByText('breadWalletDescription')).toBeInTheDocument();
-  });
-
-  it('renders the primary get-started button as focusable (tabIndex 0)', () => {
+  it('renders the primary get-started button as focusable (tabIndex 0), and no invite-only way in', () => {
     renderComponent();
     const button = screen.getByTestId('btn-getStarted');
     expect(button).toHaveTextContent('getStarted');
     expect(button).toHaveAttribute('data-tabindex', '0');
+    expect(button).toHaveAttribute('data-variant', 'primary');
+    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-no-code')).not.toBeInTheDocument();
   });
 
-  it('renders the recover-account link with the chevron icon', () => {
+  it('renders recover-account as the secondary button under Get started', () => {
     renderComponent();
     const link = document.getElementById('import-link');
-    expect(link).toBeInTheDocument();
     expect(link).toHaveTextContent('recoverYourAccount');
-    expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'ChevronRight');
+    expect(link).toHaveAttribute('data-variant', 'secondary');
   });
 
   it('invokes onSubmit with "select-wallet-type" when get-started is clicked', () => {
@@ -125,25 +200,18 @@ describe('WelcomeScreen', () => {
     expect(onSubmit).toHaveBeenCalledWith('select-wallet-type');
   });
 
-  it('fires the haptic and onSubmit with "select-import-type" when recover is clicked', () => {
+  it('calls onSubmit with "select-import-type" when recover is clicked (the Button owns the haptic)', () => {
     const onSubmit = jest.fn();
     renderComponent({ onSubmit });
 
     fireEvent.click(document.getElementById('import-link')!);
-    expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith('select-import-type');
   });
 
-  it('still fires the haptic on recover even without an onSubmit handler', () => {
+  it('does not throw on recover or get-started without an onSubmit handler', () => {
     renderComponent();
-
     expect(() => fireEvent.click(document.getElementById('import-link')!)).not.toThrow();
-    expect(hapticLight).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not throw when get-started is clicked without an onSubmit handler', () => {
-    renderComponent();
     expect(() => fireEvent.click(screen.getByTestId('btn-getStarted'))).not.toThrow();
   });
 
@@ -154,44 +222,164 @@ describe('WelcomeScreen', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(hapticLight).not.toHaveBeenCalled();
   });
-
-  it('applies the mobile top-padding (pt-8) on the button column when on mobile', () => {
-    mockPlatform.isMobile = true;
-    renderComponent();
-
-    const column = screen.getByTestId('btn-getStarted').parentElement;
-    expect(column).toHaveClass('pt-8');
-    expect(column).not.toHaveClass('pt-6');
-  });
-
-  it('applies the desktop top-padding (pt-6) on the button column when not on mobile', () => {
-    mockPlatform.isMobile = false;
-    renderComponent();
-
-    const column = screen.getByTestId('btn-getStarted').parentElement;
-    expect(column).toHaveClass('pt-6');
-    expect(column).not.toHaveClass('pt-8');
-  });
 });
 
-describe('WelcomeScreen developer unlock', () => {
-  it('navigates to developer settings after 7 taps on the logo', () => {
-    renderComponent();
-    const logo = screen.getByTestId('onboarding-bread-logo');
-    for (let i = 0; i < 7; i++) fireEvent.click(logo);
-    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+describe('WelcomeScreen logo taps', () => {
+  it('ask the host to unlock the invite-only Welcome after 7 taps on the general one', () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderComponent({ onUnlockInviteOnly });
+    tapLogo(6);
+    expect(onUnlockInviteOnly).not.toHaveBeenCalled();
+    expect(hapticMedium).not.toHaveBeenCalled();
+
+    tapLogo(1);
+    expect(onUnlockInviteOnly).toHaveBeenCalledTimes(1);
+    expect(hapticMedium).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // The host decides the variant: the taps alone change nothing on screen.
+    expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
   });
 
-  it('does not navigate before the 7th tap', () => {
+  it('open developer settings after 7 taps when the invite-only Welcome already shows', () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderComponent({ inviteOnly: true, onUnlockInviteOnly });
+    tapLogo(6);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    tapLogo(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+    expect(onUnlockInviteOnly).not.toHaveBeenCalled();
+    expect(hapticMedium).toHaveBeenCalledTimes(1);
+  });
+
+  it('open developer settings after 7 taps when the host has no unlock', () => {
     renderComponent();
+    tapLogo(7);
+    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+  });
+
+  it('opens nothing when the seventh tap comes more than two seconds after the sixth', () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderComponent({ onUnlockInviteOnly });
     const logo = screen.getByTestId('onboarding-bread-logo');
-    for (let i = 0; i < 6; i++) fireEvent.click(logo);
+    // The count reads the event's own time stamp; React falls back to Date.now() for a zero one.
+    const tapAt = (timeStamp: number) => {
+      const event = createEvent.click(logo);
+      Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+      fireEvent(logo, event);
+    };
+    for (let i = 0; i < 6; i++) tapAt(10_000 + i * 300);
+    tapAt(10_000 + 5 * 300 + 2_001);
+    expect(onUnlockInviteOnly).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('prevents text selection on the logo tap target', () => {
     renderComponent();
     const logo = screen.getByTestId('onboarding-bread-logo');
-    expect(logo).toHaveStyle({ userSelect: 'none' });
+    expect(logo).toHaveClass('select-none');
+  });
+});
+
+describe('WelcomeScreen invite-only variant', () => {
+  it('replaces the test-network ways in with I have a code', () => {
+    const onSubmit = jest.fn();
+    renderComponent({ inviteOnly: true, onSubmit });
+    expect(screen.getByTestId('onboarding-bread-logo')).toHaveAttribute('data-invite-onboarding', 'true');
+    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
+    expect(document.getElementById('import-link')).toBeNull();
+
+    const button = screen.getByTestId('btn-iHaveACode');
+    expect(button).toHaveAttribute('data-tabindex', '0');
+    expect(button).toHaveAttribute('data-variant', 'primary');
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenLastCalledWith('mainnet-access');
+    expect(screen.getByTestId('onboarding-no-code')).toHaveTextContent('iDontHaveACode');
+  });
+
+  it("opens the no-code sheet from I don't have a code, closes it, and recovers through it", () => {
+    const onSubmit = jest.fn();
+    renderComponent({ inviteOnly: true, onSubmit });
+    expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('onboarding-no-code'));
+    expect(screen.getByTestId('no-code-sheet')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('no-code-sheet-close'));
+    expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('onboarding-no-code'));
+    fireEvent.click(screen.getByTestId('no-code-sheet-recover'));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith('select-import-type');
+    expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
+  });
+
+  it('does not throw when I have a code is clicked without an onSubmit handler', () => {
+    renderComponent({ inviteOnly: true });
+    expect(() => fireEvent.click(screen.getByTestId('btn-iHaveACode'))).not.toThrow();
+  });
+
+  it.each([{ inviteOnly: true }, { inviteOnly: false }, undefined])(
+    'takes the variant from its host, not from the document (onboarding %j)',
+    onboarding => {
+      mockSnapshot = snapshotWith(onboarding);
+      const view = renderComponent();
+      expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+
+      view.rerender(<WelcomeScreen inviteOnly />);
+      expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
+    }
+  );
+});
+
+describe('WelcomeScreen recover-only variant', () => {
+  it('offers recovery alone, as the primary action', () => {
+    const onSubmit = jest.fn();
+    renderComponent({ recoverOnly: true, onSubmit });
+    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+    const recover = document.getElementById('import-link');
+    expect(recover).toHaveAttribute('data-variant', 'primary');
+    fireEvent.click(recover!);
+    expect(onSubmit).toHaveBeenCalledWith('select-import-type');
+  });
+});
+
+describe('WelcomeScreen while the remote config loads', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('hides the actions while the config loads, and shows the variant its host sets once it lands', () => {
+    mockSnapshot = LOADING;
+    const view = renderComponent();
+    expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
+    expect(document.getElementById('import-link')).toHaveClass('invisible');
+    expect(screen.getByRole('status')).toHaveAccessibleName('loading');
+
+    mockSnapshot = snapshotWith({ inviteOnly: true });
+    view.rerender(<WelcomeScreen inviteOnly />);
+    expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
+    expect(screen.getByTestId('btn-iHaveACode')).not.toHaveClass('invisible');
+    expect(screen.getByTestId('onboarding-no-code')).not.toHaveClass('invisible');
+  });
+
+  it('shows the general actions when the config does not land within the wait', () => {
+    mockSnapshot = LOADING;
+    renderComponent();
+    act(() => {
+      jest.advanceTimersByTime(2_999);
+    });
+    expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
+    expect(screen.getByTestId('onboarding-config-loading')).toBeInTheDocument();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
+    expect(screen.getByTestId('btn-getStarted')).not.toHaveClass('invisible');
+    expect(document.getElementById('import-link')).not.toHaveClass('invisible');
   });
 });

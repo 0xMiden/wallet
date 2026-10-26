@@ -5,16 +5,20 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 
 import { resolveSwapAsset, useTransactionSummaryBadgeContent } from '../TransactionSummaryBadge';
 import {
-  SuccessDivider,
+  ReceiptRows,
   SuccessSummaryPill,
   TransactionSuccessLayout,
-  TransactionSuccessProps
+  TransactionSuccessProps,
+  useReceiptFeeText
 } from './TransactionSuccessLayout';
 
 /**
@@ -31,10 +35,17 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
   const { t } = useTranslation();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const badgeContent = useTransactionSummaryBadgeContent(transaction);
+
+  // A swap pays a network fee like any other transaction — `completeSwapTransaction`
+  // records it — and this was the one receipt that never showed it, so the swap flow
+  // disclosed the charge nowhere at all.
+  const feeText = useReceiptFeeText(transaction);
 
   // Offered side — this is what returns to the wallet if the order expires.
   const offered = resolveSwapAsset(transaction?.faucetId, assetsMetadata, nativeFaucetId);
+  const offeredLabel = midenTokenLabel(bridgeConfig, transaction?.faucetId, offered.symbol);
   // `scaleIsKnown` is the whole reason `resolveSwapAsset` reports it: an
   // off-registry faucet the wallet never resolved has no trustworthy decimals,
   // and quoting a reserved balance at a guessed scale is worse than quoting
@@ -43,11 +54,12 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
     transaction?.amount !== undefined && offered.scaleIsKnown
       ? formatAmount(transaction.amount, offered.decimals)
       : undefined;
-  const returnAmountText = offeredAmount ? `${offeredAmount} ${offered.symbol}` : undefined;
+  const returnAmountText = offeredAmount ? `${offeredAmount} ${offeredLabel}` : undefined;
 
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={t('swapOrderCreated')}
       footerDescription={
         <>
@@ -64,11 +76,14 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       }}
       onClose={onDoneClick}
     >
-      {badgeContent && <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} />}
-      <SuccessDivider />
+      {badgeContent && (
+        <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} fillForArrow={badgeContent.fillForArrow} />
+      )}
+
+      {feeText && <ReceiptRows rows={[{ label: t('networkFee'), value: feeText }]} className="mt-6" />}
 
       {returnAmountText && (
-        <div className="flex w-full items-start gap-1.5 text-xs text-heading-gray">
+        <div className="mt-6 flex w-full items-start gap-1.5 text-xs text-ink">
           <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
           <span>{t('swapOrderReservedNote', { amount: returnAmountText })}</span>
         </div>

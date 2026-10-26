@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useMemo } from 'react';
+import React, { FC, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -6,22 +6,36 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
+import { isGuardianSyncOutage, subscribeGuardianSyncOutage } from 'lib/miden/front/guardian-sync';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
-import { getIntercom } from 'lib/store';
+import { getIntercom, useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { navigate } from 'lib/woozie';
 
 export interface ConnectivityIssueBannerProps {
   className?: string;
 }
 
+/**
+ * `guardian` is a banner-local category, NOT part of the shared
+ * connectivity-state snapshot: the outage flag lives in guardian-sync's own
+ * realm-local subscription (the sync loop and this banner share the frontend
+ * realm), so routing it through the SW-owned snapshot would only add a
+ * cross-realm writer to a key with single-writer rules.
+ */
+type BannerCategory = ConnectivityCategory | 'guardian';
+
 interface BannerView {
-  category: ConnectivityCategory;
+  category: BannerCategory;
   iconName: IconName;
   iconColor: string;
   titleKey: string;
   bodyKey: string;
+  errorId?: UserErrorId;
   /** When set, render a retry CTA with this label. */
   ctaKey?: string;
 }
@@ -31,29 +45,37 @@ interface BannerView {
  * at once (e.g. node down + prover down) but a stack of three banners is
  * worse UX than picking the most actionable one. Priority:
  *
- *   network > node > prover > resolving
+ *   network > node > guardian > prover > resolving
  *
  * Reasoning: if the user is offline, fixing that fixes everything else, so
  * surface that. If the node is unreachable, that masks the prover signal
- * (we can't know prover health if we can't sync). Prover is the lowest hard
- * category — it just means transactions go local, which still works.
- * `resolving` only renders when nothing else is active.
+ * (we can't know prover health if we can't sync) — and the guardian signal
+ * too, since guardian sync fails on a dead node as well. A down guardian
+ * outranks the prover: it blocks every co-signed transaction and has a real
+ * remedy (switch operators), while a prover failure just means transactions
+ * go local, which still works. `resolving` only renders when nothing else is
+ * active.
  */
-function pickActiveCategory(state: ReturnType<typeof useConnectivityState>['state']): ConnectivityCategory | null {
+function pickActiveCategory(
+  state: ReturnType<typeof useConnectivityState>['state'],
+  guardianDown: boolean
+): BannerCategory | null {
   if (state.network.active) return 'network';
   if (state.node.active) return 'node';
+  if (guardianDown) return 'guardian';
   if (state.prover.active) return 'prover';
   if (state.resolving.active) return 'resolving';
   return null;
 }
 
-const VIEWS: Record<ConnectivityCategory, BannerView> = {
+const VIEWS: Record<BannerCategory, BannerView> = {
   network: {
     category: 'network',
     iconName: IconName.WarningFill,
     iconColor: '#FEA644',
     titleKey: 'connectivityNetworkTitle',
     bodyKey: 'connectivityNetworkBody',
+    errorId: 'connectivityNetworkBody',
     ctaKey: 'connectivityRetry'
   },
   node: {
@@ -62,7 +84,21 @@ const VIEWS: Record<ConnectivityCategory, BannerView> = {
     iconColor: '#FEA644',
     titleKey: 'connectivityNodeTitle',
     bodyKey: 'connectivityNodeBody',
+    errorId: 'connectivityNodeBody',
     ctaKey: 'connectivityRetrySync'
+  },
+  guardian: {
+    category: 'guardian',
+    iconName: IconName.WarningFill,
+    iconColor: '#FEA644',
+    titleKey: 'connectivityGuardianTitle',
+    bodyKey: 'connectivityGuardianBody',
+    errorId: 'connectivityGuardianBody',
+    // Routes to Rotate Guardian rather than retrying: the flag only arms after
+    // the sync loop has already retried past its threshold, and the direct
+    // on-chain switch fallback makes the rotation work while the operator is
+    // down. The flag self-clears the moment the guardian answers again.
+    ctaKey: 'connectivityGuardianCta'
   },
   prover: {
     category: 'prover',
@@ -82,15 +118,60 @@ const VIEWS: Record<ConnectivityCategory, BannerView> = {
   }
 };
 
-export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ className }) => {
+// The banner is optional chrome over Home: its storage reads suspend, and a cold key must defer only the banner, not
+// drop the screen to the app's root fallback.
+export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = props => (
+  <Suspense fallback={null}>
+    <ConnectivityIssueBannerBody {...props} />
+  </Suspense>
+);
+
+const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ className }) => {
   const { t } = useTranslation();
   const { state, dismiss } = useConnectivityState();
 
-  const active = useMemo(() => pickActiveCategory(state), [state]);
-  const view = active ? VIEWS[active] : null;
+  // Guardian-outage flag for the CURRENT account, live from the sync loop
+  // (armed after a threshold of consecutive server-down sync failures, cleared
+  // by any guardian response — see guardian-sync.ts). Dismissal is
+  // session-local: the flag clearing resets it, so a NEW outage re-surfaces
+  // the banner rather than inheriting an old dismiss.
+  const currentAccountPk = useWalletStore(s => s.currentAccount?.publicKey);
+  const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
+  );
+  // The dismissed ACCOUNT, not a bare boolean: the flag is per-account, so with
+  // two guardian accounts on two dead operators a boolean would let a dismiss on
+  // the first silently suppress the second's banner.
+  const [dismissedAccountPk, setDismissedAccountPk] = useState<string | undefined>(undefined);
+  // Expire the dismiss on the DISMISSED account's own flag, not the current
+  // account's. Watching `guardianOutage` meant merely selecting a healthy or
+  // non-guardian account read as "the outage ended" and threw the dismiss away —
+  // and since this view stays mounted across account switches, coming back
+  // re-surfaced a banner the user had already dismissed. Reading the dismissed
+  // account's flag also means a recovery that happens while the user is on
+  // ANOTHER account still expires the dismiss, so a later, genuinely new outage
+  // is not suppressed by a stale one.
+  const dismissedAccountInOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    dismissedAccountPk ? isGuardianSyncOutage(dismissedAccountPk) : false
+  );
+  useEffect(() => {
+    if (dismissedAccountPk !== undefined && !dismissedAccountInOutage) setDismissedAccountPk(undefined);
+  }, [dismissedAccountInOutage, dismissedAccountPk]);
+  const guardianDismissed = dismissedAccountPk !== undefined && dismissedAccountPk === currentAccountPk;
 
-  const onRetry = useCallback(() => {
+  const active = useMemo(
+    () => pickActiveCategory(state, guardianOutage && !guardianDismissed),
+    [guardianDismissed, guardianOutage, state]
+  );
+  const view = active ? VIEWS[active] : null;
+  useUserVisibleError(view?.errorId, 'inline');
+
+  const onCta = useCallback(() => {
     hapticLight();
+    if (view?.category === 'guardian') {
+      navigate('/rotate-guardian');
+      return;
+    }
     if (!isExtension()) {
       requestImmediateSync();
       return;
@@ -100,18 +181,32 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
     void getIntercom()
       .request({ type: WalletMessageType.SyncRequest, force: true })
       .catch(() => {});
-  }, []);
+  }, [view]);
 
   const onDismiss = useCallback(() => {
     if (!view) return;
     hapticLight();
+    if (view.category === 'guardian') {
+      setDismissedAccountPk(currentAccountPk);
+      return;
+    }
     dismiss(view.category);
-  }, [dismiss, view]);
+  }, [currentAccountPk, dismiss, view]);
 
   if (!view) return null;
 
   return (
+    // A status region, not an alert: every category here is a degraded-service
+    // notice the user can keep working through, and `role="alert"` is assertive
+    // — it would cut off whatever is being read on a banner that can arm from a
+    // background sync tick. The whole banner mounts when a category arms, so the
+    // announcement relies on AT reporting an inserted status region; that is the
+    // common behaviour but not universal, and the alternative (a permanently
+    // mounted empty region) buys reliability with a node on every screen that
+    // hosts this. Sighted users get the visual banner either way.
     <div
+      role="status"
+      aria-live="polite"
       className={classNames('min-h-[56px] flex items-center bg-white px-4 gap-x-2 py-2 rounded-t-3xl', className)}
       data-testid={`connectivity-banner-${view.category}`}
     >
@@ -119,14 +214,14 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
         <Icon name={view.iconName} size="md" fill={view.iconColor} />
       </div>
       <div className="flex-1 flex flex-col justify-center items-start min-w-0">
-        <p className="text-black text-sm font-medium">{t(view.titleKey)}</p>
+        <p className="text-ink text-sm font-medium">{t(view.titleKey)}</p>
         <p className="text-text-muted text-xs">{t(view.bodyKey)}</p>
       </div>
       {view.ctaKey && (
         <button
           type="button"
-          onClick={onRetry}
-          className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100"
+          onClick={onCta}
+          className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-fill-pressed"
         >
           {t(view.ctaKey)}
         </button>
@@ -135,7 +230,7 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
         type="button"
         onClick={onDismiss}
         aria-label={t('close')}
-        className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-gray-100 hover:opacity-100"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-fill-pressed hover:opacity-100"
       >
         <Icon name={IconName.Close} size="sm" fill="currentColor" />
       </button>

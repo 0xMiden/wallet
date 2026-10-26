@@ -1,218 +1,45 @@
-# Local E2E stack — node topology (validator + sequencer + ntx-builder) + remote
-# prover, plus a Tier-2 `guardian` profile (OpenZeppelin guardian + postgres) and
+# Local E2E stack — guardian profiles only. The 0.16 node (validator + sequencer +
+# ntx-builder + remote prover) and the note-transport service run as HOST PROCESSES
+# (see .github/actions/run-local-node + run-note-transport.sh), NOT in this compose:
+# the published 0.16 node images lag the encrypted-tx node the SDK is built against,
+# so the node is compiled + run from miden-client's start-test-node.sh. This file provides
+# only the Tier-2 `guardian` profile (OpenZeppelin guardian + postgres) and
 # a Tier-3 `guardian-switch` profile (second, distinct-keypair guardian for
 # switch/recovery specs).
 #
+# Every service here sits behind a profile, so there is no profile-less `up` —
+# name the profile you want.
+#
 # Usage:
-#   docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300
-#   # Tier-2 guardian (after the node is up):
-#   docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
+#   # Tier-2 guardian (after the host-process node is up):
+#   docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d --wait --wait-timeout 300
 #   # Tier-3 second guardian, for switch-target scenarios (implies Tier-2 too):
 #   docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
 #
-# Ports exposed on 127.0.0.1 only:
-#   - node RPC (sequencer):  127.0.0.1:57291
-#   - remote prover:         127.0.0.1:50052 (container :50051)
-# Guardian profile (network_mode: host — binds directly on the host, see below):
-#   - guardian HTTP:         :3000
+# Ports published on 127.0.0.1 only:
+# guardian profile:
+#   - guardian HTTP:         127.0.0.1:3000
+#   - guardian gRPC:         127.0.0.1:50051
 #   - guardian-postgres:     127.0.0.1:5432
-# guardian-switch profile (guardian-b is bridge-networked + port-published, see below):
+# guardian-switch profile:
 #   - guardian-b HTTP:       127.0.0.1:3001 (container :3000)
 #   - guardian-b gRPC:       127.0.0.1:50053 (container :50051)
 #   - guardian-b-postgres:   127.0.0.1:5433
 #
+# NOT provided here: the node RPC (127.0.0.1:57291) and the remote prover
+# (127.0.0.1:50052). Both belong to the host-process node — see
+# .github/actions/run-local-node and the README — and both guardians reach the
+# node through the host gateway (see the entrypoints below).
+#
 # Environment variables consumed (from versions.env or the job env):
-#   NODE_IMAGE_TAG      — exact ghcr.io/0xmiden/* image tag (e.g. v0.15.0)
 #   GUARDIAN_IMAGE_TAG  — exact ghcr.io/openzeppelin/guardian tag (guardian AND
 #                         guardian-b both pin to this same tag — see versions.env)
-#   MIDEN_NTX_AUTH      — shared auth secret between sequencer ↔ ntx-builder
-#                         (defaults to 'e2e-ntx-secret'; must match on both sides)
 #
-# Reference topology: 0xMiden/node docker-compose.yml @ v0.15.0
-# Deltas applied:
-#   1. All images fully qualified (ghcr.io/0xmiden/<name>:${NODE_IMAGE_TAG}).
-#   2. Default genesis only — no --genesis-config-file fixture mounted.
-#   3. sequencer: ports 127.0.0.1:57291, auth header from MIDEN_NTX_AUTH, healthcheck.
-#   4. ntx-builder: auth header from MIDEN_NTX_AUTH (must match sequencer).
-#   5. tx-prover: host :50052 -> container :50051 (guardian owns host :50051), --capacity=16.
-#   6. sequencer depends_on tx-prover:service_started so --wait blocks correctly.
-#   7. Tier-2 `guardian` profile: OpenZeppelin guardian (network_mode: host, HTTP
-#      :3000) + postgres:16 backend (:5432), gated behind the profile so the base
-#      `up --wait` skips them; started explicitly after the node is ready.
-#   8. Tier-3 `guardian-switch` profile: a second OpenZeppelin guardian
-#      (`guardian-b`) + its own postgres, for switch/recovery specs that need two
-#      *distinct* guardians. See the `guardian-b` service comment below for why
-#      it can't just be a second `network_mode: host` copy of `guardian`, and for
-#      how it still reaches the node despite that.
+# There is deliberately no NODE_IMAGE_TAG: the published node images lag the node
+# the SDK is built against, so the node is compiled from source (versions.env,
+# README.md).
 
 services:
-  bootstrap-validator:
-    image: ghcr.io/0xmiden/miden-validator:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    volumes:
-      - node-data:/data
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        if [ -f /data/validator/.bootstrapped ]; then
-          echo "Validator already bootstrapped."
-          exit 0
-        fi
-        echo "Cleaning incomplete validator bootstrap state..."
-        rm -rf /data/genesis /data/validator /data/accounts
-        mkdir -p /data/genesis /data/validator /data/accounts
-        echo "Bootstrapping validator (default genesis)..."
-        miden-validator bootstrap \
-          --data-directory /data/validator \
-          --genesis-block-directory /data/genesis \
-          --accounts-directory /data/accounts
-        touch /data/validator/.bootstrapped
-
-  bootstrap-node:
-    image: ghcr.io/0xmiden/miden-node:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    volumes:
-      - node-data:/data
-    entrypoint: ["/bin/sh", "-c"]
-    depends_on:
-      bootstrap-validator:
-        condition: service_completed_successfully
-    command:
-      - |
-        set -e
-        if [ -f /data/node/.bootstrapped ]; then
-          echo "Node already bootstrapped."
-          exit 0
-        fi
-        echo "Cleaning incomplete node bootstrap state..."
-        rm -rf /data/node
-        mkdir -p /data/node
-        echo "Bootstrapping node..."
-        miden-node bootstrap \
-          --data-directory /data/node \
-          --file /data/genesis/genesis.dat
-        touch /data/node/.bootstrapped
-
-  bootstrap-ntx-builder:
-    image: ghcr.io/0xmiden/miden-ntx-builder:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    volumes:
-      - node-data:/data
-    entrypoint: ["/bin/sh", "-c"]
-    depends_on:
-      bootstrap-node:
-        condition: service_completed_successfully
-    command:
-      - |
-        set -e
-        if [ -f /data/ntx-builder/.bootstrapped ]; then
-          echo "Network transaction builder already bootstrapped."
-          exit 0
-        fi
-        echo "Cleaning incomplete network transaction builder bootstrap state..."
-        rm -rf /data/ntx-builder
-        mkdir -p /data/ntx-builder
-        echo "Bootstrapping network transaction builder..."
-        miden-ntx-builder bootstrap \
-          --data-directory /data/ntx-builder \
-          --file /data/genesis/genesis.dat
-        touch /data/ntx-builder/.bootstrapped
-
-  tx-prover:
-    image: ghcr.io/0xmiden/miden-remote-prover:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    command:
-      - miden-remote-prover
-      - --kind=transaction
-      - --port=50051
-      - --capacity=16
-    # Published on host :50052 (NOT :50051): the host-network guardian binds host
-    # :50051 for its hardcoded gRPC listener, so the prover moves aside. Guardian
-    # transactions delegate proving to this endpoint, so the wallet's localnet
-    # proving URL (constants.ts) points at :50052 to match. NTX-builder still
-    # reaches the prover internally via tx-prover:50051 on the bridge.
-    ports:
-      - "127.0.0.1:50052:50051"
-
-  validator:
-    image: ghcr.io/0xmiden/miden-validator:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    volumes:
-      - node-data:/data
-    depends_on:
-      bootstrap-validator:
-        condition: service_completed_successfully
-    command:
-      - miden-validator
-      - start
-      - --listen=0.0.0.0:50101
-      - --data-directory=/data/validator
-
-  sequencer:
-    image: ghcr.io/0xmiden/miden-node:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    volumes:
-      - node-data:/data
-    depends_on:
-      bootstrap-node:
-        condition: service_completed_successfully
-      validator:
-        condition: service_started
-      tx-prover:
-        condition: service_started
-    command:
-      - miden-node
-      - sequencer
-      - --rpc.listen=0.0.0.0:57291
-      - --data-directory=/data/node
-      - --validator.url=http://validator:50101
-      - --ntx-builder.url=http://ntx-builder:50301
-      - --rpc.network-tx-auth-header-value=${MIDEN_NTX_AUTH:-e2e-ntx-secret}
-      # Block cadence is parameterized so CI exercises BOTH realistic timing and
-      # fast blocks. The block producer ticks empty blocks on this timer; unset, it
-      # defaults to the miden-node defaults (3s block / 1s batch) for normal-timing
-      # coverage. At 3s vs the wallet's 2s localhost sync poll a block lands in the
-      # commit->relay window only sometimes, so the private-note block-hint overshoot
-      # (web-sdk#262 / wallet#502) reproduces only flakily. Setting
-      # MIDEN_NODE_BLOCK_INTERVAL=500ms guarantees a block in that window, making
-      # send-private a deterministic guard for the overshoot.
-      - --batch.interval=${MIDEN_NODE_BATCH_INTERVAL:-1s}
-      - --block.interval=${MIDEN_NODE_BLOCK_INTERVAL:-3s}
-    ports:
-      - "127.0.0.1:57291:57291"
-    # No custom healthcheck: the miden-node image ships its own HEALTHCHECK
-    # (like the sibling validator/ntx-builder/prover images). Overriding it with
-    # `nc` fails because the minimal image has no netcat. Runner-side readiness
-    # is gated by the workflow's "Wait for node RPC" step.
-
-  ntx-builder:
-    image: ghcr.io/0xmiden/miden-ntx-builder:${NODE_IMAGE_TAG}
-    pull_policy: if_not_present
-    volumes:
-      - node-data:/data
-    depends_on:
-      bootstrap-ntx-builder:
-        condition: service_completed_successfully
-      sequencer:
-        condition: service_started
-      tx-prover:
-        condition: service_started
-    command:
-      - miden-ntx-builder
-      - start
-      - --listen=0.0.0.0:50301
-      - --rpc.url=http://sequencer:57291
-      - --rpc.auth-header-value=${MIDEN_NTX_AUTH:-e2e-ntx-secret}
-      - --tx-prover.url=${MIDEN_REMOTE_PROVER_URL:-http://tx-prover:50051}
-      - --data-directory=/data/ntx-builder
-
-  # --- Tier-2: local multisig guardian (HTTP :3000) ------------------------
-  # The published guardian image is postgres-backed, and MidenLocal hardcodes the
-  # node RPC to http://localhost:57291 — so the guardian shares the host network
-  # to reach the published node and to bind its HTTP :3000 (what the wallet uses).
-  # Both live in the `guardian` profile so the base `up --wait` (node stack) skips
-  # them; the workflow starts the guardian after the node is ready.
   guardian-postgres:
     # Floating patch tag is intentional here: this is throwaway per-run guardian
     # state, not a Miden component — it does not need the exact-digest pinning the
@@ -235,21 +62,19 @@ services:
     image: ghcr.io/openzeppelin/guardian:${GUARDIAN_IMAGE_TAG}
     pull_policy: if_not_present
     profiles: ["guardian"]
-    # Bridge network + `/etc/hosts` "localhost"->sequencer rewrite (identical to
-    # guardian-b below), NOT `network_mode: host`. Host mode + MidenLocal's
-    # hardcoded `localhost:57291` node dial is unreliable on macOS Docker Desktop:
-    # the guardian v0.16 image panics HARD at build time ("Failed to create
-    # network client: ... transport error") on a transient node-connection blip
-    # where v0.15 tolerated it, so a host-mode guardian-a crash-loops. Reaching the
-    # node through the compose network (sequencer's real IP) instead of the host
-    # loopback is the proven-stable path guardian-b already uses, and it publishes
-    # on 127.0.0.1 only (dropping host mode's all-interfaces exposure caveat).
+    # The node runs as a host process (not in this compose). The guardian image hardcodes
+    # a `localhost:57291` node dial (MidenLocal), so /etc/hosts remaps 'localhost' to the
+    # host gateway (extra_hosts host.docker.internal) to reach the host-process node RPC,
+    # which start-test-node.sh binds on 0.0.0.0:57291 for exactly this cross-container reach.
+    # Bridge (not network_mode: host) keeps guardian + guardian-b on distinct published ports.
     restart: on-failure
     depends_on:
       guardian-postgres:
         condition: service_healthy
-      sequencer:
-        condition: service_started
+    # Node runs on the host; make host.docker.internal resolve to the host gateway so the
+    # /etc/hosts 'localhost' remap below reaches the host-process node RPC (0.0.0.0:57291).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:50051:50051"
@@ -259,17 +84,26 @@ services:
     command:
       - |
         set -e
-        seq_ip=$$(getent hosts sequencer 2>/dev/null | awk '{print $$1}' | head -n1)
+        # IPv4 explicitly, with a plain `hosts` lookup only as a fallback. The
+        # node binds 0.0.0.0:57291 — v4 only — while Docker Desktop publishes
+        # host.docker.internal as BOTH families and `getent hosts` answers with
+        # the v6 gateway first. Remapping localhost to that address points every
+        # node dial at an address nothing listens on, and the server dies at
+        # startup with "Failed to create network client: ... transport error",
+        # crash-looping behind a healthcheck that still reports healthy. Linux CI
+        # resolves v4 either way, so this only ever changes the macOS outcome.
+        seq_ip=$$(getent ahostsv4 host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
+        [ -n "$$seq_ip" ] || seq_ip=$$(getent hosts host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
         if [ -n "$$seq_ip" ]; then
           sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
           if grep -qF "$$seq_ip localhost" /etc/hosts.new; then
             cat /etc/hosts.new > /etc/hosts
-            echo "guardian: remapped 'localhost' -> $$seq_ip (sequencer), MidenLocal hardcodes localhost:57291"
+            echo "guardian: remapped 'localhost' -> $$seq_ip (host.docker.internal), node runs on the host and MidenLocal hardcodes localhost:57291"
           else
             echo "guardian: WARNING localhost rewrite did NOT match the 127.0.0.1 line; leaving /etc/hosts untouched -- node RPC will fail loudly"
           fi
         else
-          echo "guardian: 'sequencer' not resolvable yet; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
+          echo "guardian: 'host.docker.internal' not resolvable; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
         fi
         exec /app/server
     environment:
@@ -278,33 +112,37 @@ services:
       - GUARDIAN_NETWORK_TYPE=MidenLocal
       - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
       - DATABASE_URL=postgres://guardian:guardian@guardian-postgres:5432/guardian
+      # The guardian's production rate-limit profile, the values its own .env.example sets for
+      # local runs. The code defaults (10/s per IP and endpoint, 60/min per IP) are far below
+      # production, and every wallet in a run reaches this container from the same host, so
+      # back-to-back specs drew on one 60-per-minute budget: a wallet create that landed in a
+      # spent window failed outright with 429.
+      - GUARDIAN_RATE_BURST_PER_SEC=200
+      - GUARDIAN_RATE_PER_MIN=5000
 
   # --- Tier-3: second guardian for switch/recovery specs (HTTP :3001) --------
-  # Discovery (Step 1 of the switch-container task): the v0.15.0 image has NO
+  # Discovery (Step 1 of the switch-container task): the guardian image has NO
   # env var for HTTP/gRPC ports — `docker inspect`'d env is only
   # {DATABASE_URL, RUST_LOG, GUARDIAN_ENV, GUARDIAN_NETWORK_TYPE,
   # GUARDIAN_KEYSTORE_PATH}, its Dockerfile ExposedPorts are hardcoded
   # 3000/50051, and its Cmd is the bare `/app/server` with no CLI flags — the
   # binary's startup log always prints `listeners http=3000 grpc=50051`
-  # regardless of env/args. So `guardian-b` can't reuse `network_mode: host`
-  # like `guardian` (two host-mode containers hard-conflict on those same
-  # ports — confirmed via `docker logs`: "Failed to bind HTTP server: Os {
-  # code: 98, kind: AddrInUse }"). This is the brief's anticipated fallback:
-  # a distinct (default/bridge) network + published-port remap, 3001->3000 and
-  # 50053->50051.
+  # regardless of env/args. Both guardians are therefore bridge-networked and
+  # differ only in their published ports: `guardian` keeps 3000/50051 and
+  # `guardian-b` remaps 3001->3000 and 50053->50051. (Two `network_mode: host`
+  # copies would hard-conflict on the container-side ports — confirmed via
+  # `docker logs`: "Failed to bind HTTP server: Os { code: 98, kind: AddrInUse }".)
   #
-  # That remap alone isn't sufficient, though: `GUARDIAN_NETWORK_TYPE=MidenLocal`
+  # The port remap alone isn't sufficient, though: `GUARDIAN_NETWORK_TYPE=MidenLocal`
   # is ALSO hardcoded in the binary to dial the node at literal
   # `http://localhost:57291` (confirmed via the same startup log line and by
-  # binary string inspection — no env var overrides it either). On
-  # `network_mode: host` that hardcoded "localhost" reaches the real node
-  # because the container shares the host's loopback; on a normal bridge
-  # network "localhost" is only the container's own loopback, so guardian-b
-  # would never be able to reach the sequencer. The entrypoint below patches
-  # `/etc/hosts` at container start so "localhost" resolves to the `sequencer`
-  # service's address on this network instead of 127.0.0.1/::1 (falls back to
-  # a no-op if `sequencer` isn't resolvable yet, e.g. when only the guardian
-  # services are started standalone) — verified end-to-end against a
+  # binary string inspection — no env var overrides it either). On a bridge
+  # network "localhost" is only the container's own loopback, and the node runs
+  # as a host process, so guardian-b would never reach the node RPC. The
+  # entrypoint below patches `/etc/hosts` at container start so "localhost"
+  # resolves to `host.docker.internal` (the host gateway, mapped in via
+  # `extra_hosts`) instead of 127.0.0.1/::1 — falling back to a no-op if
+  # `host.docker.internal` isn't resolvable. Verified end-to-end against a
   # throwaway container pair (rewritten "localhost" TCP-reachable at the
   # target's real address, not a bind failure).
   #
@@ -339,12 +177,8 @@ services:
     depends_on:
       guardian-b-postgres:
         condition: service_healthy
-      # Enforce node-before-guardian ordering (matches how the node services
-      # depend on each other); service_started not service_healthy to mirror the
-      # rest of the stack and avoid a hang on the image healthcheck. guardian-b's
-      # restart: on-failure still backstops the started-but-RPC-not-yet-ready gap.
-      sequencer:
-        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:3001:3000"
       - "127.0.0.1:50053:50051"
@@ -354,17 +188,26 @@ services:
     command:
       - |
         set -e
-        seq_ip=$$(getent hosts sequencer 2>/dev/null | awk '{print $$1}' | head -n1)
+        # IPv4 explicitly, with a plain `hosts` lookup only as a fallback. The
+        # node binds 0.0.0.0:57291 — v4 only — while Docker Desktop publishes
+        # host.docker.internal as BOTH families and `getent hosts` answers with
+        # the v6 gateway first. Remapping localhost to that address points every
+        # node dial at an address nothing listens on, and the server dies at
+        # startup with "Failed to create network client: ... transport error",
+        # crash-looping behind a healthcheck that still reports healthy. Linux CI
+        # resolves v4 either way, so this only ever changes the macOS outcome.
+        seq_ip=$$(getent ahostsv4 host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
+        [ -n "$$seq_ip" ] || seq_ip=$$(getent hosts host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
         if [ -n "$$seq_ip" ]; then
           sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
           if grep -qF "$$seq_ip localhost" /etc/hosts.new; then
             cat /etc/hosts.new > /etc/hosts
-            echo "guardian-b: remapped 'localhost' -> $$seq_ip (sequencer), MidenLocal hardcodes localhost:57291"
+            echo "guardian-b: remapped 'localhost' -> $$seq_ip (host.docker.internal), node runs on the host and MidenLocal hardcodes localhost:57291"
           else
             echo "guardian-b: WARNING localhost rewrite did NOT match the 127.0.0.1 line (base image/sed change?); leaving /etc/hosts untouched -- node RPC will fail loudly"
           fi
         else
-          echo "guardian-b: 'sequencer' not resolvable yet; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
+          echo "guardian-b: 'host.docker.internal' not resolvable; leaving /etc/hosts untouched (node RPC calls will fail until it is)"
         fi
         exec /app/server
     environment:
@@ -373,8 +216,10 @@ services:
       - GUARDIAN_NETWORK_TYPE=MidenLocal
       - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
       - DATABASE_URL=postgres://guardian:guardian@guardian-b-postgres:5432/guardian_b
+      # Same production rate-limit profile as `guardian` above, for the same reason.
+      - GUARDIAN_RATE_BURST_PER_SEC=200
+      - GUARDIAN_RATE_PER_MIN=5000
 
 volumes:
-  node-data:
   guardian-keystore:
   guardian-b-keystore:

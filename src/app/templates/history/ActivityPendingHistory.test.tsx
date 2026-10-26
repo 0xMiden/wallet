@@ -1,0 +1,876 @@
+import React from 'react';
+
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { resetActivityReadState } from 'lib/settings/activity-read';
+import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
+
+import { ActivityPendingHistory } from './ActivityPendingHistory';
+import type { ActivityFilter } from './History';
+import type { PendingActivityItem } from './PendingActivityCard';
+
+const mockAccept = jest.fn();
+const mockAcceptMany = jest.fn();
+const mockRetryHeld = jest.fn();
+// Whether accepting the notes it is handed is certain to fail on the fee for every transaction.
+const mockCannotPayFee = jest.fn((_notes: readonly unknown[]) => false);
+const mockHide = jest.fn();
+const mockRestore = jest.fn();
+const mockConfirm = jest.fn();
+const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => ({
+  note: {
+    id,
+    faucetId: MIDEN_USDC_FAUCET,
+    amount: '1000000',
+    senderAddress: id,
+    isBeingClaimed: false,
+    type: 'unknown',
+    metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+  },
+  status: 'pending'
+}));
+// Items the claims hook returns. A test that changes statuses between renders swaps in a new array,
+// the way the hook publishes a change, so the memoized list sees it.
+const mockState = { items: mockItems, isLoadingNotes: false, isLoadingHistory: false };
+let mockRecovery: GuardianNoteRecoveryProgress | null = null;
+let mockRecoveryPending: boolean | undefined = true;
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+});
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+jest.mock('lib/wallet-prompts', () => ({
+  ...jest.requireActual('lib/wallet-prompts'),
+  useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
+}));
+// The effective network, and the native asset a faucet claim pays out: the real ones unless a case sets them.
+let mockWalletNetwork: string | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
+// A case can start with the native asset unknown (null) and resolve its lookup later.
+let mockNativeAssetId: string | null | undefined;
+let mockNativeAssetLookup: Promise<string> | undefined;
+jest.mock('lib/miden-chain/native-asset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+  return {
+    ...actual,
+    getNativeAssetIdSync: () => (mockNativeAssetId === undefined ? actual.getNativeAssetIdSync() : mockNativeAssetId),
+    getNativeAssetId: () =>
+      mockNativeAssetLookup ??
+      (typeof mockNativeAssetId === 'string' ? Promise.resolve(mockNativeAssetId) : actual.getNativeAssetId())
+  };
+});
+const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
+const mockHideNavbar = jest.fn();
+let mockPathname = '/history';
+
+jest.mock('react-i18next', () => ({
+  // Interpolations are appended to the key, so a test can read the count a line was given.
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, unknown>) =>
+      key === 'activityHiddenNotesError'
+        ? 'Visible hidden transfer read failure'
+        : params
+          ? `${key}:${Object.values(params).join(':')}`
+          : key
+  })
+}));
+jest.mock('app/hooks/useActivityClaims', () => ({
+  useActivityClaims: () => ({
+    items: mockState.items,
+    isLoadingNotes: mockState.isLoadingNotes,
+    accept: mockAccept,
+    acceptMany: mockAcceptMany,
+    retryHeld: mockRetryHeld,
+    cannotPayFee: (notes: readonly unknown[]) => mockCannotPayFee(notes),
+    account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
+  })
+}));
+jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
+jest.mock('lib/animation', () => ({
+  springs: { standard: {}, settle: {} },
+  durations: { extraSlow: 0 },
+  presets: { count: { transition: { duration: 0 } } },
+  useMotion: () => ({ duration: 0 }),
+  // The pending card takes its disclosure motion from the `reveal` preset, and falls back to the
+  // instant transition whenever the open or close did not come from a tap.
+  usePreset: () => ({
+    initial: { height: 0, opacity: 0 },
+    animate: { height: 'auto', opacity: 1 },
+    exit: { height: 0, opacity: 0 },
+    transition: { duration: 0 }
+  }),
+  reducedMotionTransition: { duration: 0.001 }
+}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPathname }) }));
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
+  useHideNavbarWhileOpen: (open: boolean) => mockHideNavbar(open)
+}));
+jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
+jest.mock('lib/i18n/numbers', () => ({
+  formatBigInt: () => '1',
+  getAdaptiveDecimalPlaces: () => 3,
+  usdFormatterFor: () => (value: number) => `$${value.toFixed(2)}`
+}));
+// Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
+// USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
+const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 }, ETH: { price: 1, priceChange24h: 0 } };
+jest.mock('lib/store', () => ({
+  useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
+}));
+const mockHistoryRenders: Array<{
+  pendingItems: PendingActivityItem[];
+  drawnPendingItems?: PendingActivityItem[];
+  renderPendingItem: unknown;
+  filter?: string;
+  hideLoadingSpinner?: boolean;
+  deferInitialLoad?: boolean;
+}> = [];
+jest.mock('./History', () => ({
+  __esModule: true,
+  default: ({
+    pendingItems,
+    drawnPendingItems,
+    renderPendingItem,
+    filter,
+    onLoadingChange,
+    hideLoadingSpinner,
+    deferInitialLoad
+  }: {
+    pendingItems: PendingActivityItem[];
+    drawnPendingItems?: PendingActivityItem[];
+    renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
+    onLoadingChange: (loading: boolean) => void;
+    filter?: string;
+    hideLoadingSpinner?: boolean;
+    deferInitialLoad?: boolean;
+  }) => {
+    jest.requireActual<typeof import('react')>('react').useEffect(() => {
+      onLoadingChange(mockState.isLoadingHistory);
+    }, [onLoadingChange, mockState.isLoadingHistory]);
+    mockHistoryRenders.push({
+      pendingItems,
+      drawnPendingItems,
+      renderPendingItem,
+      filter,
+      hideLoadingSpinner,
+      deferInitialLoad
+    });
+    return (
+      <div data-testid="timeline">
+        {(drawnPendingItems ?? pendingItems).map(item => (
+          <div key={item.note.id} data-pending-note-id={item.note.id}>
+            {renderPendingItem(item)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+}));
+jest.mock('components/Loader', () => ({ Loader: () => <span data-testid="claim-spinner" /> }));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Secondary: 'secondary' },
+  Button: ({
+    title,
+    variant,
+    isLoading,
+    size,
+    children,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean; size?: string }) => (
+    // `aria-busy` mirrors the real Button (components/ui/Button), where a loading button is also
+    // `pointer-events-none`. It is the only thing on the DOM that separates "already accepting"
+    // from "ready to accept", so the assertions below can pin it. The real Button also keeps its
+    // label laid out but transparent while loading, so it keeps its accessible name: `aria-label`
+    // stands in for that here.
+    <button aria-label={isLoading ? title : undefined} {...props} data-size={size} aria-busy={isLoading || undefined}>
+      {children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}
+    </button>
+  )
+}));
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockCannotPayFee.mockReturnValue(false);
+  mockPathname = '/history';
+  mockItems.forEach(item => {
+    item.status = 'pending';
+  });
+  mockState.items = mockItems;
+  mockState.isLoadingNotes = false;
+  mockState.isLoadingHistory = false;
+  mockRecovery = null;
+  mockRecoveryPending = true;
+  mockHidden.ids = new Set();
+  mockHistoryRenders.length = 0;
+  mockBridgeSnapshot = undefined;
+  mockConfirm.mockResolvedValue(true);
+  mockWalletNetwork = undefined;
+  mockNativeAssetId = undefined;
+  mockNativeAssetLookup = undefined;
+});
+
+function expandCard(noteId: string): HTMLElement {
+  const card = screen.getByTestId('timeline').querySelector(`[data-pending-note-id="${noteId}"]`);
+  if (!(card instanceof HTMLElement)) throw new Error(`Missing card ${noteId}`);
+  fireEvent.click(within(card).getByRole('button', { expanded: false }));
+  return card;
+}
+
+it('revalues an unchanged pending list on verified price asset changes and removes an unavailable total', () => {
+  _setSwapTokensForTest(undefined);
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'USDC');
+  mockState.items = [
+    {
+      note: {
+        id: 'configured-pending',
+        faucetId: TEST_TOKEN_IUSDT.faucetId,
+        amount: '100000000',
+        senderAddress: 'sender',
+        isBeingClaimed: false,
+        type: 'unknown',
+        metadata: { symbol: TEST_TOKEN_IUSDT.symbol, name: 'Tether', decimals: TEST_TOKEN_IUSDT.decimals }
+      },
+      status: 'pending'
+    }
+  ];
+  try {
+    const view = render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$2.00');
+
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'ETH');
+    view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$1.00');
+
+    mockVerifiedPriceAssets.delete(TEST_TOKEN_IUSDT.faucetId);
+    view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
+    expect(screen.getByText('activityPendingWaiting:1')).toBeInTheDocument();
+  } finally {
+    _setSwapTokensForTest(undefined);
+  }
+});
+
+it('shows the fetching bar and passes deferInitialLoad while the catalog is pending', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" catalogPending />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(true);
+
+  view.rerender(<ActivityPendingHistory search="" filter="all" catalogPending={false} />);
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(false);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+});
+
+it('hides the list spinner under its own progress bar', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHistoryRenders.at(-1)?.hideLoadingSpinner).toBe(true);
+});
+
+it('uses one progress bar for notes, history rows, and Guardian recovery', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockState.isLoadingNotes = true;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+
+  mockState.isLoadingNotes = false;
+  mockState.isLoadingHistory = true;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+
+  mockState.isLoadingHistory = false;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'public' };
+  view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-partial' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-failed' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = null;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  view.unmount();
+});
+
+it('shows no recovery progress for an account whose recovery flag is not set', () => {
+  mockRecoveryPending = undefined;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+});
+
+it('requires confirmation before hiding a transfer', async () => {
+  mockHidden.ids = new Set(['third']);
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = expandCard('first');
+  fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+  await waitFor(() => expect(mockHide).toHaveBeenCalledWith('first'));
+  expect(mockConfirm).toHaveBeenCalledWith({
+    title: 'activityRejectTransfer',
+    children: 'activityRejectExplanation',
+    confirmLabel: 'activityRejectTransfer',
+    destructive: true
+  });
+});
+
+it('leaves a transfer in place when the decline is cancelled', async () => {
+  mockConfirm.mockResolvedValueOnce(false);
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = expandCard('first');
+  fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+  await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+  await act(async () => {});
+  expect(mockHide).not.toHaveBeenCalled();
+});
+
+describe('the unread mark on a declined transfer', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetActivityReadState();
+  });
+
+  const decline = async (noteId: string) => {
+    const card = expandCard(noteId);
+    expect(within(card).getByTestId('pending-activity-unread')).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+    await waitFor(() => expect(mockHide).toHaveBeenCalledWith(noteId));
+    await act(async () => {});
+    return card;
+  };
+
+  it('stays while the hide write failed, so the transfer is still marked as needing a decision', async () => {
+    mockHide.mockResolvedValue(false);
+    render(<ActivityPendingHistory search="" filter="all" />);
+
+    const card = await decline('first');
+
+    expect(within(card).getByTestId('pending-activity-unread')).toBeInTheDocument();
+  });
+
+  it('clears once the hide write succeeded', async () => {
+    mockHide.mockResolvedValue(true);
+    render(<ActivityPendingHistory search="" filter="all" />);
+
+    const card = await decline('first');
+
+    expect(within(card).queryByTestId('pending-activity-unread')).toBeNull();
+  });
+});
+
+it('does not hide a transfer claimed while the decline dialog was open', async () => {
+  let answer: (accepted: boolean) => void = () => {};
+  mockConfirm.mockImplementationOnce(
+    () =>
+      new Promise<boolean>(resolve => {
+        answer = resolve;
+      })
+  );
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  const card = expandCard('first');
+  fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+  await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+
+  mockState.items = mockItems.map(item => (item.note.id === 'first' ? { ...item, status: 'claiming' as const } : item));
+  rerender(<ActivityPendingHistory search="" filter="all" />);
+  await act(async () => answer(true));
+  expect(mockHide).not.toHaveBeenCalled();
+});
+
+it('hands History a claiming note a search hides, so its consume row stays hidden, without drawing its card', () => {
+  const [, , claiming] = mockItems;
+  if (!claiming) throw new Error('Missing note fixtures');
+  claiming.status = 'claiming';
+  render(<ActivityPendingHistory search="zzzz-nothing" filter="all" />);
+  const last = mockHistoryRenders[mockHistoryRenders.length - 1];
+  expect(last?.pendingItems.map(item => item.note.id)).toContain('third');
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
+});
+
+const FILTERS_WITHOUT_CARDS: ActivityFilter[] = ['swap', 'earn', 'others'];
+const FILTERS_WITH_CARDS: ActivityFilter[] = ['all', 'pending', 'transfer'];
+
+it.each(FILTERS_WITHOUT_CARDS)('hides pending notes under %s, which lists no incoming transfers', filter => {
+  render(<ActivityPendingHistory search="" filter={filter} />);
+  expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  // No card stands for a consume row there either.
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
+});
+
+it.each(FILTERS_WITH_CARDS)('shows pending notes under %s', filter => {
+  render(<ActivityPendingHistory search="" filter={filter} />);
+  const timeline = screen.getByTestId('timeline');
+  for (const id of ['first', 'second', 'third']) {
+    expect(timeline.querySelector(`[data-pending-note-id="${id}"]`)).not.toBeNull();
+  }
+});
+
+describe('a faucet claim card by network', () => {
+  const NATIVE = 'native-faucet-id';
+  const faucetItem: PendingActivityItem = {
+    note: {
+      id: 'faucet-note',
+      faucetId: NATIVE,
+      amount: '1000000',
+      senderAddress: NATIVE,
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  beforeEach(() => {
+    mockNativeAssetId = NATIVE;
+    mockState.items = [...mockItems, faucetItem];
+  });
+  const faucetCard = () => screen.getByTestId('timeline').querySelector('[data-pending-note-id="faucet-note"]');
+
+  it.each(['testnet', 'mainnet'])('shows the card on %s and counts it for Accept All', network => {
+    // On Mainnet the native faucet is the USDCx minter, so such a note is a bridge-in, never noise.
+    mockWalletNetwork = network;
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(faucetCard()).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+    expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual([
+      'first',
+      'second',
+      'third',
+      'faucet-note'
+    ]);
+  });
+
+  it('counts a declined faucet claim for Restore on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockState.items = [faucetItem];
+    mockHidden.ids = new Set(['faucet-note']);
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).not.toBeNull();
+  });
+});
+
+it('does not classify incoming claim cards as Arcade or offer bulk acceptance there', () => {
+  render(<ActivityPendingHistory search="" filter="arcade" predicate={() => true} />);
+  expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
+});
+
+it('shows Accept All on the pending tab and claims every listed note that can be accepted', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+  expect(mockAcceptMany).toHaveBeenCalledTimes(1);
+  expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
+});
+
+it('holds Accept All when no transaction of the claim can pay its network fee', () => {
+  // Each card says why; queueing them would only fail every one on the fee (BREAD-WALLET-C).
+  mockCannotPayFee.mockReturnValue(true);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const button = screen.getByTestId('pending-row-accept-all');
+  expect(button).toBeDisabled();
+  expect(mockCannotPayFee.mock.calls.at(-1)?.[0].map(note => (note as { id: string }).id)).toEqual([
+    'first',
+    'second',
+    'third'
+  ]);
+  fireEvent.click(button);
+  expect(mockAcceptMany).not.toHaveBeenCalled();
+});
+
+it('marks every transfer Accept All takes as read with one write', () => {
+  localStorage.clear();
+  resetActivityReadState();
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const setItem = jest.spyOn(Storage.prototype, 'setItem');
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+
+    const writes = setItem.mock.calls.filter(([key]) => key === ACTIVITY_READ_STORAGE_KEY);
+    expect(writes).toHaveLength(1);
+    expect(Object.keys(JSON.parse(writes[0]?.[1] ?? '{}').ids)).toEqual(['note:first', 'note:second', 'note:third']);
+  } finally {
+    setItem.mockRestore();
+  }
+});
+
+it('puts Accept All in the actions row above the list, and leaves the navbar alone', () => {
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const button = screen.getByTestId('pending-row-accept-all');
+  // The one bulk action lives in the row above the list, not pinned over the tab bar, so the
+  // Activity tab keeps its navbar the way every other tab does.
+  const scroller = screen.getByTestId('timeline').closest('.overflow-y-auto');
+  if (!scroller) throw new Error('The timeline is not inside the scroller');
+  expect(scroller).toContainElement(button);
+  expect(mockHideNavbar).not.toHaveBeenCalledWith(true);
+});
+
+it('stands Accept All beside Restore when declined transfers exist, and alone when they do not', () => {
+  mockHidden.ids = new Set(['third']);
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+
+  mockHidden.ids = new Set();
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+  // Alone, it is still at the right edge — the summary on the left fills the row, so it never
+  // floats against a band of empty space.
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveClass('shrink-0');
+});
+
+it('leads the row with what Accept All is about to accept, in both states', () => {
+  // No declined transfers: three listed at $2 each, the count and the money and nothing else.
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$6.00');
+
+  // One declined: it leaves the count AND the total, and joins the same line as a clause rather
+  // than becoming a second sentence under it.
+  mockHidden.ids = new Set(['third']);
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaitingHidden:2:1')).toBeInTheDocument();
+  expect(screen.queryByText('activityPendingWaiting:3')).not.toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$4.00');
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-accept-all')).toBeInTheDocument();
+});
+
+it('shows no total when any waiting transfer has no price, never a $1 figure for it', () => {
+  mockState.items = mockItems.map((item, index) =>
+    index === 2 ? { ...item, note: { ...item.note, faucetId: 'other-faucet' } } : item
+  );
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
+});
+
+it('reports only the hidden count, and no money, once every transfer is declined', () => {
+  mockHidden.ids = new Set(['first', 'second', 'third']);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  // Nothing is waiting, so there is no total to report and the hidden count takes the slot.
+  expect(screen.getByText('activityHiddenTransfers:3')).toBeInTheDocument();
+  expect(screen.queryByTestId('pending-row-total')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+});
+
+it('offers no Accept All when a Pending search lists no transfer', () => {
+  render(<ActivityPendingHistory search="zzz" filter="pending" />);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+});
+
+it('offers no Accept All on the other filters, or once every transfer is accepted', () => {
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+  mockItems.forEach(item => {
+    item.status = 'claimed';
+  });
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+});
+
+it('still hands Pending to the timeline with no notes, so in-flight transactions list', () => {
+  mockState.items = [];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(mockHistoryRenders.at(-1)).toMatchObject({ filter: 'pending', pendingItems: [] });
+});
+
+it('keeps Accept All, and marks it busy, while the batch it started is still in flight', () => {
+  // THE STATE THE E2E DRAIN COULD NOT READ. Accept All queued a consume for every listed
+  // transfer, so there is nothing left to accept — but the control must not vanish from under
+  // the tap that started it, so it stays in its loading state instead. `aria-busy` is what says
+  // so, and it is load-bearing beyond the screen reader: the real Button is also
+  // `pointer-events-none` while loading, so anything that clicks this control without reading
+  // the flag (`ChromeWalletPage.claimAllNotes`) can only wait out its own timeout. The retired
+  // Claim All unmounted here, which is why nothing had to tell the two states apart before.
+  mockState.items = mockItems.map(item => ({ ...item, status: 'claiming' as const }));
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveAttribute('aria-busy', 'true');
+});
+
+it('leaves Accept All idle, and accepting the rest, while only some transfers are in flight', () => {
+  const [, , claiming] = mockItems;
+  if (!claiming) throw new Error('Missing note fixtures');
+  claiming.status = 'claiming';
+  mockState.items = [...mockItems];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  // One in flight is not "accepting everything": two transfers are still waiting on a decision,
+  // so the control is live and takes exactly those two.
+  const button = screen.getByTestId('pending-row-accept-all');
+  expect(button).not.toHaveAttribute('aria-busy');
+  fireEvent.click(button);
+  expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
+});
+
+it('folds the details of a transfer waiting on a decision, and drops the card once it is accepted', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  claimed.txId = 'tx-claimed';
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const pendingCard = expandCard('first');
+  expect(within(pendingCard).getByText('activityNotYetAccepted')).toBeInTheDocument();
+  expect(within(pendingCard).getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
+
+  // The decision is made, so there is no card at all: `History` stops standing the consume row
+  // down and the transfer is an ordinary row in the feed, drawn by the same component as every
+  // other settled transaction.
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
+  delete claimed.txId;
+});
+
+it("hands a held claim's Retry to the claims hook (#1081)", () => {
+  const [first, ...rest] = mockItems;
+  if (!first) throw new Error('Missing note fixture');
+  const held: PendingActivityItem = { ...first, status: 'claiming', txId: 'tx-held', held: true };
+  mockState.items = [held, ...rest];
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing card first');
+  fireEvent.click(within(card).getByRole('button', { name: 'retry' }));
+  expect(mockRetryHeld).toHaveBeenCalledWith(held);
+  expect(mockAccept).not.toHaveBeenCalled();
+});
+
+it('lists only unclaimed notes under the pending filter', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const timeline = screen.getByTestId('timeline');
+  expect(timeline.querySelector('[data-pending-note-id="first"]')).toBeInTheDocument();
+  expect(timeline.querySelector('[data-pending-note-id="second"]')).toBeInTheDocument();
+  expect(timeline.querySelector('[data-pending-note-id="third"]')).not.toBeInTheDocument();
+});
+
+it('hides checking and unavailable notes, then shows notes that can be accepted', () => {
+  const [checking, unavailable] = mockItems;
+  if (!checking || !unavailable) throw new Error('Missing note fixtures');
+  checking.status = 'checking';
+  unavailable.status = 'unavailable';
+  const { container, rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(container.querySelector('[data-pending-note-id="first"]')).toBeNull();
+  expect(container.querySelector('[data-pending-note-id="second"]')).toBeNull();
+  expect(screen.queryByText('activityCheckingTransfer')).not.toBeInTheDocument();
+  checking.status = 'pending';
+  mockState.items = [...mockItems];
+  rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(container.querySelector('[data-pending-note-id="first"]')).not.toBeNull();
+});
+
+it('uses the full action area for the claim spinner', () => {
+  const [claiming] = mockItems;
+  if (!claiming) throw new Error('Missing note fixture');
+  claiming.status = 'claiming';
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = expandCard('first');
+  expect(within(card).queryByRole('button', { name: 'activityRejectTransfer' })).not.toBeInTheDocument();
+  expect(within(card).getAllByRole('button')).toHaveLength(2);
+  expect(within(card).getByTestId('claim-spinner')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'activityAcceptingTransfer' })).toBeInTheDocument();
+  expect(within(card).queryByText('activityAcceptingTransfer')).not.toBeInTheDocument();
+});
+
+it('offers Restore under the Pending filter while declined transfers can still be accepted', () => {
+  const [, failed] = mockItems;
+  if (!failed) throw new Error('Missing note fixtures');
+  failed.status = 'failed';
+  mockHidden.ids = new Set(['first', 'second', 'gone']);
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).toBeNull();
+  expect(screen.getByText(/^activityPendingWaitingHidden:/)).toBeInTheDocument();
+  const restoreButton = screen.getByRole('button', { name: 'activityRestoreTransfers' });
+  // The canonical `sm` size replaces the old manual px-3/py-2/text-xs override.
+  expect(restoreButton).toHaveAttribute('data-size', 'sm');
+  expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
+  fireEvent.click(restoreButton);
+  expect(mockRestore).toHaveBeenCalledTimes(1);
+  // The declines the row counted, not 'gone', which no loaded transfer stands for.
+  expect(mockRestore).toHaveBeenCalledWith(['first', 'second']);
+});
+
+it('does not offer Restore when every declined transfer is gone or already claimed', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  mockHidden.ids = new Set(['third', 'gone']);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+});
+
+it('hands the timeline the same pending items and renderer when a render changes no pending item', () => {
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  // The mount can render more than once (the native faucet id hook settles in an effect).
+  const mounted = mockHistoryRenders.length;
+  rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHistoryRenders).toHaveLength(mounted + 1);
+  const [first, second] = mockHistoryRenders.slice(-2);
+  expect(second?.pendingItems).toBe(first?.pendingItems);
+  expect(second?.renderPendingItem).toBe(first?.renderPendingItem);
+});
+
+it('keeps cached, unconfirmed notes out of Accept All and off the card actions', () => {
+  const [cached] = mockItems;
+  if (!cached) throw new Error('Missing note fixtures');
+  const confirmed = cached.note;
+  cached.note = { ...confirmed, fromCache: true };
+  try {
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+    expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['second', 'third']);
+    const card = expandCard('first');
+    expect(within(card).getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'activityRejectTransfer' })).toBeDisabled();
+  } finally {
+    cached.note = confirmed;
+  }
+});
+
+it('draws each pending transfer as an outlined card on the page', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"] article');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing pending card');
+  expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'overflow-hidden');
+  expect(card).not.toHaveClass('bg-fill');
+  expect(card).not.toHaveClass('bg-white');
+});
+
+describe('a search for the name a transfer is shown under', () => {
+  const listedIds = () =>
+    Array.from(screen.getByTestId('timeline').querySelectorAll('[data-pending-note-id]')).map(el =>
+      el.getAttribute('data-pending-note-id')
+    );
+
+  it('keeps the card of the bridged USDC faucet when the label is searched', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+
+  it('keeps the card once the bridge config lands after the search is typed', () => {
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual([]);
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible pending-history errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockHidden.failed = false;
+  });
+  afterEach(() => {
+    mockHidden.failed = false;
+    jest.useRealTimers();
+  });
+
+  it('reports activityHiddenNotesError after the actual hidden-set failure dwells', async () => {
+    mockHidden.failed = true;
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible hidden transfer read failure');
+    await expectErrorAfterDwell('activityHiddenNotesError', 'inline');
+  });
+
+  it.each(['recovery', 'unmount'])('clears a hidden-set failure on %s before dwell', async control => {
+    mockHidden.failed = true;
+    const view = render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible hidden transfer read failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'recovery') {
+      mockHidden.failed = false;
+      view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps fetching, fee-blocked actions and persisted failed notes silent', async () => {
+    mockState.isLoadingNotes = true;
+    mockCannotPayFee.mockReturnValue(true);
+    mockState.items = mockItems.map(item => ({ ...item, status: 'failed' }));
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-accept-all')).toBeDisabled();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});

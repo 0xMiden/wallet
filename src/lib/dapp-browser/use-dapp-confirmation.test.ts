@@ -9,7 +9,9 @@ import { act, renderHook } from '@testing-library/react';
 import { dappConfirmationStore, type DAppConfirmationRequest } from './confirmation-store';
 import { useDappConfirmation } from './use-dapp-confirmation';
 
-function makeRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
+function makeRequest(
+  overrides: Partial<Exclude<DAppConfirmationRequest, { type: 'loginSign' }>> = {}
+): DAppConfirmationRequest {
   return {
     id: 'req-1',
     type: 'connect',
@@ -89,11 +91,29 @@ describe('useDappConfirmation — session isolation', () => {
     const { result } = renderHook(() => useDappConfirmation('s1'));
 
     act(() => {
-      result.current.resolve({ confirmed: true });
+      result.current.resolve({ confirmed: true }, 'req-1');
     });
 
     await promise;
     expect(resolved).toBe(true);
+  });
+
+  it('forwards the request id, so a decision on a replaced request leaves the newer one pending', async () => {
+    let settled = false;
+    void dappConfirmationStore.requestConfirmation(makeRequest({ sessionId: 's1', id: 'req-2' })).then(() => {
+      settled = true;
+    });
+    const { result } = renderHook(() => useDappConfirmation('s1'));
+
+    let resolved: boolean | undefined;
+    act(() => {
+      resolved = result.current.resolve({ confirmed: true }, 'req-1');
+    });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(result.current.request?.id).toBe('req-2');
+    expect(resolved).toBe(false);
   });
 });
 

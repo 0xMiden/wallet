@@ -29,7 +29,9 @@ export type MidenDAppRequest =
   | MidenDAppImportPrivateNoteRequest
   | MidenDAppConsumableNotesRequest
   | MidenDAppWaitForTxRequest
-  | MidenDAppGuardianInfoRequest;
+  | MidenDAppGuardianInfoRequest
+  | MidenDAppLoginKeyRequest
+  | MidenDAppLoginSignRequest;
 
 export type MidenDAppResponse =
   | MidenDAppGetCurrentPermissionResponse
@@ -44,7 +46,9 @@ export type MidenDAppResponse =
   | MidenDAppImportPrivateNoteResponse
   | MidenDAppConsumableNotesResponse
   | MidenDAppWaitForTxResponse
-  | MidenDAppGuardianInfoResponse;
+  | MidenDAppGuardianInfoResponse
+  | MidenDAppLoginKeyResponse
+  | MidenDAppLoginSignResponse;
 
 export interface MidenDAppMessageBase {
   type: MidenDAppMessageType;
@@ -76,7 +80,11 @@ export enum MidenDAppMessageType {
   WaitForTransactionRequest = 'WAIT_FOR_TRANSACTION_REQUEST',
   WaitForTransactionResponse = 'WAIT_FOR_TRANSACTION_RESPONSE',
   GuardianInfoRequest = 'GUARDIAN_INFO_REQUEST',
-  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE'
+  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE',
+  LoginKeyRequest = 'LOGIN_KEY_REQUEST',
+  LoginKeyResponse = 'LOGIN_KEY_RESPONSE',
+  LoginSignRequest = 'LOGIN_SIGN_REQUEST',
+  LoginSignResponse = 'LOGIN_SIGN_RESPONSE'
 }
 
 /**
@@ -89,7 +97,7 @@ export interface MidenDAppGetCurrentPermissionRequest extends MidenDAppMessageBa
 
 export interface MidenDAppGetCurrentPermissionResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.GetCurrentPermissionResponse;
-  permission: MidenDAppPermission;
+  permission: MidenDAppCurrentPermission;
 }
 
 export interface MidenDAppPermissionRequest extends MidenDAppMessageBase {
@@ -176,6 +184,32 @@ export interface MidenDAppSignResponse extends MidenDAppMessageBase {
   signature: string;
 }
 
+export interface MidenDAppLoginKeyRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginKeyRequest;
+  sourceAccountId: string;
+}
+
+export interface MidenDAppLoginKeyResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginKeyResponse;
+  // Base64 of the 32-byte commitment to the account's login key for the page's domain.
+  loginKey: string;
+}
+
+export interface MidenDAppLoginSignRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginSignRequest;
+  sourceAccountId: string;
+  // Base64 of 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001.
+  // The login key signs the login message hashed from the word, never the word.
+  payload: string;
+  kind: 'word';
+}
+
+export interface MidenDAppLoginSignResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginSignResponse;
+  // Base64 of the 66-byte signature.
+  signature: string;
+}
+
 export interface MidenDAppAssetsRequest extends MidenDAppMessageBase {
   type: MidenDAppMessageType.AssetsRequest;
   sourcePublicKey: string;
@@ -234,7 +268,9 @@ export enum MidenDAppErrorType {
   NotGranted = 'NOT_GRANTED',
   NotFound = 'NOT_FOUND',
   InvalidParams = 'INVALID_PARAMS',
-  NetworkNotGranted = 'NETWORK_NOT_GRANTED'
+  OutcomeUnknown = 'OUTCOME_UNKNOWN',
+  NetworkNotGranted = 'NETWORK_NOT_GRANTED',
+  LoginKeyUnavailable = 'LOGIN_KEY_UNAVAILABLE'
 }
 
 /**
@@ -247,6 +283,11 @@ export type MidenDAppPermission = {
   privateDataPermission: PrivateDataPermission;
   allowedPrivateData: AllowedPrivateData;
 } | null;
+
+// The permission GET_CURRENT_PERMISSION_RESPONSE carries: the current account's grant for the
+// origin, with that account's public key (base64 of the serialized commitment) when its session
+// stored one, so a provider can follow an account switch (#174).
+export type MidenDAppCurrentPermission = (NonNullable<MidenDAppPermission> & { publicKey?: string }) | null;
 
 export interface MidenDAppMetadata {
   name: string;

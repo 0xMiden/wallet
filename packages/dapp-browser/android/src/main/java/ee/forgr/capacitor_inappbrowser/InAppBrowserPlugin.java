@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -70,10 +71,13 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     // NavbarView instances (Activity + Dialog-scoped), and the
     // re-parenting arbitration logic.
     private NavbarOverlayManager navbarManager;
+    private boolean presentationAppForeground = true;
 
     @Override
     public void load() {
         super.load();
+        BreadAuthTabLauncher.hostLoaded(getActivity());
+        IabLog.setDebuggable((getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             this::handleFileChooserResult
@@ -537,7 +541,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             );
         }
 
-        Log.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
+        IabLog.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
 
         this.getActivity().runOnUiThread(
             new Runnable() {
@@ -583,6 +587,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void openWebView(PluginCall call) {
+        WebViewDialog existing = WebViewRegistry.getShared().get(call.getString("id", WebViewRegistry.DEFAULT_INSTANCE_ID));
+        if (existing != null && existing.managedClose() != null) {
+            call.reject("A managed instance already owns this id");
+            return;
+        }
         String url = call.getString("url");
         if (url == null || TextUtils.isEmpty(url)) {
             call.reject("Invalid URL");
@@ -590,6 +599,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         }
         currentUrl = url;
         final Options options = new Options();
+        options.setInitiallyVisible(Boolean.TRUE.equals(call.getBoolean("initiallyVisible", true)));
+        try { options.setBreadPresentation(call.getObject("breadPresentation")); }
+        catch (IllegalArgumentException error) { call.reject(error.getMessage()); return; }
         options.setUrl(url);
         options.setHeaders(call.getObject("headers"));
         options.setCredentials(call.getObject("credentials"));
@@ -617,7 +629,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             try {
                 options.setProxyRequestsPattern(Pattern.compile(proxyRequestsStr));
             } catch (PatternSyntaxException e) {
-                Log.e("WebViewDialog", String.format("Pattern '%s' is not a valid pattern", proxyRequestsStr));
+                Log.e("WebViewDialog", "Invalid proxy request pattern: " + e.getClass().getSimpleName());
             }
         }
 
@@ -740,6 +752,34 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         options.setCallbacks(
             new WebViewCallbacks() {
                 @Override
+                public void permissionDeniedToast() {
+                    notifyListeners("permissionDeniedToast", new JSObject());
+                }
+
+                @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime, String morphId) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("policyRevision", revision).put("visibilitySequence", sequence);
+                    if (lifetime != null) event.put("managedHostCloseToken", lifetime);
+                    if (morphId != null) event.put("morphId", morphId);
+                    notifyListeners("presentationMinimizeRequested", event);
+                }
+                @Override public void presentationMorph(BreadMorphEvent morph) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("morphId", morph.morphId)
+                        .put("phase", morph.phase).put("target", morph.target).put("progress", morph.progress)
+                        .put("velocity", morph.velocity).put("tracking", morph.tracking).put("visibilitySequence", morph.sequence);
+                    JSObject managed = call.getObject("managedHostClose");
+                    String lifetime = managed == null ? null : managed.getString("token");
+                    if (lifetime != null && !lifetime.isEmpty()) event.put("managedHostCloseToken", lifetime);
+                    notifyListeners("presentationMorph", event);
+                }
+                @Override public void presentationChanged(boolean fullscreen, boolean resolved, long revision, String lifetime) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0])
+                        .put("display", fullscreen ? "fullscreen" : "browser")
+                        .put("policyResolved", resolved).put("policyRevision", revision);
+                    if (lifetime != null) event.put("managedHostCloseToken", lifetime);
+                    notifyListeners("presentationChanged", event);
+                    if (navbarManager != null) navbarManager.notifyDialogVisibilityChanged(null);
+                }
+                @Override
                 public void urlChangeEvent(String url) {
                     notifyListeners(
                         "urlChangeEvent",
@@ -752,6 +792,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     notifyListeners(
                         "closeEvent",
                         new JSObject().put("url", url).put("id", callbackInstanceId[0])
+                            .put("managedHostCloseToken", call.getObject("managedHostClose") == null ? null : call.getObject("managedHostClose").getString("token"))
                     );
                 }
 
@@ -790,7 +831,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void javascriptCallback(String message) {
                     // Handle the message received from JavaScript
-                    Log.d("WebViewDialog", "Received message from JavaScript: " + message);
+                    Log.d("WebViewDialog", "Received message from JavaScript");
                     // Process the message as needed
                     try {
                         // Parse the received message as a JSON object
@@ -815,7 +856,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         // Notify listeners with the parsed message
                         notifyListeners("messageFromWebview", jsObject);
                     } catch (JSONException e) {
-                        Log.e("WebViewDialog", "Error parsing JSON message: " + e.getMessage());
+                        // JSON exception messages can include the bridge payload.
+                        Log.e("WebViewDialog", "Error parsing JSON message");
 
                         // If JSON parsing fails, send the raw message as a string
                         JSObject jsObject = new JSObject();
@@ -840,7 +882,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading authorized app link at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
+            IabLog.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
             options.setAuthorizedAppLinks(authorizedLinks);
         } else {
             Log.d("InAppBrowserPlugin", "No authorized app links provided.");
@@ -859,7 +901,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading blocked host at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
+            IabLog.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
             options.setBlockedHosts(blockedHosts);
         } else {
             Log.d("InAppBrowserPlugin", "No blocked hosts provided.");
@@ -907,6 +949,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             new Runnable() {
                 @Override
                 public void run() {
+                    WebViewDialog existing = WebViewRegistry.getShared().get(instanceId);
+                    if (existing != null && existing.managedClose() != null) {
+                        call.reject("A managed instance already owns this id");
+                        return;
+                    }
                     webViewDialog = new WebViewDialog(
                         getContext(),
                         android.R.style.Theme_NoTitleBar,
@@ -926,6 +973,14 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     // the dApp content without any Window z-order
                     // wrestling.
                     final WebViewDialog createdDialog = webViewDialog;
+                    createdDialog.configureManagedClose(instanceId, call.getObject("managedHostClose"),
+                        data -> notifyListeners("hostCloseRequested", data));
+                    createdDialog.setClosedListener(() -> {
+                        if (WebViewRegistry.getShared().get(instanceId) == createdDialog) {
+                            WebViewRegistry.getShared().remove(instanceId);
+                        }
+                        if (webViewDialog == createdDialog) webViewDialog = null;
+                    });
                     createdDialog.setOnShowListener(
                         new android.content.DialogInterface.OnShowListener() {
                             @Override
@@ -947,12 +1002,13 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         }
                     );
 
-                    webViewDialog.presentWebView();
+                    WebViewRegistry.getShared().register(instanceId, createdDialog);
+                    createdDialog.presentWebView();
+                    createdDialog.presentationForeground(presentationAppForeground);
                     // Mirror in the multi-instance registry. Unlike iOS,
                     // Android Dialog already supports multiple concurrent
                     // instances natively (each Dialog has its own Window),
                     // so we don't need a separate UIWindow refactor.
-                    WebViewRegistry.getShared().register(instanceId, webViewDialog);
                     call.resolve();
                 }
             }
@@ -985,13 +1041,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             return;
         }
         JSObject eventData = call.getObject("detail");
-        // Log event data
         if (eventData == null) {
             call.reject("No event data provided");
             return;
         }
 
-        Log.d("InAppBrowserPlugin", "Event data: " + eventData.toString());
+        Log.d("InAppBrowserPlugin", "Sending message to JavaScript");
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
@@ -1119,82 +1174,27 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void close(PluginCall call) {
-        // Miden patch (PR-4 chunk 5): id-aware. Defaults to "default" so
-        // legacy single-instance callers still work.
-        final String instanceId = call.getString("id") != null
-            ? call.getString("id")
-            : WebViewRegistry.DEFAULT_INSTANCE_ID;
-        // For multi-instance callers, look up the dialog from the registry
-        // instead of using the legacy webViewDialog field. The legacy field
-        // tracks only the most recently opened dialog, which would close
-        // the wrong instance for multi-instance callers.
-        final WebViewDialog dialog = WebViewRegistry.getShared().get(instanceId);
-        final boolean isLegacyDefault = instanceId.equals(WebViewRegistry.DEFAULT_INSTANCE_ID);
+        final String id = call.getString("id", WebViewRegistry.DEFAULT_INSTANCE_ID);
+        getActivity().runOnUiThread(() -> {
+            WebViewDialog dialog = WebViewRegistry.getShared().get(id);
+            if (dialog == null) { call.resolve(); return; }
+            String token = call.getString("managedHostCloseToken");
+            if (token != null && (dialog.managedClose() == null || !token.equals(dialog.managedClose().token))) { call.resolve(); return; }
+            if (Boolean.TRUE.equals(call.getBoolean("force", false))) { dialog.forceClose(); call.resolve(); }
+            else dialog.requestClose(() -> call.resolve());
+        });
+    }
 
-        if (dialog == null && webViewDialog == null) {
-            // Fallback: try to bring main activity to foreground
-            try {
-                Intent intent = new Intent(getContext(), getBridge().getActivity().getClass());
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                getContext().startActivity(intent);
-                call.resolve();
-            } catch (Exception e) {
-                Log.e("InAppBrowser", "Error bringing main activity to foreground: " + e.getMessage());
-                call.reject("WebView is not initialized and failed to restore main activity");
+    @PluginMethod
+    public void completeManagedClose(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            WebViewDialog dialog = WebViewRegistry.getShared().get(call.getString("id", ""));
+            if (dialog == null || dialog.managedClose() == null || !dialog.managedClose().complete(
+                call.getString("token", ""), call.getString("requestId", ""), call.getInt("hostCommitGeneration", -1))) {
+                call.reject("Stale close receipt"); return;
             }
-            return;
-        }
-
-        this.getActivity().runOnUiThread(
-            new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        WebViewDialog targetDialog = (dialog != null) ? dialog : webViewDialog;
-                        if (targetDialog != null) {
-                            String currentUrl = "";
-                            try {
-                                currentUrl = targetDialog.getUrl();
-                                if (currentUrl == null) {
-                                    currentUrl = "";
-                                }
-                            } catch (Exception e) {
-                                Log.e("InAppBrowser", "Error getting URL before close: " + e.getMessage());
-                                currentUrl = "";
-                            }
-
-                            // Notify listeners about the close event.
-                            // PR-4 chunk 7: tag with instance id.
-                            notifyListeners(
-                                "closeEvent",
-                                new JSObject().put("url", currentUrl).put("id", instanceId)
-                            );
-
-                            targetDialog.dismiss();
-                            WebViewRegistry.getShared().remove(instanceId);
-                            if (isLegacyDefault) {
-                                webViewDialog = null;
-                            }
-                            call.resolve();
-                        } else {
-                            // Secondary fallback inside UI thread
-                            try {
-                                Intent intent = new Intent(getContext(), getBridge().getActivity().getClass());
-                                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                getContext().startActivity(intent);
-                                call.resolve();
-                            } catch (Exception e) {
-                                Log.e("InAppBrowser", "Error in secondary fallback: " + e.getMessage());
-                                call.reject("WebView is not initialized");
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
-                        call.reject("Failed to close WebView: " + e.getMessage());
-                    }
-                }
-            }
-        );
+            call.resolve();
+        });
     }
 
     private Bundle getHeaders(PluginCall pluginCall) {
@@ -1211,6 +1211,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnResume() {
+        BreadAuthController.hostResumed();
+        presentationAppForeground = true;
+        for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+            entry.getValue().presentationForeground(true);
+        }
         boolean ok = CustomTabsClient.bindCustomTabsService(getContext(), CUSTOM_TAB_PACKAGE_NAME, connection);
         if (!ok) {
             Log.e(getLogTag(), "Error binding to custom tabs service");
@@ -1218,6 +1223,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnPause() {
+        BreadAuthController.hostPaused();
+        presentationAppForeground = false;
+        for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+            entry.getValue().presentationForeground(false);
+        }
         getContext().unbindService(connection);
     }
 
@@ -1244,14 +1254,10 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @Override
     protected void handleOnDestroy() {
-        if (webViewDialog != null) {
-            try {
-                webViewDialog.dismiss();
-            } catch (Exception e) {
-                // Ignore, dialog may already be dismissed
-            }
-            webViewDialog = null;
+        for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+            entry.getValue().forceClose();
         }
+        webViewDialog = null;
         // Miden navbar — tear down the overlay manager so the
         // Activity-scoped NavbarView detaches from the decor view
         // and unsubscribes from the state holder. Without this,
@@ -1307,6 +1313,10 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     try {
                         WebViewDialog dialog = target != null ? target : webViewDialog;
                         if (dialog != null) {
+                            if (target != null && WebViewRegistry.getShared().get(instanceId) != target) { call.resolve(); return; }
+                            if ((call.getString("managedHostCloseToken") != null || dialog.hasPresentation()) && !java.util.Objects.equals(dialog.managedClose() == null ? null : dialog.managedClose().token, call.getString("managedHostCloseToken"))) {
+                                call.resolve(); return;
+                            }
                             dialog.updateDimensions(width, height, x, y);
                             call.resolve();
                         } else {
@@ -1350,14 +1360,15 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        String dataUrl = dialog.takeSnapshotData(scale, quality);
-                        if (dataUrl == null) {
-                            call.reject("snapshot failed");
-                            return;
-                        }
-                        JSObject ret = new JSObject();
-                        ret.put("data", dataUrl);
-                        call.resolve(ret);
+                        dialog.takeSnapshotData(scale, quality, dataUrl -> {
+                            if (dataUrl == null) {
+                                call.reject("snapshot failed");
+                                return;
+                            }
+                            JSObject ret = new JSObject();
+                            ret.put("data", dataUrl);
+                            call.resolve(ret);
+                        });
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error taking snapshot: " + e.getMessage());
                         call.reject("snapshot failed: " + e.getMessage());
@@ -1394,22 +1405,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (visible) {
-                            // Dialog.show() is the right primitive — it
-                            // re-attaches the existing Window without
-                            // recreating the WebView.
-                            if (!dialog.isShowing()) {
-                                dialog.show();
-                            }
-                        } else {
-                            // Dialog.hide() detaches the Window from the
-                            // screen but keeps the Dialog instance + its
-                            // WebView alive in memory. State preservation
-                            // works the same way as iOS UIWindow.isHidden.
-                            if (dialog.isShowing()) {
-                                dialog.hide();
-                            }
+                        if (WebViewRegistry.getShared().get(instanceId) != dialog) { call.resolve(); return; }
+                        if ((call.getString("managedHostCloseToken") != null || dialog.hasPresentation()) && !java.util.Objects.equals(dialog.managedClose() == null ? null : dialog.managedClose().token, call.getString("managedHostCloseToken"))) {
+                            call.resolve(); return;
                         }
+                        if (dialog.hasPresentation() && dialog.managedClose() != null && call.getInt("visibilitySequence") == null) { call.resolve(); return; }
+                        dialog.presentationVisibility(visible, call.getInt("policyRevision"), call.getInt("visibilitySequence"));
                         // Miden navbar — notify the overlay manager so
                         // it re-picks the topmost visible NavbarView.
                         // Without this, parking a dApp leaves the
@@ -1427,6 +1428,59 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 }
             }
         );
+    }
+
+    /**
+     * Miden plugin method (#1817): run the native expand or collapse of a positioned instance as one
+     * spring on the live page. setVisible's guards apply; every refusal resolves accepted: false.
+     */
+    @PluginMethod
+    public void morph(PluginCall call) {
+        final String instanceId = call.getString("id");
+        final WebViewDialog dialog = instanceId == null ? null : WebViewRegistry.getShared().get(instanceId);
+        if (dialog == null) {
+            call.resolve(new JSObject().put("accepted", false));
+            return;
+        }
+        this.getActivity().runOnUiThread(() -> {
+            boolean accepted = false;
+            try {
+                String lifetime = dialog.managedClose() == null ? null : dialog.managedClose().token;
+                boolean current = WebViewRegistry.getShared().get(instanceId) == dialog
+                    && java.util.Objects.equals(lifetime, call.getString("managedHostCloseToken"))
+                    && (lifetime == null || call.getInt("visibilitySequence") != null);
+                if (current) {
+                    boolean shown = dialog.isShowing();
+                    accepted = dialog.presentationMorph(call.getString("to"), call.getObject("card"), call.getObject("velocity"),
+                        call.getString("morphId"), call.getInt("policyRevision"), call.getInt("visibilitySequence"));
+                    if (shown != dialog.isShowing() && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
+                }
+            } catch (Exception e) {
+                Log.e("InAppBrowser", "morph failed: " + e.getMessage());
+            }
+            call.resolve(new JSObject().put("accepted", accepted));
+        });
+    }
+
+    /** Miden plugin method (#1817): publish the landing card the native Bread button collapses to. */
+    @PluginMethod
+    public void setMorphTarget(PluginCall call) {
+        WebViewRegistry.getShared().setMorphCard(WebViewDialog.hostCard(call.getObject("card")));
+        call.resolve();
+    }
+
+    /**
+     * Miden plugin method (#1817): hold the full frame rate from a touch-down on a control that can
+     * start a morph. A morph that starts takes the request over; without one it lapses after durationMs.
+     */
+    @PluginMethod
+    public void prepareMorph(PluginCall call) {
+        Integer requested = call.getInt("durationMs");
+        long duration = requested == null ? BreadFrameBoost.DURATION_MS : Math.max(0, Math.min(2000, requested));
+        this.getActivity().runOnUiThread(() -> {
+            BreadFrameBoost.hold(getBridge() == null ? null : getBridge().getWebView(), duration);
+            call.resolve();
+        });
     }
 
     /**
@@ -1448,8 +1502,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     /**
      * Miden plugin method (PR-4 chunk 5): close every registered instance.
      * Used on app shutdown / wallet reset. Each dialog is dismissed and the
-     * registry is cleared. Individual closeEvent listeners are NOT fired —
-     * callers know they're tearing everything down.
+     * registry is cleared. Each session emits its terminal close event.
      */
     @PluginMethod
     public void closeAll(PluginCall call) {
@@ -1459,7 +1512,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 public void run() {
                     for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
                         try {
-                            entry.getValue().dismiss();
+                            entry.getValue().forceClose();
                         } catch (Exception e) {
                             Log.w("InAppBrowser", "closeAll: dismiss failed for " + entry.getKey() + ": " + e.getMessage());
                         }

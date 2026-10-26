@@ -1,36 +1,41 @@
 /* eslint-disable no-restricted-globals */
 
-import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import ErrorBoundary from 'app/ErrorBoundary';
+import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
-import Unlock from 'app/pages/Unlock';
+import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
-import { CustomRpsContext } from 'lib/analytics';
-import { getAllUncompletedTransactions } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { CopyButton } from 'components/ui/CopyButton';
+import { DappOrigin } from 'components/ui/DappOrigin';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
+import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
+import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import useSafeState from 'lib/ui/useSafeState';
-import { navigate, useLocation } from 'lib/woozie';
+import { useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import FormSecondaryButton from './atoms/FormSecondaryButton';
-import FormSubmitButton from './atoms/FormSubmitButton';
-import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, summaryBytesToView, summaryToView, TxAssetView } from './confirm/decode';
+import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -42,18 +47,17 @@ import PrivateDataPermissionCheckbox from './templates/PrivateDataPermissionChec
 const ConfirmPage: FC = () => {
   const { t } = useTranslation();
   const { ready } = useMidenContext();
+  // This window renders its own Unlock and never mounts PageRouter, so it retires the record itself.
+  useRetireLockoutOnReady(ready);
 
-  return useMemo(
+  const page = useMemo(
     () =>
       ready ? (
-        <ContentContainer
-          padding={false}
-          className={classNames('min-h-screen', 'flex flex-col items-center justify-center bg-app-bg')}
-        >
+        <ContentContainer padding={false} className="flex flex-col items-center justify-center bg-app-bg">
           <ErrorBoundary whileMessage={t('fetchingConfirmationDetails')}>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-screen bg-app-bg">
+                <div className="flex flex-1 items-center justify-center bg-app-bg">
                   <div>
                     <Spinner />
                   </div>
@@ -68,6 +72,15 @@ const ConfirmPage: FC = () => {
         <Unlock openForgotPasswordInFullPage={true} />
       ),
     [ready, t]
+  );
+
+  // The network banner (#875) tops the confirm window the way PageRouter tops
+  // every routed page, and dapp.ts sizes the popup for it (CONFIRM_WINDOW_HEIGHT).
+  return (
+    <div className="flex min-h-screen flex-col bg-app-bg">
+      <NetworkModeBanner />
+      {page}
+    </div>
   );
 };
 
@@ -104,12 +117,22 @@ function downloadBytes(filename: string, data: Uint8Array, mimeType = 'applicati
   }
 }
 
-const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) => {
+const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
+  useUserVisibleError(errorId, 'inline');
+  return <>{value}</>;
+};
+
+const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
+  rawValue,
+  errorId
+}) => {
   const { t } = useTranslation();
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
-      <AdvancedDetails label={t('rawValue')}>{rawValue}</AdvancedDetails>
+      <AdvancedDetails label={t('rawValue')}>
+        <SignatureRawValue value={rawValue} errorId={errorId} />
+      </AdvancedDetails>
     </>
   );
 };
@@ -123,16 +146,14 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) =>
 const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
   <div
     className={classNames(
-      'text-sm text-left text-black',
+      'text-sm text-left text-ink',
       'flex w-full gap-x-3 items-center p-4',
       'border border-gray-100 rounded-2xl mb-4'
     )}
   >
-    <Icon name={IconName.Globe} fill="currentColor" size="md" />
-    <div className="flex flex-col">
-      <Name className="font-semibold" data-testid="confirm-request-origin">
-        {origin}
-      </Name>
+    <Icon name={IconName.Globe} fill="currentColor" size="md" className="shrink-0" />
+    <div className="flex min-w-0 flex-col">
+      <DappOrigin origin={origin} className="font-semibold" data-testid="confirm-request-origin" />
       {children}
     </div>
   </div>
@@ -164,13 +185,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       switch (payload.kind) {
         case 'word': {
           let wordHex = t('invalidPayload');
+          let wordErrorId: UserErrorId | null = null;
           try {
             const word = Word.deserialize(bytes);
             wordHex = word.toHex();
           } catch (e) {
+            wordErrorId = 'invalidPayload';
             console.error('Failed to deserialize payload for sign:', e);
           }
-          content = <OpaqueSignatureWarning rawValue={wordHex} />;
+          content = <OpaqueSignatureWarning rawValue={wordHex} errorId={wordErrorId} />;
           break;
         }
 
@@ -184,6 +207,21 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       break;
     }
 
+    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
+    case 'loginSign':
+      content = (
+        <>
+          <p className="my-2 text-body-sm text-ink">{t('loginSignatureNote', { domain: payload.domain })}</p>
+          <DetailCard className="my-2">
+            <DetailRow label={t('account')} stacked data-testid="confirm-login-account">
+              <span className="min-w-0 font-sans font-semibold">{payload.accountId}</span>
+              <CopyButton text={payload.accountId} data-testid="confirm-login-account-copy" />
+            </DetailRow>
+          </DetailCard>
+        </>
+      );
+      break;
+
     case 'privateNotes': {
       content = (
         <>
@@ -193,15 +231,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             {`${truncateAddress(payload.sourcePublicKey)}?`}
           </div>
           <div className="flex items-center justify-center">
-            <FormSecondaryButton
+            <Button
               type="button"
-              className="justify-center w-3/5 bg-chip-bg hover:bg-gray-100 text-black"
-              style={{ fontWeight: '400', border: 'none' }}
+              variant={ButtonVariant.Secondary}
+              size="sm"
+              className="w-3/5"
               onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
-              small
             >
               {t('downloadPrivateNoteData')}
-            </FormSecondaryButton>
+            </Button>
           </div>
         </>
       );
@@ -224,7 +262,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('account')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
@@ -245,7 +283,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black" data-testid={txRowValueTestId(label)}>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
                   {value}
                 </span>
               </div>
@@ -267,14 +305,14 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('account')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('noteId')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{truncateHash(payload.noteId)}</span>
                 </div>
               </div>
@@ -290,7 +328,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black">{value}</span>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                  {value}
+                </span>
               </div>
             );
           })}
@@ -299,16 +339,19 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       break;
   }
 
+  useUserVisibleError(error ? 'raw_confirm_payload_failed' : null, 'inline');
+
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
-      {t('payload') && (
+      {/* A login shows the note and the signing account, never a payload, so it gets no payload heading. */}
+      {payload.type !== 'loginSign' && t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
-          <span className="text-black font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
+          <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
             {t('payload')}
           </span>
         </h2>
       )}
-      <span className="text-sm text-black">{error ? error : content}</span>
+      <span className="text-sm text-ink">{error ? error : content}</span>
     </div>
   );
 };
@@ -324,6 +367,8 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
       return null;
     }
   }, [bytes]);
+
+  useUserVisibleError(signingInputs ? null : 'failedToParseSigningPayload', 'inline');
 
   if (!signingInputs) {
     return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
@@ -373,16 +418,25 @@ const CustomTransactionContent: React.FC<{
 
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
   const [simError, setSimError] = useState(false);
+  useUserVisibleError(
+    verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
+    'inline'
+  );
 
   useEffect(() => {
     if (!payload.requestBytes) return;
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes } = await simulateCustomTransaction(id);
+        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        if (summaryBytes) {
-          setVerifiedView(summaryBytesToView(summaryBytes));
+        // Summary when authorization is still pending, executed transaction for every ordinary
+        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
+        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
+        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
+        const view = simulatedBytesToView({ summaryBytes, executedBytes });
+        if (view) {
+          setVerifiedView(view);
           return;
         }
         setSimError(true);
@@ -422,7 +476,11 @@ const CustomTransactionContent: React.FC<{
     return (
       <>
         <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && <div className="text-xs text-text-muted my-2">{t('couldNotVerifyBySimulation')}</div>}
+        {simError && (
+          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
+            {t('couldNotVerifyBySimulation')}
+          </div>
+        )}
         {advanced}
       </>
     );
@@ -448,7 +506,8 @@ const ConfirmDAppForm: FC = () => {
     confirmDAppSign,
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
-    confirmDAppConsumableNotes
+    confirmDAppConsumableNotes,
+    confirmDAppUnlock
   } = useMidenContext();
   const account = useAccount();
   const isPublicAccount = account.isPublic;
@@ -458,7 +517,9 @@ const ConfirmDAppForm: FC = () => {
     const usp = new URLSearchParams(loc.search);
     const pageId = usp.get('id');
     if (!pageId) {
-      throw new Error(t('notIdentified'));
+      const error = new Error(t('notIdentified'));
+      annotateCrash(error, { operation: 'confirm_payload', confirmationId: pageId === null ? 'missing' : 'empty' });
+      throw error;
     }
     return pageId;
   }, [loc.search, t]);
@@ -471,20 +532,26 @@ const ConfirmDAppForm: FC = () => {
   });
   const payload = data!;
   const payloadError = data!.error;
+  const spendingLimitAssessment = useMemo(
+    () =>
+      payload.type === 'transaction' && payload.spendingLimitAssessment !== undefined
+        ? parseSerializedSpendingLimitAssessment(payload.spendingLimitAssessment)
+        : undefined,
+    [payload]
+  );
   let requirePrivateDataCheckbox = false;
   let privateDataPermission = PrivateDataPermission.UponRequest;
   if (payload.type === 'connect') {
     privateDataPermission = payload.privateDataPermission;
-    if (payload.existingPermission) {
-      confirmDAppPermission(id, true, account.publicKey, privateDataPermission, payload.allowedPrivateData);
-    }
   }
   requirePrivateDataCheckbox = privateDataPermission === PrivateDataPermission.Auto && !isPublicAccount;
   const [isPrivateDataChecked, setIsPrivateDataChecked] = useState(false);
   const delegate = isDelegateProofEnabled();
+  const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
+  const confirmationInFlightRef = useRef(false);
 
   const onConfirm = useCallback(
-    async (confirmed: boolean) => {
+    async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       switch (payload.type) {
         case 'connect':
           return confirmDAppPermission(
@@ -496,19 +563,18 @@ const ConfirmDAppForm: FC = () => {
           );
         case 'transaction':
         case 'consume':
-          await confirmDAppTransaction(id, confirmed, delegate);
-          if (confirmed) {
-            // The dApp confirm response carries no txId, but the progress page
-            // is addressed by one — resolve the active row from the queue.
-            const uncompleted = await getAllUncompletedTransactions();
-            const active =
-              uncompleted.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? uncompleted[0];
-            navigate(active ? `/generating-transaction-full/${encodeURIComponent(active.id)}` : '/');
+          if (spendingLimitAuthenticated === true) {
+            await confirmDAppTransaction(id, confirmed, delegate, true);
+          } else {
+            await confirmDAppTransaction(id, confirmed, delegate);
           }
+          // No navigation after an approval: this window never mounts PageRouter, so a route change only
+          // drops `?id=` and crashes this form while the background closes the window.
           return;
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
         case 'sign':
+        case 'loginSign':
           return confirmDAppSign(id, confirmed);
         case 'assets':
           return confirmDAppAssets(id, confirmed);
@@ -516,6 +582,8 @@ const ConfirmDAppForm: FC = () => {
           return confirmDAppImportPrivateNote(id, confirmed);
         case 'consumableNotes':
           return confirmDAppConsumableNotes(id, confirmed);
+        case 'unlock':
+          return confirmDAppUnlock(id);
       }
     },
     [
@@ -530,40 +598,82 @@ const ConfirmDAppForm: FC = () => {
       confirmDAppAssets,
       confirmDAppImportPrivateNote,
       confirmDAppConsumableNotes,
+      confirmDAppUnlock,
       delegate
     ]
   );
 
   const [error, setError] = useSafeState<any>(null);
+  const [errorId, setErrorId] = useSafeState<UserErrorId | null>(null);
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
+  // The extension's approval telemetry. The confirmation store the other
+  // platforms report from is unreachable here — see `useApprovalPrompt`.
+  //
+  // Suppressed for the auto-approved reconnect answered below, where the user is
+  // shown nothing and asked nothing, so there is no approval to measure.
+  // An unlock-only request (#1414) asks nothing either.
+  const autoApproved = payload.type === 'unlock' || (payload.type === 'connect' && Boolean(payload.existingPermission));
+  const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
+
   const confirm = useCallback(
-    async (confirmed: boolean) => {
+    async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       setError(null);
       try {
-        if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked) {
+        // An existing permission's consent was given when its session was saved, so its answer and Retry skip the box.
+        if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved) {
+          setErrorId('confirmError');
           throw new Error(t('confirmError'));
         }
-        await onConfirm(confirmed);
+        await onConfirm(confirmed, spendingLimitAuthenticated);
+        // Settled only once the decision has actually been delivered: the
+        // private-data check above throws before that and the user is still
+        // being asked, so the flow stays open for their next attempt.
+        settleApproval(confirmed);
       } catch (err: any) {
         console.error(err);
 
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         setError(err);
+        if (!confirmed || !requirePrivateDataCheckbox || isPrivateDataChecked || autoApproved) {
+          setErrorId(err?.message == null ? 'smthWentWrong' : 'raw_confirm_approval_failed');
+        }
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
+    [onConfirm, setError, setErrorId, requirePrivateDataCheckbox, isPrivateDataChecked, autoApproved, settleApproval, t]
   );
 
-  const handleConfirmClick = useCallback(async () => {
-    if (confirming || declining) return;
+  // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
+  const unlockAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'unlock' || unlockAnsweredRef.current) return;
+    unlockAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload.type, confirm]);
 
+  // An existing permission is answered once, unasked, through `confirm` like its Retry (#1471).
+  const existingPermissionAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'connect' || !payload.existingPermission || existingPermissionAnsweredRef.current) return;
+    existingPermissionAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload, confirm]);
+
+  const handleConfirmClick = useCallback(async () => {
+    if (confirming || declining || confirmationInFlightRef.current) return;
+    if (spendingLimitAssessment !== undefined) {
+      setShowSpendingLimitChallenge(true);
+      return;
+    }
+
+    confirmationInFlightRef.current = true;
     setConfirming(true);
     await confirm(true);
     setConfirming(false);
-  }, [confirming, declining, setConfirming, confirm]);
+    confirmationInFlightRef.current = false;
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -646,6 +756,19 @@ const ConfirmDAppForm: FC = () => {
             </RequestOriginBanner>
           )
         };
+      case 'loginSign':
+        return {
+          title: t('confirmLoginSignature', { domain: payload.domain }),
+          declineActionTitle: t('cancel'),
+          declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
+          confirmActionTitle: t('confirm'),
+          confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
+          want: (
+            <RequestOriginBanner origin={payload.origin}>
+              <span className="text-muted">{t('requestsYourSignature')}</span>
+            </RequestOriginBanner>
+          )
+        };
       case 'assets':
         return {
           title: t('requestAssets'),
@@ -685,101 +808,121 @@ const ConfirmDAppForm: FC = () => {
             </RequestOriginBanner>
           )
         };
+      case 'unlock':
+        return null;
     }
   }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
+  if (content === null) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-app-bg">
+        <Spinner />
+      </div>
+    );
+  }
+
   return (
-    <CustomRpsContext.Provider value={'TODO'}>
-      <div
-        className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
-        style={{
-          width: 380,
-          height: 610
-        }}
-      >
-        <div className="flex flex-col items-left px-4">
-          <h2 className="py-6 flex text-black text-lg font-semibold">{content.title}</h2>
+    <div
+      className={classNames('relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+      style={{
+        width: 380,
+        height: 610
+      }}
+    >
+      <div className="flex flex-col items-left px-4">
+        <h2 className="py-6 flex text-ink text-lg font-semibold">{content.title}</h2>
 
-          {payload.type === 'connect' && (
-            <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
-          )}
+        {payload.type === 'connect' && (
+          <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
+        )}
 
-          {content.want}
+        {content.want}
 
-          {error ? (
-            <Alert
-              closable
-              onClose={handleErrorAlertClose}
-              type="error"
-              title={t('error')}
-              description={error?.message ?? t('smthWentWrong')}
-              className="my-4"
-              autoFocus
-            />
-          ) : (
-            <>
-              {payload.type === 'connect' ? (
-                account && (
+        {error ? (
+          <Alert
+            closable
+            onClose={handleErrorAlertClose}
+            type="error"
+            errorId={errorId}
+            title={t('error')}
+            description={error?.message ?? t('smthWentWrong')}
+            className="my-4"
+            autoFocus
+          />
+        ) : (
+          <>
+            {payload.type === 'connect' ? (
+              <>
+                {account && (
                   <AccountBanner
                     account={account}
                     networkRpc={payload.networkRpc}
                     labelIndent="sm"
                     className="w-full my-2"
                   />
-                )
-              ) : (
-                <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
-              )}
-            </>
-          )}
+                )}
+                <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
+              </>
+            ) : (
+              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
+            )}
+          </>
+        )}
 
-          {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
+        {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
+      </div>
+
+      <div className="flex-1" />
+
+      <div
+        className={classNames(
+          'sticky bottom-0 w-full',
+          'bg-surface-solid shadow-md',
+          'flex items-stretch',
+          'px-4 pt-2 pb-6'
+        )}
+      >
+        <div className="w-1/2 pr-2">
+          <Button
+            type="button"
+            variant={ButtonVariant.Secondary}
+            className="w-full"
+            isLoading={declining}
+            onClick={handleDeclineClick}
+            data-testid={content.declineActionTestID}
+          >
+            {content.declineActionTitle}
+          </Button>
         </div>
 
-        <div className="flex-1" />
-
-        <div
-          className={classNames(
-            'sticky bottom-0 w-full',
-            'bg-surface-solid shadow-md',
-            'flex items-stretch',
-            'px-4 pt-2 pb-6'
-          )}
-        >
-          <div className="w-1/2 pr-2">
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              className={classNames('w-full', 'px-8', 'text-black font-medium', 'transition duration-200 ease-in-out')}
-              style={{
-                fontSize: '16px',
-                lineHeight: '24px',
-                padding: '14px 0px',
-                border: 'none'
-              }}
-              isLoading={declining}
-              onClick={handleDeclineClick}
-              data-testid={content.declineActionTestID}
-            >
-              {content.declineActionTitle}
-            </Button>
-          </div>
-
-          <div className="w-1/2 pl-2">
-            <FormSubmitButton
-              type="button"
-              className="w-full justify-center justify-center rounded-lg py-3"
-              style={{ fontSize: '16px', lineHeight: '24px', padding: '14px 0px', border: 'none' }}
-              loading={confirming}
-              onClick={handleConfirmClick}
-              testID={content.confirmActionTestID}
-              data-testid={content.confirmActionTestID}
-            >
-              {content.confirmActionTitle}
-            </FormSubmitButton>
-          </div>
+        <div className="w-1/2 pl-2">
+          <Button
+            type="button"
+            variant={ButtonVariant.Primary}
+            className="w-full"
+            isLoading={confirming}
+            onClick={handleConfirmClick}
+            data-testid={content.confirmActionTestID}
+          >
+            {content.confirmActionTitle}
+          </Button>
         </div>
       </div>
-    </CustomRpsContext.Provider>
+      {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitAssessment}
+          onResult={authorization => {
+            setShowSpendingLimitChallenge(false);
+            if (confirmationInFlightRef.current) return;
+            confirmationInFlightRef.current = true;
+            setConfirming(true);
+            void confirm(authorization !== undefined, authorization === undefined ? undefined : true).finally(() => {
+              setConfirming(false);
+              confirmationInFlightRef.current = false;
+            });
+          }}
+        />
+      )}
+    </div>
   );
 };

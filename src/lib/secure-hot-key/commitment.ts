@@ -12,6 +12,8 @@
  */
 import { Buffer } from 'buffer';
 
+import { b64ToU8 } from 'lib/shared/helpers';
+
 export async function commitmentFromPublicKeyHex(publicKeyHex: string): Promise<string> {
   const { PublicKey } = await import('@miden-sdk/miden-sdk/lazy');
   const unprefixed = publicKeyHex.startsWith('0x') ? publicKeyHex.slice(2) : publicKeyHex;
@@ -29,4 +31,35 @@ export async function commitmentFromPublicKeyHex(publicKeyHex: string): Promise<
 export function sameCommitment(a: string, b: string): boolean {
   const strip = (h: string): string => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase().replace(/^0+/, '');
   return strip(a) === strip(b);
+}
+
+/**
+ * The 32 bytes a signer-commitment string denotes, whatever form it arrived in,
+ * as lowercase hex - or undefined if it denotes none.
+ *
+ * Both forms are in circulation for the same commitment, and a comparison that
+ * knew only one would be worse than none: it would refuse legitimate signing
+ * while looking like a working check. `connect` hands the page b64 of
+ * `Word.serialize()`; the vault stores its key blobs under `Word.toHex()` with
+ * the `0x` dropped, which is the form `signData` looks up by. Those two encode
+ * the identical 32 bytes (verified against @miden-sdk/miden-sdk: `toHex()` sans
+ * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
+ * them comparable rather than merely similar.
+ *
+ * A missing value denotes none too: a page's request can lack the key it
+ * names, whatever its type says.
+ */
+export function commitmentToHex(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const unprefixed = value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
+  if (/^[0-9a-fA-F]{64}$/.test(unprefixed)) {
+    return unprefixed.toLowerCase();
+  }
+  try {
+    const bytes = b64ToU8(value);
+    if (bytes.length !== 32) return undefined;
+    return Buffer.from(bytes).toString('hex');
+  } catch {
+    return undefined;
+  }
 }

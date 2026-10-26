@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from './balance-truth';
+import { expectPendingPromptOnScreen } from './home-prompts';
 import type { MidenCli } from './miden-cli';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type { TestStepRunner } from '../harness/test-step';
@@ -30,7 +31,9 @@ export const TOKEN_DECIMALS = 8;
 export interface AccountAxis {
   /** Appears in step names and timeline messages so a failure names its leg. */
   readonly label: string;
+  readonly walletType: 'off-chain' | 'guardian';
   create(wallet: GuardianAwareWalletPage): Promise<{ address: string }>;
+  assertCurrentAccount(wallet: GuardianAwareWalletPage): Promise<void>;
 }
 
 /**
@@ -41,15 +44,29 @@ export interface AccountAxis {
  */
 export const offChainAxis: AccountAxis = {
   label: 'offchain',
-  create: async wallet => wallet.createNewWallet()
+  walletType: 'off-chain',
+  create: async wallet => wallet.createNewWallet(),
+  assertCurrentAccount: async () => {}
 };
 
 /** Guardian (co-signed) accounts — the ONLY type production onboarding creates. */
-export function guardianAxis(guardianUrl: string): AccountAxis {
-  return {
-    label: 'guardian',
-    create: async wallet => wallet.createGuardianWallet(guardianUrl)
+export function guardianAxis(guardianUrl: string, options: { endpointTimeoutMs?: number } = {}): AccountAxis {
+  const assertCurrentAccount = async (wallet: GuardianAwareWalletPage): Promise<void> => {
+    await expect
+      .poll(() => wallet.currentGuardianEndpoint(), { timeout: options.endpointTimeoutMs ?? 30_000 })
+      .toBe(guardianUrl);
   };
+  const axis: AccountAxis = {
+    label: 'guardian',
+    walletType: 'guardian',
+    create: async wallet => {
+      const created = await wallet.createGuardianWallet(guardianUrl);
+      await assertCurrentAccount(wallet);
+      return created;
+    },
+    assertCurrentAccount
+  };
+  return axis;
 }
 
 /**
@@ -132,6 +149,156 @@ interface JourneyContext {
   axis: AccountAxis;
 }
 
+const MINT_BASE_UNITS = 100_000_000_000n;
+const SECOND_ACCOUNT_MINT_BASE_UNITS = 200_000_000_000n;
+
+/** Mint the harness token to two wallets and pin each pending balance exactly. */
+export async function runMintAndBalanceJourney(ctx: JourneyContext): Promise<void> {
+  const { walletA, walletB, midenCli, steps, timeline, axis } = ctx;
+  let addressA = '';
+  let addressB = '';
+  let faucetId = '';
+
+  await steps.step('create_wallets', async () => {
+    const a = await axis.create(walletA);
+    const b = await axis.create(walletB);
+    addressA = a.address;
+    addressB = b.address;
+  });
+
+  await steps.step('init_miden_client', async () => {
+    await midenCli.init();
+  });
+
+  await steps.step('deploy_faucet', async () => {
+    faucetId = await midenCli.createFaucet();
+    expect(faucetId).toBeTruthy();
+    timeline.emit({
+      category: 'blockchain_state',
+      severity: 'info',
+      message: `Faucet deployed: ${faucetId}`,
+      data: { faucetId }
+    });
+  });
+
+  await steps.step('mint_tokens_to_wallet_a', async () => {
+    const { txId, noteId } = await midenCli.mint(faucetId, addressA, Number(MINT_BASE_UNITS), 'public');
+    expect(txId).toBeTruthy();
+    expect(noteId).toBeTruthy();
+    await midenCli.sync();
+  });
+
+  await steps.step(
+    'verify_balance_wallet_a',
+    async () => {
+      await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+    },
+    { captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }] }
+  );
+
+  await steps.step('mint_tokens_to_wallet_b', async () => {
+    const { txId, noteId } = await midenCli.mint(faucetId, addressB, Number(MINT_BASE_UNITS), 'public');
+    expect(txId).toBeTruthy();
+    expect(noteId).toBeTruthy();
+    await midenCli.sync();
+  });
+
+  await steps.step(
+    'verify_balance_wallet_b',
+    async () => {
+      await waitForPendingNoteTotal(walletB.page, TOKEN, MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+    },
+    { captureStateFrom: [{ target: walletB.page, label: 'B', extensionId: walletB.extensionId }] }
+  );
+}
+
+/** Create, fund, and reselect two accounts in one wallet. */
+export async function runMultiAccountJourney(ctx: Omit<JourneyContext, 'walletB'>): Promise<void> {
+  const { walletA, midenCli, steps, timeline, axis } = ctx;
+  let addressA = '';
+  let addressB = '';
+  let faucetId = '';
+
+  await steps.step('create_wallet', async () => {
+    const a = await axis.create(walletA);
+    addressA = a.address;
+  });
+
+  await steps.step('deploy_faucet', async () => {
+    await midenCli.init();
+    faucetId = await midenCli.createFaucet();
+    expect(faucetId).toBeTruthy();
+  });
+
+  await steps.step('fund_first_account', async () => {
+    const { txId, noteId } = await midenCli.mint(faucetId, addressA, Number(MINT_BASE_UNITS), 'public');
+    expect(txId).toBeTruthy();
+    expect(noteId).toBeTruthy();
+    await midenCli.sync();
+  });
+
+  await steps.step('verify_first_account', async () => {
+    await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_BASE_UNITS, {
+      timeoutMs: 120_000,
+      decimals: TOKEN_DECIMALS
+    });
+  });
+
+  await steps.step('create_second_account', async () => {
+    const second = await walletA.createAdditionalAccount(axis.walletType);
+    addressB = second.address;
+    expect(addressB).not.toBe(addressA);
+    await walletA.selectAccount(addressB);
+    await axis.assertCurrentAccount(walletA);
+  });
+
+  await steps.step('fund_second_account', async () => {
+    const { txId, noteId } = await midenCli.mint(faucetId, addressB, Number(SECOND_ACCOUNT_MINT_BASE_UNITS), 'public');
+    expect(txId).toBeTruthy();
+    expect(noteId).toBeTruthy();
+    await midenCli.sync();
+  });
+
+  await steps.step('verify_second_account', async () => {
+    await waitForPendingNoteTotal(walletA.page, TOKEN, SECOND_ACCOUNT_MINT_BASE_UNITS, {
+      timeoutMs: 120_000,
+      decimals: TOKEN_DECIMALS
+    });
+  });
+
+  await steps.step('verify_account_isolation', async () => {
+    await walletA.selectAccount(addressA);
+    await axis.assertCurrentAccount(walletA);
+    await walletA.triggerSync(true);
+    await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_BASE_UNITS, {
+      timeoutMs: 120_000,
+      decimals: TOKEN_DECIMALS
+    });
+
+    await walletA.selectAccount(addressB);
+    await axis.assertCurrentAccount(walletA);
+    await walletA.triggerSync(true);
+    await waitForPendingNoteTotal(walletA.page, TOKEN, SECOND_ACCOUNT_MINT_BASE_UNITS, {
+      timeoutMs: 120_000,
+      decimals: TOKEN_DECIMALS
+    });
+
+    timeline.emit({
+      category: 'blockchain_state',
+      severity: 'info',
+      wallet: 'A',
+      message: `[${axis.label}] selected two accounts with isolated pending totals`,
+      data: { firstAddress: addressA, secondAddress: addressB }
+    });
+  });
+}
+
 /**
  * Mint N notes to one account, claim them in one pass, and pin the result.
  *
@@ -180,6 +347,19 @@ export async function runMultiNoteClaimJourney(ctx: JourneyContext, mintsBaseUni
       await waitForPendingNoteTotal(walletA.page, TOKEN, total, { timeoutMs: 180_000, decimals: TOKEN_DECIMALS });
     },
     { captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }] }
+  );
+
+  // The faucet is a fresh non-native one, so nothing accepts these on its own and the Home prompt
+  // is the only notice the user gets. Checked before the claim, while the transfers still wait.
+  await steps.step(
+    'home_pending_prompt_on_screen',
+    async () => {
+      await expectPendingPromptOnScreen(walletA);
+    },
+    {
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+      screenshotWallets: [{ target: walletA.page, label: 'A' }]
+    }
   );
 
   await steps.step(

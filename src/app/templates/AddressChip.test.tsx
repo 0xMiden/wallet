@@ -4,27 +4,22 @@ import { render, screen } from '@testing-library/react';
 
 import AddressChip from './AddressChip';
 
-// AddressChip is a pure presentational wrapper. Its only job is to forward the
-// right props to three children — `CopyButton`, `AddressShortView` and the copy
-// `Icon` — while applying its own defaults (`type`, `size`, `className`,
-// `copyIcon`) and always pinning the button's className to `p-0!`.
-//
-// We replace each direct child with a prop-recording stub so every forwarded
-// value is asserted precisely, without dragging in CopyButton's hook stack
-// (tippy / clipboard / analytics / haptics) or the SVG icon switch. The stubs
-// follow the sibling-test convention of `mock`-prefixed spies referenced inside
-// the (hoisted) `jest.mock` factories.
-const mockCopyButtonProps = jest.fn();
+// AddressChip is a thin composition over the canonical CopyChip: it wires an AddressShortView as
+// its `children` and forwards `text`/`className`/`data-testid`, merging in its own neutral
+// default className. CopyChip is stubbed to a prop-recording marker so every forwarded value is
+// asserted precisely, without dragging in the clipboard hook stack (already covered by
+// CopyChip.test.tsx — including the accessible-name-falls-back-to-content behavior the "no
+// aria-label" test below depends on: this file can only prove AddressChip doesn't pass one, not
+// that CopyChip then uses the content as the name, since the stub here renders `children` under a
+// plain `<button>` regardless of what `aria-label` would have done).
+const mockCopyChipProps = jest.fn();
 const mockAddressShortViewProps = jest.fn();
-const mockIconProps = jest.fn();
 
-// The CopyButton stub MUST render `children`, otherwise the nested
-// AddressShortView / Icon stubs would never be invoked.
-jest.mock('app/atoms/CopyButton', () => ({
+jest.mock('components/ui/CopyChip', () => ({
   __esModule: true,
-  default: (props: Record<string, unknown>) => {
-    mockCopyButtonProps(props);
-    return <button data-testid="copy-button">{props.children as React.ReactNode}</button>;
+  CopyChip: (props: Record<string, unknown>) => {
+    mockCopyChipProps(props);
+    return <button data-testid="copy-chip">{props.children as React.ReactNode}</button>;
   }
 }));
 
@@ -36,113 +31,66 @@ jest.mock('app/atoms/AddressShortView', () => ({
   }
 }));
 
-jest.mock('app/icons/v2', () => ({
-  __esModule: true,
-  Icon: (props: Record<string, unknown>) => {
-    mockIconProps(props);
-    return <span data-testid="copy-icon" />;
-  },
-  IconName: { Copy: 'copy' }
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
 const ADDRESS = '0xabcdef0123456789abcdef0123456789';
 
 beforeEach(() => {
-  mockCopyButtonProps.mockClear();
+  mockCopyChipProps.mockClear();
   mockAddressShortViewProps.mockClear();
-  mockIconProps.mockClear();
 });
 
 describe('AddressChip', () => {
-  it('applies every default (type/size/className/copyIcon) when only `address` is given', () => {
+  it('renders CopyChip with the address as its copy text, and AddressShortView as its content', () => {
     render(<AddressChip address={ADDRESS} />);
 
-    // CopyButton: text = address, default type = 'button', className hard-pinned
-    // to 'p-0!' (never the `className` prop, which belongs to the Icon).
-    expect(mockCopyButtonProps).toHaveBeenCalledTimes(1);
-    const copyProps = mockCopyButtonProps.mock.calls[0][0];
-    expect(copyProps.text).toBe(ADDRESS);
-    expect(copyProps.type).toBe('button');
-    expect(copyProps.className).toBe('p-0!');
-    expect(screen.getByTestId('copy-button')).toBeInTheDocument();
+    expect(mockCopyChipProps).toHaveBeenCalledTimes(1);
+    const chipProps = mockCopyChipProps.mock.calls[0][0];
+    expect(chipProps.text).toBe(ADDRESS);
+    expect(screen.getByTestId('copy-chip')).toBeInTheDocument();
+    expect(screen.getByTestId('address-short-view')).toBeInTheDocument();
 
-    // AddressShortView: address forwarded; displayName/trim omitted → undefined.
-    expect(mockAddressShortViewProps).toHaveBeenCalledTimes(1);
     const shortProps = mockAddressShortViewProps.mock.calls[0][0];
     expect(shortProps.address).toBe(ADDRESS);
     expect(shortProps.displayName).toBeUndefined();
     expect(shortProps.trim).toBeUndefined();
-
-    // copyIcon defaults to true → Icon renders with the default size/className.
-    expect(mockIconProps).toHaveBeenCalledTimes(1);
-    const iconProps = mockIconProps.mock.calls[0][0];
-    expect(iconProps.name).toBe('copy');
-    expect(iconProps.size).toBe('xs');
-    expect(iconProps.className).toBe('ml-4');
-    expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
   });
 
-  it('omits the copy Icon when `copyIcon={false}` (falsy branch of `copyIcon && …`)', () => {
-    render(<AddressChip address={ADDRESS} copyIcon={false} />);
+  it('forwards displayName and trim to AddressShortView', () => {
+    render(<AddressChip address={ADDRESS} displayName="Alice" trim={false} />);
 
-    // Button + address view still render; only the Icon is gone.
-    expect(mockCopyButtonProps).toHaveBeenCalledTimes(1);
-    expect(mockAddressShortViewProps).toHaveBeenCalledTimes(1);
-    expect(mockIconProps).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('copy-icon')).toBeNull();
-  });
-
-  it('forwards overridden props and spreads `...rest` onto CopyButton', () => {
-    const onClick = jest.fn();
-
-    render(
-      <AddressChip
-        address={ADDRESS}
-        displayName="Alice"
-        trim={false}
-        type="link"
-        size="md"
-        className="custom-cls"
-        copyIcon
-        // `...rest` members: CopyButton-only props + a plain HTML attr + a
-        // handler. `fill` is declared in the type but NOT destructured, so it
-        // flows through rest to CopyButton (it never reaches the Icon).
-        small
-        bgShade={200}
-        rounded="base"
-        textShade={700}
-        fill="rgb(1, 2, 3)"
-        id="chip-id"
-        onClick={onClick}
-      />
-    );
-
-    const copyProps = mockCopyButtonProps.mock.calls[0][0];
-    // Explicit props win.
-    expect(copyProps.text).toBe(ADDRESS);
-    expect(copyProps.type).toBe('link');
-    // className stays pinned regardless of the `className` prop.
-    expect(copyProps.className).toBe('p-0!');
-    // rest is spread through verbatim.
-    expect(copyProps.small).toBe(true);
-    expect(copyProps.bgShade).toBe(200);
-    expect(copyProps.rounded).toBe('base');
-    expect(copyProps.textShade).toBe(700);
-    expect(copyProps.fill).toBe('rgb(1, 2, 3)');
-    expect(copyProps.id).toBe('chip-id');
-    expect(copyProps.onClick).toBe(onClick);
-
-    // AddressShortView receives the overridden display props.
     const shortProps = mockAddressShortViewProps.mock.calls[0][0];
     expect(shortProps.address).toBe(ADDRESS);
     expect(shortProps.displayName).toBe('Alice');
     expect(shortProps.trim).toBe(false);
+  });
 
-    // Icon receives the overridden size/className — and specifically NOT `fill`.
-    const iconProps = mockIconProps.mock.calls[0][0];
-    expect(iconProps.name).toBe('copy');
-    expect(iconProps.size).toBe('md');
-    expect(iconProps.className).toBe('custom-cls');
-    expect(iconProps.fill).toBeUndefined();
+  it('merges the neutral default className with a min-w-0 shrink guard before the caller’s own className', () => {
+    render(<AddressChip address={ADDRESS} className="ml-2" />);
+
+    const chipProps = mockCopyChipProps.mock.calls[0][0];
+    expect(chipProps.className).toContain('min-w-0');
+    expect(chipProps.className).toContain('text-muted');
+    expect(chipProps.className).toContain('ml-2');
+  });
+
+  it('forwards data-testid to CopyChip', () => {
+    render(<AddressChip address={ADDRESS} data-testid="addr-chip" />);
+
+    expect(mockCopyChipProps.mock.calls[0][0]['data-testid']).toBe('addr-chip');
+  });
+
+  it('passes no aria-label, so the visible value stays the accessible name', () => {
+    // An `aria-label` REPLACES an element's accessible name, so passing one here would make a
+    // screen reader hear "Copy to clipboard, button" instead of the address — and double the
+    // "Copied" announcement against CopyChip's own `aria-live` region. See
+    // CopyChip.test.tsx's `'falls back to the visible content as the accessible name when no
+    // aria-label is given'` for proof the fallback actually produces the right name once this
+    // component (correctly) supplies none.
+    render(<AddressChip address={ADDRESS} />);
+
+    expect(mockCopyChipProps.mock.calls[0][0]['aria-label']).toBeUndefined();
   });
 });

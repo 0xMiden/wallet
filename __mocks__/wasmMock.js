@@ -29,6 +29,10 @@ module.exports = {
     ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
     ConsumedExternal: 'ConsumedExternal',
     Invalid: 'Invalid',
+    // Written by miden-client's apply_transaction: our own consuming tx was
+    // submitted and applied locally, block not committed yet.
+    ProcessingAuthenticated: 'ProcessingAuthenticated',
+    ProcessingUnauthenticated: 'ProcessingUnauthenticated',
     Committed: 'Committed',
     Expected: 'Expected',
     Unverified: 'Unverified'
@@ -44,7 +48,9 @@ module.exports = {
     Consumed: 'Consumed',
     Committed: 'Committed',
     Expected: 'Expected',
-    Processing: 'Processing'
+    Processing: 'Processing',
+    List: 'List',
+    Unverified: 'Unverified'
   },
   // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
   // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
@@ -57,6 +63,9 @@ module.exports = {
   NoteAssets: jest.fn(),
   NoteAttachment: jest.fn(),
   NoteArray: jest.fn(),
+  TransactionRequest: {
+    deserialize: jest.fn(() => ({ expectedOutputOwnNotes: () => [] }))
+  },
   TransactionRequestBuilder: jest.fn(),
   BasicFungibleFaucetComponent: jest.fn(),
   TransactionResult: jest.fn(),
@@ -71,7 +80,27 @@ module.exports = {
   NoteId: jest.fn(),
   Note: jest.fn(),
   AuthSecretKey: jest.fn(),
+  // The lazy entry's WASM loader. Static classes above are usable only after it
+  // resolves in production; the mock has no module to load, so it resolves empty.
+  getWasmOrThrow: jest.fn(async () => ({})),
+  MidenClient: { ready: jest.fn(async () => undefined) },
   SigningInputs: jest.fn(),
-  Word: jest.fn(),
-  AccountInterface: jest.fn()
+  Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
+  AccountInterface: jest.fn(),
+  // Advice-map primitives used by the direct guardian-switch fallback.
+  // `hashElements` derives its result from the elements it was given rather than
+  // returning a constant: the advice map is keyed by Poseidon2(signerCommitment
+  // ‖ txCommitment), so a constant makes the hot and cold entries collide on one
+  // key — the exact defect the direct-switch guard exists to catch — and any
+  // suite reaching this stub would pass regardless.
+  AdviceMap: jest.fn(() => ({ insert: jest.fn() })),
+  Felt: jest.fn(),
+  FeltArray: jest.fn(elements => ({ elements: elements ?? [] })),
+  Poseidon2: {
+    hashElements: jest.fn(feltArray => {
+      const elements = feltArray?.elements ?? [];
+      return { toHex: () => `0x${elements.join('|')}` };
+    })
+  },
+  Signature: { deserialize: jest.fn(bytes => ({ toPreparedSignature: jest.fn(() => [...(bytes ?? [])]) })) }
 };

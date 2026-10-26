@@ -37,7 +37,7 @@ test.describe('Multi-Account Operations', () => {
     });
 
     await steps.step('sync_wallet_a', async () => {
-      const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
+      const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline, 'TST');
       expect(balance).toBeGreaterThan(0);
     });
 

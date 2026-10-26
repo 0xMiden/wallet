@@ -1,0 +1,86 @@
+name: Telemetry Egress E2E (Chrome)
+on:
+  # On PRs that touch the telemetry surface or this harness. The suite needs
+  # its own build (~a few minutes) so it is not worth running on every PR, but a
+  # change to the serializer, the sink or the consent gate is exactly what it
+  # exists to catch, and finding that out after merge is worse.
+  pull_request:
+    paths:
+      - 'src/lib/telemetry/**'
+      - 'src/lib/settings/**'
+      - 'src/screens/onboarding/common/HelpImproveWallet.tsx'
+      - 'src/app/templates/GeneralSettings.tsx'
+      - 'playwright/telemetry/**'
+      - 'playwright.telemetry.config.ts'
+      - '.github/workflows/e2e-telemetry.yml'
+      - 'vite.*.config.ts'
+  workflow_dispatch: {}
+concurrency:
+  group: e2e-telemetry-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
+jobs:
+  telemetry-egress:
+    name: telemetry-egress (chrome)
+    runs-on: ubuntu-latest
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'yarn'
+
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on a push both are no-ops. Skipped on this
+      # suite's own pull request runs, which install the published packages as they always have.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      # The build this suite exists for: the ONLY configuration in the repo with
+      # a live Aptabase endpoint compiled in. It points at 127.0.0.1, and
+      # SENTRY_DSN is unset, so a suite that accepts consent cannot reach
+      # anything off the runner. `build:chrome:telemetry` holds the values;
+      # the spec reads them back out of the bundle before it trusts them.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
+      - name: Build extension with telemetry pointed at the local sink
+        run: yarn build:chrome:telemetry
+
+      # Headed Chromium, because extensions do not load in headless.
+      - name: Run telemetry egress suite
+        run: xvfb-run -a yarn test:e2e:telemetry
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-egress-report
+          path: playwright-report
+          retention-days: 7

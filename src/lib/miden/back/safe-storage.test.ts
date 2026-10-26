@@ -1,18 +1,6 @@
 import * as Passworder from 'lib/miden/passworder';
 
-import {
-  encryptAndSaveMany,
-  encryptAndSaveManyLegacy,
-  fetchAndDecryptOne,
-  fetchAndDecryptOneLegacy,
-  fetchAndDecryptOneWithLegacyFallBack,
-  getPlain,
-  isStored,
-  isStoredLegacy,
-  removeMany,
-  removeManyLegacy,
-  savePlain
-} from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 
 jest.setTimeout(30_000);
 
@@ -42,10 +30,6 @@ jest.mock('lib/platform/storage-adapter', () => ({
 async function makeVaultKey(): Promise<CryptoKey> {
   const raw = Passworder.generateVaultKey();
   return Passworder.importVaultKey(raw);
-}
-
-async function makePassKey(): Promise<CryptoKey> {
-  return Passworder.generateKey('test-password');
 }
 
 beforeEach(() => {
@@ -118,15 +102,6 @@ describe('safe-storage', () => {
     });
   });
 
-  describe('encryptAndSaveMany / fetchAndDecryptOne with legacy PBKDF2 passKey', () => {
-    it('round-trips a single item with a PBKDF2 passKey', async () => {
-      const key = await makePassKey();
-      await encryptAndSaveMany([['legacy', { foo: 'bar' }]], key);
-      const decoded = await fetchAndDecryptOne<{ foo: string }>('legacy', key);
-      expect(decoded).toEqual({ foo: 'bar' });
-    });
-  });
-
   describe('removeMany', () => {
     it('removes previously-saved items by their plaintext keys', async () => {
       const key = await makeVaultKey();
@@ -140,80 +115,6 @@ describe('safe-storage', () => {
       expect(Object.keys(memoryStore)).toHaveLength(2);
       await removeMany(['x', 'y']);
       expect(Object.keys(memoryStore)).toHaveLength(0);
-    });
-  });
-
-  describe('legacy helpers', () => {
-    it('encryptAndSaveManyLegacy + fetchAndDecryptOneLegacy round-trip', async () => {
-      const key = await makePassKey();
-      // encryptAndSaveManyLegacy saves under the RAW key (no wrapping). The legacy
-      // fetch path wraps the key before lookup, so we have to stage the data
-      // under the wrapped key for the round-trip to work.
-      // Use a known raw key and manually wrap it so we can simulate the pipeline.
-      const rawStorageKey = 'legacy-key';
-      // The legacy save path stores under the raw key, but the fetch path
-      // always wraps. So we save manually using encryptAndSaveManyLegacy and
-      // then verify it landed under the raw key (this is the documented
-      // legacy behaviour — fetching requires careful reconstruction).
-      await encryptAndSaveManyLegacy([[rawStorageKey, { v: 'legacy' }]], key);
-      expect(memoryStore[rawStorageKey]).toBeDefined();
-      // Legacy payload is an object { encrypted, salt } (not a hex string)
-      expect(memoryStore[rawStorageKey].encrypted).toBeDefined();
-      expect(memoryStore[rawStorageKey].salt).toMatch(/^[0-9a-f]+$/);
-    });
-
-    it('isStoredLegacy reads by raw key (no hashing)', async () => {
-      memoryStore['plainKey'] = { any: 'thing' };
-      expect(await isStoredLegacy('plainKey')).toBe(true);
-      expect(await isStoredLegacy('missing')).toBe(false);
-    });
-
-    it('removeManyLegacy deletes raw keys', async () => {
-      memoryStore['p1'] = 1;
-      memoryStore['p2'] = 2;
-      memoryStore['p3'] = 3;
-      await removeManyLegacy(['p1', 'p3']);
-      expect(memoryStore).toEqual({ p2: 2 });
-    });
-
-    it('fetchAndDecryptOneLegacy round-trips data saved by the legacy pipeline', async () => {
-      // The legacy saved format is salt(hex 64) + iv(hex 32) + ciphertext
-      const key = await makePassKey();
-      const salt = Passworder.generateSalt();
-      const derived = await Passworder.deriveKeyLegacy(key, salt);
-      const { dt, iv } = await Passworder.encrypt({ msg: 'legacy' }, derived);
-      const saltHex = Buffer.from(salt).toString('hex');
-      const payload = saltHex + iv + dt;
-      // Wrap the storage key the same way fetchAndDecryptOneLegacy does
-      const wrapped = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from('some-key', 'utf-8'))).toString(
-        'hex'
-      );
-      memoryStore[wrapped] = payload;
-      const decoded = await fetchAndDecryptOneLegacy<{ msg: string }>('some-key', key);
-      expect(decoded).toEqual({ msg: 'legacy' });
-    });
-  });
-
-  describe('fetchAndDecryptOneWithLegacyFallBack', () => {
-    it('returns the modern-format value when present', async () => {
-      const key = await makeVaultKey();
-      await encryptAndSaveMany([['fallback', { mode: 'modern' }]], key);
-      const decoded = await fetchAndDecryptOneWithLegacyFallBack<{ mode: string }>('fallback', key);
-      expect(decoded).toEqual({ mode: 'modern' });
-    });
-
-    it('falls back to legacy decryption when the modern path throws', async () => {
-      const passKey = await makePassKey();
-      // Stage a legacy-formatted payload
-      const salt = Passworder.generateSalt();
-      const derived = await Passworder.deriveKeyLegacy(passKey, salt);
-      const { dt, iv } = await Passworder.encrypt({ mode: 'legacy' }, derived);
-      const saltHex = Buffer.from(salt).toString('hex');
-      const payload = saltHex + iv + dt;
-      const wrapped = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from('fb', 'utf-8'))).toString('hex');
-      memoryStore[wrapped] = payload;
-      const decoded = await fetchAndDecryptOneWithLegacyFallBack<{ mode: string }>('fb', passKey);
-      expect(decoded).toEqual({ mode: 'legacy' });
     });
   });
 });

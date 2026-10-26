@@ -2,38 +2,65 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticLight } from 'lib/mobile/haptics';
+import { IconName } from 'app/icons/v2';
+import { reducedMotionTransition } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
-import TabHeaderDefault, { TabHeader } from './TabHeader';
+import TabHeaderDefault, { TabHeader, TabHeaderAction } from './TabHeader';
 
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key
-  })
-}));
-
-jest.mock('app/icons/v2', () => ({
-  Icon: ({ name, className, fill }: { name: string; className?: string; fill?: string }) => (
-    <span data-testid="icon" data-name={name} data-classname={className} data-fill={fill} />
-  ),
-  IconName: {
-    Settings: 'Settings'
-  }
-}));
-
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
-}));
-
+// TabHeader no longer navigates anywhere — the settings gear moved to the
+// bottom nav. The spy stays so the regression tests below can prove the header
+// never routes on its own.
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-const mockHapticLight = hapticLight as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
 
-const getSettingsButton = () => screen.getByRole('button', { name: 'settings' });
+// SearchInput (rendered once `search.open` is true) reads `t('clear')` for its
+// clear button — stub react-i18next so that doesn't warn about a missing
+// instance, same as every other test that renders it.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
+// `AnimatePresence` renders its children directly (no deferred-exit bookkeeping
+// to await — jsdom has no real paint/animation-frame clock to drive that
+// against). `motion.*` becomes the plain tag it wraps, forwarding a ref and
+// every DOM prop, while capturing the animation-only props (`initial`,
+// `animate`, `exit`, `transition`) into `motionCaptures` keyed by the
+// element's own `data-testid` so a test can inspect what TabHeader asked for
+// without a real animation clock. Same shape as the `framer-motion` mock in
+// `src/components/Navigator.test.tsx`.
+const motionCaptures: Record<string, { initial?: unknown; animate?: unknown; exit?: unknown; transition?: unknown }> =
+  {};
+let mockReduceMotion = false;
+
+jest.mock('framer-motion', () => {
+  const react = require('react');
+  return {
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) =>
+      react.createElement(react.Fragment, null, children),
+    motion: new Proxy(
+      {},
+      {
+        get: (_target: unknown, tag: string) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          react.forwardRef(({ children, initial, animate, exit, transition, ...rest }: any, ref: unknown) => {
+            const key = rest['data-testid'] ?? tag;
+            motionCaptures[key] = { initial, animate, exit, transition };
+            return react.createElement(tag, { ...rest, ref }, children);
+          })
+      }
+    ),
+    useReducedMotion: () => mockReduceMotion
+  };
+});
+
+beforeEach(() => {
+  for (const key of Object.keys(motionCaptures)) delete motionCaptures[key];
+  mockReduceMotion = false;
+});
 
 describe('TabHeader — exports', () => {
   beforeEach(() => {
@@ -56,13 +83,12 @@ describe('TabHeader — structure & title', () => {
     const heading = screen.getByRole('heading', { level: 1, name: 'Activity' });
     expect(heading.tagName).toBe('H1');
     expect(heading.textContent).toBe('Activity');
-    expect(heading.className).toContain('font-heading');
-    expect(heading.className).toContain('font-bold');
-    expect(heading.className).toContain('text-heading-gray');
-    expect(heading.className).toContain('dark:text-pure-white');
+    expect(heading).toHaveClass('text-title-tab', 'text-ink');
+    expect(heading.className).toContain('text-ink');
+    expect(heading.className).not.toContain('dark:text-pure-white');
   });
 
-  it('renders the outer element as a <header> with the shared layout classes and a divider bar below', () => {
+  it('renders the outer element as a <header> with the shared layout classes', () => {
     const { container } = render(<TabHeader title="Explore" />);
 
     const header = container.querySelector('header');
@@ -71,12 +97,6 @@ describe('TabHeader — structure & title', () => {
     expect(header!.className).toContain('flex');
     expect(header!.className).toContain('items-center');
     expect(header!.className).toContain('justify-between');
-
-    const divider = header!.nextElementSibling;
-    expect(divider).not.toBeNull();
-    expect(divider!.className).toContain('h-1');
-    expect(divider!.className).toContain('rounded-full');
-    expect(divider!.className).toContain('bg-gray-50');
   });
 
   it('reflects whatever title string it is given', () => {
@@ -86,31 +106,39 @@ describe('TabHeader — structure & title', () => {
   });
 });
 
-describe('TabHeader — settings button & icon', () => {
+describe('TabHeader — no built-in settings affordance', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders a type="button" settings button labelled from the translation key', () => {
+  it('renders no buttons at all when no actions are supplied', () => {
+    // Settings is a bottom-nav destination now; a gear here would duplicate it
+    // on exactly the screens (Activity, Explore) that show that tab.
     render(<TabHeader title="Activity" />);
 
-    const button = getSettingsButton();
-    expect(button.getAttribute('type')).toBe('button');
-    expect(button.getAttribute('aria-label')).toBe('settings');
-    // The neutral pill styling is applied.
-    expect(button.className).toContain('rounded-full');
-    expect(button.className).toContain('bg-gray-25');
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('renders the Settings icon with its sizing and fill props inside the button', () => {
+  it('renders no settings-labelled control', () => {
     render(<TabHeader title="Activity" />);
 
-    const icon = screen.getByTestId('icon');
-    expect(icon.getAttribute('data-name')).toBe('Settings');
-    expect(icon.getAttribute('data-classname')).toBe('w-4 h-4');
-    expect(icon.getAttribute('data-fill')).toBe('currentColor');
-    // The icon lives inside the settings button.
-    expect(getSettingsButton().contains(icon)).toBe(true);
+    expect(screen.queryByRole('button', { name: /settings/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /settings/i })).toBeNull();
+  });
+
+  it('omits the actions container entirely when actions is undefined', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    // Only the h1 remains inside the header — no empty flex row left behind.
+    const header = container.querySelector('header')!;
+    expect(header.children).toHaveLength(1);
+    expect(header.children[0]!.tagName).toBe('H1');
+  });
+
+  it('never navigates on render', () => {
+    render(<TabHeader title="Activity" />);
+
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });
 
@@ -119,15 +147,7 @@ describe('TabHeader — actions slot', () => {
     jest.clearAllMocks();
   });
 
-  it('renders no extra action content when actions is omitted (only the settings button)', () => {
-    render(<TabHeader title="Activity" />);
-
-    // Just the built-in settings button.
-    expect(screen.getAllByRole('button')).toHaveLength(1);
-    expect(screen.queryByTestId('extra-action')).toBeNull();
-  });
-
-  it('renders caller-supplied actions before the built-in settings button', () => {
+  it('renders a caller-supplied action', () => {
     render(
       <TabHeader
         title="Activity"
@@ -139,14 +159,8 @@ describe('TabHeader — actions slot', () => {
       />
     );
 
-    const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(2);
-
-    const extra = screen.getByTestId('extra-action');
-    const settings = getSettingsButton();
-    // The extra action is present and ordered before the settings button in the DOM.
-    expect(extra).toBeTruthy();
-    expect(extra.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.getByTestId('extra-action')).toBeTruthy();
   });
 
   it('accepts multiple action nodes', () => {
@@ -162,47 +176,32 @@ describe('TabHeader — actions slot', () => {
       />
     );
 
-    // Two extra actions + the settings button.
-    expect(screen.getAllByRole('button')).toHaveLength(3);
+    expect(screen.getAllByRole('button')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'One' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Two' })).toBeTruthy();
   });
-});
 
-describe('TabHeader — settings interaction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+  it('wraps actions in the spaced flex container', () => {
+    const { container } = render(
+      <TabHeader
+        title="Activity"
+        actions={
+          <button type="button" data-testid="extra-action">
+            Extra
+          </button>
+        }
+      />
+    );
+
+    const header = container.querySelector('header')!;
+    const wrapper = header.children[1]!;
+    expect(wrapper.className).toContain('flex');
+    expect(wrapper.className).toContain('items-center');
+    expect(wrapper.className).toContain('gap-2');
+    expect(wrapper.contains(screen.getByTestId('extra-action'))).toBe(true);
   });
 
-  it('fires haptic feedback then navigates to /settings when the settings button is clicked', () => {
-    render(<TabHeader title="Activity" />);
-
-    fireEvent.click(getSettingsButton());
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings');
-  });
-
-  it('invokes haptic feedback before navigating (order matters)', () => {
-    const callOrder: string[] = [];
-    mockHapticLight.mockImplementation(() => callOrder.push('haptic'));
-    mockNavigate.mockImplementation(() => callOrder.push('navigate'));
-
-    render(<TabHeader title="Activity" />);
-    fireEvent.click(getSettingsButton());
-
-    expect(callOrder).toEqual(['haptic', 'navigate']);
-  });
-
-  it('does not fire haptics or navigate on render (only on click)', () => {
-    render(<TabHeader title="Activity" />);
-
-    expect(mockHapticLight).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
-  it('clicking a caller-supplied action does not trigger the settings navigation', () => {
+  it('clicking a caller-supplied action runs only that handler and does not navigate', () => {
     const onExtra = jest.fn();
     render(
       <TabHeader
@@ -218,7 +217,203 @@ describe('TabHeader — settings interaction', () => {
     fireEvent.click(screen.getByTestId('extra-action'));
 
     expect(onExtra).toHaveBeenCalledTimes(1);
-    expect(mockHapticLight).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('TabHeaderAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("renders a 24px icon on the app's 44px fill circle, flat, inside the 56px row", () => {
+    render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    // The 44px `filled` circle, the same size and fill as `back`, with this glyph remaining ink.
+    expect(button.className).toContain('w-11');
+    expect(button.className).toContain('h-11');
+    expect(button.className).toContain('bg-fill');
+    expect(button.className).toContain('rounded-full');
+    // Flat: the raised bubble means "selected" now, and a plain action must not claim it.
+    expect(button.className).not.toMatch(/shadow-raised|bg-raised/);
+    // No negative margin: a visible circle sits inside the page margin, unlike the bare glyph.
+    expect(button.className).not.toMatch(/-mx-/);
+
+    const icon = button.querySelector('svg');
+    expect(icon).not.toBeNull();
+    expect(icon!.getAttribute('class')).toContain('w-6');
+    expect(icon!.getAttribute('class')).toContain('h-6');
+  });
+
+  it('is an ink glyph on fill by default and fills with the accent when active', () => {
+    const { rerender } = render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Search' }).className).toContain('text-ink');
+
+    rerender(<TabHeaderAction label="Search" icon={IconName.Search} active onClick={jest.fn()} />);
+
+    // The held state is the selected pill's pair: white on `accent`, legal at 3:1 for a glyph.
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.className).toContain('bg-accent-primary');
+    expect(button.className).toContain('text-pure-white');
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps its accessible label and fires the click + haptic handler', () => {
+    const onClick = jest.fn();
+    render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={onClick} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.getAttribute('aria-label')).toBe('Search');
+
+    fireEvent.click(button);
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TabHeader — search swap animation', () => {
+  const search = { open: true, value: '', onChange: jest.fn(), placeholder: 'Search' };
+
+  it('keeps the header at its fixed height whichever side is showing', () => {
+    const { container, rerender } = render(<TabHeader title="Activity" />);
+    const closed = container.querySelector('header')!.className;
+
+    rerender(<TabHeader title="Activity" search={search} />);
+    const open = container.querySelector('header')!.className;
+
+    // Byte-identical, so the row cannot be one height closed and another open.
+    expect(open).toBe(closed);
+    expect(open).toContain('h-14');
+  });
+
+  it('gives the title and the search field the same 36px box, and the row no padding to grow by', () => {
+    const { container, rerender } = render(<TabHeader title="Activity" />);
+
+    // No vertical padding: in a column flex parent a padded row's automatic minimum size is its
+    // content's, so the 44px icon action used to push the row past its own height. With none, the
+    // row's height is the only thing that sets the row's height.
+    const header = container.querySelector('header')!;
+    expect(header.className).not.toMatch(/\b(py|pt|pb)-/);
+    expect(screen.getByTestId('tab-header-title').className).toContain('h-9');
+
+    rerender(<TabHeader title="Activity" search={search} />);
+    expect(screen.getByTestId('tab-header-search').className).toContain('h-9');
+  });
+
+  it('swaps the title for the search field, and back, through one AnimatePresence slot', () => {
+    const { rerender } = render(<TabHeader title="Activity" search={{ ...search, open: false }} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-header-search')).toBeNull();
+
+    rerender(<TabHeader title="Activity" search={{ ...search, open: true }} />);
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByTestId('tab-header-search')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search')).toBeInTheDocument();
+
+    rerender(<TabHeader title="Activity" search={{ ...search, open: false }} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-header-search')).toBeNull();
+  });
+
+  it('passes submit, Escape, the URL keyboard and a test id through to the field', () => {
+    const onSubmit = jest.fn();
+    const onEscape = jest.fn();
+    render(
+      <TabHeader
+        title="Explore"
+        search={{ ...search, value: 'miden.xyz', onSubmit, onEscape, inputMode: 'url', 'data-testid': 'field' }}
+      />
+    );
+    const input = screen.getByTestId('field');
+    expect(input).toHaveAttribute('inputmode', 'url');
+    expect(input).toHaveAttribute('enterkeyhint', 'go');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards a test id to a header action', () => {
+    render(
+      <TabHeader
+        title="Explore"
+        actions={<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} data-testid="toggle" />}
+      />
+    );
+    expect(screen.getByTestId('toggle')).toHaveAccessibleName('Search');
+  });
+
+  it('still autofocuses the search field when it opens', () => {
+    render(<TabHeader title="Activity" search={search} />);
+
+    expect(screen.getByPlaceholderText('Search')).toHaveFocus();
+  });
+
+  it('opens the title sliding left and the search field growing in from the icon side, on the shared spring, with opacity on its own fade', () => {
+    render(<TabHeader title="Activity" search={search} />);
+
+    const captured = motionCaptures['tab-header-search']!;
+    expect(captured.initial).toEqual({ opacity: 0, scale: 0.96, x: 6 });
+    expect(captured.animate).toEqual({ opacity: 1, scale: 1, x: 0 });
+    expect(captured.exit).toEqual({ opacity: 0, scale: 0.96, x: 6 });
+
+    const transition = captured.transition as { default: unknown; opacity: unknown };
+    // A spring (has stiffness/damping) drives position + scale; opacity is a
+    // separate tween so it doesn't inherit the spring's physics.
+    expect(transition.default).toMatchObject({
+      type: 'spring',
+      stiffness: expect.any(Number),
+      damping: expect.any(Number)
+    });
+    expect(transition.opacity).toMatchObject({ duration: expect.any(Number), ease: expect.anything() });
+    expect(transition.default).not.toBe(transition.opacity);
+  });
+
+  it('gives the title the mirrored close-side offset', () => {
+    render(<TabHeader title="Activity" search={{ ...search, open: false }} />);
+
+    const captured = motionCaptures['tab-header-title']!;
+    expect(captured.initial).toEqual({ opacity: 0, x: -6 });
+    expect(captured.animate).toEqual({ opacity: 1, x: 0 });
+    expect(captured.exit).toEqual({ opacity: 0, x: -6 });
+  });
+
+  it('collapses both the spring and the fade to an instant transition under reduced motion', () => {
+    mockReduceMotion = true;
+    render(<TabHeader title="Activity" search={search} />);
+
+    const transition = motionCaptures['tab-header-search']!.transition as { default: unknown; opacity: unknown };
+    expect(transition.default).toEqual(reducedMotionTransition);
+    expect(transition.opacity).toEqual(reducedMotionTransition);
+  });
+
+  it("the search action's active-color swap animates via the shared color-transition utility, not a snap", () => {
+    render(<TabHeaderAction label="Search" icon={IconName.Search} active onClick={jest.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.className).toContain('transition-colors');
+    expect(button.className).toMatch(/duration-\d/);
+  });
+});
+
+describe('TabHeader divider', () => {
+  it('draws none of its own: the rule under a tab root belongs to TabRootHeader', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    const header = container.querySelector('header')!;
+    expect(header.className).not.toMatch(/border/);
+    expect(container.querySelector('.h-1')).toBeNull();
+    // One row, nothing after it — a page cannot end up with a divider of its own choosing.
+    expect(header.nextElementSibling).toBeNull();
+  });
+
+  it('is the 56px row that leaves the 4px rule room inside the home action bar budget', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    // h-14 = 56px, and 56 + the rule's 4 = 60px, which is what Home's SegmentedActionBar
+    // occupies (4 + 48 + 8 + its hairline).
+    expect(container.querySelector('header')).toHaveClass('h-14', 'shrink-0');
   });
 });

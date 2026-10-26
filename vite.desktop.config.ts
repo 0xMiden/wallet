@@ -9,10 +9,19 @@ import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
+import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
+
+import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
+import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
+
+const walletBuildIdentity = readWalletBuildIdentity(__dirname);
+
 const pkg = require('./package.json');
 
 export default defineConfig({
   plugins: [
+    walletCrashArtifactRegistry(),
     tailwindcss(),
     react(),
     // SVG → React component transform
@@ -48,6 +57,22 @@ export default defineConfig({
       }
     } satisfies Plugin,
     wasm(),
+    // Put the SDK WASM where the CLASSIC worker looks for it. Tauri renders in
+    // WKWebView (macOS) / WebKitGTK (Linux), whose user agents carry `AppleWebKit`
+    // without `Chrome/`, so `WebClient._shouldUseClassicWorker()` picks the classic
+    // worker — and that worker resolves a hard-coded relative
+    // `assets/miden_client_web.wasm` against its own /assets/<name>.js URL, i.e.
+    // /assets/assets/miden_client_web.wasm, which `assetFileNames` never emits.
+    // Without this copy the wasm 404s, `__wbg_init` throws, and every SDK call
+    // rejects for the whole session. Windows (WebView2) reports `Chrome/` and takes
+    // the module-worker branch, which imports the hashed wasm — which is why the
+    // break is invisible there and in every Chrome-based test.
+    {
+      name: 'desktop-classic-worker-wasm',
+      closeBundle() {
+        copyClassicWorkerWasm(resolve(__dirname, 'dist/desktop'));
+      }
+    } satisfies Plugin,
     nodePolyfills({
       include: ['buffer', 'stream', 'assert', 'process'],
       globals: { Buffer: true, process: true }
@@ -92,25 +117,49 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
+    'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+      process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+    ),
+    // Bridge config E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
+    // Explore catalog E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
+    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
-    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
-    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
-      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
-    ),
-    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
-      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
-    ),
-    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
-      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
-    ),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    // Needed here and not only in the extension/mobile configs because
+    // `App.tsx` is shared, so the desktop bundle reaches the telemetry modules
+    // too. Omitting them does NOT fail the build: `nodePolyfills` shims
+    // `process`, so the reads resolve to undefined and both features turn
+    // themselves off — telemetry silently absent on desktop while the consent
+    // toggle still offers it, which is the worst of the three outcomes.
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.WALLET_BUILD_TARGET': JSON.stringify('desktop'),
+    'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
+    'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
     'process.browser': 'true',
     global: 'globalThis'
   },

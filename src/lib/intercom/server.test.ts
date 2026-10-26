@@ -173,7 +173,16 @@ describe('IntercomServer', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Err,
       reqId: 'req-3',
-      data: 'Handler failed'
+      // The internal port carries `name` and `reason` as well as `message`, so the
+      // frontend can still tell WHICH class of backend failure it got - the poison
+      // classifiers read exactly those two fields, and a bare message string made
+      // them dead code on the extension.
+      //
+      // An ARRAY, in the order `[message, errors, name, reason]`, because the skew
+      // that actually happens is a service worker updated under an open port: a new
+      // server talking to an OLD client, whose `deserializeError` hands an object
+      // straight to `Error` ("[object Object]") but destructures an array correctly.
+      data: ['Handler failed', undefined, 'Error', undefined]
     });
   });
 
@@ -192,7 +201,77 @@ describe('IntercomServer', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Err,
       reqId: 'req-4',
-      data: 'Not Found'
+      data: ['Not Found', undefined, 'Error', undefined]
+    });
+  });
+
+  describe('a request every handler declined', () => {
+    const PAYLOAD_REQUEST = { type: 'MIDEN_DAPP_GET_PAYLOAD_REQUEST', id: ['confirmation-1'] };
+    const coded = () => Object.assign(new Error('Not Found'), { code: 'confirmation_unknown' });
+
+    const deliver = async (reqId: string, data: unknown) => {
+      connectListener(mockPort);
+      const messageHandler = mockAddListener.mock.calls[0][0];
+      await messageHandler({ type: MessageType.Req, reqId, data }, mockPort);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+
+    it('is refused by the registered fallback only after every handler declined', async () => {
+      const first = jest.fn().mockResolvedValue(undefined);
+      const second = jest.fn().mockResolvedValue(undefined);
+      const fallback = jest.fn(coded);
+      server.onRequest(first);
+      server.onNotFound(fallback);
+      server.onRequest(second);
+
+      await deliver('req-6', PAYLOAD_REQUEST);
+
+      expect(fallback).toHaveBeenCalledTimes(1);
+      expect(fallback).toHaveBeenCalledWith(PAYLOAD_REQUEST);
+      const fallbackAt = fallback.mock.invocationCallOrder[0] ?? 0;
+      for (const handler of [first, second]) expect(handler.mock.invocationCallOrder[0]).toBeLessThan(fallbackAt);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: MessageType.Err,
+        reqId: 'req-6',
+        data: ['Not Found', undefined, 'Error', undefined, { code: 'confirmation_unknown' }]
+      });
+    });
+
+    it.each(['first', 'last'])(
+      'lets a handler that answers win when it runs %s, never asking the fallback',
+      async runs => {
+        const answering = jest.fn().mockResolvedValue({ type: 'MIDEN_DAPP_GET_PAYLOAD_RESPONSE' });
+        const declining = jest.fn().mockResolvedValue(undefined);
+        const fallback = jest.fn(coded);
+        server.onNotFound(fallback);
+        // The handler registered last runs first.
+        for (const handler of runs === 'first' ? [declining, answering] : [answering, declining])
+          server.onRequest(handler);
+
+        await deliver('req-7', PAYLOAD_REQUEST);
+
+        expect(fallback).not.toHaveBeenCalled();
+        expect(mockPostMessage).toHaveBeenCalledWith({
+          type: MessageType.Res,
+          reqId: 'req-7',
+          data: { type: 'MIDEN_DAPP_GET_PAYLOAD_RESPONSE' }
+        });
+      }
+    );
+
+    it('sends the plain Not Found when the fallback has nothing to add', async () => {
+      server.onRequest(jest.fn().mockResolvedValue(undefined));
+      const fallback = jest.fn(() => undefined);
+      server.onNotFound(fallback);
+
+      await deliver('req-8', { type: 'GET_STATE_REQUEST' });
+
+      expect(fallback).toHaveBeenCalledTimes(1);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: MessageType.Err,
+        reqId: 'req-8',
+        data: ['Not Found', undefined, 'Error', undefined]
+      });
     });
   });
 

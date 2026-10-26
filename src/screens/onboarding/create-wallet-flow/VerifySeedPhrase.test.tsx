@@ -1,8 +1,10 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { VerifySeedPhraseScreen } from './VerifySeedPhrase';
 
@@ -22,22 +24,21 @@ jest.mock('lodash', () => ({
   shuffle: (arr: unknown[]) => [...arr]
 }));
 
-// Haptics touch native Capacitor plugins; stub to a spy.
+// Haptics touch native Capacitor plugins; stub to a spy. The word chips are `Pill`s, which fire
+// the light tap haptic and nothing else.
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// Mock the child components so this unit test stays scoped to the screen's own
-// logic (the real Toggle pulls in framer-motion). Each mock surfaces just the
-// props the screen wires through.
-jest.mock('components/Chip', () => ({
-  Chip: ({ label, selected }: { label: string; selected?: boolean }) => (
-    <span data-testid="chip" data-selected={String(!!selected)}>
-      {label}
-    </span>
-  )
+// The guard waits on a native plugin; it reports the screen protected unless a case says otherwise.
+jest.mock('lib/mobile/screenshot-guard', () => ({
+  useScreenshotGuard: jest.fn()
 }));
 
+// The word chips use the real `Pill` (not a stub): selecting a word is a Pill
+// tap, and Pill owns the tap haptic itself (default `haptic="light"`) — this
+// suite asserts against that real behavior rather than reimplementing it in a
+// mock.
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, disabled }: { title: string; onClick?: () => void; disabled?: boolean }) => (
     <button data-testid="continue" disabled={disabled} onClick={onClick}>
@@ -56,18 +57,34 @@ jest.mock('components/Toggle', () => ({
 
 const SEED = Array.from({ length: 12 }, (_, i) => `w${i}`);
 
-// The wrapping <button> owns the onSelectWord handler; click by locating the
-// chip label and walking up to its button.
-const clickWord = (index: number) => {
-  const chip = screen.getByText(`w${index}`);
-  fireEvent.click(chip.closest('button') as HTMLButtonElement);
-};
+const wordChip = (index: number) => screen.getByTestId(`verify-quiz-word-${index}`);
 
-const wordButtonSelected = (index: number) => screen.getByText(`w${index}`).getAttribute('data-selected');
+const clickWord = (index: number) => fireEvent.click(wordChip(index));
+
+const wordButtonSelected = (index: number) => wordChip(index).getAttribute('aria-pressed');
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(useScreenshotGuard).mockReturnValue(true);
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('VerifySeedPhraseScreen', () => {
   describe('intro section', () => {
@@ -122,14 +139,25 @@ describe('VerifySeedPhraseScreen', () => {
   });
 
   describe('rendering', () => {
-    it('renders one chip per seed word and forwards root props / className', () => {
-      render(<VerifySeedPhraseScreen seedPhrase={SEED} id="my-root" className="extra-class" />);
+    it('renders one chip per seed word on the step layout, Continue pinned in its footer', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
 
-      expect(screen.getAllByTestId('chip')).toHaveLength(12);
+      expect(screen.getAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(12);
+      expect(screen.getByTestId('verify-seed-phrase')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'verifySeedPhrase' })).toBeInTheDocument();
+      expect(screen.getByTestId('continue').closest('[data-slot="footer"]')).not.toBeNull();
+    });
 
-      const root = screen.getByTestId('verify-seed-phrase');
-      expect(root).toHaveAttribute('id', 'my-root');
-      expect(root).toHaveClass('extra-class');
+    it('embeds without a frame or heading when the host draws the page (showIntro false)', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} showIntro={false} data-testid="embedded" />);
+      expect(screen.getByTestId('embedded')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+      expect(screen.getByTestId('continue').closest('[data-slot="footer"]')).toBeNull();
+    });
+
+    it('colours the step prompt with the status inks', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveClass('text-ink');
     });
 
     it('starts with no words selected and the continue button disabled', () => {
@@ -269,6 +297,30 @@ describe('VerifySeedPhraseScreen', () => {
     });
   });
 
+  describe('screenshot guard', () => {
+    it('withholds the words, not the heading, until the guard reports the screen protected', () => {
+      jest.mocked(useScreenshotGuard).mockReturnValue(false);
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+      expect(screen.queryAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(0);
+      SEED.forEach(word => expect(screen.queryByText(word)).not.toBeInTheDocument());
+      expect(screen.getByRole('heading', { level: 1, name: 'verifySeedPhrase' })).toBeInTheDocument();
+    });
+
+    it('renders every word once the guard reports the screen protected', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+      SEED.forEach(word => expect(screen.getByText(word)).toBeInTheDocument());
+    });
+
+    it('holds the guard with no argument', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+      expect(useScreenshotGuard).toHaveBeenCalled();
+      jest.mocked(useScreenshotGuard).mock.calls.forEach(args => expect(args).toEqual([]));
+    });
+  });
+
   describe('hardware security / biometric toggle', () => {
     it('does not render the biometric section by default', () => {
       render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
@@ -300,5 +352,37 @@ describe('VerifySeedPhraseScreen', () => {
 
       expect(screen.getByTestId('toggle')).toHaveAttribute('data-value', 'false');
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a wrong phrase selection without sending selected words', () => {
+    render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+    clickWord(1);
+    clickWord(2);
+    expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepWrong');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('verifyStepWrong', 'inline');
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain('w1');
+  });
+  it('does not report neutral or correct phrase guidance', () => {
+    render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+    dwellForError();
+    clickWord(0);
+    dwellForError();
+    clickWord(11);
+    dwellForError();
+    expect(screen.getByTestId('verify-seed-prompt')).toHaveTextContent('verifyStepCorrect');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

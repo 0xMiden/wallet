@@ -1,9 +1,11 @@
 import type { Mandate } from '@epoch-protocol/epoch-commons-sdk';
+import type { HealthCheckResponse } from '@epoch-protocol/epoch-intents-sdk';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
 /**
- * Headless stand-in for the Epoch allocator (`EPOCH_ALLOCATOR_URL`,
- * testnet-dev.epochprotocol.xyz) for the EARN (Epoch lending) e2e harness.
+ * Headless stand-in for the Epoch allocator (the served config document's
+ * `epoch.allocatorUrl`, testnet-dev.epochprotocol.xyz in production) for the EARN
+ * (Epoch lending) e2e harness.
  *
  * This is the earn-capable sibling of `playwright/e2e/ios/helpers/fake-epoch-allocator.ts`
  * (the bridge-IN fake). The real allocator + solver are hosted-only and watch REAL
@@ -19,28 +21,53 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
  *
  *   Withdraw (gasless redeem + bridge back — Sepolia→Miden, phase 2):
  *     GET  /gasless-status                       → relayer address (see caveat below)
- *     GET  /health                               → relayer fallback + { ok }
+ *     GET  /health                               → HealthCheckResponse (availability + relayer fallback)
  *     POST /relay-enable-delegation              → { ok }
  *     POST /relay-execute                        → { nonce } (programmable)
  *
  * The app fetches these cross-origin, so every response carries permissive CORS
  * headers and OPTIONS preflights are answered.
  *
- * ── Constants are inlined on purpose ──────────────────────────────────────────
- * Importing `src/lib/epoch/earn.ts` would drag the whole Epoch SDK + browser-only
- * `lib/miden/*` import graph into this node:http server. The values below mirror
- * the source-of-truth constants (kept in sync manually):
- *   - EARN_UNDERLYING            = src/lib/epoch/earn.ts        (Sepolia USDC)
- *   - EARN_DESTINATION_CHAIN_ID  = src/lib/epoch/earn.ts        (11155111)
- *   - MIDEN_DESTINATION_CHAIN_ID = src/lib/epoch/config.ts      (999999999)
+ * The EVM side matches the served config document (helpers/fake-bridge-config.ts):
+ * the deposit's lending leg is on `evm.chainId` (Sepolia) in `epoch.evmUsdc`, which
+ * the Anvil MockUsdc stands in for at the same address.
  */
 
-/** Sepolia USDC — `EARN_UNDERLYING` in src/lib/epoch/earn.ts. */
-const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-/** Ethereum Sepolia — `EARN_DESTINATION_CHAIN_ID` (the deposit/lending leg). */
-const EARN_DESTINATION_CHAIN_ID = 11155111;
-/** Virtual Miden chain id — `MIDEN_DESTINATION_CHAIN_ID` (the withdraw/bridge leg). */
+/** Ethereum Sepolia, the served document's `evm.chainId` (the deposit/lending leg). */
+const SEPOLIA_CHAIN_ID = 11155111;
+/** Epoch's virtual Miden chain id (the withdraw/bridge leg). */
 const MIDEN_DESTINATION_CHAIN_ID = 999999999;
+/** An allocator address `/health` advertises per chain, as testnet-dev does. */
+const FAKE_ALLOCATOR_ADDRESS = '0x00000000000000000000000000000000000a110c';
+/** The relay signer the gasless withdraw resolves from `/gasless-status` or `/health`. */
+const RELAYER_ADDRESS = '0x0000000000000000000000000000000000000001';
+
+/**
+ * `/health` in the SDK's `HealthCheckResponse` shape, plus the `supportedChains` list
+ * testnet-dev also sends. The wallet's availability check reads it, and the SDK reads
+ * `signingAddress` as the gasless relayer when `/gasless-status` is unavailable.
+ */
+export function allocatorHealthResponse(
+  signingAddress: string = RELAYER_ADDRESS
+): HealthCheckResponse & { supportedChains: string[] } {
+  return {
+    status: 'healthy',
+    allocatorAddresses: {
+      [SEPOLIA_CHAIN_ID]: FAKE_ALLOCATOR_ADDRESS,
+      [MIDEN_DESTINATION_CHAIN_ID]: FAKE_ALLOCATOR_ADDRESS
+    },
+    signingAddress,
+    timestamp: new Date().toISOString(),
+    chainConfig: {
+      defaultFinalizationThresholdSeconds: 0,
+      supportedChains: [
+        { chainId: String(SEPOLIA_CHAIN_ID), finalizationThresholdSeconds: 0 },
+        { chainId: String(MIDEN_DESTINATION_CHAIN_ID), finalizationThresholdSeconds: 0 }
+      ]
+    },
+    supportedChains: []
+  };
+}
 
 /**
  * Default allocator Miden collateral recipient — the account the P2IDE collateral
@@ -49,7 +76,7 @@ const MIDEN_DESTINATION_CHAIN_ID = 999999999;
  * Miden account id (hex `0x…` or bech32); `createEarnP2IDNote` runs it through
  * `ifHextoBech32`, so a `0x` hex id is converted to bech32 before minting.
  */
-const DEFAULT_MIDEN_RECIPIENT = '0x2458e5446128e6b150b75b8ebd9ce1';
+const DEFAULT_MIDEN_RECIPIENT = '0x537c15a622074e91188aa894456c52';
 
 /** Default reclaim minimum the allocator advertises (`midenMinReclaimBlocks`). */
 const DEFAULT_MIN_RECLAIM_BLOCKS = 100;
@@ -58,7 +85,17 @@ export interface AllocatorRequestLog {
   method: string;
   path: string;
   body?: unknown;
+  receivedAt: number;
 }
+
+export interface AllocatorIntentLeg {
+  status: string;
+  chainId: number;
+  transactionHash: string;
+  midenNoteId?: string;
+}
+
+type AllocationOutcome = 'accept' | 'reject' | 'accept-response-loss';
 
 /** Terminal status the deposit poller accepts on the Sepolia leg (`EARN_DONE_STATUSES`). */
 export type EarnDepositStatus = 'completed' | 'finalized' | 'success' | 'filled' | 'settled';
@@ -116,8 +153,43 @@ function decodeFeltsToBindingHash(felts: bigint[]): string {
   return `0x${hex}`;
 }
 
+function allocationIdentity(body: unknown): { owner: string; nonce: string; destinationChainId: number } | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const compact: unknown = Reflect.get(body, 'compact');
+  if (!compact || typeof compact !== 'object') return undefined;
+  const owner: unknown = Reflect.get(compact, 'sponsor');
+  const nonce: unknown = Reflect.get(compact, 'nonce');
+  const mandate: unknown = Reflect.get(compact, 'mandate');
+  if (typeof owner !== 'string' || typeof nonce !== 'string' || !mandate || typeof mandate !== 'object') {
+    return undefined;
+  }
+  const destination: unknown = Reflect.get(mandate, 'destinationChainId');
+  if (typeof destination !== 'string' || !/^\d+$/.test(destination)) return undefined;
+  const destinationChainId = Number(destination);
+  if (!Number.isSafeInteger(destinationChainId)) return undefined;
+  return { owner, nonce, destinationChainId };
+}
+
+/** The base-unit amount a quote request's compact spends (`compact.mandate.tokenInAmount`). */
+function compactInputAmount(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const compact: unknown = Reflect.get(body, 'compact');
+  if (!compact || typeof compact !== 'object') return undefined;
+  const mandate: unknown = Reflect.get(compact, 'mandate');
+  if (!mandate || typeof mandate !== 'object') return undefined;
+  const amount: unknown = Reflect.get(mandate, 'tokenInAmount');
+  return typeof amount === 'string' && /^[1-9]\d*$/.test(amount) ? amount : undefined;
+}
+
+const intentKey = (owner: string, nonce: string) => `${owner.toLowerCase()}:${nonce}`;
+
 export class FakeEpochAllocator {
   private server?: Server;
+  private relayGate?: { accept: () => void; released: Promise<void>; release: () => void };
+  private suggestedNonces?: string[];
+  private allocationOutcomes = new Map<string, AllocationOutcome>();
+  private intentStatuses = new Map<string, readonly AllocatorIntentLeg[]>();
+  private acceptedAllocations = new Map<string, { requestJson: string; destinationChainId: number }>();
   /** Withdraw / Miden leg — the delivered bridged-note id, once programmed. */
   private midenNoteId: string | null = null;
   /** Deposit / Sepolia leg — the lending-fill status, once programmed. */
@@ -134,7 +206,9 @@ export class FakeEpochAllocator {
   constructor(private readonly port: number = 8548) {}
 
   get baseUrl(): string {
-    return `http://127.0.0.1:${this.port}`;
+    const address = this.server?.address();
+    const port = address && typeof address === 'object' ? address.port : this.port;
+    return `http://127.0.0.1:${port}`;
   }
 
   /**
@@ -142,8 +216,48 @@ export class FakeEpochAllocator {
    * (withdraw destination) leg. Setting it makes the withdraw poll resolve `done`
    * and lets the wallet's note-id reconcile complete.
    */
-  setMidenNoteId(noteId: string): void {
+  setMidenNoteId(noteId: string, intent?: { owner: string; nonce: string }): void {
+    if (intent) {
+      this.setIntentStatus(intent.owner, intent.nonce, [
+        {
+          status: 'success',
+          chainId: MIDEN_DESTINATION_CHAIN_ID,
+          transactionHash: '',
+          midenNoteId: noteId
+        }
+      ]);
+      return;
+    }
     this.midenNoteId = noteId;
+  }
+
+  parkRelayResponse(): { accepted: Promise<void>; release: () => void } {
+    if (this.relayGate) throw new Error('A relay response gate is already installed');
+    let accept = () => {};
+    let release = () => {};
+    const accepted = new Promise<void>(resolve => {
+      accept = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    this.relayGate = { accept, released, release };
+    return { accepted, release };
+  }
+
+  setSuggestedNonces(nonces: readonly string[]): void {
+    this.suggestedNonces = [...nonces];
+  }
+
+  setAllocationOutcome(owner: string, nonce: string, outcome: AllocationOutcome): void {
+    this.allocationOutcomes.set(intentKey(owner, nonce), outcome);
+  }
+
+  setIntentStatus(owner: string, nonce: string, legs: readonly AllocatorIntentLeg[]): void {
+    this.intentStatuses.set(
+      intentKey(owner, nonce),
+      legs.map(leg => ({ ...leg }))
+    );
   }
 
   /**
@@ -188,6 +302,8 @@ export class FakeEpochAllocator {
   }
 
   async stop(): Promise<void> {
+    this.relayGate?.release();
+    this.relayGate = undefined;
     if (!this.server) return;
     await new Promise<void>(resolve => this.server!.close(() => resolve()));
     this.server = undefined;
@@ -228,27 +344,39 @@ export class FakeEpochAllocator {
       } catch {
         body = raw;
       }
-      this.requests.push({ method, path, body });
+      this.requests.push({ method, path, body, receivedAt: Date.now() });
 
       // ── Deposit path ────────────────────────────────────────────────────────
 
       // GET /suggested-nonce/{chainId}/{address}
       if (method === 'GET' && path.startsWith('/suggested-nonce/')) {
-        this.send(res, 200, { success: true, nonce: '1' });
+        const nonce = this.suggestedNonces ? this.suggestedNonces.shift() : '1';
+        if (nonce === undefined) {
+          this.send(res, 500, { success: false, error: 'suggested nonce sequence exhausted' });
+          return;
+        }
+        this.send(res, 200, { success: true, nonce });
         return;
       }
 
       // POST /checkIfDepositNeeded — resourceLockRequired:true routes the on-chain
       // deposit branch; tokenIn/tokenInDecimals present so no path-parsing runs.
+      // Every Chrome suite quotes forward, so tokenIn is the posted input amount in
+      // base units, as the live allocator answers and the withdrawal review checks.
       if (method === 'POST' && path === '/checkIfDepositNeeded') {
+        const tokenIn = compactInputAmount(body);
+        if (tokenIn === undefined) {
+          this.send(res, 400, { success: false, error: 'a forward quote needs a positive compact input amount' });
+          return;
+        }
         this.send(res, 200, {
           success: true,
           resourceLockRequired: true,
           transactions: [],
           path: [],
-          tokenIn: EARN_UNDERLYING,
+          tokenIn,
           tokenOut: '1000000',
-          tokenInDecimals: 6,
+          tokenInDecimals: 18,
           tokenInSymbol: 'USDC'
         });
         return;
@@ -276,7 +404,27 @@ export class FakeEpochAllocator {
               this.send(res, 400, { success: false, error: rejection });
               return;
             }
-            this.send(res, 200, { hash: '0x00', signature: '0x00', digest: '0x00', nonce: '1' });
+            const identity = allocationIdentity(body);
+            if (identity) {
+              const key = intentKey(identity.owner, identity.nonce);
+              const requestJson = JSON.stringify(body);
+              const accepted = this.acceptedAllocations.get(key);
+              if (accepted && accepted.requestJson !== requestJson) {
+                this.send(res, 400, { success: false, error: 'allocation payload changed for an accepted identity' });
+                return;
+              }
+              const outcome = this.allocationOutcomes.get(key) ?? 'accept';
+              if (outcome === 'reject') {
+                this.send(res, 503, { success: false, error: 'allocation temporarily unavailable' });
+                return;
+              }
+              this.acceptedAllocations.set(key, { requestJson, destinationChainId: identity.destinationChainId });
+              if (outcome === 'accept-response-loss') {
+                this.send(res, 503, { success: false, error: 'allocation response unavailable after acceptance' });
+                return;
+              }
+            }
+            this.send(res, 200, { hash: '0x00', signature: '0x00', digest: '0x00', nonce: identity?.nonce ?? '1' });
           })
           .catch((err: unknown) => {
             this.send(res, 500, { success: false, error: `compact validation crashed: ${String(err)}` });
@@ -289,21 +437,32 @@ export class FakeEpochAllocator {
       // gates on the Miden leg (999999999) and reads `midenNoteId`. Returns [] until
       // at least one leg is programmed (pending), both entries if both are set.
       if (method === 'GET' && path.startsWith('/intentStatus/')) {
-        const legs: Array<Record<string, unknown>> = [];
-        if (this.earnDepositStatus) {
+        const [, , owner, nonce] = path.split('/');
+        const key = intentKey(decodeURIComponent(owner ?? ''), decodeURIComponent(nonce ?? ''));
+        const programmed = this.intentStatuses.get(key);
+        if (programmed) {
+          this.send(res, 200, programmed);
+          return;
+        }
+        const accepted = this.acceptedAllocations.get(key);
+        const legs: AllocatorIntentLeg[] = [];
+        if (this.earnDepositStatus && (!accepted || accepted.destinationChainId === SEPOLIA_CHAIN_ID)) {
           legs.push({
             status: this.earnDepositStatus,
-            chainId: EARN_DESTINATION_CHAIN_ID,
+            chainId: SEPOLIA_CHAIN_ID,
             transactionHash: '0x00'
           });
         }
-        if (this.midenNoteId) {
+        if (this.midenNoteId && (!accepted || accepted.destinationChainId === MIDEN_DESTINATION_CHAIN_ID)) {
           legs.push({
             status: 'success',
             chainId: MIDEN_DESTINATION_CHAIN_ID,
             transactionHash: '',
             midenNoteId: this.midenNoteId
           });
+        }
+        if (!legs.length && accepted) {
+          legs.push({ status: 'pending', chainId: accepted.destinationChainId, transactionHash: '' });
         }
         this.send(res, 200, legs);
         return;
@@ -320,7 +479,7 @@ export class FakeEpochAllocator {
       if (method === 'GET' && path === '/gasless-status') {
         this.send(res, 200, {
           ok: true,
-          relayerAddress: '0x0000000000000000000000000000000000000001',
+          relayerAddress: RELAYER_ADDRESS,
           is7702Capable: true,
           needsSetup: false,
           gaslessEnabled: true,
@@ -329,10 +488,8 @@ export class FakeEpochAllocator {
         return;
       }
 
-      // GET /health — relayer-address fallback when /gasless-status is unavailable;
-      // `signingAddress` is read as the relayer. `{ ok: true }` per the task.
       if (method === 'GET' && path === '/health') {
-        this.send(res, 200, { ok: true, signingAddress: '0x0000000000000000000000000000000000000001' });
+        this.send(res, 200, allocatorHealthResponse());
         return;
       }
 
@@ -348,12 +505,19 @@ export class FakeEpochAllocator {
       // `ok`/`nonce` are ignored by the current SDK; `nonce` kept for older SDKs +
       // setWithdrawNonce.
       if (method === 'POST' && path === '/relay-execute') {
-        this.send(res, 200, {
-          success: true,
-          txHash: `0x${'11'.repeat(32)}`,
-          ok: true,
-          nonce: this.withdrawNonce
-        });
+        const reply = () => {
+          if (!res.destroyed)
+            this.send(res, 200, {
+              success: true,
+              txHash: `0x${'11'.repeat(32)}`,
+              ok: true,
+              nonce: this.withdrawNonce
+            });
+        };
+        if (this.relayGate) {
+          this.relayGate.accept();
+          void this.relayGate.released.then(reply);
+        } else reply();
         return;
       }
 

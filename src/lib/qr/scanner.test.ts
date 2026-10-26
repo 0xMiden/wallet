@@ -42,6 +42,15 @@ async function loadScanner() {
 }
 
 describe('qr/scanner', () => {
+  it('returns an exact key payload only in raw mode, while address mode rejects it', async () => {
+    const { scanQRCode } = await loadScanner();
+    mockIsMobile.mockReturnValue(true);
+    mockIsAndroid.mockReturnValue(false);
+    const payload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+    mockBarcodeScanner.scan.mockResolvedValue({ barcode: payload });
+    await expect(scanQRCode(true)).resolves.toEqual({ success: true, address: payload });
+    await expect(scanQRCode()).resolves.toEqual({ success: false, errorKey: 'invalidMidenAddress' });
+  });
   beforeEach(() => {
     // Reset only the per-test mocks; leave `mockRegisterPlugin`'s call record
     // intact since the plugin is registered exactly once (on first import).

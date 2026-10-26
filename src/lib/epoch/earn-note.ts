@@ -1,5 +1,3 @@
-import { AccountId, AccountInterface, NetworkId } from '@miden-sdk/miden-sdk';
-
 import {
   initiateEarnDepositTransaction,
   requestSWTransactionProcessing,
@@ -7,18 +5,12 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
+import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
 import { buildEpochCollateralRequestBytes } from './collateral-note';
-import type { BridgeNoteDeps } from './miden-note';
-
-function ifHextoBech32(addr: string) {
-  if (addr.startsWith('0x')) {
-    return AccountId.fromHex(addr).toBech32(NetworkId.testnet(), AccountInterface.BasicWallet);
-  }
-  return addr;
-}
+import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 
 export interface CreateEarnP2IDENoteArgs {
   senderAccountId: string;
@@ -38,6 +30,12 @@ export interface CreateEarnP2IDENoteArgs {
   deps: BridgeNoteDeps;
   /** Fired the instant the `earn-deposit` row is created (before proving/submit). */
   onRowCreated?: (txId: string) => void;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
+  allocatorUrl?: string;
+  /** Protocol string a deposit hashes. Stored on the row with `chainId`. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain of the Earn market the deposit opens. */
+  chainId?: number;
 }
 
 /**
@@ -72,11 +70,12 @@ export async function createEarnP2IDENote(
     evmRecipient,
     marketUid,
     deps,
-    onRowCreated
+    onRowCreated,
+    spendingLimitAuthorization
   } = args;
   try {
     console.log('[epoch] creating earn note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
-    const requestBytes = await buildEpochCollateralRequestBytes({
+    const { requestBytes } = await buildEpochCollateralRequestBytes({
       senderAccountId,
       allocatorId,
       faucetId,
@@ -98,7 +97,11 @@ export async function createEarnP2IDENote(
       // Delegate to the remote prover — local proving this Guardian P2IDE note
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
       true,
-      requestBytes
+      requestBytes,
+      spendingLimitAuthorization,
+      args.allocatorUrl,
+      args.protocol,
+      args.chainId
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.
@@ -125,6 +128,7 @@ export async function createEarnP2IDENote(
     console.log('[epoch] earn note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
+    if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
     console.error('[epoch] createEarnP2IDENote threw', err);
     return { success: false };
   }

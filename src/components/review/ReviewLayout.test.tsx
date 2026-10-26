@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ReviewLayout, ReviewAction } from './ReviewLayout';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -11,6 +15,15 @@ import { ReviewLayout, ReviewAction } from './ReviewLayout';
 // Hook is exercised elsewhere; here we only assert it's invoked and keep it a
 // no-op so it doesn't mutate document.body across tests.
 const useHideNavbarWhileOpenMock = jest.fn();
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: (...a: any[]) => useHideNavbarWhileOpenMock(...a)
 }));
@@ -52,9 +65,22 @@ describe('ReviewLayout', () => {
     jest.clearAllMocks();
   });
 
+  it('reserves remaining iOS gesture clearance around its pinned actions', () => {
+    const { container } = render(<ReviewLayout {...makeProps()} />);
+    expect(container.firstElementChild?.className).toContain('--wallet-control-safe-bottom,0px');
+  });
+
   it('hides the bottom navbar while mounted', () => {
     render(<ReviewLayout {...makeProps()} />);
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledTimes(1);
+  });
+
+  // The network pill lives on Home, so these screens would show no network at all. The banner names
+  // it, and it is rendered here rather than by each caller because this layout IS what the two of
+  // them share.
+  it('names the network, since the pill never reaches a review screen', () => {
+    render(<ReviewLayout {...makeProps()} />);
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 
   it('renders the hero and children content', () => {
@@ -69,6 +95,13 @@ describe('ReviewLayout', () => {
       const btn = screen.getByRole('button', { name: 'Confirm' });
       expect(btn).toBeInTheDocument();
       expect(btn).toHaveAttribute('data-variant', 'primary');
+    });
+
+    it('carries only layout classes (w-full, max-w-none), no restyling override', () => {
+      render(<ReviewLayout {...makeProps()} />);
+      const btn = screen.getByRole('button', { name: 'Confirm' });
+      expect(btn).toHaveClass('w-full', 'max-w-none');
+      expect(btn.className).not.toMatch(/rounded-full|text-base|font-semibold/);
     });
 
     it("defaults the primary button type to 'button' when not provided", () => {
@@ -105,7 +138,10 @@ describe('ReviewLayout', () => {
     it('does not render a secondary button when secondary is omitted', () => {
       render(<ReviewLayout {...makeProps()} />);
       expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
-      expect(screen.getAllByRole('button')).toHaveLength(1);
+      // The banner is a button too, so count the ACTIONS: the point of this case is that no
+      // secondary action renders, not that the screen holds exactly one button.
+      expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button').filter(b => b.dataset.testid !== 'network-mode-banner')).toHaveLength(1);
     });
 
     it('renders the secondary button with Secondary variant and button type', () => {
@@ -124,16 +160,13 @@ describe('ReviewLayout', () => {
     });
   });
 
-  describe('heroDivider branch', () => {
-    it('renders the orange hero divider by default', () => {
-      const { container } = render(<ReviewLayout {...makeProps()} />);
-      expect(container.querySelector('.bg-primary-500')).toBeInTheDocument();
-    });
-
-    it('omits the hero divider when heroDivider is false', () => {
-      const { container } = render(<ReviewLayout {...makeProps({ heroDivider: false })} />);
-      expect(container.querySelector('.bg-primary-500')).not.toBeInTheDocument();
-    });
+  it('draws no bar between the hero and the rows, whatever the flow', () => {
+    for (const accent of ['brand', 'send', 'receive', 'earn', 'swap'] as const) {
+      const { container, unmount } = render(<ReviewLayout {...makeProps({ accent })} />);
+      // The network pill's dot is the same shape; it belongs to the banner, not the body.
+      expect(container.querySelector('.h-2.rounded-full:not([data-testid="network-mode-banner"] *)')).toBeNull();
+      unmount();
+    }
   });
 
   describe('dividers branch', () => {
@@ -148,5 +181,43 @@ describe('ReviewLayout', () => {
       // Children still render inside the (now border-free) wrapper.
       expect(screen.getByTestId('child')).toBeInTheDocument();
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the review surface after the dwell', () => {
+    render(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'review');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<ReviewLayout {...makeProps()} errorId={errorId} error="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<ReviewLayout {...makeProps()} errorId="usdcxFaucetUnavailable" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

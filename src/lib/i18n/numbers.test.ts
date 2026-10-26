@@ -1,17 +1,23 @@
 import BigNumber from 'bignumber.js';
 import i18n from 'i18next';
 
+import { isDisplayable } from './adaptive-precision';
 import {
   toLocalFormat,
   getPluralKey,
   formatBigInt,
+  amountExceedsTokenDecimals,
   stringToBigInt,
+  typedAmountExceedsBalance,
+  balanceLowerBound,
   toLocalFixed,
   toShortened,
   toFixedRoundedDown,
   getAdaptiveDecimalPlaces,
   toAdaptiveFixed,
+  adaptiveFormatterFor,
   formatUsd,
+  usdFormatterFor,
   MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
 
@@ -149,6 +155,52 @@ describe('adaptive amount formatting', () => {
   });
 });
 
+describe('isDisplayable', () => {
+  // Past 40 places either side of the point, writing an amount out means writing every digit.
+  it.each<[string, boolean]>([
+    ['1e40', true],
+    ['1e41', false],
+    ['1e-40', true],
+    ['1e-41', false],
+    ['0', true],
+    ['NaN', false]
+  ])('reads %s as displayable: %s', (value, displayable) => {
+    expect(isDisplayable(new BigNumber(value))).toBe(displayable);
+  });
+});
+
+describe('adaptiveFormatterFor', () => {
+  it('formats the target exactly as toAdaptiveFixed does', () => {
+    expect(adaptiveFormatterFor(12.345)(12.345)).toBe(toAdaptiveFixed(12.345));
+    expect(adaptiveFormatterFor('0.001234')('0.001234')).toBe(toAdaptiveFixed('0.001234'));
+  });
+
+  it('holds the target precision for every value on the way to it', () => {
+    // Straight through toAdaptiveFixed, a frame near zero expands to four decimals on the way to a
+    // two-decimal destination, and the text changes width mid-count.
+    expect(toAdaptiveFixed(0.005)).toBe('0.0050');
+    expect(adaptiveFormatterFor(1)(0.005)).toBe('0.01');
+    expect(adaptiveFormatterFor(1)(0)).toBe('0.00');
+  });
+
+  it('takes the minimum places and rounding mode through to every value', () => {
+    expect(adaptiveFormatterFor(1, 4)(0.5)).toBe('0.5000');
+    expect(adaptiveFormatterFor(1, 2, BigNumber.ROUND_DOWN)(0.999)).toBe('0.99');
+  });
+});
+
+describe('usdFormatterFor', () => {
+  it("holds the target's decimals for a frame formatUsd would widen", () => {
+    expect(formatUsd(13.0071)).toBe('$13.0071');
+    expect(usdFormatterFor(15.67)(13.0071)).toBe('$13.01');
+  });
+
+  it('keeps the $ prefix and en-US grouping of formatUsd', () => {
+    expect(usdFormatterFor(1500)(1234.5)).toBe('$1,234.50');
+    expect(usdFormatterFor(0.001234)(0.001234)).toBe(formatUsd(0.001234));
+  });
+});
+
 describe('getPluralKey', () => {
   it('appends the CLDR plural category for a singular amount', () => {
     expect(getPluralKey('item', 1)).toBe('item_one');
@@ -255,6 +307,73 @@ describe('stringToBigInt', () => {
     ['a currency symbol', '$5']
   ])('throws on %s, which callers rely on to mean "not a valid amount yet"', (_label, input) => {
     expect(() => stringToBigInt(input as string, 2)).toThrow();
+  });
+});
+
+describe('typedAmountExceedsBalance', () => {
+  it('treats one extra 12-decimal base unit as over a whole balance, and the exact string as equal', () => {
+    expect(typedAmountExceedsBalance('1.000000000001', 1, 12)).toBe(true);
+    expect(typedAmountExceedsBalance('1', 1, 12)).toBe(false);
+  });
+
+  it('drops digits past the token scale before comparing', () => {
+    // The seventh digit is truncated, so this is the same base-unit value as 1.
+    expect(typedAmountExceedsBalance('1.0000001', 1, 6)).toBe(false);
+  });
+
+  it('compares the balance through its decimal string, not a binary product', () => {
+    // parseFloat('1.000001') * 1e12 is not the integer 1000001000000, so scaling the float
+    // can say this amount exceeds a balance equal to itself.
+    expect(typedAmountExceedsBalance('1.000001', 1.000001, 12)).toBe(false);
+    // 0.29 * 100 is 28.999999999999996; flooring that product says 0.29 exceeds itself.
+    expect(Math.floor(0.29 * 100)).toBe(28);
+    expect(typedAmountExceedsBalance('0.29', 0.29, 2)).toBe(false);
+    expect(typedAmountExceedsBalance('0.30', 0.29, 2)).toBe(true);
+  });
+
+  it('refuses a balance past 2^52 base units by the amount the double may have rounded up', () => {
+    // At 12 decimals this balance is about 1.2e19 base units, past what a double keeps exactly.
+    const stored = 12345678.901234568;
+    expect(typedAmountExceedsBalance(stored.toString(), stored, 12)).toBe(true);
+    expect(typedAmountExceedsBalance('12345678.9', stored, 12)).toBe(false);
+  });
+
+  it('refuses the stored figure of a balance whose base units a double cannot tell apart', () => {
+    // 9000000000000001 base units at 12 decimals is stored as 9000.000000000002 (one unit higher).
+    expect(typedAmountExceedsBalance('9000.000000000002', 9000.000000000002, 12)).toBe(true);
+    expect(typedAmountExceedsBalance('8999.999999999', 9000.000000000002, 12)).toBe(false);
+  });
+
+  it('does not treat an unparsable amount as over the cap', () => {
+    expect(typedAmountExceedsBalance('', 1, 6)).toBe(false);
+    expect(typedAmountExceedsBalance('abc', 1, 6)).toBe(false);
+  });
+});
+
+describe('balanceLowerBound', () => {
+  it('returns a balance whose base units fit 2^53 unchanged', () => {
+    expect(balanceLowerBound(0.29, 2)).toBe(0.29);
+    expect(balanceLowerBound(4000.5, 12)).toBe(4000.5);
+    expect(balanceLowerBound(0, 6)).toBe(0);
+  });
+
+  it('shaves a balance past 2^52 base units below the stored figure', () => {
+    const stored = 10000.299999999999;
+    expect(balanceLowerBound(stored, 12)).toBeLessThan(stored);
+    expect(balanceLowerBound(stored, 12)).toBeGreaterThan(stored * (1 - 2 ** -48));
+  });
+
+  it('leaves a non-finite balance as given', () => {
+    expect(balanceLowerBound(Infinity, 6)).toBe(Infinity);
+    expect(Number.isNaN(balanceLowerBound(NaN, 6))).toBe(true);
+  });
+});
+
+describe('amountExceedsTokenDecimals', () => {
+  it('rejects nonzero digits past the token scale but accepts excess trailing zeros', () => {
+    expect(amountExceedsTokenDecimals('1.234', 2)).toBe(true);
+    expect(amountExceedsTokenDecimals('1.2300', 2)).toBe(false);
+    expect(amountExceedsTokenDecimals('1.0', 0)).toBe(false);
   });
 });
 

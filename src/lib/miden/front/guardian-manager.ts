@@ -1,25 +1,66 @@
 import { MultisigService } from 'lib/miden/guardian';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
-import { WalletAccount } from 'lib/shared/types';
+import { RecoveryPreparation, WalletAccount } from 'lib/shared/types';
+import { annotateCrash, withProposalStep, type ProposalGuard } from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
-import { sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import {
+  getSignerCommitmentsFromAccount,
+  getSignerDetailsFromAccount,
+  resolveGuardianEndpoint
+} from '../guardian/account';
+import { readGuardianAuthFacts, withGuardianAuthFacts } from '../guardian/auth-facts';
+import { canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
 // `hotPublicKey` is recorded alongside so rotations are detected on next access:
 // the cached service is bound to a specific WalletSigner pubkey, and after a
 // replace-hot-key tx the WalletAccount.hotPublicKey changes — without the
 // drift check, the popup sync keeps signing with the rotated-out key.
-type CacheEntry = { service: MultisigService; hotPublicKey: string };
+//
+// `generation` is the WASM client generation the service was built on (issue
+// #775). A cached `MultisigService` is bound to the SDK `Account` handle and web
+// client it was built from, so once lock recovery replaces that client the
+// service is a corpse — and the guardian sync would go on using it every ~3s
+// until a full reload, leaving every guardian account permanently broken after a
+// recovery that was otherwise transparent. Recorded rather than watched: the
+// staleness only matters at the next access, and reading the counter there keeps
+// this module free of an import-time dependency on the SDK.
+// Both maps key on canonicalWalletAccountId, so a bare dApp id and the stored
+// composite for one account share one init and one cached service.
+type CacheEntry = { service: MultisigService; hotPublicKey: string; generation: number };
 const guardianServiceCache = new Map<string, CacheEntry>();
 
-// In-flight MultisigService.init promises, keyed by accountPublicKey. The
+// In-flight MultisigService.init promises, keyed like the cache. The
 // guardian sync runs every 3s and does not await previous ticks; without this,
 // each tick can start a fresh init before the resolved service reaches the cache.
-const guardianServiceInflight = new Map<string, Promise<MultisigService>>();
+// Tagged with the generation it started on, so a caller arriving after a recovery
+// is not handed an init that is building on the client that just died.
+// The requested ceiling is part of the identity, not a detail of the caller: the
+// hold happens INSIDE the init, so whoever wins the race picks the ceiling for
+// everyone who coalesces onto it. Both directions of a mismatch are wrong in the
+// way the parameter exists to prevent - a cadence caller inheriting the 5-minute
+// backstop is the hundred-dead-laps freeze, and a transaction-pipeline caller
+// inheriting the 2-minute ceiling gives up three minutes early on the path whose
+// docstring says that risks stranding the account. So they simply do not share.
+// `owner` identifies the init that registered the entry, for its own cache-write check.
+type InflightEntry = {
+  promise: Promise<MultisigService>;
+  generation: number;
+  boundAtSyncCeiling: boolean;
+  owner: object;
+};
+const guardianServiceInflight = new Map<string, InflightEntry>();
+
+// Deleting an in-flight entry does not stop its initializer, so it caches its
+// service only if its own entry is still registered - otherwise it repopulates the
+// account a clear just evicted. A single-account clear deletes only that account's
+// entries, so other accounts' builds still cache. The global clear also bumps this
+// epoch, which each initializer captures at entry.
+let serviceClearGeneration = 0;
 
 /**
  * Callbacks for resolving account data.
@@ -29,19 +70,37 @@ const guardianServiceInflight = new Map<string, Promise<MultisigService>>();
  * The Zustand-backed default provider lives in `./guardian-sync.ts` (frontend-only).
  */
 export interface GuardianAccountProvider {
+  prepareRecoveryTransaction?: (transactionId: string) => Promise<RecoveryPreparation>;
+  releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
-  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   // Optional SW-only callbacks used by the proactive replace-hot-key flow.
   // Frontend providers (zustandProvider) leave these undefined; the rotation
   // path runs only inside the SW-side transaction processor where the
   // vault-backed provider implements them.
   persistNewHotKey?: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey?: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey?: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   // Persist a per-account guardian endpoint after a switch-guardian lands.
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.
   setGuardianEndpoint?: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Persist the verdict that another device rotated the account's hot key away
+   * from `hotPublicKey` (`HotKeyRotatedOutVerdict`). Both realms implement it:
+   * the guardian sync's self-heal detects it in the app realm, the direct
+   * guardian switch in whichever realm runs the pipeline.
+   */
+  markHotKeyRotatedOut?: (
+    accountPublicKey: string,
+    hotPublicKey: string,
+    onChainHotCommitment: string
+  ) => Promise<void>;
+}
+
+function refusedAtSelection(error: Error, proposalGuard: ProposalGuard): Error {
+  annotateCrash(error, { proposalStep: 'service_select', proposalGuard });
+  return error;
 }
 
 /**
@@ -50,7 +109,24 @@ export interface GuardianAccountProvider {
  */
 export async function getOrCreateMultisigService(
   accountPublicKey: string,
-  provider: GuardianAccountProvider
+  provider: GuardianAccountProvider,
+  /**
+   * Bound the account read and the service init at the sync ceiling instead of the
+   * five-minute backstop. The init's load waits on the guardian's `getState` inside its hold.
+   *
+   * Passed by the ONE caller on a cadence — the idle loop's guardian sync — and by nobody
+   * else, which is the whole point of making it a parameter rather than a constant. On the
+   * #777 path this hold is not the warm cache read it looks like: every watchdog eviction
+   * bumps the client generation, which invalidates this cache, so the very next lap takes
+   * this hold with an empty client slot and sends a fresh genesis fetch to the node that
+   * just parked. Left on the backstop that is five minutes of frozen wallet per lap, and
+   * four laps to light the account's fuse. The ten transaction-pipeline callers keep the
+   * backstop: a user is waiting on those, and `reconcileStructuralApplyFailure` in
+   * particular runs after a structural change is already on chain, where giving up three
+   * minutes sooner risks stranding the account it exists to rescue. A caller coalesces only
+   * onto an in-flight build that asked for the same ceiling (see the coalescing check below).
+   */
+  boundAtSyncCeiling = false
 ): Promise<MultisigService> {
   // NOTE: no endpoint-only fast-path here. The cache hit is served by the inner
   // check below (after we resolve the account's current hotPublicKey), which
@@ -63,32 +139,50 @@ export async function getOrCreateMultisigService(
   // Coalesce concurrent inits: the guardian sync runs every 3s and does not
   // await previous ticks, so without this an in-flight init can start again
   // before its resolved service reaches the cache.
-  const inflight = guardianServiceInflight.get(accountPublicKey);
+  const startedAtGeneration = wasmClientGeneration();
+  const startedAtClear = serviceClearGeneration;
+  const cacheKey = canonicalWalletAccountId(accountPublicKey);
+  const inflight = guardianServiceInflight.get(cacheKey);
   if (inflight) {
-    return inflight;
+    // Only coalesce onto an init that is building on the CURRENT client. One
+    // started before a recovery will resolve a service bound to the dead client,
+    // and handing it to a caller that arrived afterwards would spread the corpse
+    // instead of containing it (#775).
+    //
+    // And onto one that asked for the SAME ceiling - the second conjunct, whose
+    // reasoning is on `InflightEntry` above. The short version: the hold is inside
+    // the init, so the winner of the race picks the ceiling for every caller that
+    // coalesces onto it, and both directions of a mismatch defeat the parameter.
+    if (inflight.generation === startedAtGeneration && inflight.boundAtSyncCeiling === boundAtSyncCeiling) {
+      return inflight.promise;
+    }
+    guardianServiceInflight.delete(cacheKey);
   }
 
+  const owner = {};
   const initPromise = (async () => {
     // Verify this is a Guardian account
-    const accounts = await provider.getAccounts();
+    const accounts = await withProposalStep('service_select', () => provider.getAccounts());
     // Match tolerant of id form: dApp-initiated txs arrive with the bare bech32
     // address while WalletAccount.publicKey is a composite `<address>_<suffix>`.
     const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
     if (!account || account.type !== WalletType.Guardian) {
-      throw new Error('Account is not a Guardian account');
+      throw refusedAtSelection(new Error('Account is not a Guardian account'), 'account_not_guardian');
     }
     // Hot pubkey lives on the WalletAccount record (set at create time). A
-    // Guardian account without it is either a legacy single-Falcon-key record
-    // (pre-migration) or an in-flight write that crashed mid-create — both are
-    // unsigned states that should fail loudly rather than silently fall back.
+    // Guardian account without one has no usable local signer, and this caller
+    // needs to sign right now: it must fail loudly here rather than silently
+    // fall back.
     if (!account.hotPublicKey) {
-      throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
+      throw refusedAtSelection(
+        new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey - re-create the wallet`),
+        'hot_key_missing'
+      );
     }
     const hotPublicKey = account.hotPublicKey;
-    // Per-account guardian endpoint (falls back to the legacy global key for
-    // records created before the field existed). Resolved once and reused for
-    // both the cache drift-check and the init binding below.
-    const currentEndpoint = await resolveGuardianEndpoint(account);
+    // Per-account guardian endpoint, resolved once and reused for both the cache
+    // drift-check and the init binding below.
+    const currentEndpoint = resolveGuardianEndpoint(account);
 
     // Return cached instance if its endpoint AND bound hot pubkey still match.
     // Two separate drift sources:
@@ -96,52 +190,134 @@ export async function getOrCreateMultisigService(
     //     in the SW realm doesn't reach the popup's Map, so re-check here.
     //   - hot pubkey: replace_hot_key rotates account.hotPublicKey; the cached
     //     service is still bound to the previous WalletSigner.publicKey.
-    const cached = guardianServiceCache.get(accountPublicKey);
+    //   - WASM client generation: lock recovery replaced the client the cached
+    //     service is bound to, so every call it makes now throws (#775).
+    const cached = guardianServiceCache.get(cacheKey);
     if (cached) {
-      if (cached.service.guardianEndpoint === currentEndpoint && cached.hotPublicKey === hotPublicKey) {
+      if (
+        cached.service.guardianEndpoint === currentEndpoint &&
+        cached.hotPublicKey === hotPublicKey &&
+        cached.generation === wasmClientGeneration()
+      ) {
         return cached.service;
       }
-      guardianServiceCache.delete(accountPublicKey);
+      guardianServiceCache.delete(cacheKey);
     }
 
-    // Get the Account object from the Miden client.
-    const { sdkAccount } = await withWasmClientLock(async () => {
+    // Get the Account object from the Miden client. Always labelled; bounded only for the
+    // caller that runs on a cadence — see `boundAtSyncCeiling` above (#777).
+    //
+    // ONE hold for the account read AND the signer read derived from it. An `Account`
+    // handle is a borrow of the client's RefCell rather than a snapshot, so reading its
+    // signer set after this hold released was a call on a client an eviction may already
+    // have handed to a successor - and `getSignerDetailsFromAccount` reaches into account
+    // storage, so it is a genuine WASM call, not a field access. Same shape, and the same
+    // fix, as the two guardian-sync self-heal snapshots. The `MultisigService.init` below
+    // takes a hold of its own, so it stays OUTSIDE this one: the mutex is not reentrant
+    // and nesting would deadlock.
+    // BOTH holds the build takes are bounded the same way, each under its own label.
+    // `init`'s hold is the longer of the two - it contains the client build and the
+    // guardian `load()` round trip - so bounding only this read left this parameter's
+    // own stated purpose unmet.
+    const buildLockOptions = boundAtSyncCeiling
+      ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+      : { label: 'guardian-service-build' };
+    const { sdkAccount, commitment, accountIdHex, signerCommitments } = await withWasmClientLock(async hold => {
       // Use the matched account's stored publicKey (the form the in-wallet path
       // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      return { sdkAccount };
-    });
+      const sdkAccount = await withProposalStep('service_account_read', () =>
+        midenClientProxy.getAccount(account.publicKey)
+      );
+      if (!sdkAccount)
+        return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined, signerCommitments: [] };
+      assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
+      // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
+      const { commitment } = await withProposalStep('service_signer_read', () =>
+        getSignerDetailsFromAccount(sdkAccount)
+      );
+      // AND AGAIN AFTER THE SIGNER READ, not only after the account one. The comment above
+      // calls that a genuine WASM call rather than a field access, which is exactly the
+      // category every sibling merged hold in this change re-checks after: the direct-switch
+      // finalizer re-checks after both of its awaits. Dormant only while
+      // `getSignerDetailsFromAccount` happens to have a synchronous body, and a guard whose
+      // safety rests on a callee not growing an await is one edit from being wrong.
+      assertWasmHoldCurrent(hold, 'guardian service build, after the signer read');
+      // READ IN HERE, not at the log site below. `id()` is a call on a borrowed
+      // handle, so asking for it after this hold released was the very thing the
+      // comment above forbids - and a `console.log` is a silly place to take a
+      // double borrow: an eviction in the gap made it throw `isDisposed` and
+      // aborted a service build that had otherwise succeeded.
+      return {
+        sdkAccount,
+        commitment,
+        accountIdHex: sdkAccount.id().toString(),
+        signerCommitments: getSignerCommitmentsFromAccount(sdkAccount)
+      };
+    }, buildLockOptions);
 
-    if (!sdkAccount) {
-      throw new Error('Account not found in local storage');
+    if (!sdkAccount || commitment === undefined) {
+      const missing = new Error('Account not found in local storage');
+      annotateCrash(missing, { proposalStep: sdkAccount ? 'service_signer_read' : 'service_account_read' });
+      throw missing;
     }
 
-    // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
-    const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
     // Bind the service to the hot signer — the popup signs with the hot key.
-    console.log('creating guardian service', sdkAccount.id().toString());
-    const service = await MultisigService.init(
-      sdkAccount,
-      `0x${hotPublicKey}`,
-      `0x${commitment}`,
-      provider.signWord,
-      currentEndpoint
+    console.log('creating guardian service', accountIdHex);
+    // The signer commitment above is the chain's, so it always matches; the Guardian checks the key this device signs
+    // with, which is the vault's and can differ.
+    const authFacts = await readGuardianAuthFacts(
+      hotPublicKey,
+      signerCommitments,
+      'hot',
+      account.requiresHotKeyRotation === true
     );
+    const service = await withProposalStep('service_load', () =>
+      withGuardianAuthFacts(authFacts, () =>
+        MultisigService.init(
+          sdkAccount,
+          `0x${hotPublicKey}`,
+          `0x${commitment}`,
+          provider.signWord,
+          currentEndpoint,
+          boundAtSyncCeiling
+            ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+            : { label: 'guardian-service-init' }
+        )
+      )
+    );
+    service.authFacts = authFacts;
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
-    // next access can detect rotation and force a re-init.
-    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey });
+    // next access can detect rotation and force a re-init, and with the client
+    // generation it was built on so a recovery in the meantime forces one too.
+    // The tag is the generation observed at ENTRY, which is the one this
+    // service's client handle came from — so a recovery that landed mid-init
+    // leaves the entry already stale and the next access rebuilds. This caller
+    // still gets the service and fails on its next WASM call, exactly as every
+    // other in-flight user of the dead client does.
+    if (serviceClearGeneration === startedAtClear && guardianServiceInflight.get(cacheKey)?.owner === owner) {
+      guardianServiceCache.set(cacheKey, { service, hotPublicKey, generation: startedAtGeneration });
+    }
 
     return service;
   })();
 
-  guardianServiceInflight.set(accountPublicKey, initPromise);
+  guardianServiceInflight.set(cacheKey, {
+    promise: initPromise,
+    generation: startedAtGeneration,
+    boundAtSyncCeiling,
+    owner
+  });
   try {
     return await initPromise;
   } finally {
     // Evict on settle (success or failure) so a failed init can be retried on
-    // the next sync tick while successful inits use guardianServiceCache.
-    guardianServiceInflight.delete(accountPublicKey);
+    // the next sync tick while successful inits use guardianServiceCache. Only
+    // OUR entry: a generation change can have displaced it with a newer init,
+    // and deleting that one would let the next tick start a third.
+    if (guardianServiceInflight.get(cacheKey)?.promise === initPromise) {
+      guardianServiceInflight.delete(cacheKey);
+    }
   }
 }
 
@@ -160,17 +336,19 @@ export async function isGuardianAccount(accountPublicKey: string, provider: Guar
  * Clear the Guardian service cache. Call on logout/lock.
  */
 export function clearGuardianCache(): void {
+  serviceClearGeneration++;
   guardianServiceCache.clear();
   guardianServiceInflight.clear();
   clearGuardianAccountLocks();
 }
 
 /**
- * Drop a single account's cached MultisigService so the next access
- * reinitializes it — used after a guardian switch where the cached
+ * Drop a single account's cached MultisigService, whichever spelling of its id is
+ * given, so the next access reinitializes it - used after a guardian switch where the cached
  * instance still points at the old endpoint.
  */
 export function clearGuardianServiceFor(accountPublicKey: string): void {
-  guardianServiceCache.delete(accountPublicKey);
-  guardianServiceInflight.delete(accountPublicKey);
+  const cacheKey = canonicalWalletAccountId(accountPublicKey);
+  guardianServiceCache.delete(cacheKey);
+  guardianServiceInflight.delete(cacheKey);
 }

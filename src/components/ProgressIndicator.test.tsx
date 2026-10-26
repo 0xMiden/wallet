@@ -2,137 +2,79 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
+import { reducedMotionTransition, springs } from 'lib/animation';
+
 import { ProgressIndicator } from './ProgressIndicator';
 
-// Pin the brand hex so the "filled" animate branch is assertable regardless of
-// which network build (devnet vs mainnet) supplies PRIMARY_500.
-jest.mock('utils/brand-colors', () => ({
-  PRIMARY_500: '#E77537'
-}));
+let mockReduce = false;
 
-// framer-motion's <motion.div> is each progress bar. Replace it with a plain
-// div that surfaces the animate / initial / transition props as
-// data-attributes so the fill/width branches are observable in jsdom.
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: {
-    div: ({ animate, initial, transition, className, ...rest }: any) => (
-      <div
-        data-testid="bar"
-        data-animate={JSON.stringify(animate ?? null)}
-        data-initial={String(initial)}
-        data-transition={JSON.stringify(transition ?? null)}
-        className={className}
-        {...rest}
-      />
-    )
-  }
-}));
+// Each segment surfaces what framer would receive, so the width and transition are observable.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => mockReduce,
+    motion: {
+      div: ({
+        animate,
+        initial: _initial,
+        transition,
+        ...rest
+      }: Record<string, unknown> & { children?: React.ReactNode }) =>
+        ReactActual.createElement('div', {
+          'data-testid': 'bar',
+          'data-animate': JSON.stringify(animate),
+          'data-transition': JSON.stringify(transition),
+          ...rest
+        })
+    }
+  };
+});
 
-const FILLED_COLOR = '#E77537';
-const EMPTY_COLOR = '#D9D9D9';
-const ACTIVE_WIDTH = 54;
-const INACTIVE_WIDTH = 42;
+const bars = () => screen.queryAllByTestId('bar');
+const widthOf = (bar: HTMLElement) => JSON.parse(bar.getAttribute('data-animate') ?? '{}').width;
 
-const getBars = () => screen.queryAllByTestId('bar');
-const animateOf = (bar: HTMLElement) => JSON.parse(bar.getAttribute('data-animate') as string);
+beforeEach(() => {
+  mockReduce = false;
+});
 
 describe('ProgressIndicator', () => {
-  describe('rendering', () => {
-    it('renders one bar per step', () => {
-      render(<ProgressIndicator steps={4} currentStep={1} />);
+  it('renders one segment per step', () => {
+    render(<ProgressIndicator steps={4} currentStep={1} />);
+    expect(bars()).toHaveLength(4);
+  });
 
-      expect(getBars()).toHaveLength(4);
+  it('renders no segments when there are no steps', () => {
+    render(<ProgressIndicator steps={0} currentStep={0} />);
+    expect(bars()).toHaveLength(0);
+  });
+
+  it('fills the done and current steps in accent, wider, and leaves the rest on fill-pressed', () => {
+    render(<ProgressIndicator steps={4} currentStep={2} />);
+    const [a, b, c, d] = bars();
+    [a, b].forEach(bar => {
+      expect(bar).toHaveClass('bg-accent-primary');
+      expect(widthOf(bar!)).toBe(54);
     });
-
-    it('renders no bars when steps is 0', () => {
-      const { container } = render(<ProgressIndicator steps={0} currentStep={0} />);
-
-      expect(getBars()).toHaveLength(0);
-      // Outer container still renders.
-      expect(container.querySelector('div.flex')).toBeInTheDocument();
-    });
-
-    it('renders the outer container with the base layout classes', () => {
-      const { container } = render(<ProgressIndicator steps={3} currentStep={1} />);
-      const outer = container.firstChild as HTMLElement;
-
-      expect(outer).toHaveClass('flex', 'items-center', 'gap-0.5');
-    });
-
-    it('gives each bar the base bar classes', () => {
-      render(<ProgressIndicator steps={2} currentStep={1} />);
-
-      getBars().forEach(bar => {
-        expect(bar).toHaveClass('h-1.5', 'rounded-full');
-      });
+    [c, d].forEach(bar => {
+      expect(bar).toHaveClass('bg-fill-pressed');
+      expect(widthOf(bar!)).toBe(42);
     });
   });
 
-  describe('fill state (isFilled = index <= currentStep - 1)', () => {
-    it('fills bars up to the current step and leaves later bars empty', () => {
-      render(<ProgressIndicator steps={4} currentStep={2} />);
-      const bars = getBars();
+  it('moves on the standard spring, instant under reduced motion', () => {
+    const { unmount } = render(<ProgressIndicator steps={2} currentStep={1} />);
+    expect(JSON.parse(bars()[0]!.getAttribute('data-transition') ?? '{}')).toEqual(springs.standard);
+    unmount();
 
-      // currentStep=2 → indices 0,1 filled; indices 2,3 empty.
-      expect(animateOf(bars[0]!)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
-      expect(animateOf(bars[1]!)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
-      expect(animateOf(bars[2]!)).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
-      expect(animateOf(bars[3]!)).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
-    });
-
-    it('leaves every bar empty when currentStep is 0', () => {
-      render(<ProgressIndicator steps={3} currentStep={0} />);
-
-      getBars().forEach(bar => {
-        expect(animateOf(bar)).toEqual({ width: INACTIVE_WIDTH, backgroundColor: EMPTY_COLOR });
-      });
-    });
-
-    it('fills every bar when currentStep equals steps', () => {
-      render(<ProgressIndicator steps={3} currentStep={3} />);
-
-      getBars().forEach(bar => {
-        expect(animateOf(bar)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
-      });
-    });
-
-    it('fills every bar when currentStep exceeds steps', () => {
-      render(<ProgressIndicator steps={2} currentStep={5} />);
-
-      getBars().forEach(bar => {
-        expect(animateOf(bar)).toEqual({ width: ACTIVE_WIDTH, backgroundColor: FILLED_COLOR });
-      });
-    });
+    mockReduce = true;
+    render(<ProgressIndicator steps={2} currentStep={1} />);
+    expect(JSON.parse(bars()[0]!.getAttribute('data-transition') ?? '{}')).toEqual(reducedMotionTransition);
   });
 
-  describe('motion props', () => {
-    it('disables the initial animation and uses the configured transition', () => {
-      render(<ProgressIndicator steps={1} currentStep={1} />);
-      const bar = getBars()[0]!;
-
-      expect(bar).toHaveAttribute('data-initial', 'false');
-      expect(JSON.parse(bar.getAttribute('data-transition') as string)).toEqual({
-        duration: 0.3,
-        ease: [0.4, 0, 0.2, 1]
-      });
-    });
-  });
-
-  describe('props forwarding', () => {
-    it('appends a custom className to the base container classes', () => {
-      const { container } = render(<ProgressIndicator steps={2} currentStep={1} className="my-custom" />);
-      const outer = container.firstChild as HTMLElement;
-
-      expect(outer).toHaveClass('flex', 'items-center', 'gap-0.5', 'my-custom');
-    });
-
-    it('forwards extra HTML attributes to the outer container', () => {
-      render(<ProgressIndicator steps={2} currentStep={1} id="progress" data-testid="pi" aria-label="progress" />);
-      const outer = screen.getByTestId('pi');
-
-      expect(outer).toHaveAttribute('id', 'progress');
-      expect(outer).toHaveAttribute('aria-label', 'progress');
-    });
+  it('merges a layout className and forwards attributes', () => {
+    const { container } = render(<ProgressIndicator steps={1} currentStep={1} className="opacity-0" aria-hidden />);
+    expect(container.firstChild).toHaveClass('flex', 'gap-0.5', 'opacity-0');
+    expect(container.firstChild).toHaveAttribute('aria-hidden', 'true');
   });
 });

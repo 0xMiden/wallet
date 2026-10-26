@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "store-listing/listing-copy.json",
+  "store": "Chrome Web Store",
+  "storeUrl": "https://chromewebstore.google.com/detail/bread-wallet-by-miden/coajhopfooegmaifelglfboehacldcbo",
+  "product": {
+    "name": "Bread Wallet by Miden",
+    "valueLine": "Self-custody and private-by-design payments for the Miden network.",
+    "sourceUrls": {
+      "website": "https://miden.fi/",
+      "source": "https://github.com/0xMiden/wallet",
+      "privacy": "https://0xmiden.github.io/wallet/privacy/"
+    }
+  },
+  "fields": {
+    "name": "Bread Wallet by Miden",
+    "shortDescription": "Self-custody and private-by-design payments for Miden, built for your browser."
+  },
+  "sharedBlocks": [
+    { "id": "identity", "text": "Bread Wallet by Miden is the official self-custodial wallet for the Miden network." },
+    {
+      "id": "security",
+      "heading": "Self-custody by default",
+      "text": "Your wallet keys are generated on your device and kept there in encrypted storage. No account or sign-up is required."
+    },
+    {
+      "id": "payments",
+      "heading": "Choose how you pay",
+      "text": "Send and receive Miden assets, with public or private transfer behavior available where the selected flow supports it."
+    },
+    {
+      "id": "recovery",
+      "heading": "Recovery that keeps you in control",
+      "text": "Your recovery phrase restores key ownership. Guardian accounts can add recovery and private-state continuity through your selected operator, while neither your device nor the Guardian can spend alone."
+    },
+    {
+      "id": "open-source",
+      "heading": "Open source",
+      "text": "Bread Wallet is open source. Review the code and follow development on GitHub."
+    }
+  ],
+  "platformBlocks": [
+    {
+      "id": "chrome-features",
+      "heading": "Made for Chrome",
+      "bullets": [
+        "Connect to Miden sites and review each request in a wallet-owned confirmation window.",
+        "Keep the wallet close in Chrome's side panel.",
+        "Protect wallet access with your password.",
+        "Create proofs locally or use a configured proving service.",
+        "Send Miden assets and confirm supported dApp flows."
+      ]
+    }
+  ],
+  "blockOrder": ["identity", "security", "payments", "recovery", "open-source", "chrome-features"],
+  "description": "Bread Wallet by Miden is the official self-custodial wallet for the Miden network.\n\nSelf-custody by default\nYour wallet keys are generated on your device and kept there in encrypted storage. No account or sign-up is required.\n\nChoose how you pay\nSend and receive Miden assets, with public or private transfer behavior available where the selected flow supports it.\n\nRecovery that keeps you in control\nYour recovery phrase restores key ownership. Guardian accounts can add recovery and private-state continuity through your selected operator, while neither your device nor the Guardian can spend alone.\n\nOpen source\nBread Wallet is open source. Review the code and follow development on GitHub.\n\nMade for Chrome\n\n- Connect to Miden sites and review each request in a wallet-owned confirmation window.\n- Keep the wallet close in Chrome's side panel.\n- Protect wallet access with your password.\n- Create proofs locally or use a configured proving service.\n- Send Miden assets and confirm supported dApp flows.",
+  "screenshots": [
+    {
+      "id": "wallet-keys",
+      "headline": "Your wallet, your keys",
+      "alt": "Bread Wallet account home in the Chrome side panel, showing wallet controls and an account balance."
+    },
+    {
+      "id": "send-privacy",
+      "headline": "Send publicly or privately",
+      "alt": "Chrome transaction request showing private note visibility before confirmation."
+    },
+    {
+      "id": "receive",
+      "headline": "Receive with confidence",
+      "alt": "Receive screen in the Chrome extension with a Miden address."
+    },
+    {
+      "id": "guardian",
+      "headline": "Recover with a Guardian",
+      "alt": "Guardian selection in the Chrome extension with operator choices."
+    },
+    {
+      "id": "chrome-connect",
+      "headline": "Connect to Miden sites",
+      "alt": "Chrome extension connection request for a Miden site."
+    }
+  ],
+  "promotionalArtwork": [
+    {
+      "id": "chrome-confirm",
+      "kind": "smallPromo",
+      "headline": "Review every request",
+      "alt": "Wallet-owned Chrome confirmation window showing transaction details."
+    },
+    {
+      "id": "chrome-side-panel",
+      "kind": "marquee",
+      "headline": "Your wallet, close by",
+      "alt": "Bread Wallet open beside a Miden site in Chrome's side panel."
+    }
+  ]
+}

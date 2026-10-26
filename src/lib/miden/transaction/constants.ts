@@ -1,4 +1,16 @@
-import { ITransactionStage } from '../db/types';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
+
+import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
+import {
+  IBridgedSendExtraInputs,
+  ITransaction,
+  ITransactionStage,
+  ITransactionStatus,
+  STRUCTURAL_GUARDIAN_TYPES
+} from '../db/types';
+import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -19,16 +31,113 @@ export const REMOTE_PROVER_TIMEOUT_ERROR =
 
 export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try again.';
 
+// A write whose submit crossing could not be recorded stops before its submit (#1081), so nothing reached the network.
+export const SUBMIT_CROSSING_UNRECORDED_ERROR =
+  'The wallet could not record this transaction before sending it, so nothing was sent and no funds moved.';
+
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
   'Proving failed because the prover does not recognize part of this transaction — the app and its prover are out of sync. Update to the latest version; retrying this version will not help.';
 
 export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by user';
+
+/**
+ * The request reached the kernel without the fee conversion info `fee::pay_fee`
+ * needs, so the fee could not be charged at all.
+ *
+ * NOT a balance problem, and the distinction matters: this says nothing about
+ * what the account holds, so telling the user to "receive some MIDEN" sends them
+ * to top up an account that is very likely already funded, and topping it up
+ * changes nothing. A genuine shortfall arrives as a vault assertion and gets
+ * `TRANSACTION_VAULT_SHORTFALL_ERROR` instead.
+ *
+ * What it actually means is that whoever BUILT the request did not commit
+ * conversion info into its auth args. On a multisig account the client cannot
+ * inject that -- the auth-arg slot belongs to the multisig -- so the request has
+ * to carry it, and a request built elsewhere may not.
+ *
+ * The flows that produce request bytes before any proposal is created -- Epoch
+ * bridged-send and earn-deposit (`buildEpochCollateralRequestBytes`), AggLayer
+ * bridged-send (`initiateB2AggBridge`) and the swap's PSWAP note
+ * (`buildPswapCreateRequest`) -- declare a fee conversion SALT at BUILD time, each
+ * taking it as a `feeSalt` argument. miden-client derives the native 1/1 conversion
+ * info from the execution reference header and commits it into the auth arg itself.
+ *
+ * It has to be the build, not the finished request: the SDK exposes only a getter
+ * for the auth arg on `TransactionRequest`, deliberately, because miden-client keeps
+ * it mutually exclusive with the fee conversion salt and enforces that on the builder.
+ * A finished request also cannot be rebuilt into one -- its readers cover neither
+ * input notes nor the script, and `serialize()` is not canonical, so a rebuild could
+ * neither carry everything forward nor prove that it did.
+ *
+ * A dApp `execute` is the one flow whose bytes the wallet does not build, so it
+ * commits nothing and cannot pay a fee on a fee-charging chain.
+ *
+ * So this message means no conversion info reached the kernel. That happens when the
+ * request declared no salt, or when the account's auth component is one miden-client
+ * cannot classify and so declines to commit for -- a guarded multisig deployed before
+ * guardian 0.17.0-rc.3 is exactly that case. Not an exhaustive
+ * list, and the module is the place to read for the current one.
+ *
+ * What they share is that a retry can plausibly help, so the copy does NOT forbid
+ * one -- an earlier version did, from when no retry could have.
+ */
+export const TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR =
+  'This transaction could not be set up to pay the network fee, so nothing was submitted. Your balance is not ' +
+  'the problem — try again, and report this if it keeps happening.';
+
+/**
+ * The copy for `isFeeConversionCommitmentMismatchError`. Unlike the copy above it rules out a retry: the commitment
+ * that fails is in the dApp's request bytes, and a retry executes the same bytes.
+ */
+export const TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR =
+  'The dApp that requested this transaction did not set up its network fee correctly, so the transaction cannot ' +
+  'run and nothing was submitted. Trying again will fail the same way; the dApp has to fix its request.';
 
 export const TRANSACTION_STUCK_ERROR = 'Transaction took too long to process and was cancelled';
 
 export const TRANSACTION_EXPIRED_ERROR = 'Transaction expired after being queued too long';
 
 export const TRANSACTION_INTERRUPTED_ERROR = 'Transaction was interrupted';
+
+/**
+ * The most input notes one unattended claim takes (#1644). A consume proves every input note, so its proof time
+ * grows with the count: on the extension one note proves in 13 to 16 s on the device, and a 63-note swap settlement
+ * never reached its submit inside the service worker's write deadline (`WRITE_DEADLINE_MS` in
+ * `back/miden-client-proxy.ts`), and each cut-off kept a Guardian proposal that blocked the account. A set over the
+ * cap is queued as several rows, each with its own fee. Far below the protocol's 1,024-input ceiling.
+ */
+export const MAX_NOTES_PER_UNATTENDED_CLAIM = 8;
+
+/**
+ * Split notes into claims of at most {@link MAX_NOTES_PER_UNATTENDED_CLAIM}. The notes are sorted by id first, so a
+ * repeated tick builds the same rows and the per-note dedup in `queueConsumeRows` covers each chunk as a whole.
+ */
+export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]): T[][] {
+  const sorted = [...notes].sort((a, b) => a.id.localeCompare(b.id));
+  const chunks: T[][] = [];
+  for (let start = 0; start < sorted.length; start += MAX_NOTES_PER_UNATTENDED_CLAIM) {
+    chunks.push(sorted.slice(start, start + MAX_NOTES_PER_UNATTENDED_CLAIM));
+  }
+  return chunks;
+}
+
+/**
+ * An unattended auto-consume batch as the claims to queue, each at most {@link MAX_NOTES_PER_UNATTENDED_CLAIM} notes.
+ * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
+ * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
+ * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ */
+export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
+  notes: readonly T[],
+  verificationBaseFee: number | null
+): T[][] {
+  const chunks = chunkNotesForClaim(notes);
+  if (chunks.length <= 1) return chunks;
+  return chunks.filter(chunk =>
+    isWorthClaiming(totalClaimableAmount(chunk.map(note => note.amount)), verificationBaseFee)
+  );
+}
 
 // The cold-start sweep reason (failInterruptedTransactions). Special-cased in
 // cancelTransaction so a tx interrupted while its stage was 'proving' is NOT
@@ -38,7 +147,192 @@ export const TRANSACTION_INTERRUPTED_ON_STARTUP = 'Transaction was interrupted w
 
 export const INVALID_NOTE_ERROR = 'Note is invalid';
 
+// Thrown before anything is minted: only the bytes built at initiate carry the mandate binding, and a note built
+// without it is one the allocator refuses to bind.
+export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
+  'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
+
+// A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
+// transaction's id, outcome and output notes.
+export const NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR = 'This note is being consumed by another transaction';
+
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
+
+/**
+ * Final reasons the wallet itself passes to `cancelTransaction` as copy, stored as the row's error with no
+ * `rawError`, whatever the row's stage: the wallet has proved the row can never land, so the reason is shown
+ * as a completed failure. A Queued row that expired before it ever started, and a note that can never be
+ * consumed, both qualify unconditionally. User cancel does not: it goes through
+ * `cancelWhilePipelineMayStillRun`, which stops no pipeline, so it is final only while the row's write stamp
+ * (`processingStartedAt`) is unset. A reader that keeps that field must gate this one member on it rather than
+ * treat membership here as sufficient by itself (see `describeRotationFailure`).
+ */
+export const WALLET_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  USER_CANCELLED_TRANSACTION_REASON,
+  TRANSACTION_EXPIRED_ERROR,
+  INVALID_NOTE_ERROR
+]);
+
+export const isWalletFailureReason = (text: string): boolean => WALLET_FAILURE_REASONS.has(text);
+
+/**
+ * Reasons a writer sets on a row without proving the pipeline stopped before its submit, stored as the row's
+ * error with no `rawError`, same as {@link WALLET_FAILURE_REASONS}, but the row's outcome is unknown rather
+ * than failed, so a reader shows it as not confirmed instead of as a completed failure: the stuck reaper (the
+ * pipeline it cancels keeps running), the cold-start sweep (its own docs say the row may already be on chain),
+ * `verifyStuckTransactions`' not-landed arm (it fails a consume still in progress without stopping it), and the
+ * debug force-cancel (same shape as the reaper).
+ */
+export const UNCONFIRMED_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR
+]);
+
+export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED_FAILURE_REASONS.has(text);
+
+/**
+ * True for a Failed row whose outcome cannot be told apart from "may still land" - the one
+ * predicate both readers of a failed row share (the rotation gate's `describeRotationFailure`
+ * and Activity History), so a row never reads confirmed-failed in one and not-confirmed in the
+ * other (#1250). True when `mayHaveSubmitted` is set, the row's `error` is the engine-recovered
+ * copy, its reason (`rawError ?? error`) is a member of {@link UNCONFIRMED_FAILURE_REASONS}, or
+ * the reason is a user cancel that reached the write stamp (`processingStartedAt` set) - see
+ * {@link WALLET_FAILURE_REASONS} for why an unstamped cancel is final rather than unconfirmed.
+ * False whenever {@link isVaultShortfallRow} holds, even with `mayHaveSubmitted` set: a
+ * rotation moves no asset, so a fee shortfall is a definite failure, not an unknown outcome.
+ * False whenever {@link isBridgeRouteFailedRow} holds too: a bridged-send its own route
+ * evidence (the allocator or the fill poll) reports failed is settled by that, not unknown.
+ * And whenever {@link isNodeDiscardedRow} holds: a structural write the node discarded never lands.
+ */
+export function isUnconfirmedFailure(
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<Pick<ITransaction, 'extraInputs' | 'neverCommittedAt'>>
+): boolean {
+  if (row.status !== ITransactionStatus.Failed) return false;
+  // A row the node proved never committed still carries its mayHaveSubmitted, and would otherwise read Not confirmed
+  // beside "It is safe to retry" (#1081).
+  if (row.neverCommittedAt !== undefined) return false;
+  // A vault shortfall is provable straight from the error, so it stays a definite failure.
+  if (isVaultShortfallRow(row)) return false;
+  // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
+  if (isBridgeRouteFailedRow(row)) return false;
+  if (isNodeDiscardedRow(row)) return false;
+  const reason = row.rawError ?? row.error;
+  return (
+    row.mayHaveSubmitted === true ||
+    row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
+    (reason !== undefined && isUnconfirmedFailureReason(reason)) ||
+    (row.processingStartedAt !== undefined && reason !== undefined && isUserCancelledTransaction(reason))
+  );
+}
+
+/**
+ * Not confirmed, by the one rule History, the detail page and the in-progress page share (#1081): an Unconfirmed row,
+ * a #1250 row (`isUnconfirmedFailure`), or a Failed eligible row, not proven safe and not a definite failure, holding
+ * an entry neither proven dead nor retired before its submit: an earlier attempt may have crossed after a later one
+ * failed before its own. An ineligible row's entries are inert, so it keeps today's label, and the rotation gate,
+ * which stays on `isUnconfirmedFailure`, agrees with History.
+ */
+export function isOutcomeUnconfirmed(
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<
+      Pick<
+        ITransaction,
+        'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'
+      >
+    >
+): boolean {
+  if (row.status === ITransactionStatus.Unconfirmed) return true;
+  if (isUnconfirmedFailure(row)) return true;
+  if (row.status !== ITransactionStatus.Failed || row.neverCommittedAt !== undefined || !canAwaitVerdict(row))
+    return false;
+  if (isVaultShortfallRow(row) || isBridgeRouteFailedRow(row) || isNodeDiscardedRow(row)) return false;
+  return (row.submitEvidence ?? []).some(isUnresolvedEntry);
+}
+
+/**
+ * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
+ * by the two retry footers (they render `error.message`).
+ */
+export const TRANSACTION_RETRY_UNSAFE_ERROR =
+  'This transaction may already have been submitted, so it cannot be retried automatically. ' +
+  'Check your activity once it syncs, and start a new one only if it never arrived.';
+
+/**
+ * The reason on a row the node proved can never commit (#1081), rendered verbatim by `TransactionFailureCard`. It joins
+ * neither reason set: the row keeps its earlier reason in `rawError`.
+ */
+export const TRANSACTION_NEVER_COMMITTED_ERROR =
+  'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
+
+/** Retry waited out its 10 s for a reconciler pass on this row, or the evidence moved twice under it (#1081). */
+export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
+  'The wallet is checking this transaction right now. Try again in a moment.';
+
+/** Retry met a candidate the Guardian still holds for this row (#1081); `{time}` is when its hold clears. */
+export const GUARDIAN_HOLD_RETRY_ERROR =
+  'The Guardian is still holding this transaction. You can retry it after {time}.';
+
+/** The hold refusal, naming the local time at which `clearsAtSec` (unix seconds) falls. */
+export const guardianHoldRetryMessage = (clearsAtSec: number): string =>
+  GUARDIAN_HOLD_RETRY_ERROR.replace(
+    '{time}',
+    new Date(clearsAtSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
+/**
+ * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read
+ * (#1081): the row may already have landed, so it must not reach the acknowledgeable refusal.
+ */
+export const TRANSACTION_LANDING_PENDING_RETRY_ERROR =
+  'This transaction may already have gone through. The wallet is still checking, so do not retry it yet.';
+
+/**
+ * A lock-recovery eviction (issue #775). Deliberately hedged: recovery ABANDONS
+ * the operation rather than cancelling it, so the pipeline may still be running
+ * and may still submit. Every stage-based message below would claim more than
+ * that — a 'proving' eviction would otherwise render as "No funds moved", which
+ * is a promise the wallet cannot keep here.
+ */
+export const TRANSACTION_ENGINE_RECOVERED_ERROR =
+  'The wallet had to recover its transaction engine, so this transaction was left in an unknown state. ' +
+  'Check your activity once it syncs before trying again.';
+
+/**
+ * True when a Failed row's `submit()` outcome cannot be ruled out from local
+ * state — i.e. "did this already reach the node?" is unanswerable here.
+ *
+ * ONE durable, in-realm signal decides it: `processingStartedAt`, stamped
+ * atomically with the Queued → GeneratingTransaction transition by the service
+ * worker's / driver's own ordered write, and never replayed across the offscreen
+ * bus. Its ABSENCE proves the row never left the queue, so nothing was executed,
+ * let alone submitted. Its PRESENCE proves nothing either way — which is the
+ * whole point: the answer is then UNKNOWN, and a caller that moves funds must
+ * treat it as "may already have landed".
+ *
+ * This used to ENUMERATE the failure reasons written by the routes that kill a
+ * row from OUTSIDE its own write pipeline (the stuck reaper, the cold-start
+ * sweep, a force-cancel, a user Cancel, an offscreen deadline kill) and let every
+ * other reason through as safe. That was fail-OPEN, because a write can also fail
+ * from INSIDE its own pipeline AFTER `submit()` has landed, and such a failure
+ * carries an arbitrary error string that matches no entry. Under
+ * `MIDEN_USE_OFFSCREEN_CLIENT` (the service worker's default, i.e. shipped
+ * Chrome) that is reachable three ways: the offscreen document going away right
+ * after a multi-second prove rejects `chrome.runtime.sendMessage`, and both
+ * `getWasmOrThrow()` and `TransactionResult.deserialize(...)` in
+ * `dispatchOffscreenWrite` run only AFTER the offscreen write reported success.
+ * Each left a landed send one tap away from a second submit.
+ *
+ * Deliberately NOT keyed on `tx.stage`: under `MIDEN_USE_OFFSCREEN_CLIENT` a
+ * non-guardian write runs in the offscreen realm and its stage stamps come back
+ * as TELEMETRY only, so a dropped stamp must never be able to widen this gate.
+ */
+export function isSubmitOutcomeUnknown(tx: { processingStartedAt?: number }): boolean {
+  // Never left the queue → nothing was executed, let alone submitted.
+  return tx.processingStartedAt !== undefined;
+}
 
 export const isUserCancelledTransaction = (error: unknown): boolean => error === USER_CANCELLED_TRANSACTION_REASON;
 
@@ -52,7 +346,33 @@ const PROVING_STAGES: ITransactionStage[] = ['proving', 'sending'];
 
 /** The raw `name: message` string persisted on `ITransaction.rawError`. */
 export function formatRawTransactionError(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  if (!(error instanceof Error)) return String(error);
+  // Walk `cause`. Several wrappers in this pipeline say "see the cause chain" in
+  // their own message -- `WasmClientPoisonedError` among them -- while every
+  // consumer printed only the outermost frame, so the sentence pointed at
+  // something nothing rendered. A WASM trap arrives as a bare `RuntimeError`
+  // whose only identifying detail lives one or two links down; without this a
+  // guardian send failure reads as "uncaught realm error" and names neither the
+  // call that trapped nor the reason.
+  const parts: string[] = [];
+  for (const link of causeChain(error)) {
+    if (parts.length >= 5) break;
+    let isError = false;
+    // Guarded like the walk: `name` and `message` can be accessors, and this runs on the failure path, where a throw
+    // loses the failure being recorded.
+    try {
+      if (link instanceof Error) {
+        isError = true;
+        parts.push(`${link.name}: ${link.message}`);
+      } else if (link !== undefined) {
+        parts.push(String(link));
+      }
+    } catch {
+      // An unreadable link costs its own text, not the links below it.
+    }
+    if (!isError) break;
+  }
+  return parts.join(' <- caused by ');
 }
 
 /**
@@ -70,16 +390,274 @@ export function isProverProcedureMismatch(error: unknown): boolean {
 }
 
 /**
+ * A lock-recovery eviction or an offscreen kill that provably landed BEFORE the row
+ * built a write — `cancel.ts` derives that from the committed stage plus an unstamped
+ * `processingStartedAt`, and refuses to record a may-have-submitted crossing for it.
+ *
+ * Kept distinct from the hedged copy above because "left in an unknown state, check your
+ * activity" is false here and the falsehood costs the user something: the row it lands
+ * on is one Retry can safely repeat, and the message talks them out of it. The extension
+ * reaches this on a routine `deadline-no-kill` — a non-critical sync deadline that
+ * deliberately kills nothing — so it is not a rare shape.
+ */
+export const TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR =
+  'The wallet had to recover its transaction engine before this transaction was prepared, so nothing was ' +
+  'submitted. Please try again.';
+
+/**
  * Map a raw thrown error (+ the stage the transaction failed in) to the
  * message persisted on `ITransaction.error`. Falls back to the raw
  * `name: message` string when no friendlier mapping applies.
+ *
+ * `abandonedPreWrite` is the caller's structural finding that an abandonment happened
+ * before the row could have submitted; only `cancel.ts` can derive it, since it needs
+ * the committed row rather than the stage alone.
  */
-export function resolveTransactionErrorMessage(
-  error: unknown,
-  stage?: ITransactionStage,
-  delegateTransaction?: boolean
-): string {
+/**
+ * The kernel's report that a request carried no fee conversion info.
+ *
+ * The numeric code is `error_code_from_msg("paying a non-zero fee requires
+ * conversion info committed via the auth args")` from miden-standards -- it is a
+ * stable hash of that message, so matching it is matching the message. Note what
+ * the message says: "requires conversion info", not "insufficient balance". Only
+ * reachable when the fee is NON-ZERO, which is why a zero-fee chain never sees it.
+ */
+export const ERR_FEE_CONVERSION_INFO_MISSING_CODE = '14712559985122731094';
+
+export function isFeeConversionInfoMissingError(raw: string): boolean {
+  return raw.includes(ERR_FEE_CONVERSION_INFO_MISSING_CODE);
+}
+
+/**
+ * The kernel's report that the auth args commit to fee conversion info the advice map does not match:
+ * `ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH` in miden-standards 0.17 (`asm/standards/fee/mod.masm`, raised by
+ * `load_conversion_info`), derived like the code above.
+ *
+ * Only the single-sig auth procedure runs that check, and miden-client leaves an auth arg the request already carries
+ * alone while the one it commits itself always matches. The wallet never sets one on a single-sig request, so this is
+ * a dApp request that brought its own (#1475).
+ */
+export const ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE = '15404814807981965102';
+
+const FEE_CONVERSION_COMMITMENT_MISMATCH_PATTERN = new RegExp(
+  `(?:^|\\D)${ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE}(?!\\d)`
+);
+
+export function isFeeConversionCommitmentMismatchError(raw: string): boolean {
+  return FEE_CONVERSION_COMMITMENT_MISMATCH_PATTERN.test(raw);
+}
+
+/**
+ * The remove-asset assertion below by its numeric code, which is all a failed local
+ * execution reports (`assertion failed with error code: ...`): an unfunded account's
+ * rotation failed in exactly that form and was never classified (#805).
+ *
+ * `ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW` in miden-protocol 0.16.1
+ * (`asm/kernels/transaction-core/src/fungible_asset.masm`). Derived like the
+ * conversion-info code above: the first 8 bytes, little-endian, of blake3 of the
+ * message, so matching the code is matching the message.
+ */
+export const ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW_CODE = '644413868907058392';
+
+/**
+ * The kernel's generic remove-asset assertion, which says a vault held less of some
+ * asset than the transaction tried to take out — but NOT which asset.
+ *
+ * Deliberately NOT treated as a fee failure. The fee is one producer, but
+ * `resolveHeldFungibleAsset` (`sdk/helpers.ts`) documents two others and warns about
+ * both: a faucet with no local vault slot (usually stale local state, not a real
+ * shortfall) and a balance split across callback flags, where no single slot can fund
+ * an amount the total covers. Attributing all three to the fee told a user holding
+ * plenty of MIDEN to "Receive some MIDEN", and asserted the failure was deterministic
+ * — which talked them out of the resync/retry that fixes the stale-state case.
+ */
+export function isVaultShortfallError(raw: string): boolean {
+  return (
+    /amount of the asset in the vault is less than the amount to remove/i.test(raw) ||
+    raw.includes(ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW_CODE)
+  );
+}
+
+/**
+ * `ERR_ACCOUNT_IS_BLOCKED` in miden-standards 0.17.1: a token faucet's transfer blocklist refused the account.
+ * The first 8 bytes, little-endian, of blake3 of the message, so matching the code is matching the message.
+ */
+export const ERR_ACCOUNT_IS_BLOCKED_CODE = '17080150814197948856';
+
+const ACCOUNT_IS_BLOCKED = new RegExp(`(?:^|\\D)${ERR_ACCOUNT_IS_BLOCKED_CODE}(?!\\d)|\\bERR_ACCOUNT_IS_BLOCKED\\b`);
+
+/** The token's issuer blocked the account, by the kernel's code or its name. */
+export function isAccountBlockedError(raw: string): boolean {
+  return ACCOUNT_IS_BLOCKED.test(raw);
+}
+
+/**
+ * An asset the transaction tried to move was not available in full, without claiming
+ * WHICH one. Names both candidates rather than guessing, and does not forbid a retry:
+ * the local-vault-view case is one a fresher sync genuinely resolves.
+ */
+export const TRANSACTION_VAULT_SHORTFALL_ERROR =
+  'The transaction could not be completed because an asset it moves was not available in full - either the ' +
+  'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
+
+/**
+ * The copy above as a claim (`consume` row) stores it: a claim has no amount sent. It names the fee as the likeliest
+ * asset, not the only one, since a note script can also pay an asset out of the vault (a SWAP note, or another
+ * account's PSWAP note), and hedges for the same reasons (`isVaultShortfallError`).
+ */
+export const CLAIM_VAULT_SHORTFALL_ERROR =
+  'This transfer could not be claimed because an asset it needed was not available in full, most often the USDCX ' +
+  'for the network fee. Check your balances once the wallet has synced, then claim it again.';
+
+/**
+ * An everyday-key rotation that failed because the account could not pay its fee. A
+ * rotation moves no asset, so on this row type the only withdrawal that can fall short
+ * is the fee. A row a build without the code match failed keeps the raw kernel line as
+ * `error` and has no `rawError`, hence the fallback read.
+ */
+export function isVaultShortfallRow(row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError'>): boolean {
+  if (row.type !== 'replace-hot-key' || row.status !== ITransactionStatus.Failed) return false;
+  if (row.error === TRANSACTION_VAULT_SHORTFALL_ERROR) return true;
+  const raw = row.rawError ?? row.error;
+  return raw !== undefined && isVaultShortfallError(raw);
+}
+
+/**
+ * True for a Failed `bridged-send` whose own route evidence proves the allocator rejected the
+ * intent, or the fill itself failed - `extraInputs.epochStatus === 'failed'`. That is what
+ * `markBridgedSendFailed` writes when the allocator rejects an intent whose note already
+ * committed (funds reclaimable), and what the Epoch fill poll persists when the allocator
+ * reports the fill failed (#1250).
+ */
+export function isBridgeRouteFailedRow(
+  row: Pick<ITransaction, 'type' | 'status'> & Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.type !== 'bridged-send' || row.status !== ITransactionStatus.Failed) return false;
+  const extraInputs: Partial<IBridgedSendExtraInputs> | undefined = row.extraInputs;
+  return extraInputs?.epochStatus === 'failed';
+}
+
+/**
+ * True for a Failed structural Guardian row (`STRUCTURAL_GUARDIAN_TYPES`) the node discarded:
+ * `extraInputs.nodeDiscarded`, which `cancelTransaction` writes in the write that fails the row when
+ * the error is the node's discard (#1233). A set `mayHaveSubmitted` does not make such a row unknown:
+ * the write did submit, but a discarded write never lands.
+ */
+export function isNodeDiscardedRow(
+  row: Pick<ITransaction, 'type' | 'status'> & Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.status !== ITransactionStatus.Failed || !STRUCTURAL_GUARDIAN_TYPES.includes(row.type)) return false;
+  const extraInputs: { nodeDiscarded?: boolean } | undefined = row.extraInputs;
+  return extraInputs?.nodeDiscarded === true;
+}
+
+/** A consume for an account whose everyday key is not active yet, other than the gate's own claim (#805). */
+export const ROTATION_PENDING_CONSUME_ERROR =
+  "This account's everyday key has to be activated before it can claim transfers. Open the wallet to finish " +
+  'activating it.';
+
+/** The gate's claim named a note the account no longer lists as consumable. */
+export const ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR =
+  'This transfer is no longer available to claim. It may have been claimed on another device.';
+
+/**
+ * The gate's claim named a note holding anything the wallet cannot prove is the native asset, or one
+ * that is not a standard P2ID or P2IDE payment.
+ */
+export const ROTATION_FUNDING_NON_NATIVE_ERROR =
+  'The wallet stopped this claim because it could not confirm that the transfer holds only USDCX.';
+
+/**
+ * A consume the wallet refused before building anything. The message IS the row's text,
+ * so it is matched by identity ahead of every reading of a raw cause: the row's message,
+ * and the outage verdict that would have #779's arm retry it until it expired.
+ */
+export class RotationGateConsumeRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RotationGateConsumeRefusal';
+  }
+}
+
+// Hedged: the proposal stages call the node as well as the guardian.
+export const GUARDIAN_UNREACHABLE_ERROR =
+  'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
+  'try again in a moment.';
+
+/**
+ * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
+ * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
+ * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone. A killed pipeline anywhere
+ * in the cause chain is never an outage; otherwise a Guardian request timeout anywhere in the chain always is, ahead of
+ * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
+ */
+export function isGuardianOutage(error: unknown): boolean {
+  if (error instanceof RotationGateConsumeRefusal) return false;
+  // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
+  // sent (#1313).
+  if (isKilledPipeline(error)) return false;
+  // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
+  // below cannot see.
+  if (isGuardianRequestTimeout(error)) return true;
+  if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
+  return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
+}
+
+/**
+ * The copy for a kernel failure this module reads by its code or text, or undefined for any other text. A Failed row
+ * and the dApp consent sheet's failed dry run both read it, so the sheet never shows a hashed code the row would
+ * have named.
+ */
+export function deterministicKernelFailureCopy(raw: string): string | undefined {
+  // Deterministic: the request itself is missing the conversion-info commitment,
+  // so the same bytes will fail identically no matter how the balance moves.
+  // Naming it stops the UI offering a Retry that cannot succeed, and stops it
+  // blaming a balance that is not involved.
+  if (isFeeConversionInfoMissingError(raw)) {
+    return TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR;
+  }
+  if (isFeeConversionCommitmentMismatchError(raw)) {
+    return TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR;
+  }
+  // Checked AFTER the conversion-info code, since that one is the more specific
+  // reading of an assertion this one deliberately declines to attribute.
+  if (isVaultShortfallError(raw)) {
+    return TRANSACTION_VAULT_SHORTFALL_ERROR;
+  }
+  return undefined;
+}
+
+function classifyTransactionError(
+  error: unknown,
+  raw: string,
+  stage?: ITransactionStage,
+  delegateTransaction?: boolean,
+  abandonedPreWrite?: boolean
+): string {
+  // A lock-recovery eviction is checked FIRST because every mapping below reads
+  // the stage, and the stage is exactly what an eviction makes unreliable: it
+  // says where the pipeline was when its caller was rejected, not where the
+  // still-running pipeline got to (issue #775).
+  // BOTH kill shapes. An offscreen deadline kill arrives as `OperationAbortedError`
+  // from the identical point and is equally still running, and `cancel.ts` stamps
+  // `mayHaveSubmitted` for both — so leaving abort out put "No funds moved — please
+  // try again" on the very row whose Retry then refuses with "may already have been
+  // submitted". Two contradictory statements about the same money, from one error.
+  // Both read the whole cause chain, so a kill a caller wrapped is still one (#1313).
+  if (isKilledPipeline(error)) {
+    return abandonedPreWrite === true
+      ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+      : TRANSACTION_ENGINE_RECOVERED_ERROR;
+  }
+  if (error instanceof RotationGateConsumeRefusal) {
+    return error.message;
+  }
+  // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
+  if (isSubmitCrossingUnrecorded(error)) {
+    return SUBMIT_CROSSING_UNRECORDED_ERROR;
+  }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote
   // timeout: the automatic remote→native fallback can turn a genuine mismatch
@@ -105,5 +683,94 @@ export function resolveTransactionErrorMessage(
   if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
+  const kernelFailureCopy = deterministicKernelFailureCopy(raw);
+  if (kernelFailureCopy !== undefined) {
+    return kernelFailureCopy;
+  }
+  // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
+  // pipeline requeues it, #779); this names the failure for the operations that still end on it.
+  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianOutage(error)) {
+    return GUARDIAN_UNREACHABLE_ERROR;
+  }
   return raw;
 }
+
+export function resolveTransactionErrorMessage(
+  error: unknown,
+  stage?: ITransactionStage,
+  delegateTransaction?: boolean,
+  abandonedPreWrite?: boolean
+): string {
+  const raw = formatRawTransactionError(error);
+  const message = classifyTransactionError(error, raw, stage, delegateTransaction, abandonedPreWrite);
+  // Keep the raw failure reachable in logs whenever a mapping replaces it. The
+  // friendly copy is deliberately non-technical, so a mapped error otherwise
+  // erases the only detail that identifies it -- which procedure root a prover
+  // could not resolve, which limb overflowed, which stage the kernel aborted in.
+  // The stored row and the UI still show `message`; this costs one log line and
+  // is the difference between a diagnosable failure and a shrug.
+  if (message !== raw) {
+    console.warn('[transaction] error classified, raw cause:', raw);
+  }
+  return message;
+}
+
+/**
+ * Stages a Failed row can hold that PROVE nothing was broadcast, so its cached
+ * request may be safely rebuilt (see the `requestBytes` clear in retry.ts), and
+ * a row a dead process left running its candidate abandoned (cancel.ts, #1666).
+ *
+ * A Failed row keeps the stage it died in - `updateTransactionStatus` preserves
+ * it precisely because it records WHERE the failure happened - so this reads as
+ * "how far did the last attempt get".
+ *
+ * Deliberately excludes 'sending', which is NOT pre-submit despite sitting
+ * before the submit stamps in the stage list. It is stamped at pickup
+ * (`generateTransaction`) and again just before the guardian leaf runs. The
+ * inline leaf narrows it as it goes; the offscreen leaf takes `stageStampFor` too,
+ * but its stamps are replayed late and are unreliable (`reliable: false`, #1081),
+ * so a realm torn down mid-op can leave the row at 'sending' after a submit. Offscreen
+ * routing is the DEFAULT (`MIDEN_USE_OFFSCREEN_CLIENT` defaults to 'true') and
+ * `send` is offscreen-routable, so on the shipping path a submit that landed
+ * before the realm was torn down leaves exactly this stage. The sibling requeue
+ * gate reached the same conclusion independently - "a 429 at or after 'sending'
+ * must NOT requeue".
+ *
+ * The cut is therefore `provenTx.submit()` OR any stage that could span it:
+ * 'submitting' is stamped immediately before that call, and 'sending' may
+ * enclose it.
+ *
+ * A missing stage is deliberately NOT in this set, because for a row that has
+ * cached bytes it proves the opposite of what it looks like. Pickup stamps
+ * 'syncing' then 'sending' before any request is built, so a row can only hold
+ * bytes if it got past those - a missing stage on such a row therefore means
+ * the stage was RESET by a requeue, not that nothing ever ran, and the history
+ * it was reset from is exactly what is unknown. (A row that genuinely never
+ * reached the loop has no bytes, so excluding it costs nothing: the clear it
+ * misses is a no-op.) This matters for rows written by an older build, which
+ * carry no `mayHaveSubmitted` at all: `cancelTransaction` fails a row without
+ * writing a stage, so `cancelStaleQueuedTransactions` reaping a requeued row
+ * leaves Failed + no stage + bytes, and reading that as pre-submit would
+ * rebuild the note id of a transfer that may already have landed.
+ *
+ * None of the above makes the stage TRUSTWORTHY on its own, which is why
+ * `mayHaveSubmitted` - not this set - is the primary guard. A Failed row's stage
+ * says where the pipeline was when the row went terminal, and for an
+ * out-of-band cancel that is not where the pipeline ENDED: nothing aborts the
+ * leaf, `setTransactionStage` refuses to advance a terminal row, and the submit
+ * still happens. The stage would then read 'proving' forever on a transfer
+ * that landed. The leaves therefore stamp `mayHaveSubmitted` themselves at the
+ * submit crossing (`markMayHaveSubmitted`, which the terminal guard does not
+ * apply to), and this set only decides the case where no leaf ever got that far.
+ */
+export const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
+  'syncing',
+  'creating-proposal',
+  'signing-proposal',
+  // The direct switch's local hot+cold signing, which happens while the request
+  // is still being BUILT - strictly earlier than `signing-proposal`, so it
+  // belongs here for the same reason.
+  'signing-locally',
+  'executing',
+  'proving'
+]);

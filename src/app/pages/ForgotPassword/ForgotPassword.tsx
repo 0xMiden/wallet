@@ -1,51 +1,114 @@
-import React, { FC, useCallback, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
-import { generateMnemonic } from 'bip39';
-import wordsList from 'bip39/src/wordlists/english.json';
+import { useTranslation } from 'react-i18next';
 
+import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
+import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { prepareMainnet } from 'lib/miden/prepare-mainnet';
 import { clearClientStorage } from 'lib/miden/reset';
+import { getEffectiveNetworkName, hasDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { isInviteOnlyRequired, useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
+import { errorToMessage } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
+  const { t } = useTranslation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
+  // Which BIP-44 namespace to recover into. `Vault.spawn` derives the account at
+  // index 0 of this wallet type's `getMainDerivationPath` namespace, and only
+  // runs the Guardian lookup for `WalletType.Guardian`. It used to be hardcoded
+  // to Guardian, so a user who onboarded with "no guardian" had their wallet
+  // wiped by `clearClientStorage()` and then hit "No Guardian accounts found at
+  // this guardian endpoint for this seed" — the OffChain account was never
+  // derived or looked up. The recovery-method step below now sets this the same
+  // way onboarding's `import-select-recovery-method` does.
+  const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
+  /** Endpoint the user picked on the recovery-method step; overrides the probe. */
+  const [selectedGuardianEndpoint, setSelectedGuardianEndpoint] = useState<string | undefined>(undefined);
   const [password, setPassword] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  // A new wallet on an invite-only network (mainnet, or any network once mainnet has launched) needs a
+  // code, which this page does not take: its Welcome offers recovery only.
+  const launched = useMainnetLaunched();
+  const liveRecoverOnly = isInviteOnlyRequired(launched, getEffectiveNetworkName(), hasDeveloperNetworkChoice());
+  // Fixed when the user leaves Welcome: a document that changes mid-reset must not move a recovery, or a fresh
+  // wallet, made for the network it started on.
+  const [startedRecoverOnly, setStartedRecoverOnly] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (step === OnboardingStep.Welcome) setStartedRecoverOnly(null);
+    else setStartedRecoverOnly(started => started ?? liveRecoverOnly);
+  }, [step, liveRecoverOnly]);
+  const recoverOnly = step === OnboardingStep.Welcome ? liveRecoverOnly : (startedRecoverOnly ?? liveRecoverOnly);
+  // A recover-only reset restores into mainnet but switches there only at Confirm, so until then the wallet is still
+  // on its old network: the probe and the recovery-method step are told which network the recovery restores into.
+  const recoveryNetwork = recoverOnly ? MIDEN_NETWORK_NAME.MAINNET : undefined;
 
   const { registerWallet } = useMidenContext();
-  // Guardian auto-detection (issue #418). This flow has no recovery-method
-  // screen, so the probe is invisible: it starts at seed submit and its winner
-  // is written to the guardian-URL setting just before registering. When it
-  // finds nothing (or is still running at the deadline) the previously stored
-  // endpoint is used, exactly as before.
-  const guardianProbe = useGuardianProbe();
+  // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
+  // its winner is passed to registerWallet unless the user picked an endpoint on
+  // the recovery-method step. When the probe finds nothing (or is still running
+  // at the deadline) the backend falls back to the network default.
+  const guardianProbe = useGuardianProbe(recoveryNetwork);
   const startGuardianProbe = guardianProbe.start;
   const resetGuardianProbe = guardianProbe.reset;
   const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
 
-  /** The probe belongs to an entered import seed — drop it when leaving that path. */
+  // Telemetry for the `recover` flow — regaining access to an EXISTING wallet
+  // from its seed phrase. The other half of this screen (wipe and create a
+  // fresh wallet) is not a recovery, so it never opens a flow and every
+  // settle below is a no-op for it.
+  const flowRef = useRef<FlowHandle | null>(null);
+
+  // The handle is idempotent, but clearing the ref keeps a later settle from
+  // being attributed to a flow that has already ended.
+  const settleRecoverFlow = useCallback((settle: (handle: FlowHandle) => void) => {
+    const handle = flowRef.current;
+    if (!handle) return;
+    flowRef.current = null;
+    settle(handle);
+  }, []);
+
+  // An unmount with the flow still open is an abandonment we can see, so record
+  // it as cancelled rather than leaving an unmatched `started`.
+  useEffect(
+    () => () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    },
+    []
+  );
+
+  /**
+   * The probe belongs to an entered import seed — drop it when leaving that
+   * path. Leaving the seed path also abandons the recovery itself, so the
+   * `recover` flow is cancelled here rather than at each individual exit.
+   */
   const discardGuardianProbe = useCallback(() => {
     probeResult.current = null;
     resetGuardianProbe();
-  }, [resetGuardianProbe]);
+    settleRecoverFlow(handle => handle.cancel());
+  }, [resetGuardianProbe, settleRecoverFlow]);
 
   /**
    * Resolve the auto-detected guardian endpoint, waiting at most
    * {@link GUARDIAN_PROBE_WAIT_DEADLINE_MS} for a probe that is still running.
    * Returns undefined when nothing was detected (or the probe timed out); the
-   * caller then threads no endpoint and the backend falls back to the legacy
-   * stored endpoint / network default, exactly as before.
+   * caller then threads no endpoint and the backend falls back to the network
+   * default, exactly as before.
    */
   const detectGuardianEndpoint = useCallback(async (): Promise<string | undefined> => {
     const pending = probeResult.current;
@@ -61,23 +124,32 @@ const ForgotPassword: FC = () => {
     return result?.best?.endpoint;
   }, []);
 
-  // 'ok' registered | 'failed' registration threw AFTER the destructive reset |
-  // 'skipped' preconditions absent so nothing ran and nothing was destroyed.
+  // 'ok' registered | 'failed' the guarded branch threw (usually after the
+  // destructive reset) | 'skipped' preconditions absent so nothing ran and
+  // nothing was destroyed.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
-      clearClientStorage();
-      // Resolve the probed guardian endpoint (import path only) and thread it
-      // explicitly into registerWallet (stage 1 of #408) rather than writing the
-      // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
-      // clearClientStorage above cannot clobber it. When nothing was detected the
-      // endpoint stays undefined and the backend falls back to the stored /
-      // default endpoint.
-      const guardianEndpoint = onboardingType === OnboardingType.Import ? await detectGuardianEndpoint() : undefined;
-
-      const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
+      // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so the wipe neither
+      // reads nor rewrites the endpoint override.
       try {
+        // An invite-only config recovers on mainnet: the network choice is stored and the realm refreshed
+        // before anything is wiped, so a failed switch shows here with nothing wiped and Retry repeats it.
+        if (recoverOnly) await prepareMainnet();
+        await clearClientStorage();
+        // Resolve the probed guardian endpoint (import path only) and thread it
+        // explicitly into registerWallet. The probe result is held in memory, so
+        // clearClientStorage above cannot clobber it. When nothing was detected the
+        // endpoint stays undefined and the backend falls back to the network default.
+        // Endpoint only matters for a Guardian recovery; a non-guardian recovery
+        // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
+        const guardianEndpoint =
+          onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
+            ? (selectedGuardianEndpoint ?? (await detectGuardianEndpoint()))
+            : undefined;
+
+        const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
         await registerWallet(
-          WalletType.Guardian,
+          walletType,
           password,
           seedPhraseFormatted,
           onboardingType === OnboardingType.Import, // might be able to leverage ownMnemonic to determine whther to attempt imports in general
@@ -85,29 +157,54 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // clearClientStorage() above has ALREADY wiped the local wallet, so a
-        // failure here leaves the user with nothing. Swallowing it into
-        // console.error (and then navigating away regardless) showed them an
-        // empty wallet with no explanation — indistinguishable from data loss.
-        // Surface it and stay put so Retry is reachable (#630).
+        // The wipe and registerWallet can each fail here, and what a failure
+        // leaves depends on the platform. On DESKTOP the platform key-value
+        // store is localStorage (`DesktopStorage`), so clearClientStorage()
+        // above removes the stored wallet, and a failure after it, the usual
+        // case, leaves none. On the extension and on mobile the wallet lives in
+        // browser.storage.local / Capacitor Preferences, which clearClientStorage()
+        // cannot reach, so it goes with `Vault.spawn`'s clearStorage(), and a
+        // failure can come before or after that clear and leave it or not.
+        // Swallowing the error into console.error (and then navigating away
+        // regardless) showed an empty wallet with no explanation,
+        // indistinguishable from data loss, so on every platform the page shows
+        // the error and stays put so Retry is reachable (#630).
         console.error(e);
-        setRecoveryError(e instanceof Error ? e.message : String(e));
+        setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
+        settleRecoverFlow(handle => handle.fail(classifyError(e)));
         return 'failed';
       }
     }
     return 'skipped';
-  }, [password, seedPhrase, registerWallet, onboardingType, detectGuardianEndpoint]);
+  }, [
+    password,
+    seedPhrase,
+    recoverOnly,
+    registerWallet,
+    onboardingType,
+    detectGuardianEndpoint,
+    settleRecoverFlow,
+    walletType,
+    selectedGuardianEndpoint,
+    t
+  ]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
       switch (action.id) {
+        // The Welcome step's Get started emits choose-protection; this page has no protection picker.
+        case 'choose-protection':
         case 'create-wallet':
           discardGuardianProbe();
-          setSeedPhrase(generateMnemonic(128).split(' '));
+          setSeedPhrase(generateMnemonic().split(' '));
           setOnboardingType(OnboardingType.Create);
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
         case 'select-import-type':
+          // The user is here to regain access to an existing wallet — this is
+          // the entry point of the `recover` flow.
+          flowRef.current?.cancel();
+          flowRef.current = beginFlow('recover');
           // Recovery is seed-phrase only — jump straight to the seed entry screen.
           setOnboardingType(OnboardingType.Import);
           setStep(OnboardingStep.ImportFromSeed);
@@ -125,38 +222,66 @@ const ForgotPassword: FC = () => {
         }
         case 'backup-seed-phrase':
           discardGuardianProbe();
-          setSeedPhrase(generateMnemonic(128).split(' '));
+          setSeedPhrase(generateMnemonic().split(' '));
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
         case 'verify-seed-phrase':
           setStep(OnboardingStep.VerifySeedPhrase);
           break;
         case 'create-password':
-          setStep(OnboardingStep.CreatePassword);
+          setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
         case 'create-password-submit':
           setPassword(action.payload.password);
+          // Recovery (import): ask which BIP-44 namespace the seed's accounts live
+          // in instead of assuming Guardian — see `walletType` above. Reset
+          // (create): a brand-new seed, so there is nothing to look up; keep going
+          // straight to confirmation with the Guardian default.
+          setStep(
+            onboardingType === OnboardingType.Import
+              ? OnboardingStep.ImportSelectRecoveryMethod
+              : OnboardingStep.Confirmation
+          );
+          break;
+        case 'import-select-recovery-method':
+          setWalletType(action.payload.walletType);
+          setSelectedGuardianEndpoint(
+            action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
+          );
           setStep(OnboardingStep.Confirmation);
           break;
         case 'setup-passcode-submit':
-          // Passcode IS the vault password (mobile import path).
+          // Passcode IS the vault password (mobile create and import paths).
           setPassword(action.payload);
-          setStep(OnboardingStep.Confirmation);
+          setStep(
+            onboardingType === OnboardingType.Import
+              ? OnboardingStep.ImportSelectRecoveryMethod
+              : OnboardingStep.Confirmation
+          );
           break;
         case 'confirmation': {
           setIsLoading(true);
           setRecoveryError(null);
-          const outcome = await register();
-          setIsLoading(false);
-          // Block the exit ONLY on a real failure. 'skipped' means the guarded
-          // branch never ran, so nothing was destroyed and the previous
-          // navigate-home behaviour is still right; 'failed' means the reset
-          // already happened, so leaving would strand the user on a wiped
-          // wallet with no explanation (#630).
-          if (outcome === 'failed') break;
-          // Guardian recovery just completed — hand off to the side panel like
-          // first-run onboarding rather than always entering in-tab (#428).
-          navigate(postOnboardingRoute());
+          // A Ready broadcast can land while register() finishes; the mark keeps Home off screen until we navigate on.
+          const finishMark = markOnboardingFinishing();
+          try {
+            const outcome = await register();
+            finishMark.arm();
+            // Block the exit ONLY on a real failure. 'skipped' means the guarded
+            // branch never ran, so nothing was destroyed and the previous
+            // navigate-home behaviour is still right; 'failed' means the guarded
+            // branch threw (usually after the destructive reset), so leaving
+            // would strand the user on a wiped wallet with no explanation
+            // (#630).
+            if (outcome === 'failed') break;
+            if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
+            // Guardian recovery just completed — hand off to the side panel like
+            // first-run onboarding rather than always entering in-tab (#428).
+            navigateOnFromOnboarding(postOnboardingRoute());
+          } finally {
+            setIsLoading(false);
+            finishMark.release();
+          }
           break;
         }
         case 'back':
@@ -170,9 +295,15 @@ const ForgotPassword: FC = () => {
             } else {
               setStep(OnboardingStep.ImportFromSeed);
             }
+          } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
+            setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           } else if (step === OnboardingStep.SetupPasscode) {
-            setStep(OnboardingStep.ImportFromSeed);
+            setStep(
+              onboardingType === OnboardingType.Create ? OnboardingStep.VerifySeedPhrase : OnboardingStep.ImportFromSeed
+            );
           } else if (step === OnboardingStep.ImportFromSeed) {
+            // Back to the reset screen's own welcome step — out of the recovery.
+            settleRecoverFlow(handle => handle.cancel());
             setStep(OnboardingStep.Welcome);
           }
           break;
@@ -180,7 +311,7 @@ const ForgotPassword: FC = () => {
           break;
       }
     },
-    [register, step, onboardingType, startGuardianProbe, discardGuardianProbe]
+    [register, step, onboardingType, startGuardianProbe, discardGuardianProbe, settleRecoverFlow]
   );
 
   // Handle mobile back button/gesture in forgot password flow
@@ -201,12 +332,17 @@ const ForgotPassword: FC = () => {
 
   return (
     <OnboardingFlow
+      recoverOnly={recoverOnly}
       wordslist={wordsList}
       seedPhrase={seedPhrase}
       onboardingType={onboardingType}
       step={step}
       isLoading={isLoading}
       recoveryError={recoveryError}
+      guardianProbe={guardianProbe.state}
+      guardianNetwork={recoveryNetwork}
+      // Confirmation restores the wallet; there is no step to go back to from it.
+      canGoBack={step !== OnboardingStep.Confirmation}
       onAction={onAction}
     />
   );

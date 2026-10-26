@@ -24,7 +24,10 @@ async function freshStore(): Promise<Store> {
   return mod.dappConfirmationStore;
 }
 
-function makeRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
+// Any kind but a login, whose request also names a site and an account: the login test builds its own.
+function makeRequest(
+  overrides: Partial<Exclude<DAppConfirmationRequest, { type: 'loginSign' }>> = {}
+): DAppConfirmationRequest {
   return {
     id: 'req-' + Math.random().toString(36).slice(2, 8),
     type: 'connect',
@@ -55,6 +58,29 @@ describe('requestConfirmation / resolveConfirmation', () => {
     expect(store.getPendingRequest('s1')?.type).toBe('transaction');
     store.resolveConfirmation('s1', { confirmed: false });
     await promise;
+  });
+
+  it('keeps breach details in the wallet and returns only the strict-authentication result', async () => {
+    const store = await freshStore();
+    const request = makeRequest({
+      sessionId: 's1',
+      type: 'transaction',
+      spendingLimitAssessment: {
+        accountId: 'account-a',
+        usdAmount: 5_000_000n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: 8_000_000n, proposedTotal: 13_000_000n, limit: 10_000_000n, overBy: 3_000_000n, resetAt: 200 }
+      }
+    });
+    const promise = store.requestConfirmation(request);
+
+    expect(store.getPendingRequest('s1')).toMatchObject({
+      spendingLimitAssessment: { usdAmount: 5_000_000n, revision: 'revision-1' }
+    });
+    store.resolveConfirmation('s1', { confirmed: true, spendingLimitAuthenticated: true });
+
+    await expect(promise).resolves.toEqual({ confirmed: true, spendingLimitAuthenticated: true });
   });
 
   it('routes callers without a sessionId through the legacy default slot', async () => {
@@ -144,6 +170,50 @@ describe('resolveConfirmation edge cases', () => {
   });
 });
 
+// The UI names the request it decided, so a decision on a request that was
+// replaced (or already settled) never lands on whatever now sits at the slot.
+describe('resolveConfirmation with a request id', () => {
+  it('leaves a different pending request untouched and returns false', async () => {
+    const store = await freshStore();
+    let settled = false;
+    void store.requestConfirmation(makeRequest({ sessionId: 's1', id: 'current' })).then(() => {
+      settled = true;
+    });
+    const listener = jest.fn();
+    store.subscribe(listener);
+
+    const resolved = store.resolveConfirmation('s1', { confirmed: true }, 'replaced');
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(store.getPendingRequest('s1')?.id).toBe('current');
+    expect(listener).not.toHaveBeenCalled();
+    expect(resolved).toBe(false);
+  });
+
+  it('returns false when nothing is pending for the session', async () => {
+    const store = await freshStore();
+    expect(store.resolveConfirmation('s1', { confirmed: true }, 'gone')).toBe(false);
+  });
+
+  it('resolves the pending request and returns true when the id matches', async () => {
+    const store = await freshStore();
+    const promise = store.requestConfirmation(makeRequest({ sessionId: 's1', id: 'current' }));
+
+    expect(store.resolveConfirmation('s1', { confirmed: true }, 'current')).toBe(true);
+    await expect(promise).resolves.toEqual({ confirmed: true });
+    expect(store.getPendingRequest('s1')).toBeNull();
+  });
+
+  it('resolves whatever is pending when no id is given', async () => {
+    const store = await freshStore();
+    const promise = store.requestConfirmation(makeRequest({ sessionId: 's1', id: 'current' }));
+
+    expect(store.resolveConfirmation('s1', { confirmed: false })).toBe(true);
+    await expect(promise).resolves.toEqual({ confirmed: false });
+  });
+});
+
 describe('hasPendingRequest', () => {
   it('returns false for an empty store', async () => {
     const store = await freshStore();
@@ -215,5 +285,48 @@ describe('instanceId', () => {
     expect(id1).toBe(id2);
     expect(typeof id1).toBe('string');
     expect(id1.length).toBeGreaterThan(0);
+  });
+});
+
+// The prompt line above the detail list, and whether that list is shown at all.
+// Both the mobile modal and the desktop overlay read these, so a kind that falls
+// through to the wrong arm mislabels a request the user is about to approve —
+// a note import or a private-data grant described as a transaction.
+describe('confirmationPromptKey / confirmationPromptValues / isDetailsConfirmation', () => {
+  it.each([
+    ['connect', 'dappConnectionRequest'],
+    ['sign', 'dappSignRequest'],
+    ['loginSign', 'dappLoginSignRequest'],
+    ['importPrivateNote', 'dappImportNoteRequest'],
+    ['privateData', 'dappPrivateDataRequest'],
+    ['transaction', 'dappTransactionRequest'],
+    ['consume', 'dappTransactionRequest']
+  ] as const)('names a %s request with %s', async (type, expected) => {
+    const { confirmationPromptKey } = await import('./confirmation-store');
+    expect(confirmationPromptKey(type)).toBe(expected);
+  });
+
+  it('shows the detail list for every kind except connect and loginSign', async () => {
+    const { isDetailsConfirmation } = await import('./confirmation-store');
+    expect(isDetailsConfirmation('connect')).toBe(false);
+    expect(isDetailsConfirmation('loginSign')).toBe(false);
+    for (const type of ['sign', 'transaction', 'consume', 'importPrivateNote', 'privateData'] as const) {
+      expect(isDetailsConfirmation(type)).toBe(true);
+    }
+  });
+
+  it('titles an in-app login request with the domain', async () => {
+    const { confirmationPromptKey, confirmationPromptValues } = await import('./confirmation-store');
+    const login: DAppConfirmationRequest = {
+      ...makeRequest({ origin: 'https://www.example.org' }),
+      type: 'loginSign',
+      domain: 'example.org',
+      accountId: 'mtst1account_login'
+    };
+
+    expect(confirmationPromptKey(login.type)).toBe('dappLoginSignRequest');
+    expect(confirmationPromptValues(login)).toEqual({ domain: 'example.org' });
+    // Only a login's prompt names a site.
+    expect(confirmationPromptValues(makeRequest({ type: 'sign' }))).toBeUndefined();
   });
 });

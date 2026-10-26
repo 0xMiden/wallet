@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { AmountInput, normalizeDecimalInput } from './AmountInput';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // Mock the Icon component / IconName enum used by the error row. Keeps the DOM
 // tiny and lets us assert which icon variant was requested.
@@ -15,16 +19,70 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// The clear button names itself through i18n; `t` echoes the key back.
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
 // Convenience: the underlying react-currency-input-field renders a plain
 // <input>; we tag it with data-testid so every test can grab it directly.
+let mockAppLocale = 'en';
+jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => mockAppLocale }));
+
+afterEach(() => {
+  mockAppLocale = 'en';
+});
+
 const TESTID = 'amount';
 const getInput = () => screen.getByTestId(TESTID) as HTMLInputElement;
 
 describe('AmountInput', () => {
+  it('shows a compact estimate while preserving exact input and callback precision through focus and blur', () => {
+    const onValueChange = jest.fn();
+    const exact = '0.040060070075077579';
+    render(
+      <AmountInput
+        value={exact}
+        unfocusedDisplayValue="≈ 0.04006007"
+        decimalsLimit={18}
+        maxLength={80}
+        data-testid={TESTID}
+        onValueChange={onValueChange}
+      />
+    );
+    expect(getInput()).toHaveValue(exact);
+    expect(screen.getByText('≈ 0.04006007')).toBeInTheDocument();
+    fireEvent.focus(getInput());
+    expect(screen.queryByText('≈ 0.04006007')).not.toBeInTheDocument();
+    expect(getInput()).toHaveValue(exact);
+    fireEvent.blur(getInput());
+    expect(screen.getByText('≈ 0.04006007')).toBeInTheDocument();
+    expect(getInput()).toHaveValue(exact);
+    for (const [value] of onValueChange.mock.calls) expect(value).toBe(exact);
+  });
+
+  it('keeps the same focused control when a computed amount becomes user-edited', () => {
+    const { rerender } = render(
+      <AmountInput
+        value="0.040060070075077579"
+        unfocusedDisplayValue="≈ 0.04006007"
+        decimalsLimit={18}
+        maxLength={80}
+        data-testid={TESTID}
+      />
+    );
+    const input = getInput();
+    act(() => input.focus());
+    rerender(
+      <AmountInput value="0.05" unfocusedDisplayValue="0.05" decimalsLimit={18} maxLength={80} data-testid={TESTID} />
+    );
+    expect(getInput()).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(getInput()).toHaveValue('0.05');
+  });
+
   describe('amountTextSize scaling (via input className)', () => {
-    it('uses text-6xl for a short value (< 7 chars)', () => {
+    it('uses text-[4rem] for a short value (< 7 chars)', () => {
       render(<AmountInput value="123" data-testid={TESTID} />);
-      expect(getInput()).toHaveClass('text-6xl');
+      expect(getInput()).toHaveClass('text-[4rem]');
     });
 
     it('uses text-5xl for a value of 7-9 chars', () => {
@@ -40,32 +98,43 @@ describe('AmountInput', () => {
     it('uses text-3xl for a value of 13+ chars', () => {
       render(<AmountInput value="1234567890123" data-testid={TESTID} />);
       expect(getInput()).toHaveClass('text-3xl');
+      // No fixed 4rem beside the step: Tailwind emits the arbitrary size after text-3xl, so it would win.
+      expect(getInput()).not.toHaveClass('text-[4rem]');
     });
 
-    it('falls back to length 4 (text-6xl) when value is undefined', () => {
+    it('falls back to length 4 (text-[4rem]) when value is undefined', () => {
       render(<AmountInput data-testid={TESTID} />);
-      expect(getInput()).toHaveClass('text-6xl');
+      expect(getInput()).toHaveClass('text-[4rem]');
     });
 
-    it('falls back to length 4 (text-6xl) when value is an empty string', () => {
+    it('falls back to length 4 (text-[4rem]) when value is an empty string', () => {
       // Empty string has length 0, so the `|| 4` fallback branch is exercised.
       render(<AmountInput value="" data-testid={TESTID} />);
-      expect(getInput()).toHaveClass('text-6xl');
+      expect(getInput()).toHaveClass('text-[4rem]');
     });
   });
 
   describe('input color state', () => {
+    it('keeps a cleared invalid input red and accessible without an error row', () => {
+      render(<AmountInput value="" invalid helper="Available 200 USDC" data-testid={TESTID} />);
+
+      expect(getInput()).toHaveClass('text-red-500', 'placeholder-red-500');
+      expect(getInput()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.queryByTestId('icon')).not.toBeInTheDocument();
+      expect(screen.getByText('Available 200 USDC')).toBeInTheDocument();
+    });
+
     it('renders red text/placeholder classes when there is an error', () => {
       render(<AmountInput value="10" error="Too much" data-testid={TESTID} />);
       const input = getInput();
       expect(input).toHaveClass('text-red-500', 'placeholder-red-500');
-      expect(input).not.toHaveClass('text-black');
+      expect(input).not.toHaveClass('text-ink');
     });
 
     it('renders black text when a value is present and there is no error', () => {
       render(<AmountInput value="10" data-testid={TESTID} />);
       const input = getInput();
-      expect(input).toHaveClass('text-black');
+      expect(input).toHaveClass('text-ink');
       expect(input).not.toHaveClass('text-red-500');
     });
 
@@ -147,6 +216,17 @@ describe('AmountInput', () => {
       expect(screen.getByTestId('token')).toBeInTheDocument();
     });
 
+    it('sits 8px under the helper line with no divider, and 16px under the divider', () => {
+      const token = <button data-testid="token">USDC</button>;
+      const { rerender } = render(
+        <AmountInput showDivider={false} helper="Available 0" tokenSelector={token} data-testid={TESTID} />
+      );
+      expect(screen.getByTestId('token').parentElement).toHaveClass('mt-2');
+
+      rerender(<AmountInput showDivider helper="Available 0" tokenSelector={token} data-testid={TESTID} />);
+      expect(screen.getByTestId('token').parentElement).toHaveClass('mt-4');
+    });
+
     it('does not render a token selector chip when omitted', () => {
       render(<AmountInput data-testid={TESTID} />);
       expect(screen.queryByTestId('token')).not.toBeInTheDocument();
@@ -162,6 +242,71 @@ describe('AmountInput', () => {
     it('can be hidden by the caller', () => {
       render(<AmountInput showDivider={false} data-testid={TESTID} />);
       expect(screen.queryByTestId('amount-token-divider')).not.toBeInTheDocument();
+    });
+
+    it('takes the flow it is told it belongs to, and the brand orange otherwise', () => {
+      const { rerender } = render(<AmountInput data-testid={TESTID} />);
+      expect(screen.getByTestId('amount-token-divider')).toHaveClass('bg-primary-500');
+
+      rerender(<AmountInput accent="swap" data-testid={TESTID} />);
+      expect(screen.getByTestId('amount-token-divider')).toHaveClass('bg-accent-swap');
+    });
+  });
+
+  describe('prefix and alignment', () => {
+    it('draws a prefix outside the input, so the value stays bare digits and screen readers skip it', () => {
+      render(<AmountInput prefix="$" value="25" aria-label="Limit" data-testid={TESTID} />);
+
+      const input = screen.getByTestId(TESTID);
+      expect(input).toHaveValue('25');
+      expect(input).toHaveAccessibleName('Limit');
+      const prefix = screen.getByText('$');
+      expect(prefix).toHaveAttribute('aria-hidden', 'true');
+      expect(prefix).not.toContainElement(input);
+    });
+
+    it('left-aligns by default: one baseline row, the input spanning it', () => {
+      render(<AmountInput prefix="$" value="25" data-testid={TESTID} />);
+
+      const input = screen.getByTestId(TESTID);
+      expect(input).toHaveClass('text-left', 'w-full');
+      expect(screen.getByText('$').parentElement).toHaveClass('items-baseline');
+    });
+
+    it('centres the prefix and a value-sized input as one, the prefix smaller and raised', () => {
+      render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+
+      const input = screen.getByTestId(TESTID);
+      expect(input).toHaveClass('text-center', 'min-w-full');
+      expect(input).not.toHaveClass('w-full');
+      const prefix = screen.getByText('$');
+      expect(prefix).toHaveClass('text-[0.6em]', 'text-muted');
+      expect(prefix.parentElement).toHaveClass('justify-center');
+      // The invisible sizing copy holds the value, so the input is exactly as wide as it.
+      expect(input.parentElement?.querySelector('[aria-hidden="true"].invisible')).toHaveTextContent('25');
+    });
+
+    it('steps a centred row and a left prefix down with a long value, with no fixed 4rem', () => {
+      const { unmount } = render(<AmountInput align="center" prefix="$" value="1234567890123" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      expect(row).toHaveClass('text-3xl');
+      expect(row).not.toHaveClass('text-[4rem]');
+      unmount();
+
+      render(<AmountInput prefix="$" value="1234567890123" data-testid={TESTID} />);
+      expect(screen.getByText('$')).toHaveClass('text-3xl');
+    });
+
+    it('keeps a short centred row at 4rem, set once', () => {
+      render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      expect(row.className.split(/\s+/).filter(name => name === 'text-[4rem]')).toHaveLength(1);
+    });
+
+    it('sizes a centred empty field to its placeholder', () => {
+      render(<AmountInput align="center" placeholder="0" value="" data-testid={TESTID} />);
+
+      expect(screen.getByTestId(TESTID).parentElement?.querySelector('.invisible')).toHaveTextContent('0');
     });
   });
 
@@ -197,6 +342,46 @@ describe('AmountInput', () => {
     });
   });
 
+  describe('canonical numeric entry', () => {
+    it.each(['fa-IR', 'ar-EG'])('preserves every typed digit under ambient %s numbering', ambientLocale => {
+      mockAppLocale = ambientLocale.replace('-', '_');
+      const RealNumberFormat = Intl.NumberFormat;
+      const spy = jest
+        .spyOn(Intl, 'NumberFormat')
+        .mockImplementation((locale, options) => new RealNumberFormat(locale || ambientLocale, options));
+      const onValueChange = jest.fn();
+      const ControlledAmount = () => {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            onValueChange={(next, name, values) => {
+              onValueChange(next, name, values);
+              setValue(next || '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      };
+
+      try {
+        render(<ControlledAmount />);
+        for (const key of ['1', '2', '.', '5']) {
+          fireEvent.change(getInput(), { target: { value: `${getInput().value}${key}` } });
+        }
+        expect(getInput()).toHaveValue('12.5');
+        expect(onValueChange.mock.calls.map(([value]) => value)).toEqual(['1', '12', '12.', '12.5']);
+        expect(onValueChange).toHaveBeenLastCalledWith(
+          '12.5',
+          undefined,
+          expect.objectContaining({ value: '12.5', formatted: '12.5' })
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   describe('interaction', () => {
     it('fires onValueChange when the user changes the input', () => {
       const onValueChange = jest.fn();
@@ -205,6 +390,27 @@ describe('AmountInput', () => {
       fireEvent.change(getInput(), { target: { value: '5' } });
 
       expect(onValueChange).toHaveBeenCalled();
+    });
+
+    it('preserves redundant trailing zeros while rejecting excess nonzero precision', () => {
+      const onValueChange = jest.fn();
+      render(
+        <AmountInput
+          value="1.23"
+          preservePrecision
+          decimalsLimit={2}
+          maxLength={80}
+          onValueChange={onValueChange}
+          data-testid={TESTID}
+        />
+      );
+
+      fireEvent.change(getInput(), { target: { value: '1.2300' } });
+      expect(onValueChange).toHaveBeenCalledWith('1.2300');
+
+      onValueChange.mockClear();
+      fireEvent.change(getInput(), { target: { value: '1.2301' } });
+      expect(onValueChange).not.toHaveBeenCalled();
     });
 
     // #433 — on a comma-decimal keyboard/locale (es, de, fr, …) the user types a
@@ -286,6 +492,92 @@ describe('AmountInput', () => {
     });
   });
 
+  describe('clear action (#503)', () => {
+    const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+    it('offers a clear action only while there is an amount and the field is editable and loaded', () => {
+      const { rerender } = render(<AmountInput value="" data-testid={TESTID} />);
+      expect(clearButton()).toBeNull();
+
+      rerender(<AmountInput value="12.5" data-testid={TESTID} />);
+      expect(clearButton()).not.toBeNull();
+
+      rerender(<AmountInput value="12.5" disabled data-testid={TESTID} />);
+      expect(clearButton()).toBeNull();
+
+      rerender(<AmountInput value="12.5" loading data-testid={TESTID} />);
+      expect(clearButton()).toBeNull();
+    });
+
+    it("clears through the field's own value change, as deleting the amount does, and keeps focus", () => {
+      const onValueChange = jest.fn();
+      const Owner = () => {
+        const [value, setValue] = React.useState('12.5');
+        return (
+          <AmountInput
+            value={value}
+            onValueChange={(next, name, values) => {
+              onValueChange(next, name, values);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      };
+      render(<Owner />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+      expect(onValueChange).toHaveBeenLastCalledWith(undefined, undefined, { float: null, formatted: '', value: '' });
+      expect(getInput()).toHaveValue('');
+      expect(getInput()).toHaveFocus();
+      expect(clearButton()).toBeNull();
+    });
+
+    it('sits at the end of a left-aligned row, the input free to shrink for it', () => {
+      render(<AmountInput value="12.5" data-testid={TESTID} />);
+      const clear = screen.getByRole('button', { name: 'clear' });
+      expect(getInput()).toHaveClass('w-full', 'min-w-0');
+      expect(clear.parentElement).toBe(getInput().parentElement);
+      expect(clear).toHaveClass('ml-1', 'self-center');
+      expect(clear).not.toHaveClass('-mr-3');
+      expect(clear).not.toHaveClass('absolute');
+    });
+
+    it('sits inline after the amount in a centred row, centring with it as one group', () => {
+      const { rerender } = render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      const clear = screen.getByRole('button', { name: 'clear' });
+      const amount = getInput().parentElement!;
+      expect(clear.parentElement).toBe(row);
+      expect(amount.nextElementSibling).toBe(clear);
+      expect(row).toHaveClass('justify-center');
+      expect(clear).toHaveClass('shrink-0', 'self-center');
+      expect(clear).not.toHaveClass('absolute');
+      // A value too long for the row scrolls inside the input instead of overflowing it.
+      expect(amount).toHaveClass('min-w-0');
+
+      rerender(<AmountInput align="center" prefix="$" value="" data-testid={TESTID} />);
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+      expect(row.querySelector('[aria-hidden="true"].h-11')).toBeNull();
+    });
+
+    it('holds the clear slot with an invisible spacer while a centred field with a value is disabled', () => {
+      const { container, rerender } = render(<AmountInput align="center" value="25" disabled data-testid={TESTID} />);
+      const amount = getInput().parentElement!;
+      const spacer = amount.nextElementSibling as HTMLElement;
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+      expect(spacer).toHaveAttribute('aria-hidden', 'true');
+      expect(spacer).toHaveClass('h-11', 'w-11', 'shrink-0');
+
+      rerender(<AmountInput align="center" value="" disabled data-testid={TESTID} />);
+      expect(container.querySelector('.h-11.w-11')).toBeNull();
+
+      rerender(<AmountInput value="25" disabled data-testid={TESTID} />);
+      expect(container.querySelector('.h-11.w-11')).toBeNull();
+    });
+  });
+
   describe('normalizeDecimalInput', () => {
     it('turns a comma decimal into a dot', () => {
       expect(normalizeDecimalInput('1,5')).toBe('1.5');
@@ -300,5 +592,43 @@ describe('AmountInput', () => {
     it('drops commas as groupings when a dot is already present', () => {
       expect(normalizeDecimalInput('1,000.50')).toBe('1000.50');
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the field surface after the dwell', () => {
+    render(<AmountInput errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'field');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<AmountInput errorId={errorId} error="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<AmountInput errorId="usdcxFaucetUnavailable" invalid helper="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<AmountInput errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<AmountInput errorId="usdcxFaucetUnavailable" invalid helper="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,9 @@
 package com.miden.wallet
 
+import android.content.Intent
 import android.os.Build
+import android.os.UserManager
+import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -51,14 +54,68 @@ class HardwareSecurityPlugin : Plugin() {
         val canAuthenticate = biometricManager.canAuthenticate(authenticators)
 
         // Available if device has any form of secure authentication
-        val available = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS
+        val available = canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS
 
         Log.d(TAG, "Hardware security available: $available (canAuthenticate: $canAuthenticate)")
 
         val jsResult = JSObject()
         jsResult.put("available", available)
         call.resolve(jsResult)
+    }
+
+    /**
+     * Strong- and weak-biometric status for the current user: `code` is the raw
+     * canAuthenticate(BIOMETRIC_STRONG) result, `weakCode` is canAuthenticate(BIOMETRIC_WEAK),
+     * which together let JS tell a class-2-only enrollment from no enrollment at all.
+     */
+    @PluginMethod
+    fun biometricStatus(call: PluginCall) {
+        val biometricManager = BiometricManager.from(context)
+        val code = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        val weakCode = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+        val managedProfile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                context.getSystemService(UserManager::class.java)?.isManagedProfile == true
+
+        Log.d(TAG, "biometricStatus: code=$code weakCode=$weakCode managedProfile=$managedProfile")
+
+        val jsResult = JSObject()
+        jsResult.put("code", code)
+        jsResult.put("weakCode", weakCode)
+        jsResult.put("managedProfile", managedProfile)
+        call.resolve(jsResult)
+    }
+
+    /**
+     * Open strong-biometric enrollment (API 30+), falling back through the security and
+     * general Settings screens so the tap always reaches a Settings screen when any of
+     * the three exists, and never crashes when none do (e.g. a locked-down work profile).
+     */
+    @PluginMethod
+    fun openBiometricSettings(call: PluginCall) {
+        val actions = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) add(Settings.ACTION_BIOMETRIC_ENROLL)
+            add(Settings.ACTION_SECURITY_SETTINGS)
+            add(Settings.ACTION_SETTINGS)
+        }
+
+        val host = activity
+        val launched = if (host == null) null else BiometricSettingsLogic.launchFirst(actions) { action ->
+            val intent = Intent(action)
+            if (action == Settings.ACTION_BIOMETRIC_ENROLL) {
+                intent.putExtra(
+                    Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG
+                )
+            }
+            host.startActivity(intent)
+        }
+
+        if (launched != null) {
+            Log.d(TAG, "openBiometricSettings: opened $launched")
+        } else {
+            Log.w(TAG, "openBiometricSettings: no activity handled any Settings action")
+        }
+        call.resolve()
     }
 
     /**

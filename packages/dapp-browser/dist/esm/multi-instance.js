@@ -30,14 +30,22 @@ function generateId() {
 }
 
 export class DappWebViewInstance {
-  constructor(id) {
+  constructor(id, managedHostCloseToken) {
     this.id = id;
+    this.managedHostCloseToken = managedHostCloseToken;
+    this.closed = false;
+    this.visibilitySequence = 0;
+    this.hidden = false;
   }
+
+  get currentVisibilitySequence() { return this.visibilitySequence; }
 
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect) {
+    if (this.closed || this.closePromise) return Promise.resolve();
     return InAppBrowser.updateDimensions({
       id: this.id,
+      ...(this.managedHostCloseToken ? { managedHostCloseToken: this.managedHostCloseToken } : {}),
       x: rect.x,
       y: rect.y,
       width: rect.width,
@@ -46,8 +54,41 @@ export class DappWebViewInstance {
   }
 
   /** Toggle this instance's visibility. The WebView's JS context survives. */
-  setVisible(visible) {
-    return InAppBrowser.setVisible({ id: this.id, visible });
+  setVisible(visible, policyRevision) {
+    if (this.closed || this.closePromise) return Promise.resolve();
+    // Until a show or a morph, a repeated hide changes nothing native, so it stays off the bridge (#1817).
+    if (!visible && this.hidden) return Promise.resolve();
+    this.hidden = !visible;
+    return InAppBrowser.setVisible({
+      id: this.id,
+      visible,
+      ...(this.managedHostCloseToken ? {
+        managedHostCloseToken: this.managedHostCloseToken,
+        visibilitySequence: ++this.visibilitySequence,
+        ...(policyRevision === undefined ? {} : { policyRevision })
+      } : {})
+    }).catch(error => {
+      this.hidden = false;
+      throw error;
+    });
+  }
+
+  /** Run the native expand or collapse (#1817); a managed morph takes the next setVisible sequence. */
+  morph(request) {
+    if (this.closed || this.closePromise) return Promise.resolve({ accepted: false });
+    this.hidden = false;
+    return InAppBrowser.morph({
+      id: this.id,
+      ...(this.managedHostCloseToken ? {
+        managedHostCloseToken: this.managedHostCloseToken,
+        visibilitySequence: ++this.visibilitySequence
+      } : {}),
+      ...(request.to === 'expanded' && request.policyRevision !== undefined ? { policyRevision: request.policyRevision } : {}),
+      to: request.to,
+      card: request.card,
+      morphId: request.morphId,
+      ...(request.velocity === undefined ? {} : { velocity: request.velocity })
+    });
   }
 
   /** Take a JPEG snapshot of the current page as a base64 data URL. */
@@ -65,11 +106,22 @@ export class DappWebViewInstance {
 
   /** Close this instance and tear down its WebView. */
   close() {
-    return InAppBrowser.close({ id: this.id });
+    if (this.closePromise) return this.closePromise;
+    if (this.closed) return Promise.resolve();
+    if (this.managedHostCloseToken) closingInstances.set(this.id, this.managedHostCloseToken);
+    this.closePromise = InAppBrowser.close({ id: this.id, managedHostCloseToken: this.managedHostCloseToken })
+      .finally(() => {
+        // A host-owned reservation also waits for its persisted cleanup.
+        if (!this.closed && closingInstances.get(this.id) === this.managedHostCloseToken) closingInstances.delete(this.id);
+        this.closed = true;
+        if (liveInstances.get(this.id)?.instance === this) liveInstances.delete(this.id);
+      });
+    return this.closePromise;
   }
 }
 
 const liveInstances = new Map();
+const closingInstances = new Map();
 
 export const dappWebViewManager = {
   /**
@@ -80,22 +132,51 @@ export const dappWebViewManager = {
    */
   async open(opts) {
     const id = opts.id || generateId();
+    if (closingInstances.has(id)) throw new Error("A managed instance is closing");
     const existing = liveInstances.get(id);
-    if (existing) return existing;
-    await InAppBrowser.openWebView({ ...opts, id });
-    const instance = new DappWebViewInstance(id);
-    liveInstances.set(id, instance);
-    return instance;
+    if (existing?.instance.managedHostCloseToken && existing.instance.managedHostCloseToken !== opts.managedHostClose?.token)
+      throw new Error("A managed instance already owns this id");
+    if (existing) return existing.opening;
+    const instance = new DappWebViewInstance(id, opts.managedHostClose?.token);
+    const entry = { instance, opening: null };
+    liveInstances.set(id, entry);
+    entry.opening = InAppBrowser.openWebView({ ...opts, id }).then(() => instance, error => {
+      instance.closed = true;
+      if (liveInstances.get(id) === entry) liveInstances.delete(id);
+      throw error;
+    });
+    return entry.opening;
+  },
+
+  reserveClose(id, token) {
+    const entry = liveInstances.get(id);
+    if (!entry || entry.instance.managedHostCloseToken !== token) return;
+    closingInstances.set(id, token);
+    entry.instance.closed = true;
+    liveInstances.delete(id);
+  },
+
+  forget(id, token) {
+    if (closingInstances.get(id) === token) closingInstances.delete(id);
+    const entry = liveInstances.get(id);
+    if (!entry || entry.instance.managedHostCloseToken !== token) return;
+    entry.instance.closed = true;
+    liveInstances.delete(id);
   },
 
   /** Look up a previously-opened instance by id. */
   get(id) {
-    return liveInstances.get(id);
+    return liveInstances.get(id)?.instance;
   },
 
   /** Snapshot of all live JS-side instances. Doesn't query the native registry. */
   list() {
-    return Array.from(liveInstances.values());
+    return Array.from(liveInstances.values(), entry => entry.instance);
+  },
+
+  /** Publish the landing card a native-initiated collapse lands on (#1817); null when none is visible. */
+  setMorphTarget(card) {
+    return InAppBrowser.setMorphTarget({ card });
   },
 
   /**
@@ -105,15 +186,28 @@ export const dappWebViewManager = {
    */
   async sync() {
     const result = await InAppBrowser.listInstances();
-    liveInstances.clear();
+    for (const [id, entry] of liveInstances) {
+      if (!(result.ids || []).includes(id)) {
+        entry.instance.closed = true;
+        liveInstances.delete(id);
+      }
+    }
     for (const id of result.ids || []) {
-      liveInstances.set(id, new DappWebViewInstance(id));
+      if (liveInstances.has(id) || closingInstances.has(id)) continue;
+      const instance = new DappWebViewInstance(id);
+      liveInstances.set(id, { instance, opening: Promise.resolve(instance) });
     }
   },
 
   /** Close every live instance. Used on app shutdown / wallet reset. */
   async closeAll() {
-    await InAppBrowser.closeAll();
+    for (const [id, entry] of liveInstances) {
+      entry.instance.closed = true;
+      if (entry.instance.managedHostCloseToken) closingInstances.set(id, entry.instance.managedHostCloseToken);
+    }
+    const closing = new Map(closingInstances);
     liveInstances.clear();
+    await InAppBrowser.closeAll();
+    for (const [id, token] of closing) if (closingInstances.get(id) === token) closingInstances.delete(id);
   }
 };

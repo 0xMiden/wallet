@@ -14,10 +14,11 @@
  * `getMidenClient(...)` leaf anymore.
  *
  * Routing:
- *   - Epoch bridged-send + earn-deposit → send-style recallable P2IDE note →
- *     `midenClientProxy.sendTransaction(tx, signCallback)`.
- *   - Agglayer bridged-send (pre-built request) →
+ *   - earn-deposit and Agglayer bridged-send (pre-built request) →
  *     `midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback)`.
+ *     An earn-deposit without its bytes is refused before it mints.
+ *   - a legacy Epoch bridged-send with no bytes → send-style recallable P2IDE note →
+ *     `midenClientProxy.sendTransaction(tx, signCallback)`.
  *
  * Funds-safety (analysed, not re-proven here — inherited from the shared proxy +
  * loop machinery): a wedge-kill → OperationAbortedError → the
@@ -27,7 +28,12 @@
  * `ApplyTransactionAfterSubmitFailed` reaches that same type-agnostic classifier.
  */
 
-import { generateTransaction } from './index';
+import {
+  cancelTransactionAfterPipelineStopped,
+  EPOCH_BRIDGE_ABANDONED_ERROR,
+  generateTransaction,
+  isUnconfirmedFailure
+} from './index';
 import { ITransactionStatus } from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
@@ -55,7 +61,7 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-jest.mock('lib/settings/constants', () => ({ GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting' }));
+jest.mock('lib/settings/constants', () => ({}));
 
 // Non-guardian throughout: the standard signCallback dispatch path.
 const mockIsGuardianAccount = jest.fn(async (..._a: unknown[]) => false);
@@ -65,9 +71,14 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 
-jest.mock('lib/miden/guardian', () => ({
-  MultisigService: { buildColdMultisigService: jest.fn() }
-}));
+jest.mock('lib/miden/guardian', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+  return {
+    GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    MultisigService: { buildColdMultisigService: jest.fn() }
+  };
+});
 
 // The inline SW client leaf (`getMidenClient(...)`). After slice 7b nothing on the
 // non-guardian bridged/earn path may touch it — assert its send/newTransaction spies
@@ -198,9 +209,32 @@ async function run(id: string, extra: Record<string, unknown>) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks keeps a queued *Once, so a one-shot a test never reached would leak into the next.
+  mockIsGuardianAccount.mockReset().mockImplementation(async () => false);
+  mockProxyNewTransaction.mockReset().mockImplementation(async () => makeResult());
   txStore.length = 0;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
+
+const epochBridge = (id: string) =>
+  buildTx(id, {
+    type: 'bridged-send',
+    requestBytes: new Uint8Array([0xb1, 0x1d]),
+    secondaryAccountId: 'mtst1qallocator',
+    faucetId: 'faucet',
+    amount: 1000n,
+    noteType: 'public',
+    extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' }
+  });
+
+// markBridgedSendFailed's write, landing after the loop picked the row up and before its leaf runs.
+const abandonAfterPickup = (id: string) =>
+  mockIsGuardianAccount.mockImplementationOnce(async () => {
+    const row = txStore.find(r => r.id === id)!;
+    row.status = ITransactionStatus.Failed;
+    row.extraInputs = { ...(row.extraInputs as Record<string, unknown>), claimStatus: 'failed', epochStatus: 'failed' };
+    return false;
+  });
 
 afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
@@ -229,29 +263,37 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockComplete.earn).not.toHaveBeenCalled();
   });
 
-  it('Agglayer bridged-send (pre-built requestBytes) → midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback)', async () => {
-    const requestBytes = new Uint8Array([0xa9, 0x1a]);
-    const tx = await run('tx-bs-agg', {
-      type: 'bridged-send',
-      requestBytes,
-      faucetId: 'faucet',
-      amount: 2000n,
-      delegateTransaction: true,
-      extraInputs: { provider: 'agglayer' }
-    });
+  it.each(['agglayer', 'usdcx'])(
+    '%s pre-built bridged-send delegates the exact request bytes to the proxy',
+    async provider => {
+      const requestBytes = new Uint8Array([0xa9, 0x1a]);
+      const tx = await run('tx-bs-agg', {
+        type: 'bridged-send',
+        requestBytes,
+        faucetId: 'faucet',
+        amount: 2000n,
+        delegateTransaction: true,
+        extraInputs: { provider }
+      });
 
-    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, true, signCallback);
-    expect(mockProxySendTransaction).not.toHaveBeenCalled();
-    expect(mockGetMidenClient).not.toHaveBeenCalled();
-    expect(mockInlineNewTransaction).not.toHaveBeenCalled();
-    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
-    void tx;
-  });
+      expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+      // Both bridges await the node's verdict, so both carry a stage stamp (#1081).
+      const [account, bytes, delegate, callback, stamp] = mockProxyNewTransaction.mock.calls[0] ?? [];
+      expect([account, bytes, delegate, callback]).toEqual(['acc-1', requestBytes, true, signCallback]);
+      expect(typeof stamp).toBe('function');
+      expect(mockProxySendTransaction).not.toHaveBeenCalled();
+      expect(mockGetMidenClient).not.toHaveBeenCalled();
+      expect(mockInlineNewTransaction).not.toHaveBeenCalled();
+      expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+      void tx;
+    }
+  );
 
-  it('earn-deposit (always send-style) → midenClientProxy.sendTransaction(tx, signCallback); never newTransaction, never the inline SW leaf', async () => {
-    const tx = await run('tx-earn', {
+  it('earn-deposit (pre-built collateral request) → midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback); never sendTransaction, never the inline SW leaf', async () => {
+    const requestBytes = new Uint8Array([0xea, 0x51]);
+    await run('tx-earn', {
       type: 'earn-deposit',
+      requestBytes,
       secondaryAccountId: 'mtst1qallocator',
       faucetId: 'faucet',
       amount: 500n,
@@ -259,20 +301,125 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
-    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
-    expect(mockInlineSendTransaction).not.toHaveBeenCalled();
+    expect(mockInlineNewTransaction).not.toHaveBeenCalled();
     // Finalized via the earn-deposit completion (NOT the generic custom-tx path).
     expect(mockComplete.earn).toHaveBeenCalledTimes(1);
     expect(mockComplete.bridged).not.toHaveBeenCalled();
   });
 
+  // Regression: only the GUARDIAN leaf refused an abandoned earn deposit. The
+  // non-Guardian leaf shares a `case 'bridged-send': case 'earn-deposit':` block
+  // and had no such check, so after `openEarnPosition` gave up (its 5-min wait
+  // timed out → `updateEarnDepositStatus(..., 'failed')`, which patches
+  // extraInputs ONLY and leaves the row Queued) the FIFO loop still submitted the
+  // P2IDE collateral note — stranding the funds until the reclaim height while the
+  // activity row read "Deposited to lending".
+  it('earn-deposit refuses to submit once the caller abandoned the Epoch intent', async () => {
+    const tx = buildTx('tx-earn-abandoned', {
+      type: 'earn-deposit',
+      secondaryAccountId: 'mtst1qallocator',
+      faucetId: 'faucet',
+      amount: 500n,
+      noteType: 'public',
+      // The in-memory copy is the one the loop picked up minutes ago …
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+    // … while the row in the DB has since been marked abandoned.
+    txStore.push({ ...tx, extraInputs: { recallBlocks: 10, epochStatus: 'failed' } });
+
+    await expect(generateTransaction(tx as never, signCallback, false, provider as never)).rejects.toThrow(
+      /refusing to submit an orphan collateral note/
+    );
+
+    // No collateral note was built, submitted, or marked deposited.
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.earn).not.toHaveBeenCalled();
+  });
+
+  it('an Epoch bridged-send abandoned before its submit claim never reaches newTransaction (#1250)', async () => {
+    const tx = epochBridge('tx-bs-epoch-abandoned');
+    txStore.push({ ...tx });
+    abandonAfterPickup(tx.id);
+
+    await expect(generateTransaction(tx as never, signCallback, false, provider as never)).rejects.toThrow(
+      EPOCH_BRIDGE_ABANDONED_ERROR
+    );
+
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
+    const row = txStore.find(r => r.id === tx.id)!;
+    expect((row.extraInputs as Record<string, unknown>).submitClaimed).toBeUndefined();
+  });
+
+  it('an Epoch bridged-send claims its submit before newTransaction (#1250)', async () => {
+    const tx = epochBridge('tx-bs-epoch-claim');
+    txStore.push({ ...tx });
+    let claimedAtSubmit: unknown;
+    mockProxyNewTransaction.mockImplementationOnce(async () => {
+      const row = txStore.find(r => r.id === tx.id)!;
+      claimedAtSubmit = (row.extraInputs as Record<string, unknown>).submitClaimed;
+      return makeResult();
+    });
+
+    await generateTransaction(tx as never, signCallback, false, provider as never);
+
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(claimedAtSubmit).toBe(true);
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
+  it('a definite execute failure after the claim stays a confirmed failure (#1250)', async () => {
+    const tx = epochBridge('tx-bs-epoch-execute-failed');
+    txStore.push({ ...tx });
+    const executeError = new Error('failed to execute transaction: transaction execution failed: assertion failed');
+    mockProxyNewTransaction.mockRejectedValueOnce(executeError);
+
+    await expect(generateTransaction(tx as never, signCallback, false, provider as never)).rejects.toThrow(
+      executeError.message
+    );
+    // The loop's catch, failing the row its stopped pipeline left in flight.
+    await cancelTransactionAfterPipelineStopped(txStore.find(r => r.id === tx.id)! as never, executeError);
+
+    const row = txStore.find(r => r.id === tx.id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.mayHaveSubmitted).not.toBe(true);
+    expect(isUnconfirmedFailure(row as never)).toBe(false);
+  });
+
+  it('earn-deposit with no request bytes is refused before it mints: no send-style fallback for Earn', async () => {
+    // The fallback would mint a P2IDE with no mandate binding, which the allocator refuses to bind.
+    const tx = buildTx('tx-earn-no-bytes', {
+      type: 'earn-deposit',
+      requestBytes: undefined,
+      secondaryAccountId: 'mtst1qallocator',
+      faucetId: 'faucet',
+      amount: 500n,
+      noteType: 'public',
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+    txStore.push({ ...tx });
+
+    await expect(generateTransaction(tx as never, signCallback, false, provider as never)).rejects.toThrow(
+      'Earn deposit has no collateral request with its mandate binding, so it was not sent.'
+    );
+
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.earn).not.toHaveBeenCalled();
+  });
+
   it('flag ON changes nothing at THIS seam — the switch still delegates to the proxy leaf (the proxy owns the offscreen route)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const tx = await run('tx-earn-flagon', {
+    const requestBytes = new Uint8Array([0xea, 0x52]);
+    await run('tx-earn-flagon', {
       type: 'earn-deposit',
+      requestBytes,
       secondaryAccountId: 'mtst1qallocator',
       faucetId: 'faucet',
       amount: 500n,
@@ -280,7 +427,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
     // The proxy is the ONLY leaf — the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });

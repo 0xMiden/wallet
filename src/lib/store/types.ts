@@ -1,15 +1,30 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
+import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
+import type { TokenMetadataOverride, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
+import type {
+  SpendingLimitAssessment,
+  SpendingLimitConfiguration,
+  SpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
+  ApplyUserEndpointOutcome,
   GuardianSyncStatus,
+  ImportedAccountBackup,
+  GuardianRecoveryAction,
+  RecoveryPreparation,
   SerializedConsumableNote,
   SignEvmOperation,
+  SeedPhraseStatus,
+  UsdcxBurnFeeEstimate,
   WalletAccount,
+  WalletBackupMaterial,
   WalletSettings,
   WalletStatus
 } from 'lib/shared/types';
@@ -19,6 +34,7 @@ import { WalletType } from 'screens/onboarding/types';
  * Core wallet state (synced from backend)
  */
 export interface WalletSlice {
+  seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[];
   currentAccount: WalletAccount | null;
@@ -34,13 +50,21 @@ export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
+  /**
+   * The display faucet id each account's last landed read built its MIDEN row for. No override
+   * rewrites that row: the reader built it as the native token's, not from that faucet's record.
+   */
+  balancesDisplayFaucetId: Record<string, string>;
 }
 
 /**
  * Assets metadata (previously TokensMetadataProvider)
  */
 export interface AssetsSlice {
+  /** The metadata each screen shows: the faucet's values with the user's override applied. */
   assetsMetadata: Record<string, AssetMetadata>;
+  /** The display values the user set, by faucet id. Loaded from storage by `TokensMetadataProvider`. */
+  tokenMetadataOverrides: TokenMetadataOverrides;
 }
 
 /**
@@ -59,6 +83,7 @@ export interface FiatCurrencySlice {
   fiatRates: ExchangeRateRecord | null;
   fiatRatesLoading: boolean;
   tokenPrices: TokenPrices;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
 }
 
 /**
@@ -129,12 +154,19 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     ownMnemonic: boolean,
+    guardianEndpoint?: string,
+    accessCode?: string
+  ) => Promise<void>;
+  registerWalletFromHotKey: (
+    password: string | undefined,
+    keyPairPayload: string,
     guardianEndpoint?: string
   ) => Promise<void>;
   importWalletFromClient: (
     password: string | undefined,
     mnemonic: string,
-    walletAccounts: WalletAccount[]
+    walletAccounts: WalletAccount[],
+    importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
@@ -142,37 +174,76 @@ export interface WalletActions {
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
+  removeSeedPhrase: (password?: string) => Promise<void>;
+  provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
+  prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
+  releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
+  exportWalletBackupMaterial: (password?: string) => Promise<WalletBackupMaterial>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  exportAccountFile: (accountPublicKey: string, password?: string) => Promise<Uint8Array>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
-  revealGuardianKeys: (
-    accountPublicKey: string,
-    password?: string
-  ) => Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }>;
   importAccount: (privateKey: string, name?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
+  readSpendingLimit: (accountId: string) => Promise<SpendingLimitConfiguration | undefined>;
+  saveSpendingLimit: (
+    draft: SpendingLimitDraft,
+    observedRevision: string | undefined,
+    strictlyAuthenticated: boolean
+  ) => Promise<SpendingLimitConfiguration | undefined>;
+  assessSpendingLimit: (
+    accountId: string,
+    spends: readonly IConsumedAssetTotal[]
+  ) => Promise<SpendingLimitAssessment | undefined>;
+  getStrictAuthenticationProtectors: () => Promise<StrictAuthenticationProtectors>;
+  verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
-  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
+  /** Installs the everyday key from a saved key pair on a recovered account that has none. */
+  importHotKeyPair: (accountPublicKey: string, keyPairPayload: string) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Conditional rollback after the node discards a rotation. Refused unless the
+   * account still names `discardedEndpoint`, so a rollback carrying old evidence
+   * cannot overwrite a binding something authoritative has since moved.
+   */
+  revertGuardianEndpointAfterDiscard: (
+    accountPublicKey: string,
+    discardedEndpoint: string,
+    revertTo: string
+  ) => Promise<'reverted' | 'superseded' | 'stale'>;
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
+  /**
+   * Persist the verdict that another device rotated the account's hot key away
+   * from `hotPublicKey`; the backend writes it only while that is still the
+   * stored key. See `HotKeyRotatedOutVerdict`.
+   */
+  markHotKeyRotatedOut: (accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) => Promise<void>;
+  /**
+   * Make this device the account's main one: drop the rotated-out hot key and
+   * flag the account for the rotation `HotKeyRotationGate` runs.
+   */
+  retireRotatedOutHotKey: (accountPublicKey: string, expectedHotPubKey: string) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
-  applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<boolean>;
+  applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
-  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; error?: string }>;
+  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
+  /** Native-asset base units a USDCx burn needs for its cost, from a dry run, or why it was not measured. */
+  estimateUsdcxBurnFee: (accountPublicKey: string, destinationChainId: number) => Promise<UsdcxBurnFeeEstimate>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,
@@ -185,7 +256,13 @@ export interface WalletActions {
   confirmDAppAssets: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppImportPrivateNote: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppConsumableNotes: (id: string, confirmed: boolean) => Promise<void>;
-  confirmDAppTransaction: (id: string, confirmed: boolean, delegate: boolean) => Promise<void>;
+  confirmDAppUnlock: (id: string) => Promise<void>;
+  confirmDAppTransaction: (
+    id: string,
+    confirmed: boolean,
+    delegate: boolean,
+    spendingLimitAuthenticated?: true
+  ) => Promise<void>;
   getAllDAppSessions: () => Promise<MidenDAppSessions>;
   removeDAppSession: (origin: string) => Promise<void>;
 
@@ -201,11 +278,23 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
+  /** Drops every address's balances, loading flag and last fetch, so each reader waits for a new read. */
+  clearBalances: () => void;
 }
 
 export interface AssetActions {
+  /** Takes the faucet's metadata. The store applies the user's overrides before it shows it. */
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
+  /**
+   * Sets the user's display values of a token, and stores them. The screens change at once.
+   * Rejects, and puts back the previous values, when the write fails. Rejects for the native token.
+   */
+  setTokenMetadataOverride: (faucetId: string, override: TokenMetadataOverride) => Promise<void>;
+  /** Removes the user's display values of a token, so the faucet's values show again. Rejects when the write fails. */
+  clearTokenMetadataOverride: (faucetId: string) => Promise<void>;
+  /** Replaces the overrides map with the stored one, and applies it again. */
+  hydrateTokenMetadataOverrides: (overrides: TokenMetadataOverrides) => void;
 }
 
 /**
@@ -250,7 +339,6 @@ export interface ExtensionSyncSlice {
   /** Claimable notes pushed from service worker (null = not yet received) */
   extensionClaimableNotes: SerializedConsumableNote[] | null;
   /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
-  extensionClaimingNoteIds: Set<string>;
 }
 
 /**
@@ -258,18 +346,15 @@ export interface ExtensionSyncSlice {
  */
 export interface ExtensionSyncActions {
   setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
-  addExtensionClaimingNoteId: (noteId: string) => void;
   /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
-  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
-  clearExtensionClaimingNoteIds: () => void;
 }
 
 /**
  * Note toast actions (mobile only)
  */
 export interface NoteToastActions {
-  /** Check if new notes have been received and show toast if so */
-  checkForNewNotes: (currentNoteIds: string[]) => void;
+  /** Record new note IDs as seen; toast only for one in notifiableNoteIds (any new note when omitted) */
+  checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => void;
   /** Dismiss the note received toast */
   dismissNoteToast: () => void;
   /** Reset all seen notes (used when switching accounts) */

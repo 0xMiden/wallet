@@ -1,29 +1,37 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { format } from 'date-fns';
 
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
+import { resetActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
+import type { PendingActivityItem } from './PendingActivityCard';
+import { getTransactionIconBackgroundColor } from './TransactionIcon';
+import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
+// A spy, so a case can read the arguments a title was built from.
+const mockT = jest.fn((key: string, _options?: Record<string, unknown>) => key);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: mockT })
 }));
 
-// ActivitySpinner is the initial-loading placeholder; stub it to a marker.
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="activity-spinner" />
-}));
+// The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
+// is measured, never written to markup, so its mode cannot be asserted from the DOM alone.
+const mockPendingWrapper: { props: Record<string, unknown> | null } = { props: null };
 
-// Icon: expose the requested glyph name + className so buildRowProps' icon
-// selection (and the white-fill classes) can be asserted.
+// Icon: expose the requested glyph name + size + className so buildRowProps'
+// icon selection (the white-fill classes, and that every row asks for the
+// same glyph size) can be asserted.
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name, className }: { name: string; className?: string }) => (
-    <span data-testid="icon" data-name={name} data-classname={className ?? ''} />
+  Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} data-size={size ?? ''} data-classname={className ?? ''} />
   ),
   IconName: {
     Faucet: 'Faucet',
@@ -33,53 +41,139 @@ jest.mock('app/icons/v2', () => ({
     Convert: 'Convert',
     Earn: 'Earn',
     More: 'More',
-    ArrowUpDown: 'ArrowUpDown'
+    ArrowUpDown: 'ArrowUpDown',
+    Key: 'Key'
   }
 }));
+
+// The date group must animate position only: a full `layout` would scale it, and
+// the row inside passes its radius as a class, which Framer cannot counter-scale.
+// Surface the prop so a revert to bare `layout` fails here.
+// Spread the real module rather than listing exports - this file reaches
+// `useReducedMotion` indirectly via `useMotion(springs.settle)`, so a hand-listed
+// factory that misses one export throws on every render.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => false,
+    motion: {
+      div: ReactActual.forwardRef(
+        (
+          { children, layout, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLDivElement>
+        ) => {
+          if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
+          return (
+            <div ref={ref} data-layout={String(layout)} data-transition={JSON.stringify(transition)} {...rest}>
+              {children}
+            </div>
+          );
+        }
+      )
+    }
+  };
+});
 
 // ActivityRow: flatten every visual prop buildRowProps produces onto data-*
 // attributes so each branch's output is directly assertable, and forward
 // onClick so the navigate wiring can be exercised.
-jest.mock('components/ui', () => ({
-  ActivityRow: ({
+let mockRealActivityRow = false;
+jest.mock('components/ui', () => {
+  const legacy = {
+    ActivityRow: ({
+      icon,
+      iconBg,
+      title,
+      subtitle,
+      amount,
+      status,
+      onClick,
+      className,
+      leading
+    }: {
+      icon: React.ReactNode;
+      iconBg?: string;
+      title: string;
+      subtitle?: string;
+      amount?: {
+        value: string;
+        symbol?: string;
+        direction?: string;
+        preformatted?: boolean;
+        extra?: { key: string; value: string; symbol?: string }[];
+      };
+      status: string;
+      onClick?: () => void;
+      className?: string;
+      leading?: React.ReactNode;
+    }) => (
+      <div
+        data-testid="activity-row"
+        className={className}
+        data-title={title}
+        data-subtitle={subtitle ?? ''}
+        data-iconbg={iconBg ?? ''}
+        data-amount-value={amount?.value ?? ''}
+        data-amount-symbol={amount?.symbol ?? ''}
+        data-amount-direction={amount?.direction ?? ''}
+        data-amount-preformatted={amount?.preformatted ? 'yes' : 'no'}
+        // Flattened as `key:value symbol|…` so both the contents AND the order
+        // (the row renders them unsorted, first-seen) are assertable.
+        data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
+        data-status={status}
+        data-clickable={onClick ? 'yes' : 'no'}
+        onClick={onClick}
+      >
+        {leading}
+        {icon}
+      </div>
+    ),
+    // The real card, so the surface it draws onto each row is asserted as rendered.
+    Card: jest.requireActual('components/ui/Card').Card,
+    // The initial-loading placeholder; stub it to a marker.
+    Spinner: () => <div data-testid="activity-spinner" />
+  };
+  return {
+    ...legacy,
+    ActivityRow: (props: React.ComponentProps<typeof import('components/ui/ActivityRow').ActivityRow>) =>
+      mockRealActivityRow
+        ? React.createElement(
+            jest.requireActual<typeof import('components/ui/ActivityRow')>('components/ui/ActivityRow').ActivityRow,
+            props
+          )
+        : React.createElement(legacy.ActivityRow, { ...props, status: props.status ?? '' })
+  };
+});
+
+// EmptyState: minimal stand-in — a heading for the title plus the same `icon`
+// testid shape the row-icon mock above uses, so existing assertions
+// (`getByTestId('icon')`, `getByText('noOperationsFound')` as an H3) hold.
+// Imported from its own module path in the source (not the `components/ui`
+// barrel mocked above), so it needs its own mock.
+jest.mock('components/ui/EmptyState', () => ({
+  EmptyState: ({
     icon,
-    iconBg,
     title,
-    subtitle,
-    amount,
-    status,
-    onClick
+    description,
+    surface,
+    className,
+    role,
+    secondaryAction
   }: {
-    icon: React.ReactNode;
-    iconBg?: string;
+    icon: string;
     title: string;
-    subtitle?: string;
-    amount?: {
-      value: string;
-      symbol?: string;
-      direction?: string;
-      extra?: { key: string; value: string; symbol?: string }[];
-    };
-    status: { label: string; tone: string };
-    onClick?: () => void;
+    description?: string;
+    surface?: string;
+    className?: string;
+    role?: string;
+    secondaryAction?: { label: string; onClick: () => void };
   }) => (
-    <div
-      data-testid="activity-row"
-      data-title={title}
-      data-subtitle={subtitle ?? ''}
-      data-iconbg={iconBg ?? ''}
-      data-amount-value={amount?.value ?? ''}
-      data-amount-symbol={amount?.symbol ?? ''}
-      data-amount-direction={amount?.direction ?? ''}
-      // Flattened as `key:value symbol|…` so both the contents AND the order
-      // (the row renders them unsorted, first-seen) are assertable.
-      data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
-      data-status-label={status.label}
-      data-status-tone={status.tone}
-      data-clickable={onClick ? 'yes' : 'no'}
-      onClick={onClick}
-    >
-      {icon}
+    <div data-testid="empty-state" data-classname={className} data-surface={surface} role={role}>
+      <span data-testid="icon" data-name={icon} />
+      <h3>{title}</h3>
+      {description && <p>{description}</p>}
+      {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
     </div>
   )
 }));
@@ -106,65 +200,50 @@ jest.mock('./HistoryItem', () => ({
   )
 }));
 
-// isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
-// each entry can opt into the faucet branch independently.
+// isFaucetRequest: driven off a test-only `__faucet` marker so each entry can opt into the faucet
+// branch independently, and, like the real one, true only for an entry that is a receive.
+type MockFaucetEntry = { __faucet?: boolean; transactionIcon?: string; txType?: string };
 jest.mock('./transactionUtils', () => ({
-  BRIDGE_STATUS_LABEL_KEY: {
-    pending: 'pending',
-    confirmed: 'confirmed',
-    failed: 'bridgeFailed'
-  },
-  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
+  isFaucetRequest: jest.fn(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  ),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
-  // Smart Withdraw rows: mirror the real predicate / tone map / label map so the
-  // earn branch of `buildRowProps` is exercised with realistic values.
+  bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  // Smart Withdraw rows: mirror the real predicate so the earn branch of
+  // `buildRowProps` is exercised with realistic values.
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
-  earnWithdrawToneOf: jest.fn((phase?: string) =>
-    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending'
-  ),
-  EARN_WITHDRAW_STATUS_LABEL_KEY: {
-    redeeming: 'earnWithdrawStatusRedeeming',
-    delivering: 'earnWithdrawStatusDelivering',
-    received: 'received',
-    failed: 'failed'
-  },
   // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
-  EARN_DEPOSIT_STATUS_LABEL_KEY: {
-    pending: 'pending',
-    confirmed: 'confirmed',
-    failed: 'failed'
-  }
+  isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
+  formatMoneyAmount: jest.requireActual('./transactionUtils').formatMoneyAmount,
+  // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
+  TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
-// InfiniteScroll: render children inline, invoke getScrollParent so the
-// `() => scrollParentRef.current` closure is exercised, and expose a button
-// that drives loadMore.
+// The props the view last handed the scroller, so a test can read the scroll parent and ask for a page
+// when the real scroller would: after render, not during it.
+type MockScrollerProps = {
+  children: React.ReactNode;
+  hasMore: boolean;
+  loadMore: (page: number) => void;
+  useWindow?: boolean;
+  getScrollParent?: () => HTMLElement | null;
+};
+const mockScroller: { props?: MockScrollerProps } = {};
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
-  default: ({
-    children,
-    loadMore,
-    hasMore,
-    getScrollParent
-  }: {
-    children: React.ReactNode;
-    loadMore: (page: number) => void;
-    hasMore: boolean;
-    getScrollParent?: () => unknown;
-  }) => {
-    const parent = getScrollParent?.();
+  default: (props: MockScrollerProps) => {
+    mockScroller.props = props;
     return (
-      <div data-testid="infinite-scroll" data-hasmore={String(hasMore)} data-hasparent={String(Boolean(parent))}>
-        <button data-testid="load-more" onClick={() => loadMore(2)}>
-          load
-        </button>
-        {children}
+      <div data-testid="infinite-scroll" data-hasmore={String(props.hasMore)}>
+        {props.children}
       </div>
     );
   }
@@ -202,7 +281,12 @@ const iconNameIn = (row: HTMLElement) => within(row).getByTestId('icon').getAttr
 beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
-  (isFaucetRequest as jest.Mock).mockImplementation((entry: { __faucet?: boolean }) => Boolean(entry.__faucet));
+  mockScroller.props = undefined;
+  (isFaucetRequest as jest.Mock).mockImplementation(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  );
+  jest.mocked(isBridgeInEntry).mockReturnValue(false);
 });
 
 const noop = jest.fn();
@@ -213,16 +297,28 @@ const baseProps = {
 };
 
 describe('HistoryView empty state', () => {
-  it('renders the ActivitySpinner while initially loading with no entries', () => {
+  it('renders the loading Spinner while initially loading with no entries', () => {
     render(<HistoryView {...baseProps} entries={[]} initialLoading />);
     expect(screen.getByTestId('activity-spinner')).toBeInTheDocument();
   });
 
-  it('renders the centered empty state when centerEmptyState is set', () => {
-    render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
+  it("swaps the generic card for a filter's own empty state", () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState emptyState={<p>custom empty</p>} />);
+    expect(screen.getByText('custom empty')).toBeInTheDocument();
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+  });
+
+  it('renders the Activity-tab empty state flush under the filters, not vertically centered', () => {
+    const { container } = render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
     // Centered variant shows the ArrowUpDown glyph.
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'ArrowUpDown');
+    // Same top offset as the first date group (`pt-4`) — no vertical centering
+    // or oversized spacer (`items-center`/`justify-center`/`pt-16`/`flex-1`).
+    expect(container.querySelector('.pt-4')).not.toBeNull();
+    expect(container.querySelector('.pt-16')).toBeNull();
+    expect(container.querySelector('.items-center')).toBeNull();
+    expect(container.querySelector('.justify-center')).toBeNull();
   });
 
   it('renders the summary (non-full) empty state with the m-4 layout class', () => {
@@ -233,11 +329,79 @@ describe('HistoryView empty state', () => {
     expect(container.querySelector('.mt-8')).toBeNull();
   });
 
-  it('renders the full-history empty state with the mt-8 layout class', () => {
+  it('renders the full-history empty state flush under its section header', () => {
     const { container } = render(<HistoryView {...baseProps} entries={[]} fullHistory />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
-    expect(container.querySelector('.mt-8')).not.toBeNull();
+    expect(container.querySelector('.mt-8')).toBeNull();
     expect(container.querySelector('.m-4')).toBeNull();
+  });
+
+  it("draws a token's own empty card, dashed, when the history is one token's", () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory tokenId="token-1" />);
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    expect(screen.getByText('tokenActivityEmptyTitle')).toBeInTheDocument();
+    expect(screen.getByText('tokenActivityEmptyBody')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state')).toHaveAttribute('data-surface', 'dashed');
+  });
+
+  it('keeps the plain no-operations card for a history that is not one token', () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+    expect(screen.getByTestId('empty-state')).not.toHaveAttribute('data-surface', 'dashed');
+  });
+
+  describe('after a failed load', () => {
+    const emptyModes: Array<[string, Partial<React.ComponentProps<typeof HistoryView>>]> = [
+      ['the default list', {}],
+      ['the centred Activity list', { centerEmptyState: true }],
+      ["one token's full history", { tokenId: 'token-1', fullHistory: true }]
+    ];
+
+    it.each(emptyModes)(
+      'says the load failed, with Retry, while the other read still loads, in %s',
+      (_mode, modeProps) => {
+        const onRetry = jest.fn();
+        render(<HistoryView {...baseProps} {...modeProps} entries={[]} initialLoading loadError onRetry={onRetry} />);
+
+        expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+        fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(emptyModes)('says the load failed, with Retry, instead of the empty card, in %s', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(<HistoryView {...baseProps} {...modeProps} entries={[]} loadError onRetry={onRetry} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryByText('noOperationsFound')).toBeNull();
+      expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['the summary list', {}],
+      ['the Activity list', { fullHistory: true }],
+      ["one token's list", { fullHistory: true, tokenId: 'token-1' }]
+    ])('keeps the rows it has in %s, under an alert with Retry', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(
+        <HistoryView {...baseProps} {...modeProps} entries={[makeEntry({ key: 'kept' })]} loadError onRetry={onRetry} />
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryAllByTestId(/^(history-item|activity-row)$/)).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('keeps the centred Activity card as it is, even with a token id', () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState tokenId="token-1" />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
   });
 });
 
@@ -257,10 +421,33 @@ describe('HistoryView summary (non-full) list', () => {
 });
 
 describe('HistoryView full-history rows (buildRowProps branches)', () => {
+  // ActivityRow is mocked here, so this pins only what `Card asChild` adds: press feedback, and
+  // no focus classes of its own. The focus ring and `select-none` come from the row's own native
+  // button, and ActivityRow's tests pin them, with the real Card wrapped around it.
+  it('gives a tappable row press feedback from the card, and leaves focus styling to the row', () => {
+    render(
+      <HistoryView
+        entries={[makeEntry({ key: 'tappable', txId: 'tx-tappable' })]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+
+    const row = screen.getAllByTestId('activity-row')[0]!;
+    expect(row.className).toContain('hover:bg-fill-pressed');
+    expect(row.className).toContain('active:bg-fill-pressed');
+    expect(row.className).not.toContain('focus-visible:ring-2');
+    expect(row.className).not.toContain('select-none');
+  });
+
   it('uses failed styling for a failed bridge row', () => {
     mockBridgeRowDisplay.mockReturnValue({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       outAmount: '10',
       providerLabel: 'AggLayer',
       network: 'Sepolia',
@@ -277,7 +464,162 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('bridgeRowTitle');
     expect(iconNameIn(row)).toBe('Close');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
+  });
+
+  // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row
+  // from rounding 0.015123 ETH to 0.015 again.
+  it('marks a bridge-in and a bridge-out amount preformatted', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
+      outAmount: '10.65',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'ETH',
+      inLabel: 'USDC',
+      outLabel: 'ETH',
+      outAmount: '0.015123',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const rowWithAmount = (value: string) =>
+      screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
+    expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
+    expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
+  });
+
+  it('shows a bridge row under the labels its display gives, not its symbols', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '3',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const values = screen.getAllByTestId('activity-row').map(row => row.getAttribute('data-amount-value'));
+    expect(values).toEqual(expect.arrayContaining(['4.98 Test Epoch USDC', '+3 Test Epoch USDC']));
+    expect(mockT).toHaveBeenCalledWith('bridgeRowTitle', { from: 'Test Epoch USDC', to: 'Test Epoch USDC' });
+  });
+
+  it.each([
+    ['pending', undefined, 'burnPending'],
+    ['consuming', undefined, 'burnConsuming'],
+    ['confirmed', undefined, 'burnConfirmed'],
+    ['confirmed', { balance: '1000000', blockNumber: '42' }, 'confirmed'],
+    ['discarded', undefined, 'burnDiscarded']
+  ] as const)(
+    'renders a USDCx %s burn with its dedicated title and status',
+    (phase, destinationBalanceConfirmed, status) => {
+      mockBridgeRowDisplay.mockReturnValue({
+        inSymbol: 'USDCx',
+        outSymbol: 'USDC',
+        inLabel: 'Miden USDCx',
+        outLabel: 'Sepolia USDC',
+        outAmount: '10',
+        providerLabel: 'USDCx',
+        network: 'Sepolia',
+        status: 'pending'
+      });
+
+      render(
+        <HistoryView
+          {...baseProps}
+          entries={[
+            makeEntry({
+              key: `usdcx-${phase}-${status}`,
+              txType: 'bridged-send',
+              bridgeProvider: 'usdcx',
+              usdcxBurn: {
+                noteId: 'burn-note',
+                destinationDomain: 0,
+                phase,
+                destinationBalanceConfirmed
+              }
+            })
+          ]}
+          fullHistory
+        />
+      );
+
+      const row = rowByTitle('usdcxBurnTitle');
+      expect(row).toHaveAttribute('data-status', status);
+    }
+  );
+
+  it('marks a received USDCx bridge-in row completed', () => {
+    jest.mocked(isBridgeInEntry).mockReturnValue(true);
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'Sepolia USDC',
+      outLabel: 'Miden USDCx',
+      outAmount: '10',
+      providerLabel: 'USDCx',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'usdcx-received',
+            txType: 'bridged-receive',
+            bridgeInProvider: 'usdcx',
+            bridgeInPhase: 'received'
+          })
+        ]}
+        fullHistory
+      />
+    );
+
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'completed');
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.
@@ -395,16 +737,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txId: 'tx-swap-notoken',
       timestamp: DAY_B
     }),
-    // Faucet whose icon is NOT receive: covers the `icon==='RECEIVE' || faucet`
-    // right-hand branch for the "from" subtitle, plus a short address.
+    // A faucet claim still in flight (no icon yet): the faucet glyph, a positive amount and the
+    // "from" subtitle, plus a short address.
     makeEntry({
-      key: 'faucet-send',
+      key: 'faucet-in-flight',
       __faucet: true,
-      transactionIcon: 'SEND',
+      txType: 'consume',
       secondaryAddress: 'shortaddr',
       amount: '1',
       token: 'MDN',
-      txId: 'tx-faucet-send',
+      txId: 'tx-faucet-in-flight',
       timestamp: DAY_B
     }),
     // Smart Withdraw in flight: dedicated title/subtitle, positive amount and a
@@ -424,7 +766,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'earn-deposit',
       txType: 'earn-deposit',
       transactionIcon: undefined,
-      amount: '5',
+      amount: '10.6555',
       token: 'USDC',
       message: 'Depositing',
       txId: 'tx-earn-deposit',
@@ -433,6 +775,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   ];
 
   const renderFull = () => render(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+
+  it('animates each date group position only, so a removed row cannot scale the group', () => {
+    const { container } = renderFull();
+
+    const groups = container.querySelectorAll('[data-layout]');
+    expect(groups.length).toBeGreaterThan(0);
+    // Exact value on both sides: bare `layout` is `layout={true}` and stringifies
+    // to 'true', so a not-'position' check alone would prove nothing.
+    groups.forEach(group => expect(group).toHaveAttribute('data-layout', 'position'));
+  });
 
   it('renders the Smart Withdraw row with its phase chip and positive amount', () => {
     renderFull();
@@ -443,8 +795,9 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '+2');
     expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
-    expect(row).toHaveAttribute('data-status-label', 'earnWithdrawStatusDelivering');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    // Already formatted by `earnWithdrawAmountFields`, so the row must not round it again.
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
+    expect(row).toHaveAttribute('data-status', 'delivering');
   });
 
   it('renders a position deposit with the Earn glyph and a negative amount', () => {
@@ -452,8 +805,10 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('Depositing');
     expect(iconNameIn(row)).toBe('Earn');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
-    expect(row).toHaveAttribute('data-amount-value', '-5');
+    expect(row).toHaveAttribute('data-amount-value', '-10.6555');
     expect(row).toHaveAttribute('data-amount-direction', 'negative');
+    // The amount typed, as its Review showed it: the row's 3-decimal pass would cut it to 10.655.
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
   });
 
   it('renders a date separator per calendar day', () => {
@@ -465,6 +820,50 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(screen.getByText('Tuesday')).toBeInTheDocument();
   });
 
+  it('draws each day as a quiet caption, with the year only when it is not this year', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    // The 2024 fixtures are not this year, so their captions carry it; no separate weekday header.
+    const caption = screen.getByText('Monday, January 15, 2024');
+    expect(caption).toHaveClass('text-caption-heading', 'text-muted');
+    expect(screen.getByText('Tuesday, January 16, 2024')).toBeInTheDocument();
+    expect(screen.queryByText('Monday')).not.toBeInTheDocument();
+    expect(screen.queryByText('January 15, 2024')).not.toBeInTheDocument();
+  });
+
+  // A caption list sits under a section heading that already leaves 12px; the header list has only
+  // the Activity tab's filters above it, so it opens 16px down.
+  it('starts the first caption day flush under its heading', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    const firstDay = screen.getByText('Monday, January 15, 2024').closest('[data-layout]');
+    expect(firstDay).not.toHaveClass('pt-4');
+    expect(firstDay).toHaveClass('pt-0', 'py-2.5');
+    expect(screen.getByText('Tuesday, January 16, 2024').closest('[data-layout]')).not.toHaveClass('pt-0');
+  });
+
+  it('keeps the first header day 16px under the filters', () => {
+    renderFull();
+
+    const firstDay = screen.getByText('January 15, 2024').closest('[data-layout]');
+    expect(firstDay).toHaveClass('pt-4', 'py-3');
+    expect(firstDay).not.toHaveClass('pt-0');
+    expect(screen.getByText('January 16, 2024').closest('[data-layout]')).not.toHaveClass('pt-4');
+  });
+
+  it('leaves the year off the caption of a day in this year', () => {
+    jest.useFakeTimers({ now: new Date(2024, 5, 1, 12) });
+    try {
+      render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+      expect(screen.getByText('Monday, January 15')).toHaveClass('text-caption-heading', 'text-muted');
+      expect(screen.getByText('Tuesday, January 16')).toBeInTheDocument();
+      expect(screen.queryByText(/2024/)).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('renders the faucet row (RECEIVE icon)', () => {
     renderFull();
     const row = rowByTitle('faucetRequestTitle');
@@ -474,31 +873,40 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '+100');
     expect(row).toHaveAttribute('data-amount-symbol', 'MDN');
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
-    expect(row).toHaveAttribute('data-status-tone', 'confirmed');
-    expect(row).toHaveAttribute('data-status-label', 'confirmed');
+    expect(row).toHaveAttribute('data-status', 'confirmed');
+  });
+
+  it('sizes the faucet glyph the same as a sent/received row', () => {
+    renderFull();
+    const faucetSize = within(rowByTitle('faucetRequestTitle')).getByTestId('icon').getAttribute('data-size');
+    const receivedSize = within(rowByTitle('Received')).getByTestId('icon').getAttribute('data-size');
+    const sentSize = within(rowByTitle('Sent')).getByTestId('icon').getAttribute('data-size');
+    expect(faucetSize).toBe('sm');
+    expect(faucetSize).toBe(receivedSize);
+    expect(faucetSize).toBe(sentSize);
   });
 
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {
     renderFull();
     const row = rowByTitle('Failed by icon');
-    // Failed rows use the raw failed-cross SVG (not the Icon component).
-    expect(row.querySelector('svg')).not.toBeNull();
+    // Failed rows use the raw failed-cross SVG (not the Icon component). Every svg is one mock, so the cross's
+    // size tells it from the swap glyph.
+    expect(row.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
     expect(row).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
     // Underscore address → slice(0,6)…slice(-7).
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
     expect(row).toHaveAttribute('data-amount-value', '5');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
-    expect(row).toHaveAttribute('data-status-label', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
-    const row = rowByTitle('Transaction failed');
+    const row = rowByTitle('transactionFailedNotificationTitle');
     expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('renders a user-cancelled row with grey styling and a cancelled status, even for a bridge', () => {
@@ -536,10 +944,104 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       // render the grey cancelled treatment.
       expect(row).toHaveAttribute('data-title', 'cancelled');
       expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
-      expect(row).toHaveAttribute('data-status-tone', 'cancelled');
-      expect(row).toHaveAttribute('data-status-label', 'cancelled');
+      expect(row).toHaveAttribute('data-status', 'cancelled');
       expect(row.querySelector('svg')).not.toBeNull();
     }
+  });
+
+  it('renders a not-confirmed row in the pending tone, even for a bridge, leaving cancelled and failed rows alone', () => {
+    render(
+      <HistoryView
+        entries={[
+          makeEntry({
+            key: 'unconfirmed-send',
+            transactionIcon: 'FAILED',
+            isUnconfirmed: true,
+            message: 'Transaction failed',
+            txId: 'tx-unconfirmed',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'unconfirmed-bridge',
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isUnconfirmed: true,
+            message: 'Transaction failed',
+            txId: 'tx-unconfirmed-bridge',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'still-cancelled',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-still-cancelled',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'still-failed',
+            transactionIcon: 'FAILED',
+            message: 'Transaction failed',
+            txId: 'tx-still-failed',
+            timestamp: DAY_A
+          })
+        ]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+
+    const unconfirmedRows = screen
+      .getAllByTestId('activity-row')
+      .filter(el => el.getAttribute('data-title') === 'notConfirmed');
+    expect(unconfirmedRows).toHaveLength(2);
+    for (const row of unconfirmedRows) {
+      // Not the grey cancelled or red failed look (#1250): the pending tone, on both the
+      // plain row and the bridge, which drops its own layout entirely.
+      expect(row).toHaveAttribute('data-iconbg', 'bg-status-pending');
+      expect(row).toHaveAttribute('data-status', 'unconfirmed');
+      expect(row.querySelector('svg')).not.toBeNull();
+    }
+    // The bridge layout (bridgeRowDisplay) never ran for the unconfirmed bridge row.
+    expect(mockBridgeRowDisplay).not.toHaveBeenCalled();
+
+    expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
+    const failedRow = screen
+      .getAllByTestId('activity-row')
+      .find(el => el.getAttribute('data-title') === 'transactionFailedNotificationTitle')!;
+    expect(failedRow).toHaveAttribute('data-status', 'failed');
+    expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
+  });
+
+  // A cancelled bridge-out falls through to the plain row, whose generic pass would round the typed amount again.
+  it.each([
+    ['the unscoped list', undefined],
+    ['a token-scoped list', 'faucet-usdc']
+  ])('shows a cancelled bridge-out amount as typed in %s', (_label, tokenId) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            amount: '1.234567',
+            token: 'USDC',
+            faucetId: 'faucet-usdc'
+          })
+        ]}
+        fullHistory
+        tokenId={tokenId}
+      />
+    );
+
+    const row = rowByTitle('cancelled');
+    expect(row).toHaveAttribute('data-amount-value', '1.234567');
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
   });
 
   it('renders the receive row with a short (<=12) address returned verbatim', () => {
@@ -561,8 +1063,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1l…core');
     expect(row).toHaveAttribute('data-amount-value', '-20');
     expect(row).toHaveAttribute('data-amount-direction', 'negative');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
-    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('renders the full swap row: swap title, DEX subtitle, requested-side amount', () => {
@@ -570,12 +1071,12 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('swap MDN → ETH');
     expect(iconNameIn(row)).toBe('Convert');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-swap');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '0.5');
     expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
     // Processing transaction → pending pill.
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('renders the mint row with no subtitle and a positive amount', () => {
@@ -588,10 +1089,30 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
   });
 
-  it('renders the default row (unknown icon, empty title, no amount, not clickable)', () => {
+  it('renders every row as an outlined card on the page: a hairline edge, no fill', () => {
     renderFull();
-    const row = rowByTitle('');
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows.length).toBeGreaterThan(0);
+    rows.forEach(row => {
+      expect(row).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'px-4', 'py-3');
+      expect(row).not.toHaveClass('bg-fill');
+      expect(row).not.toHaveClass('bg-white');
+    });
+  });
+
+  it('gives a tappable row pressed feedback and leaves a plain row without it', () => {
+    renderFull();
+    expect(rowByTitle('Received')).toHaveClass('active:bg-fill-pressed');
+    expect(rowByTitle('sent')).not.toHaveClass('active:bg-fill-pressed');
+  });
+
+  it('renders the default row (unknown icon, action fallback, no amount, not clickable)', () => {
+    renderFull();
+    const row = rowByTitle('sent');
     expect(iconNameIn(row)).toBe('More');
+    // On `page` with an `ink` glyph, so the circle stays visible on the card's `fill`.
+    expect(row).toHaveAttribute('data-iconbg', 'bg-page');
+    expect(within(row).getByTestId('icon')).toHaveAttribute('data-classname', 'text-ink');
     expect(row).toHaveAttribute('data-amount-value', '');
     // No txId → onClick is undefined.
     expect(row).toHaveAttribute('data-clickable', 'no');
@@ -601,7 +1122,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     const row = rowByTitle('swap fallback');
     expect(iconNameIn(row)).toBe('Convert');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '3');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
   });
@@ -609,12 +1130,12 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('falls back to message for a swap missing the offered token', () => {
     renderFull();
     const row = rowByTitle('swap notoken');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     // No entry.amount and no requestedAmount → no amount at all.
     expect(row).toHaveAttribute('data-amount-value', '');
   });
 
-  it('renders a faucet row whose icon is not RECEIVE, still using the "from" subtitle', () => {
+  it('renders a faucet claim in flight with the faucet glyph and the "from" subtitle', () => {
     renderFull();
     // Two faucet rows share the title; pick the one with the short address.
     const row = screen
@@ -629,6 +1150,37 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     fireEvent.click(rowByTitle('Received'));
     expect(navigate).toHaveBeenCalledWith('/history-details/tx-receive');
+  });
+
+  describe('unread', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      resetActivityReadState();
+      // Before every fixture's timestamp, so the whole list arrives unread.
+      jest.spyOn(Date, 'now').mockReturnValue(0);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('marks a row unread until its own detail is opened', () => {
+      const { rerender } = renderFull();
+      const row = rowByTitle('Received');
+      expect(within(row).getByTestId('activity-row-unread')).toHaveClass('bg-notification');
+
+      // Opening THAT row reads it. Opening the tab reads nothing, which is why the other rows
+      // keep their dots.
+      fireEvent.click(row);
+      rerender(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+      expect(within(rowByTitle('Received')).queryByTestId('activity-row-unread')).toBeNull();
+      expect(screen.getAllByTestId('activity-row-unread').length).toBeGreaterThan(0);
+    });
+
+    it('leaves an existing history read on first run', () => {
+      jest.spyOn(Date, 'now').mockReturnValue((DAY_B + 86_400) * 1000);
+      resetActivityReadState();
+      renderFull();
+
+      expect(screen.queryByTestId('activity-row-unread')).toBeNull();
+    });
   });
 });
 
@@ -863,6 +1415,43 @@ describe('HistoryView batch-claim extra assets', () => {
   });
 });
 
+// A claim in flight has no icon yet (its entry is built from the transaction row), so the
+// direction comes from its type (#1102).
+describe('HistoryView claims in flight', () => {
+  const renderPending = (overrides: EntryOverrides) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'pending',
+            type: HistoryEntryType.PendingTransaction,
+            message: 'Generating transaction',
+            secondaryAddress: 'shortaddr',
+            amount: '3',
+            token: 'MDN',
+            txId: 'tx-pending',
+            ...overrides
+          })
+        ]}
+        fullHistory
+      />
+    );
+    return screen.getByTestId('activity-row');
+  };
+
+  it('reads an ordinary claim in flight as received from its sender', () => {
+    const row = renderPending({ txType: 'consume' });
+    expect(row).toHaveAttribute('data-subtitle', 'from: shortaddr');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('keeps a send in flight reading "to" its recipient', () => {
+    const row = renderPending({ txType: 'send' });
+    expect(row).toHaveAttribute('data-subtitle', 'to: shortaddr');
+  });
+});
+
 describe('HistoryView infinite scroll wiring', () => {
   const twoEntries = [
     makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: '1', token: 'MDN' }),
@@ -872,30 +1461,105 @@ describe('HistoryView infinite scroll wiring', () => {
   it('wraps the list in InfiniteScroll when a scrollParentRef is provided', () => {
     const parent = document.createElement('div');
     const loadMore = jest.fn();
+    const ref: { current: HTMLDivElement | null } = { current: null };
+    render(
+      <HistoryView {...baseProps} entries={twoEntries} fullHistory hasMore loadMore={loadMore} scrollParentRef={ref} />
+    );
+    // Attached after render, as the page's ref is, so a scroll parent read during render comes back null.
+    ref.current = parent;
+
+    expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-hasmore', 'true');
+    const scroller = mockScroller.props;
+    expect(Object.keys(scroller ?? {}).sort()).toEqual([
+      'children',
+      'getScrollParent',
+      'hasMore',
+      'loadMore',
+      'useWindow'
+    ]);
+    expect(scroller?.useWindow).toBe(false);
+    expect(scroller?.getScrollParent?.()).toBe(parent);
+    expect(loadMore).not.toHaveBeenCalled();
+    scroller?.loadMore(2);
+    expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(within(screen.getByTestId('infinite-scroll')).getAllByTestId('activity-row')).toHaveLength(2);
+  });
+
+  it('tells the scroller when the history is exhausted', () => {
     render(
       <HistoryView
         {...baseProps}
         entries={twoEntries}
         fullHistory
-        hasMore
-        loadMore={loadMore}
-        scrollParentRef={{ current: parent }}
+        hasMore={false}
+        scrollParentRef={{ current: document.createElement('div') }}
       />
     );
-
-    const scroller = screen.getByTestId('infinite-scroll');
-    expect(scroller).toHaveAttribute('data-hasmore', 'true');
-    // getScrollParent() resolved to the provided ref's current element.
-    expect(scroller).toHaveAttribute('data-hasparent', 'true');
-
-    fireEvent.click(screen.getByTestId('load-more'));
-    expect(loadMore).toHaveBeenCalledWith(2);
+    expect(mockScroller.props?.hasMore).toBe(false);
   });
 
   it('renders the plain list (no InfiniteScroll) when scrollParentRef is absent', () => {
     render(<HistoryView {...baseProps} entries={twoEntries} fullHistory />);
     expect(screen.queryByTestId('infinite-scroll')).toBeNull();
     expect(screen.getAllByTestId('activity-row')).toHaveLength(2);
+  });
+});
+
+describe('HistoryView Guardian ops', () => {
+  it('paints a guardian switch with the Guardian avatar and the other Guardian ops with the Guardian glyph on the slate', () => {
+    const entries = [
+      makeEntry({ key: 'switch', txType: 'switch-guardian', message: 'Guardian switched' }),
+      makeEntry({ key: 'rotation', txType: 'replace-hot-key', message: 'Device key rotated' }),
+      makeEntry({ key: 'threshold', txType: 'update-procedure-threshold', message: 'Account secured' })
+    ];
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    // TransactionIcon's slate (#777487) is the detail page's accent for all three.
+    expect(getTransactionIconBackgroundColor(entries[1]!)).toBe('#777487');
+    // A switch draws its full avatar as an image on the page surface, not a glyph on the slate.
+    const switchRow = rowByTitle('Guardian switched');
+    expect(switchRow).toHaveAttribute('data-iconbg', 'bg-page');
+    expect(switchRow.querySelector('img')).not.toBeNull();
+    for (const title of ['Device key rotated', 'Account secured']) {
+      const row = rowByTitle(title);
+      expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
+      expect(iconNameIn(row)).toBe('Key');
+      expect(row.querySelector('svg')).toBeNull();
+    }
+  });
+
+  it('keeps the red cross for a failed Guardian op and the swap glyph for a bridge row', () => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
+      outAmount: '10',
+      providerLabel: 'AggLayer',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    const entries = [
+      makeEntry({
+        key: 'failed-switch',
+        txType: 'switch-guardian',
+        message: 'Guardian failed',
+        transactionIcon: 'FAILED'
+      }),
+      makeEntry({ key: 'bridge', txType: 'bridged-send', txId: 'bridge-tx' })
+    ];
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    const failed = rowByTitle('Guardian failed');
+    expect(failed).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
+    // Every svg is one mock, so each glyph is told apart by the size its branch draws it at.
+    expect(failed.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
+    expect(failed.querySelector('svg')).not.toHaveClass('w-5');
+    expect(within(failed).queryByTestId('icon')).toBeNull();
+    const bridge = rowByTitle('bridgeRowTitle');
+    expect(bridge.querySelector('svg')).toHaveClass('w-5', 'h-5');
+    expect(bridge.querySelector('svg')).not.toHaveClass('w-3.5');
+    expect(within(bridge).queryByTestId('icon')).toBeNull();
   });
 });
 
@@ -940,13 +1604,13 @@ describe('HistoryView Guardian switch audit trail', () => {
     for (const row of screen.getAllByTestId('activity-row')) {
       expect(row).toHaveAttribute('data-subtitle', 'old.example → new.example');
     }
-    expect(screen.getAllByTestId('activity-row')[0]).toHaveAttribute('data-status-tone', 'pending');
-    expect(screen.getAllByTestId('activity-row')[1]).toHaveAttribute('data-status-tone', 'pending');
-    expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status-tone', 'confirmed');
-    expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status-tone', 'failed');
+    expect(screen.getAllByTestId('activity-row')[0]).toHaveAttribute('data-status', 'pending');
+    expect(screen.getAllByTestId('activity-row')[1]).toHaveAttribute('data-status', 'pending');
+    expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status', 'confirmed');
+    expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status', 'failed');
     for (const row of screen.getAllByTestId('activity-row').slice(0, 3)) {
-      expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
-      expect(row.querySelector('svg')).not.toBeNull();
+      expect(row).toHaveAttribute('data-iconbg', 'bg-page');
+      expect(row.querySelector('img')).not.toBeNull();
     }
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -960,6 +1624,125 @@ describe('HistoryView Guardian switch audit trail', () => {
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
 
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-subtitle', 'unknown → destination.example');
+  });
+
+  it('titles and chips a rotation row by its verdict', () => {
+    const rotation = { txType: 'switch-guardian' as const, newGuardianEndpoint: 'https://new.example/guardian' };
+    const entries = [
+      makeEntry({
+        ...rotation,
+        key: 'unconfirmed',
+        message: 'Guardian switch submitted',
+        guardianSwitchVerdict: 'submitted-unconfirmed'
+      }),
+      makeEntry({ ...rotation, key: 'confirmed', message: 'Guardian switched', guardianSwitchVerdict: 'confirmed' }),
+      makeEntry({
+        ...rotation,
+        key: 'degraded',
+        message: 'Guardian switched',
+        guardianSwitchVerdict: 'completed-degraded'
+      }),
+      makeEntry({
+        ...rotation,
+        key: 'queued',
+        message: 'Switching guardian',
+        type: HistoryEntryType.PendingTransaction,
+        guardianSwitchVerdict: 'in-flight'
+      }),
+      makeEntry({
+        ...rotation,
+        key: 'failed',
+        message: 'Transaction failed',
+        transactionIcon: 'FAILED',
+        guardianSwitchVerdict: 'failed'
+      })
+    ];
+
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    const [unconfirmed, confirmed, degraded, queued, failed] = screen.getAllByTestId('activity-row');
+    expect(unconfirmed).toHaveAttribute('data-title', 'guardianSwitchSubmittedRowTitle');
+    expect(unconfirmed).toHaveAttribute('data-status', 'guardianSwitchSubmitted');
+    expect(confirmed).toHaveAttribute('data-title', 'guardianSwitchedRowTitle');
+    expect(confirmed).toHaveAttribute('data-status', 'confirmed');
+    expect(degraded).toHaveAttribute('data-title', 'guardianSwitchedRowTitle');
+    expect(degraded).toHaveAttribute('data-status', 'confirmed');
+    expect(queued).toHaveAttribute('data-title', 'Switching guardian');
+    expect(queued).toHaveAttribute('data-status', 'pending');
+    expect(failed).toHaveAttribute('data-title', 'transactionFailedNotificationTitle');
+    expect(failed).toHaveAttribute('data-status', 'failed');
+  });
+});
+
+// A completed swap row is the one trace of the whole order, so its badge follows settlement.
+describe('HistoryView swap settlement status', () => {
+  it('keeps distinct orders distinct without presenting the unreceived quote as money received', () => {
+    const base = makeEntry({
+      txType: 'swap',
+      token: 'USDCX',
+      amount: '10',
+      requestedToken: 'IUSDT',
+      requestedAmount: '99',
+      swapSettlement: 'reclaimed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          { ...base, key: 'expiry-order', timestamp: 1_792_130_261 },
+          { ...base, key: 'cancel-order', timestamp: 1_792_130_629 }
+        ]}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+      expect(row).toHaveAttribute('data-amount-symbol', 'USDCX');
+      expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+    }
+    // The identity translator renders every subtitle as the bare key, so each row's own time is read off the call.
+    const expiryPlacedAt = format(new Date(1_792_130_261 * 1000), 'HH:mm');
+    const cancelPlacedAt = format(new Date(1_792_130_629 * 1000), 'HH:mm');
+    expect(expiryPlacedAt).not.toBe(cancelPlacedAt);
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: expiryPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: cancelPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapOfferedAmount', { amount: '10' });
+  });
+
+  it.each([
+    ['pending', 'pending'],
+    ['reclaimed', 'reclaimed'],
+    ['reclaiming', 'reclaiming'],
+    [undefined, 'confirmed']
+  ] as const)('reads %s settlement as the %s status', (swapSettlement, status) => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'MDN',
+      requestedToken: 'ETH',
+      requestedAmount: '0.5',
+      amount: '10',
+      message: 'swap settled',
+      swapSettlement
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', status);
+  });
+
+  it('reads a stuck payout claim as paybackStuck ahead of its pending settlement (#1644)', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'MDN',
+      requestedToken: 'ETH',
+      requestedAmount: '0.5',
+      amount: '10',
+      message: 'swap settled',
+      swapSettlement: 'pending',
+      paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason: 'fee' }
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'paybackStuck');
   });
 });
 
@@ -981,48 +1764,41 @@ describe('HistoryView earn-deposit status chip', () => {
 
   it('reads pending while the lending leg is unsettled', () => {
     const row = renderDeposit({ earnDepositStatus: 'pending' });
-    expect(row).toHaveAttribute('data-status-label', 'pending');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('defaults an unstamped leg to pending rather than Confirmed', () => {
     const row = renderDeposit();
-    expect(row).toHaveAttribute('data-status-label', 'pending');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('reads failed when the lending leg failed', () => {
     const row = renderDeposit({ earnDepositStatus: 'failed' });
-    expect(row).toHaveAttribute('data-status-label', 'failed');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('falls through to Confirmed once the lending leg settles', () => {
     const row = renderDeposit({ earnDepositStatus: 'confirmed' });
-    expect(row).toHaveAttribute('data-status-label', 'confirmed');
-    expect(row).toHaveAttribute('data-status-tone', 'confirmed');
+    expect(row).toHaveAttribute('data-status', 'confirmed');
   });
 
   it('lets a Miden-side failure win over a pending lending leg', () => {
     // The earn-deposit branch is checked AFTER cancelled/failed/pending, so the
     // real failure is what the user sees.
     const row = renderDeposit({ transactionIcon: 'FAILED', earnDepositStatus: 'pending' });
-    expect(row).toHaveAttribute('data-status-label', 'failed');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('lets a cancellation win over a pending lending leg', () => {
     const entry = makeEntry({ txType: 'earn-deposit', message: 'Depositing', isCancelled: true });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     const row = rowByTitle('cancelled');
-    expect(row).toHaveAttribute('data-status-label', 'cancelled');
-    expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+    expect(row).toHaveAttribute('data-status', 'cancelled');
   });
 
   it('lets a still-processing row win over the lending leg', () => {
     const row = renderDeposit({ type: HistoryEntryType.PendingTransaction, earnDepositStatus: 'failed' });
-    expect(row).toHaveAttribute('data-status-label', 'pending');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
   // date-fns THROWS on an Invalid Date, so one unusable timestamp used to take
   // the whole list down rather than just its own row. `Number.isFinite` alone is
@@ -1037,5 +1813,317 @@ describe('HistoryView earn-deposit status chip', () => {
 
       expect(screen.getAllByTestId('history-item')).toHaveLength(1);
     });
+  });
+});
+
+it('places pending notes between transactions by inclusion date in the same date groups', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'pending-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  const { container } = render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[makeEntry({ key: 'newest', timestamp: DAY_B }), makeEntry({ key: 'oldest', timestamp: DAY_A })]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span data-testid="pending-date-row">Pending note</span>}
+    />
+  );
+  const rows = [...container.querySelectorAll('[data-testid="activity-row"], [data-testid="pending-date-row"]')];
+  expect(rows.map(row => row.getAttribute('data-testid'))).toEqual([
+    'activity-row',
+    'pending-date-row',
+    'activity-row'
+  ]);
+  expect(screen.getAllByText('January 15, 2024')).toHaveLength(1);
+  expect(screen.getAllByText('January 16, 2024')).toHaveLength(1);
+});
+
+it('moves a pending card with the rows beside it, and never animates its height', () => {
+  // The card is the only child of a date group that is not a row, and it used to be the only one
+  // that was not a Framer projection node either: it jumped to its new place on a filter change
+  // while the `ActivityRow` inside it slid there. `layout="position"` puts it in the projection
+  // tree with its neighbours. Position-only is load-bearing: the card's box grows when its
+  // disclosure opens, and full `layout` would animate that — the height tween the card itself
+  // just lost, moved one level up.
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'moving-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span data-testid="pending-moving-row">Pending note</span>}
+    />
+  );
+
+  const wrapperProps = mockPendingWrapper.props;
+  expect(wrapperProps).not.toBeNull();
+  expect(wrapperProps?.layout).toBe('position');
+  expect(wrapperProps?.['data-pending-note-id']).toBe('moving-note');
+});
+
+it('keeps an undated note visible without assigning a false date', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'undated-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span>Pending note</span>}
+    />
+  );
+  expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
+  expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
+// again (#1198): the date groups and pending cards that survive take their new places at once there,
+// and slide on the settle spring on any other change.
+describe('HistoryView - its tab shown again', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'swap-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
+  // never reads `.current`, so a bare DOM node is enough.
+  const scrollParentRef = { current: document.createElement('div') };
+  const noMore = async () => {};
+  const view = (
+    shown: boolean,
+    onScreen = true,
+    hasMore = false,
+    loadMore: (page: number) => Promise<void> = noMore
+  ) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <TabActiveContext.Provider value={shown}>
+        <HistoryView
+          fullHistory
+          initialLoading={false}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+          pendingItems={[pending]}
+          renderPendingItem={() => <span>Pending note</span>}
+          scrollParentRef={scrollParentRef}
+        />
+      </TabActiveContext.Provider>
+    </PageActiveContext.Provider>
+  );
+  const groupMoves = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-layout]'))
+      .filter(node => !node.hasAttribute('data-pending-note-id'))
+      .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
+
+  it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+
+    const groups = groupMoves(container);
+    expect(groups.length).toBeGreaterThan(0);
+    groups.forEach(transition => expect(transition).toEqual({ ...springs.settle, layout: tabBarSwap }));
+    expect(mockPendingWrapper.props?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+  });
+
+  it('slides them on the next change, and when a slide page uncovers the list', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+    rerender(view(true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
+    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+
+    rerender(view(true, false));
+    rerender(view(true, true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
+    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+  });
+
+  it("defers the scroller's page request in the commit that shows the tab again, and passes the parent's loadMore through otherwise", async () => {
+    const loadMore = jest.fn((_page: number) => Promise.resolve());
+    const { rerender } = render(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
+    rerender(view(false, true, true, loadMore));
+    rerender(view(true, true, true, loadMore));
+
+    mockScroller.props?.loadMore(3);
+    expect(loadMore).not.toHaveBeenCalled();
+    await act(async () => {});
+    expect(loadMore.mock.calls).toEqual([[3]]);
+
+    rerender(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible history load errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockT.mockImplementation((key: string) =>
+      key === 'tokenActivityLoadError' ? 'Visible activity read failure' : key
+    );
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    mockT.mockImplementation((key: string) => key);
+    mockRealActivityRow = false;
+  });
+
+  it.each([false, true])(
+    'reports the actual empty error card once with tokenActivityLoadError, token=%s',
+    async token => {
+      render(<HistoryView {...baseProps} entries={[]} loadError tokenId={token ? 'synthetic-token' : undefined} />);
+      expect(screen.getByRole('alert')).toHaveTextContent('Visible activity read failure');
+      await expectErrorAfterDwell('tokenActivityLoadError', 'inline');
+    }
+  );
+
+  it('reports the actual partial-history notice once with tokenActivityLoadError', async () => {
+    render(<HistoryView {...baseProps} entries={[makeEntry({ key: 'kept' })]} loadError />);
+    expect(screen.getByTestId('history-load-error-notice')).toHaveTextContent('Visible activity read failure');
+    await expectErrorAfterDwell('tokenActivityLoadError', 'inline');
+  });
+
+  it.each(['retry', 'unmount'])('cancels a short error episode on %s before 1000 ms', async control => {
+    const onRetry = jest.fn();
+    const view = render(<HistoryView {...baseProps} entries={[]} loadError onRetry={onRetry} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible activity read failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      view.rerender(<HistoryView {...baseProps} entries={[]} initialLoading />);
+    } else view.unmount();
+    expect(onRetry).toHaveBeenCalledTimes(control === 'retry' ? 1 : 0);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps loading, empty activity and a persisted Failed badge silent', async () => {
+    const view = render(<HistoryView {...baseProps} entries={[]} initialLoading />);
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+    view.rerender(<HistoryView {...baseProps} entries={[]} />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    mockRealActivityRow = true;
+    view.rerender(
+      <HistoryView
+        {...baseProps}
+        fullHistory
+        entries={[
+          makeEntry({
+            key: 'old-failure',
+            type: HistoryEntryType.PendingTransaction,
+            status: 3,
+            message: 'Transaction failed',
+            transactionIcon: 'FAILED'
+          })
+        ]}
+      />
+    );
+    expect(screen.getByTestId('activity-row-status')).toHaveTextContent('failed');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+describe('cancelled partial swap progress', () => {
+  it('retains the order time, progress and reclaim status without replacing the offered amount', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'ETH',
+      amount: '0.001',
+      requestedToken: 'USDT',
+      requestedAmount: '10',
+      swapSettlement: 'reclaimed',
+      swapFillProgress: '40'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'reclaimed');
+    expect(screen.getByTestId('activity-row')).toHaveAttribute(
+      'data-subtitle',
+      'amountFilled: swapProgressPercent · swapPlacedAt'
+    );
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+    expect(mockT).toHaveBeenCalledWith('swapProgressPercent', { percentage: '40' });
   });
 });

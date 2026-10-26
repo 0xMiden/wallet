@@ -1,5 +1,9 @@
-import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { MIDEN_NETWORK_NAME } from './constants';
+import { applyEndpointOverride, buildNetworkChoiceOverride, clearEndpointOverride } from './effective-endpoints';
 import {
+  FaucetAmountOverCapError,
+  FaucetOutcomeUnknownError,
+  FaucetRateLimitedError,
   faucetFetch,
   getFaucetApiUrl,
   getPowChallenge,
@@ -7,6 +11,37 @@ import {
   requestTokens,
   solvePowChallenge
 } from './faucet-api';
+import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
+
+jest.mock('./spawn-faucet-pow-worker', () => ({ spawnFaucetPowWorker: jest.fn() }));
+
+// Holds the endpoint override, so a case can put the wallet on mainnet the way onboarding does.
+const mockStorage = new Map<string, unknown>();
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) => {
+      const out: Record<string, unknown> = {};
+      for (const key of keys) if (mockStorage.has(key)) out[key] = mockStorage.get(key);
+      return out;
+    },
+    set: async (items: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(items)) mockStorage.set(key, value);
+    },
+    remove: async (keys: string[]) => {
+      for (const key of keys) mockStorage.delete(key);
+    }
+  })
+}));
+
+class TestPowWorker extends EventTarget {
+  terminate = jest.fn();
+  postMessage = jest.fn(({ target }: { target: bigint }) => {
+    if (target >= 2n ** 64n)
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: { nonce: 42 } })));
+  });
+}
+let powWorker: TestPowWorker;
+const spawnWorkerMock = jest.mocked(spawnFaucetPowWorker);
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', {
@@ -39,21 +74,42 @@ function errorResponse(status: number, body: string, headers: Record<string, str
   };
 }
 
-async function isValidSolution(challengeHex: string, nonce: number, target: bigint): Promise<boolean> {
-  const challengeBytes = new Uint8Array(challengeHex.length / 2);
-  for (let i = 0; i < challengeBytes.length; i++) {
-    challengeBytes[i] = parseInt(challengeHex.slice(i * 2, i * 2 + 2), 16);
-  }
-  const buffer = new Uint8Array(challengeBytes.length + 8);
-  buffer.set(challengeBytes);
-  new DataView(buffer.buffer).setBigUint64(challengeBytes.length, BigInt(nonce), false);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
-  return new DataView(digest.buffer).getBigUint64(0, false) < target;
+/** A read for the faucetFetch cases that only look at the status. */
+const readStatus = async (response: Response) => ({ status: response.status });
+
+/** Answers with `response`, whose body then ends only when the request's signal aborts, as a real stream does. */
+function answerWithStalledBody(response: MockResponse) {
+  const seen: { signal?: AbortSignal; bodyReads: number } = { bodyReads: 0 };
+  fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+    const signal = init.signal ?? undefined;
+    seen.signal = signal;
+    const stall = () => {
+      seen.bodyReads += 1;
+      return new Promise<never>((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
+    };
+    return { ...response, json: stall, text: stall };
+  });
+  return seen;
+}
+
+function track(promise: Promise<unknown>) {
+  const state: { outcome: unknown } = { outcome: 'pending' };
+  void promise.then(
+    () => {
+      state.outcome = 'resolved';
+    },
+    (error: unknown) => {
+      state.outcome = error;
+    }
+  );
+  return state;
 }
 
 describe('faucet-api', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    powWorker = new TestPowWorker();
+    spawnWorkerMock.mockReturnValue(powWorker as unknown as Worker);
   });
 
   describe('getFaucetApiUrl', () => {
@@ -63,9 +119,12 @@ describe('faucet-api', () => {
       expect(getFaucetApiUrl('localnet')).toBe('http://localhost:8000');
     });
 
-    it('falls back to the default network endpoint for unknown networks', () => {
-      expect(getFaucetApiUrl('unknown-network')).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK));
-    });
+    it.each<[string]>([[MIDEN_NETWORK_NAME.MAINNET], ['unknown-network']])(
+      'resolves no endpoint for %s, never another network faucet',
+      networkId => {
+        expect(getFaucetApiUrl(networkId)).toBeUndefined();
+      }
+    );
   });
 
   describe('getPowChallenge', () => {
@@ -81,6 +140,29 @@ describe('faucet-api', () => {
       expect(result).toEqual({ challenge: CHALLENGE_HEX, target: 1024n });
     });
 
+    it('forwards the abort signal to the fetch', async () => {
+      // `faucetFetch` swaps in its own timeout controller, so the caller's
+      // signal reaches the fetch by linkage, not identity: aborting the
+      // caller's controller must abort the in-flight request with its reason.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      );
+      const controller = new AbortController();
+
+      const request = getPowChallenge(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        controller.signal
+      );
+      controller.abort(new Error('Faucet request timed out'));
+
+      await expect(request).rejects.toThrow('Faucet request timed out');
+    });
+
     it('rejects with the response text on failure', async () => {
       fetchMock.mockResolvedValue(errorResponse(429, 'Account is rate limited for 30 more seconds.'));
 
@@ -88,16 +170,144 @@ describe('faucet-api', () => {
         'Faucet PoW request failed with status 429: Account is rate limited for 30 more seconds.'
       );
     });
+
+    it('bounds the body read by the faucet timeout, not only the headers', async () => {
+      jest.useFakeTimers();
+      try {
+        const seen = answerWithStalledBody(jsonResponse({}));
+
+        const challenge = track(getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n));
+        await jest.advanceTimersByTimeAsync(14_999);
+        expect(challenge.outcome).toBe('pending');
+        await jest.advanceTimersByTimeAsync(1);
+
+        expect(challenge.outcome).toBe(seen.signal?.reason);
+        expect(seen.signal?.reason.name).toBe('TimeoutError');
+        expect(seen.signal?.reason).toBeInstanceOf(DOMException);
+        expect(seen.signal?.reason.message).toBe('Request timed out after 15000 ms');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps the status of a failed challenge whose body stalls past the faucet timeout', async () => {
+      jest.useFakeTimers();
+      try {
+        answerWithStalledBody(errorResponse(503, 'overloaded'));
+
+        const challenge = track(getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n));
+        await jest.advanceTimersByTimeAsync(14_999);
+        expect(challenge.outcome).toBe('pending');
+        await jest.advanceTimersByTimeAsync(1);
+
+        expect(challenge.outcome).toBeInstanceOf(Error);
+        expect(challenge.outcome).toMatchObject({ message: expect.stringContaining('status 503') });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("ends a body read with the caller's abort, keeping its reason", async () => {
+      jest.useFakeTimers();
+      try {
+        const seen = answerWithStalledBody(jsonResponse({}));
+        const controller = new AbortController();
+        const reason = new Error('caller gave up');
+
+        const challenge = track(
+          getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, controller.signal)
+        );
+        await jest.advanceTimersByTimeAsync(0);
+        expect(seen.bodyReads).toBe(1);
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+
+        expect(challenge.outcome).toBe(reason);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('solvePowChallenge', () => {
-    it('finds a nonce whose hash beats the target', async () => {
-      // 2^62 leaves a 1-in-4 chance per attempt — solves in a handful of iterations.
-      const target = 2n ** 62n;
+    it('delegates hashing to a worker and terminates it after success', async () => {
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 50 });
+      void result.catch(() => undefined);
+      expect(powWorker.postMessage).toHaveBeenCalledWith({ challengeHex: CHALLENGE_HEX, target: 0n });
+      powWorker.dispatchEvent(new MessageEvent('message', { data: { nonce: 42 } }));
+      await expect(result).resolves.toBe(42);
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
 
-      const nonce = await solvePowChallenge(CHALLENGE_HEX, target);
+    it('never starts a worker when already aborted or its deadline already passed', async () => {
+      const controller = new AbortController();
+      controller.abort(new Error('cancelled'));
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal })).rejects.toThrow('cancelled');
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 0 })).rejects.toThrow('unsolved within 0ms');
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+    });
 
-      expect(await isValidSolution(CHALLENGE_HEX, nonce, target)).toBe(true);
+    it('ends a failed worker and removes its listeners and timer', async () => {
+      jest.useFakeTimers();
+      const remove = jest.spyOn(powWorker, 'removeEventListener');
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n);
+      powWorker.dispatchEvent(new ErrorEvent('error', { message: 'worker crashed' }));
+      await expect(result).rejects.toThrow('worker crashed');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+      expect(remove.mock.calls.map(([type]) => type)).toEqual(
+        expect.arrayContaining(['message', 'error', 'messageerror'])
+      );
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      { data: { error: 'hash unavailable' }, message: 'hash unavailable' },
+      { data: { nonce: -1 }, message: 'Invalid faucet PoW worker response' },
+      { data: { nonce: Number.MAX_SAFE_INTEGER + 1 }, message: 'Invalid faucet PoW worker response' }
+    ])('rejects a failed or invalid worker reply and ends the worker', async ({ data, message }) => {
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n);
+      powWorker.dispatchEvent(new MessageEvent('message', { data }));
+      await expect(result).rejects.toThrow(message);
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('ends a worker whose response cannot be deserialized', async () => {
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n);
+      powWorker.dispatchEvent(new MessageEvent('messageerror'));
+      await expect(result).rejects.toThrow('could not be read');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('cleans up when sending to the worker fails', async () => {
+      powWorker.postMessage.mockImplementation(() => {
+        throw new Error('cannot clone');
+      });
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n)).rejects.toThrow('cannot clone');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes the caller abort listener and timer on success', async () => {
+      jest.useFakeTimers();
+      const controller = new AbortController();
+      const remove = jest.spyOn(controller.signal, 'removeEventListener');
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal });
+      powWorker.dispatchEvent(new MessageEvent('message', { data: { nonce: 42 } }));
+      await expect(result).resolves.toBe(42);
+      controller.abort();
+      expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('stops the search when the signal aborts', async () => {
+      // Target 0: no nonce can ever solve, so only the abort ends the loop.
+      const controller = new AbortController();
+
+      const search = solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal });
+      controller.abort(new Error('Faucet request timed out'));
+
+      await expect(search).rejects.toThrow('Faucet request timed out');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
     });
 
     it('gives up on an UNSOLVABLE challenge (target 0) within the deadline instead of hanging (gap 10)', async () => {
@@ -107,6 +317,7 @@ describe('faucet-api', () => {
       await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 50 })).rejects.toThrow(
         /Faucet PoW challenge unsolved within 50ms/
       );
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -118,7 +329,7 @@ describe('faucet-api', () => {
           .mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '1' }))
           .mockResolvedValueOnce(jsonResponse({ ok: true }));
 
-        const promise = faucetFetch('https://faucet-api.example/pow');
+        const promise = faucetFetch('https://faucet-api.example/pow', undefined, readStatus);
         // Advance past the 1s Retry-After the server asked for.
         await jest.advanceTimersByTimeAsync(1100);
         const res = await promise;
@@ -133,9 +344,72 @@ describe('faucet-api', () => {
     it('does not retry a 429 with no Retry-After — returns it for the caller to fail', async () => {
       fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited'));
 
-      const res = await faucetFetch('https://faucet-api.example/pow');
+      const res = await faucetFetch('https://faucet-api.example/pow', undefined, readStatus);
 
       expect(res.status).toBe(429);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops waiting out a 429 back-off as soon as the caller aborts', async () => {
+      jest.useFakeTimers();
+      try {
+        // One 429 asking for the capped 30s back-off; a second attempt must never happen.
+        fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
+        const controller = new AbortController();
+        const reason = new Error('caller gave up');
+
+        const outcome = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal }, readStatus).then(
+          () => 'resolved',
+          (error: unknown) => error
+        );
+        await jest.advanceTimersByTimeAsync(10);
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+
+        await expect(outcome).resolves.toBe(reason);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('sends no attempt when the caller aborted before it began', async () => {
+      // Answers as a real fetch does to an aborted signal; nothing is queued, so a stray
+      // once-value cannot reach the next test.
+      fetchMock.mockImplementation((_url: string, init: RequestInit) => Promise.reject(init.signal?.reason));
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+      controller.abort(reason);
+      const onAttempt = jest.fn();
+
+      await expect(
+        faucetFetch('https://faucet-api.example/pow', { signal: controller.signal }, readStatus, undefined, {
+          onAttempt
+        })
+      ).rejects.toBe(reason);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onAttempt).not.toHaveBeenCalled();
+    });
+
+    it('rejects the back-off at once when the caller aborted while its attempt was out', async () => {
+      // Real timers: the assertion itself proves the capped 30s wait was never
+      // entered. The fetch mock aborts the caller and answers with the 429 anyway,
+      // so only the back-off's own synchronous `aborted` guard stands between this
+      // and a 30s wait.
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+      fetchMock.mockImplementation(async () => {
+        controller.abort(reason);
+        return errorResponse(429, 'rate limited', { 'retry-after': '30' });
+      });
+
+      const startedAt = Date.now();
+      await expect(
+        faucetFetch('https://faucet-api.example/pow', { signal: controller.signal }, readStatus)
+      ).rejects.toBe(reason);
+
+      expect(Date.now() - startedAt).toBeLessThan(1000);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -151,7 +425,9 @@ describe('faucet-api', () => {
             })
         );
 
-        const caught = faucetFetch('https://faucet-api.example/pow', undefined, 100).catch((e: unknown) => e);
+        const caught = faucetFetch('https://faucet-api.example/pow', undefined, readStatus, 100).catch(
+          (e: unknown) => e
+        );
         await jest.advanceTimersByTimeAsync(150);
         const err = await caught;
 
@@ -161,11 +437,40 @@ describe('faucet-api', () => {
         jest.useRealTimers();
       }
     });
+
+    it('never reads the body of a 429 it retries, and ends it with its attempt', async () => {
+      jest.useFakeTimers();
+      try {
+        const signals: AbortSignal[] = [];
+        const limited = {
+          ...errorResponse(429, 'rate limited', { 'retry-after': '1' }),
+          text: jest.fn(),
+          json: jest.fn()
+        };
+        fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+          if (init.signal) signals.push(init.signal);
+          return signals.length === 1 ? limited : jsonResponse({ ok: true });
+        });
+        const read = jest.fn(readStatus);
+
+        const result = faucetFetch('https://faucet-api.example/pow', undefined, read);
+        await jest.advanceTimersByTimeAsync(1100);
+
+        await expect(result).resolves.toEqual({ status: 200 });
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(limited.text).not.toHaveBeenCalled();
+        expect(limited.json).not.toHaveBeenCalled();
+        expect(signals[0]?.aborted).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('requestTokens', () => {
-    it('requests a public note with the solved challenge', async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+    it('requests the grant with the solved challenge and reads back its note id alone', async () => {
+      // Faucet 0.17.0 dropped `is_private_note` (every grant is public) and answers with `note_id` only.
+      fetchMock.mockResolvedValue(jsonResponse({ note_id: '0xnote' }));
 
       const result = await requestTokens(
         'https://faucet-api.example',
@@ -177,7 +482,6 @@ describe('faucet-api', () => {
 
       const expectedParams = new URLSearchParams({
         account_id: 'mtst1testaddress',
-        is_private_note: 'false',
         asset_amount: '100000000',
         challenge: CHALLENGE_HEX,
         nonce: '42'
@@ -186,21 +490,442 @@ describe('faucet-api', () => {
         `https://faucet-api.example/get_tokens?${expectedParams}`,
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
-      expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(result).toStrictEqual({ noteId: '0xnote' });
+    });
+
+    it('forwards the abort signal to the fetch', async () => {
+      // Assert LINKAGE, not identity: `faucetFetch` always swaps in its own
+      // timeout controller's signal, and jest structurally equates two
+      // non-aborted AbortSignals - so comparing the caller's signal object
+      // passes even with the `signal` parameter deleted. Aborting the caller
+      // must abort the in-flight request, which only linkage delivers.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      );
+      const controller = new AbortController();
+
+      const request = requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        controller.signal
+      );
+      const reason = new Error('Faucet request timed out');
+      controller.abort(reason);
+
+      // The request was out when it was aborted, so its outcome is unknown - and
+      // the abort reason is kept as the cause.
+      const error = await request.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(Reflect.get(Object(error), 'cause')).toBe(reason);
+    });
+
+    it('reports a request that got no response as an unknown outcome, not a refusal', async () => {
+      // A dropped connection may have reached the faucet, which may have minted:
+      // a caller must not treat this as safe to retry.
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await expect(
+        requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+      ).rejects.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('reports a success response whose body cannot be read as an unknown outcome, not a refusal', async () => {
+      // The faucet accepted the request, so it may have minted even though the
+      // note ids never arrived.
+      const parseError = new SyntaxError('Unexpected end of JSON input');
+      fetchMock.mockResolvedValue({ ...jsonResponse({}), json: () => Promise.reject(parseError) });
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(Reflect.get(Object(error), 'cause')).toBe(parseError);
     });
 
     it('rejects with the response text on failure', async () => {
       fetchMock.mockResolvedValue(errorResponse(400, 'requested amount 1000 exceeds the maximum claimable amount'));
 
-      await expect(
-        requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
-      ).rejects.toThrow(
-        'Faucet token request failed with status 400: requested amount 1000 exceeds the maximum claimable amount'
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+      expect(error).toEqual(
+        new Error(
+          'Faucet token request failed with status 400: requested amount 1000 exceeds the maximum claimable amount'
+        )
       );
+      // The faucet answered: a definitive refusal, safe to retry.
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it.each([500, 502, 504])(
+      'reports a %s as an unknown outcome, since the mint may already be queued',
+      async status => {
+        // The faucet answers 500 when a queued mint's result is lost, and a gateway
+        // error says nothing about whether the faucet behind it received the request.
+        fetchMock.mockResolvedValue(errorResponse(status, 'Internal error.'));
+
+        const error = await requestTokens(
+          'https://faucet-api.example',
+          'mtst1testaddress',
+          100_000_000n,
+          CHALLENGE_HEX,
+          42
+        ).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+      }
+    );
+
+    it.each([500, 502, 504])('reports a %s whose body cannot be read as an unknown outcome', async status => {
+      // The status says what happened; the body only explains it.
+      fetchMock.mockResolvedValue({
+        ...errorResponse(status, ''),
+        text: () => Promise.reject(new TypeError('network error'))
+      });
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('reports a refusal as unable to mint as soon as its status arrives, before its body is read', async () => {
+      fetchMock.mockResolvedValue({ ...errorResponse(400, ''), text: () => new Promise<string>(() => {}) });
+      const onMayMint = jest.fn();
+
+      requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        undefined,
+        onMayMint
+      ).catch(() => undefined);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+
+      // Out (may mint), then refused: the body that never arrives changes nothing.
+      expect(onMayMint.mock.calls).toEqual([[true], [false]]);
+    });
+
+    it('reports a rate-limited request as unable to mint while it waits to retry', async () => {
+      jest.useFakeTimers();
+      try {
+        fetchMock
+          .mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '5' }))
+          .mockResolvedValueOnce(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+        const onMayMint = jest.fn();
+
+        const minted = requestTokens(
+          'https://faucet-api.example',
+          'mtst1testaddress',
+          100_000_000n,
+          CHALLENGE_HEX,
+          42,
+          undefined,
+          onMayMint
+        );
+        await jest.advanceTimersByTimeAsync(0);
+        expect(onMayMint.mock.calls).toEqual([[true], [false]]);
+
+        await jest.advanceTimersByTimeAsync(5_000);
+        await minted;
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [true]]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("rejects with the caller's reason when it aborts during a 429 back-off, since no request is out", async () => {
+      jest.useFakeTimers();
+      try {
+        fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '1' }));
+        const controller = new AbortController();
+        const reason = new Error('caller gave up');
+
+        const minted = track(
+          requestTokens(
+            'https://faucet-api.example',
+            'mtst1testaddress',
+            100_000_000n,
+            CHALLENGE_HEX,
+            42,
+            controller.signal
+          )
+        );
+        await jest.advanceTimersByTimeAsync(500);
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+
+        // The faucet refused the only request sent, so nothing can be minting.
+        const error = minted.outcome;
+        expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+        expect(error).toBe(reason);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('sends nothing and rejects with the reason when the caller aborted before the request', async () => {
+      // Answers as a real fetch does to an aborted signal; nothing is queued.
+      fetchMock.mockImplementation((_url: string, init: RequestInit) => Promise.reject(init.signal?.reason));
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+      controller.abort(reason);
+      const onMayMint = jest.fn();
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        controller.signal,
+        onMayMint
+      ).catch((e: unknown) => e);
+
+      expect(error).toBe(reason);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onMayMint).not.toHaveBeenCalledWith(true);
+    });
+
+    it.each([400, 503])('keeps a %i refusal whose body cannot be read a refusal', async status => {
+      fetchMock.mockResolvedValue({
+        ...errorResponse(status, ''),
+        text: () => Promise.reject(new TypeError('network error'))
+      });
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toEqual(new Error(`Faucet token request failed with status ${status}: `));
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('keeps a 503 a refusal, safe to retry: the faucet sends it when it cannot queue the mint', async () => {
+      fetchMock.mockResolvedValue(errorResponse(503, 'The faucet is currently overloaded, please try again later.'));
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('reports an accepted request whose body stalls past the faucet timeout as unreadable', async () => {
+      jest.useFakeTimers();
+      try {
+        const seen = answerWithStalledBody(jsonResponse({}));
+
+        const minted = track(
+          requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+        );
+        await jest.advanceTimersByTimeAsync(15_000);
+
+        // The faucet accepted the request, so it may have minted: never a refusal, never 'no response'.
+        expect(minted.outcome).toBeInstanceOf(FaucetOutcomeUnknownError);
+        expect(minted.outcome).toMatchObject({ message: 'Faucet token response could not be read' });
+        expect(Reflect.get(Object(minted.outcome), 'cause')).toBe(seen.signal?.reason);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('fails a 429 with no Retry-After with its body, as a refusal', async () => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Account is rate limited.'));
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toEqual(new Error('Faucet token request failed with status 429: Account is rate limited.'));
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("fails a retry answered by another 429 with the retry's body", async () => {
+      jest.useFakeTimers();
+      try {
+        const first = { ...errorResponse(429, 'first', { 'retry-after': '1' }), text: jest.fn() };
+        fetchMock.mockResolvedValueOnce(first).mockResolvedValueOnce(errorResponse(429, 'still rate limited'));
+
+        const minted = track(
+          requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+        );
+        await jest.advanceTimersByTimeAsync(1_100);
+
+        expect(minted.outcome).toEqual(new Error('Faucet token request failed with status 429: still rate limited'));
+        expect(minted.outcome).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+        expect(first.text).not.toHaveBeenCalled();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('a refusal the user can act on', () => {
+    const calls: Array<[string, () => Promise<unknown>]> = [
+      ['Faucet PoW request', () => getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n)],
+      [
+        'Faucet token request',
+        () => requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+      ]
+    ];
+
+    it.each(calls)('%s types a rate limit, with the wait its body names', async (label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Account is rate limited for 25 more seconds.'));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetRateLimitedError);
+      expect(error).toMatchObject({
+        message: `${label} failed with status 429: Account is rate limited for 25 more seconds.`,
+        retryAfterSeconds: 25
+      });
+    });
+
+    it.each(calls)('%s types a rate limit whose body names no wait', async (_label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Too many requests'));
+
+      await expect(call()).rejects.toMatchObject({ name: 'FaucetRateLimitedError', retryAfterSeconds: null });
+    });
+
+    it.each(calls)('%s types an amount over the cap, with the cap the faucet names', async (label, call) => {
+      const detail = 'requested amount 100000000 exceeds the maximum claimable amount of 10000000';
+      fetchMock.mockResolvedValue(errorResponse(400, detail));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetAmountOverCapError);
+      expect(error).toMatchObject({ message: `${label} failed with status 400: ${detail}`, cap: 10_000_000n });
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it.each(calls)('%s keeps any other refusal a plain error', async (_label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(400, 'Please enter a valid recipient address'));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(Object.getPrototypeOf(error)).toBe(Error.prototype);
     });
   });
 
   describe('mintFromMidenFaucet', () => {
+    it('sends nothing on a wallet whose network has no faucet (mainnet)', async () => {
+      await applyEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+      try {
+        const onBeforeSubmit = jest.fn();
+        await expect(mintFromMidenFaucet('mm1mainnetaddress', undefined, undefined, onBeforeSubmit)).rejects.toThrow(
+          'No faucet'
+        );
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+        expect(onBeforeSubmit).not.toHaveBeenCalled();
+      } finally {
+        await clearEndpointOverride();
+      }
+    });
+
+    it.each([10000, 100000000])('uses advertised base_amount %i unchanged for challenge and mint', async baseAmount => {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.endsWith('/get_metadata'))
+          return jsonResponse({ version: '0.17.0', decimals: 6, base_amount: baseAmount, difficulty: 65536 });
+        if (url.includes('/pow')) return jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+        return jsonResponse({ tx_id: '0xtx', note_id: '0xnote' });
+      });
+      await mintFromMidenFaucet('mtst1testaddress');
+      const urls = fetchMock.mock.calls.map(([url]) => new URL(url));
+      expect(urls.map(url => url.origin)).toEqual(Array(3).fill(getFaucetApiUrl()));
+      expect(urls[0]?.pathname).toBe('/get_metadata');
+      expect(urls[1]?.searchParams.get('amount')).toBe(String(baseAmount));
+      expect(urls[2]?.searchParams.get('asset_amount')).toBe(String(baseAmount));
+    });
+
+    it.each([undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '10000'])(
+      'rejects malformed metadata base_amount %s before PoW or mint',
+      async baseAmount => {
+        fetchMock.mockResolvedValue(jsonResponse({ base_amount: baseAmount }));
+        const onBeforeSubmit = jest.fn();
+        const onMayMint = jest.fn();
+        await expect(
+          mintFromMidenFaucet('mtst1testaddress', undefined, undefined, onBeforeSubmit, onMayMint)
+        ).rejects.toThrow('base_amount');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+        expect(onBeforeSubmit).not.toHaveBeenCalled();
+        expect(onMayMint).not.toHaveBeenCalled();
+      }
+    );
+
+    it('sends nothing when the caller aborted before metadata', async () => {
+      const controller = new AbortController();
+      const reason = new Error('cancelled before metadata');
+      controller.abort(reason);
+      await expect(mintFromMidenFaucet('mtst1testaddress', undefined, controller.signal)).rejects.toBe(reason);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+    });
+
+    it('fails unavailable metadata before PoW or mint', async () => {
+      fetchMock.mockResolvedValue(errorResponse(503, 'unavailable'));
+      await expect(mintFromMidenFaucet('mtst1testaddress')).rejects.toThrow('metadata request failed with status 503');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+    });
+
+    it('bounds and cancels metadata body reads before PoW or mint', async () => {
+      jest.useFakeTimers();
+      const controller = new AbortController();
+      const seen = answerWithStalledBody(jsonResponse({}));
+      const result = track(mintFromMidenFaucet('mtst1testaddress', undefined, controller.signal));
+      await jest.advanceTimersByTimeAsync(0);
+      controller.abort(new Error('cancelled metadata'));
+      await jest.advanceTimersByTimeAsync(0);
+      expect(result.outcome).toBe(seen.signal?.reason);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+      const timeout = track(mintFromMidenFaucet('mtst1testaddress'));
+      await jest.advanceTimersByTimeAsync(15000);
+      expect(timeout.outcome).toMatchObject({ name: 'TimeoutError' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('chains challenge, solve, and token request against the default network endpoint', async () => {
       // 2^64 target: every nonce solves the challenge on the first attempt.
       fetchMock.mockImplementation((url: string) => {
@@ -220,11 +945,240 @@ describe('faucet-api', () => {
       const tokensUrl = new URL(fetchMock.mock.calls[1][0]);
       expect(`${tokensUrl.origin}${tokensUrl.pathname}`).toBe(`${baseUrl}/get_tokens`);
       expect(tokensUrl.searchParams.get('account_id')).toBe('mtst1testaddress');
-      expect(tokensUrl.searchParams.get('is_private_note')).toBe('false');
+      expect(tokensUrl.searchParams.has('is_private_note')).toBe(false);
       expect(tokensUrl.searchParams.get('asset_amount')).toBe('100000000');
       expect(tokensUrl.searchParams.get('challenge')).toBe(CHALLENGE_HEX);
       expect(tokensUrl.searchParams.get('nonce')).toMatch(/^\d+$/);
-      expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(result).toStrictEqual({ noteId: '0xnote' });
+    });
+
+    it('sends the token request only once onBeforeSubmit has finished, and never when it fails', async () => {
+      fetchMock.mockImplementation((url: string) =>
+        Promise.resolve(
+          url.includes('/pow')
+            ? jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 })
+            : jsonResponse({ tx_id: '0xtx', note_id: '0xnote' })
+        )
+      );
+      const tokenRequests = () => fetchMock.mock.calls.filter(([url]) => String(url).includes('/get_tokens'));
+      const settle = async () => {
+        for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0));
+      };
+
+      // The hook stores the submitted flag: the token request must wait for it.
+      let finishHook = () => {};
+      const hook = jest.fn(
+        () =>
+          new Promise<void>(resolve => {
+            finishHook = resolve;
+          })
+      );
+      const minted = mintFromMidenFaucet('mtst1testaddress', 100_000_000n, undefined, hook);
+      await settle();
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(tokenRequests()).toHaveLength(0);
+      finishHook();
+      await minted;
+      expect(tokenRequests()).toHaveLength(1);
+
+      // A hook that fails (the flag could not be stored) sends nothing.
+      fetchMock.mockClear();
+      const refused = mintFromMidenFaucet('mtst1testaddress', 100_000_000n, undefined, async () => {
+        throw new Error('storage unavailable');
+      });
+      await expect(refused).rejects.toThrow('storage unavailable');
+      expect(tokenRequests()).toHaveLength(0);
+    });
+
+    it('runs onBeforeSubmit after the proof of work and before the token request goes out', async () => {
+      const order: string[] = [];
+      fetchMock.mockImplementation((url: string) => {
+        order.push(url.includes('/pow') ? 'pow' : 'get_tokens');
+        if (url.includes('/pow')) {
+          return Promise.resolve(jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 }));
+        }
+        return Promise.resolve(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+      });
+
+      await mintFromMidenFaucet('mtst1testaddress', 100_000_000n, undefined, async () => {
+        order.push('onBeforeSubmit');
+      });
+
+      // The hook is the last moment nothing can have been minted: after the
+      // challenge, before the request that can mint.
+      expect(order).toEqual(['pow', 'onBeforeSubmit', 'get_tokens']);
+    });
+
+    it('does not run onBeforeSubmit when the proof of work never completes', async () => {
+      // The challenge arrives, but the solve fails: the hook must follow the solve,
+      // not just the challenge fetch.
+      const controller = new AbortController();
+      fetchMock.mockImplementation(async () => {
+        controller.abort(new Error('Faucet request timed out'));
+        return jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+      });
+      const onBeforeSubmit = jest.fn(async () => undefined);
+
+      await expect(
+        mintFromMidenFaucet('mtst1testaddress', 100_000_000n, controller.signal, onBeforeSubmit)
+      ).rejects.toThrow('Faucet request timed out');
+
+      expect(onBeforeSubmit).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toContain('/pow');
+    });
+  });
+
+  describe('the grant amount and the cap retry', () => {
+    const ADDRESS = 'mtst1testaddress';
+    // Faucet 0.17.1 (testnet) offers token amounts; 0.17.0 (devnet) does not.
+    const TESTNET_METADATA = {
+      version: '0.17.1',
+      decimals: 6,
+      base_amount: 100_000_000,
+      token_amounts: [1, 10, 100]
+    };
+    const DEVNET_METADATA = { version: '0.17.0', decimals: 6, base_amount: 100_000_000 };
+    const overCap = (requested: bigint, cap: bigint) =>
+      `requested amount ${requested} exceeds the maximum claimable amount of ${cap}`;
+    const requests = (path: string) =>
+      fetchMock.mock.calls.map(([url]) => new URL(url)).filter(url => url.pathname === path);
+    const powAmounts = () => requests('/pow').map(url => url.searchParams.get('amount'));
+    const grantAmounts = () => requests('/get_tokens').map(url => url.searchParams.get('asset_amount'));
+
+    /** Answers the metadata, then each /pow and /get_tokens from its own queue, OK once a queue is empty. */
+    function serveFaucet(metadata: unknown, queued: { pow?: MockResponse[]; tokens?: MockResponse[] } = {}) {
+      const pow = [...(queued.pow ?? [])];
+      const tokens = [...(queued.tokens ?? [])];
+      fetchMock.mockImplementation(async (url: string) => {
+        const { pathname } = new URL(url);
+        if (pathname === '/get_metadata') return jsonResponse(metadata);
+        if (pathname === '/pow') return pow.shift() ?? jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+        return tokens.shift() ?? jsonResponse({ note_id: '0xnote' });
+      });
+    }
+
+    describe('mintFromMidenFaucet', () => {
+      it('asks for the largest token amount the faucet offers, in base units', async () => {
+        serveFaucet({ ...TESTNET_METADATA, token_amounts: [1, 10] });
+
+        await mintFromMidenFaucet(ADDRESS);
+
+        expect(powAmounts()).toEqual(['10000000']);
+        expect(grantAmounts()).toEqual(['10000000']);
+      });
+
+      it('asks for an offered token amount when base_amount is malformed', async () => {
+        serveFaucet({ decimals: 6, base_amount: 'x', token_amounts: [5] });
+
+        await mintFromMidenFaucet(ADDRESS);
+
+        expect(powAmounts()).toEqual(['5000000']);
+      });
+
+      it('asks once more at the cap a challenge refusal names, from a fresh challenge (testnet)', async () => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+        const onBeforeSubmit = jest.fn(async () => undefined);
+
+        await expect(mintFromMidenFaucet(ADDRESS, undefined, undefined, onBeforeSubmit)).resolves.toStrictEqual({
+          noteId: '0xnote'
+        });
+
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+        expect(grantAmounts()).toEqual(['10000000']);
+        expect(spawnWorkerMock).toHaveBeenCalledTimes(1);
+        expect(onBeforeSubmit).toHaveBeenCalledTimes(1);
+      });
+
+      it('asks once more at the cap a token refusal names, solving a new challenge (devnet)', async () => {
+        serveFaucet(DEVNET_METADATA, { tokens: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+        const onBeforeSubmit = jest.fn(async () => undefined);
+        const onMayMint = jest.fn();
+
+        await mintFromMidenFaucet(ADDRESS, undefined, undefined, onBeforeSubmit, onMayMint);
+
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+        expect(grantAmounts()).toEqual(['100000000', '10000000']);
+        expect(spawnWorkerMock).toHaveBeenCalledTimes(2);
+        expect(onBeforeSubmit).toHaveBeenCalledTimes(2);
+        // Refused (nothing minting), then the retry goes out and is accepted.
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [true]]);
+      });
+
+      it('asks at most twice, whatever the second refusal names', async () => {
+        serveFaucet(TESTNET_METADATA, {
+          pow: [
+            errorResponse(400, overCap(100_000_000n, 10_000_000n)),
+            errorResponse(400, overCap(10_000_000n, 1_000_000n))
+          ]
+        });
+
+        const error = await mintFromMidenFaucet(ADDRESS).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetAmountOverCapError);
+        expect(error).toMatchObject({ cap: 1_000_000n });
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+      });
+
+      it('surfaces a rate limit on the retry as the faucet sent it, and asks no third time', async () => {
+        serveFaucet(DEVNET_METADATA, {
+          tokens: [
+            errorResponse(400, overCap(100_000_000n, 10_000_000n)),
+            errorResponse(429, 'Account is rate limited for 25 more seconds.')
+          ]
+        });
+        const onMayMint = jest.fn();
+
+        const minting = mintFromMidenFaucet(ADDRESS, undefined, undefined, undefined, onMayMint);
+        const error = await minting.catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetRateLimitedError);
+        expect(error).toMatchObject({ retryAfterSeconds: 25 });
+        expect(grantAmounts()).toEqual(['100000000', '10000000']);
+        // Both refusals say nothing is minting, so the card may offer the request again.
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [false]]);
+      });
+
+      it.each([
+        ['the cap equals the request', overCap(100_000_000n, 100_000_000n)],
+        ['the cap is above the request', overCap(100_000_000n, 1_000_000_000n)],
+        ['the cap is zero', overCap(100_000_000n, 0n)],
+        ['the refusal names no cap', 'requested amount 100000000 exceeds the maximum claimable amount'],
+        ['the refusal is about something else', 'Please enter a valid recipient address']
+      ])('asks only once when %s', async (_case, detail) => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, detail)] });
+
+        await expect(mintFromMidenFaucet(ADDRESS)).rejects.toThrow(
+          `Faucet PoW request failed with status 400: ${detail}`
+        );
+
+        expect(powAmounts()).toEqual(['100000000']);
+      });
+
+      it('asks only once for an amount the caller chose', async () => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+
+        await expect(mintFromMidenFaucet(ADDRESS, 100_000_000n)).rejects.toBeInstanceOf(FaucetAmountOverCapError);
+
+        expect(powAmounts()).toEqual(['100000000']);
+        expect(requests('/get_metadata')).toHaveLength(0);
+      });
+
+      it('sends no second challenge when the caller aborts on an over-cap refusal', async () => {
+        const controller = new AbortController();
+        const reason = new Error('Faucet request timed out');
+        fetchMock.mockImplementation(async (url: string) => {
+          if (new URL(url).pathname === '/get_metadata') return jsonResponse(TESTNET_METADATA);
+          // The request's timeout fires while the refusal is on its way back.
+          controller.abort(reason);
+          return errorResponse(400, overCap(100_000_000n, 10_000_000n));
+        });
+
+        await expect(mintFromMidenFaucet(ADDRESS, undefined, controller.signal)).rejects.toBe(reason);
+
+        expect(powAmounts()).toEqual(['100000000']);
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+      });
     });
   });
 });

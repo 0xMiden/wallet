@@ -1,13 +1,14 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { MotionConfig } from 'framer-motion';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
-jest.mock('lib/epoch', () => ({
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  EPOCH_DESTINATION_CHAIN_ID: 11155111
-}));
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -15,8 +16,11 @@ jest.mock('react-i18next', () => ({
 const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const MIDEN_ADDRESS = 'mtst1recipient';
 
+const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
   getBridgeNetwork: (id: string | undefined) =>
     id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
 }));
@@ -31,13 +35,13 @@ jest.mock('components/Button', () => {
   return {
     __esModule: true,
     ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-    Button: ({ variant: _variant, title, iconLeft, children, ...rest }: any) =>
-      ReactMock.createElement('button', { type: 'button', ...rest }, iconLeft, children ?? title)
+    Button: ({ variant: _variant, accent, title, iconLeft, children, ...rest }: any) =>
+      ReactMock.createElement('button', { type: 'button', 'data-accent': accent, ...rest }, iconLeft, children ?? title)
   };
 });
 
-function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
-  const props: SelectRecipientProps = {
+function baseRecipientProps(overrides: Partial<SelectRecipientProps> = {}): SelectRecipientProps {
+  return {
     address: '',
     isValidAddress: false,
     chain: 'miden',
@@ -47,47 +51,66 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
     onConfirm: jest.fn(),
     ...overrides
   };
+}
+
+function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
+  const props = baseRecipientProps(overrides);
 
   render(<SelectRecipient {...props} />);
   return props;
 }
 
 describe('SelectRecipient', () => {
+  it('titles the step as the tab, with the entry below it over pills that wrap rather than scroll', () => {
+    renderRecipient({ onScan: jest.fn() });
+    const title = screen.getByRole('heading', { level: 1 });
+    expect(title).toHaveClass('text-title-tab');
+    expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
+
+    // The row used to be a sideways scroller bleeding past the page margin. A horizontally
+    // scrollable element is the handler for a sideways pan, so it — not HomeSwipeContainer — took
+    // the swipe, and the Send pane could no longer be swiped to the next tab; the bleed also let
+    // the column be dragged out from under its own title. Scan QR code goes to a second line
+    // instead.
+    const pills = screen.getByTestId('send-address-book').parentElement;
+    expect(pills).toHaveClass('flex-wrap');
+    expect(pills?.className).not.toMatch(/overflow-x-|-mx-/);
+  });
+
   it('hides the network selector before an address is entered', () => {
     renderRecipient();
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+  });
+
+  it('hides the placeholder while the recipient field is focused, as the other text fields do', () => {
+    renderRecipient({ onScan: jest.fn() });
+    const field = screen.getByTestId('send-recipient-input');
+    expect(field).toHaveClass('focus:placeholder:text-transparent');
+    expect(field).toHaveAttribute('placeholder');
   });
 
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
-    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute(
-      'placeholder',
-      'Enter Miden or Ethereum Address'
-    );
+    // Localised, like every other string on the page: the placeholder and the scan label used to
+    // be English literals held in a `const`, which `lint:i18n` cannot see (it only reads JSX).
+    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute('placeholder', 'sendRecipientPlaceholder');
     expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
-    expect(screen.queryByText('Scan QR Code')).not.toBeInTheDocument();
+    expect(screen.queryByText('scanQrTitle')).not.toBeInTheDocument();
   });
 
-  it('shows Scan QR Code with extracted icons and compact action pills while the address field is empty', () => {
+  it('shows Scan QR code with extracted icons and compact action pills while the address field is empty', () => {
     renderRecipient({ onScan: jest.fn() });
 
-    expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
+    expect(screen.getByText('scanQrTitle')).toBeInTheDocument();
     expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
-    expect(screen.getByText('addressBook').closest('button')).toHaveClass(
-      'h-auto!',
-      'px-2!',
-      'py-1!',
-      'bg-surface-interactive!'
-    );
-    expect(screen.getByText('Scan QR Code').closest('button')).toHaveClass(
-      'h-auto!',
-      'px-2!',
-      'py-1!',
-      'bg-surface-interactive!'
-    );
+    // Both pills are the app's shared Pill, so they are the same height, padding and type
+    // scale as every other chip (the network chip beside them included).
+    for (const label of ['addressBook', 'scanQrTitle']) {
+      expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-pill');
+    }
   });
 
   it('shows the saved contact identity when a recipient name is provided', () => {
@@ -99,34 +122,55 @@ describe('SelectRecipient', () => {
     });
 
     expect(screen.getByText('Charlie')).toBeInTheDocument();
-    expect(screen.getByTestId('send-recipient-avatar')).toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-avatar')).toHaveTextContent('C');
   });
 
-  it('requires an EVM network and opens the network picker', () => {
-    const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
+  it('shows the only bridge network as a fact rather than a lone selectable chip', () => {
+    renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('send-network-selector'));
-    expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
+    const chip = screen.getByTestId('send-network-sepolia');
+    expect(chip.tagName).not.toBe('BUTTON');
+    expect(chip).toHaveTextContent('Sepolia');
+  });
+
+  it('offers bridge networks in a picker once there is more than one', () => {
+    mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
+    try {
+      const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
+
+      expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('send-network-picker'));
+      expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(screen.getByTestId('send-network-base'));
+      expect(props.onSelectNetwork).toHaveBeenCalledWith('base');
+    } finally {
+      mockBridgeNetworks.pop();
+    }
   });
 
   it('hides the network selector for an incomplete EVM address', () => {
     renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
-  it('enables EVM confirmation after Sepolia is selected', () => {
+  it('enables EVM confirmation once the network is set', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
-  it('hides the network block and allows a valid Miden recipient', () => {
+  it('gives Confirm the send flow colour', () => {
+    renderRecipient();
+
+    expect(screen.getByTestId('send-recipient-confirm')).toHaveAttribute('data-accent', 'send');
+  });
+
+  it('shows Miden as the network for a valid Miden recipient', () => {
     renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-network-options')).toBeInTheDocument();
+    expect(screen.getByTestId('send-network-miden')).toHaveTextContent('miden');
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 });
@@ -138,7 +182,7 @@ describe('SelectRecipient — recent recipients', () => {
     { address: '0x1111111111111111111111111111111111111111', chain: 'ethereum' as const }
   ];
 
-  it('lists recents with names, chain badges and a network fallback, and fills on tap', () => {
+  it('lists recents with names, a network badge per row and a network fallback, and fills on tap', () => {
     const onSelectRecent = jest.fn();
     renderRecipient({ recents: RECENTS, onSelectRecent });
 
@@ -147,8 +191,14 @@ describe('SelectRecipient — recent recipients', () => {
 
     // A saved contact shows its name; an unknown address falls back to the truncated form.
     expect(screen.getByText('Alice')).toBeInTheDocument();
-    // Miden rows get the badge, EVM rows show the network name (falling back to Ethereum).
-    expect(screen.getByText('miden')).toBeInTheDocument();
+    // The network rides the avatar as a badge, so the row never spends its second line on it.
+    expect(screen.getAllByTestId('contact-avatar').map(el => el.dataset.network)).toEqual([
+      'miden',
+      'ethereum',
+      'ethereum'
+    ]);
+    // Only a named recipient shows the address on the second line; the others already show it
+    // above, so that line names their network instead (falling back to Ethereum).
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('ethereum')).toBeInTheDocument();
 
@@ -228,9 +278,238 @@ describe('SelectRecipient — mobile keyboard (regression)', () => {
     expect(document.activeElement).not.toBe(textarea);
   });
 
-  it('has a navbar cushion on the confirm footer so it snugs up when the navbar hides', () => {
+  it('keeps the confirm footer at a fixed height that only the keyboard shrinks', () => {
     renderRecipient();
     const footer = screen.getByTestId('send-recipient-confirm').parentElement;
+    // data-navbar-cushion: the CSS collapses the cushion when the tab bar hides, which is the
+    // only way the CTA is guaranteed to stay clear of a bar that draws over it.
     expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    expect(footer?.className).toContain('var(--keyboard-height,0px)');
+  });
+});
+
+describe('SelectRecipient — paste', () => {
+  it('shows Paste while the address field is empty and calls onPaste', () => {
+    const props = renderRecipient({ onPaste: jest.fn() });
+
+    fireEvent.click(screen.getByTestId('send-paste'));
+
+    expect(screen.getByText('paste')).toBeInTheDocument();
+    expect(props.onPaste).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Paste once an address is entered', () => {
+    renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, onPaste: jest.fn() });
+
+    expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+
+  it('hides Paste when no paste handler is provided', () => {
+    renderRecipient();
+
+    expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+});
+
+describe('SelectRecipient: clear (#503)', () => {
+  const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+  it('offers no clear action while the address field is empty', () => {
+    renderRecipient();
+    expect(clearButton()).toBeNull();
+  });
+
+  it('clears an entered address through the change handler typing uses, keeping focus', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: MIDEN_ADDRESS,
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+    expect(screen.getByTestId('send-recipient-input')).toHaveFocus();
+  });
+
+  it('empties the field and drops the button once its owner takes the empty address', () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState(MIDEN_ADDRESS);
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(<Owner />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(screen.getByTestId('send-recipient-input')).toHaveValue('');
+    expect(clearButton()).toBeNull();
+  });
+
+  it('offers to clear an address of only spaces, which the pills already treat as empty', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: '   ',
+      onPaste: jest.fn(),
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+    expect(screen.getByTestId('send-paste')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+  });
+
+  it('sits at the end of the address line, the field shrinking for it', () => {
+    renderRecipient({ address: MIDEN_ADDRESS });
+    const field = screen.getByTestId('send-recipient-input');
+    const clear = screen.getByRole('button', { name: 'clear' });
+    expect(clear.parentElement).toBe(field.parentElement);
+    expect(field).toHaveClass('min-w-0', 'flex-1');
+    expect(field).not.toHaveClass('w-full');
+    expect(clear).toHaveClass('-my-2');
+    expect(clear).not.toHaveClass('-mr-3');
+  });
+});
+
+describe('SelectRecipient — address field growth', () => {
+  // The field measures with height:auto, which cannot be interpolated, so the height it is drawn
+  // at has to go back before the new one or the CSS transition is cancelled. Restoring the last
+  // inline target instead snapped the field for a keystroke that landed mid-grow.
+  it('writes back the height it is drawn at before the new height', () => {
+    const { rerender } = render(<SelectRecipient {...baseRecipientProps()} address="mtst1a" />);
+    const field = screen.getByTestId('send-recipient-input') as HTMLTextAreaElement;
+
+    // One wrapped line is already applied, and the field is mid-transition at 90px.
+    field.style.height = '120px';
+    jest.spyOn(window, 'getComputedStyle').mockReturnValue({ height: '90px' } as CSSStyleDeclaration);
+    const writes: string[] = [];
+    Object.defineProperty(field.style, 'height', {
+      configurable: true,
+      get: () => writes[writes.length - 1] ?? '120px',
+      set: (value: string) => writes.push(value)
+    });
+    Object.defineProperty(field, 'scrollHeight', { value: 150, configurable: true });
+
+    rerender(<SelectRecipient {...baseRecipientProps()} address="mtst1abcdefghijklmnop" />);
+
+    expect(writes).toEqual(['auto', '90px', '150px']);
+  });
+});
+
+describe('SelectRecipient user-visible errors', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const settleMotion = async () => {
+    await act(async () => {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+  };
+
+  it.each(['invalidEthereumAddress', 'cannotSendToSelf', 'midenAddressWrongNetwork', 'invalidMidenAccountId'])(
+    'reports the visible %s recipient refusal without the address',
+    async error => {
+      const Owner = () => {
+        const [address, setAddress] = React.useState('');
+        return (
+          <SelectRecipient
+            {...baseRecipientProps()}
+            address={address}
+            error={address ? error : undefined}
+            onAddressChange={event => setAddress(event.target.value)}
+          />
+        );
+      };
+      render(
+        <MotionConfig skipAnimations>
+          <Owner />
+        </MotionConfig>
+      );
+      fireEvent.change(screen.getByTestId('send-recipient-input'), { target: { value: MIDEN_ADDRESS } });
+      await settleMotion();
+      expect(screen.getByText(error)).toBeVisible();
+      expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+
+      await act(async () => jest.advanceTimersByTimeAsync(999));
+      expect(screen.getByText(error)).toBeVisible();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTimeAsync(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[error, 'inline']]);
+      await act(async () => jest.advanceTimersByTimeAsync(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('reports the camera denial passed back after pressing Scan QR code', async () => {
+    const Owner = () => {
+      const [error, setError] = React.useState<string>();
+      return (
+        <SelectRecipient {...baseRecipientProps()} error={error} onScan={() => setError('cameraPermissionDenied')} />
+      );
+    };
+    render(
+      <MotionConfig skipAnimations>
+        <Owner />
+      </MotionConfig>
+    );
+    fireEvent.click(screen.getByTestId('send-scan-icon').closest('button')!);
+    await settleMotion();
+    expect(screen.getByText('cameraPermissionDenied')).toBeVisible();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(screen.getByText('cameraPermissionDenied')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['cameraPermissionDenied', 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels reporting when correcting the recipient removes the error before 1000 ms', async () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState('');
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          error={address ? 'invalidMidenAccountId' : undefined}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(
+      <MotionConfig skipAnimations>
+        <Owner />
+      </MotionConfig>
+    );
+    fireEvent.change(screen.getByTestId('send-recipient-input'), { target: { value: 'mtst1bad' } });
+    await settleMotion();
+    expect(screen.getByText('invalidMidenAccountId')).toBeVisible();
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await settleMotion();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.queryByText('invalidMidenAccountId')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

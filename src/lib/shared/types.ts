@@ -1,15 +1,13 @@
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
+  SerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
-
-import {
-  SendPageEventRequest,
-  SendPageEventResponse,
-  SendPerformanceEventRequest,
-  SendPerformanceEventResponse,
-  SendTrackEventRequest,
-  SendTrackEventResponse
-} from './analytics-types';
 
 export enum WalletMessageType {
   // Aknowledge
@@ -23,6 +21,8 @@ export enum WalletMessageType {
   GetStateResponse = 'GET_STATE_RESPONSE',
   NewWalletRequest = 'NEW_WALLET_REQUEST',
   NewWalletResponse = 'NEW_WALLET_RESPONSE',
+  NewWalletFromHotKeyRequest = 'NEW_WALLET_FROM_HOT_KEY_REQUEST',
+  NewWalletFromHotKeyResponse = 'NEW_WALLET_FROM_HOT_KEY_RESPONSE',
   ImportFromClientRequest = 'IMPORT_FROM_CLIENT_REQUEST',
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
@@ -39,12 +39,22 @@ export enum WalletMessageType {
   RevealViewKeyResponse = 'REVEAL_VIEW_KEY_RESPONSE',
   RevealPrivateKeyRequest = 'REVEAL_PRIVATE_KEY_REQUEST',
   RevealPrivateKeyResponse = 'REVEAL_PRIVATE_KEY_RESPONSE',
+  ExportAccountFileRequest = 'EXPORT_ACCOUNT_FILE_REQUEST',
+  ExportAccountFileResponse = 'EXPORT_ACCOUNT_FILE_RESPONSE',
   RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
   RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
-  RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
-  RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
+  ExportWalletBackupMaterialRequest = 'EXPORT_WALLET_BACKUP_MATERIAL_REQUEST',
+  ExportWalletBackupMaterialResponse = 'EXPORT_WALLET_BACKUP_MATERIAL_RESPONSE',
+  RemoveSeedPhraseRequest = 'REMOVE_SEED_PHRASE_REQUEST',
+  RemoveSeedPhraseResponse = 'REMOVE_SEED_PHRASE_RESPONSE',
+  ProvideRecoverySeedRequest = 'PROVIDE_RECOVERY_SEED_REQUEST',
+  ProvideRecoverySeedResponse = 'PROVIDE_RECOVERY_SEED_RESPONSE',
+  PrepareRecoveryRequest = 'PREPARE_RECOVERY_REQUEST',
+  PrepareRecoveryResponse = 'PREPARE_RECOVERY_RESPONSE',
+  ReleaseRecoveryRequest = 'RELEASE_RECOVERY_REQUEST',
+  ReleaseRecoveryResponse = 'RELEASE_RECOVERY_RESPONSE',
   RemoveAccountRequest = 'REMOVE_ACCOUNT_REQUEST',
   RemoveAccountResponse = 'REMOVE_ACCOUNT_RESPONSE',
   EditAccountRequest = 'EDIT_ACCOUNT_REQUEST',
@@ -57,6 +67,16 @@ export enum WalletMessageType {
   ImportMnemonicAccountResponse = 'IMPORT_MNEMONIC_ACCOUNT_RESPONSE',
   UpdateSettingsRequest = 'UPDATE_SETTINGS_REQUEST',
   UpdateSettingsResponse = 'UPDATE_SETTINGS_RESPONSE',
+  GetSpendingLimitRequest = 'GET_SPENDING_LIMIT_REQUEST',
+  GetSpendingLimitResponse = 'GET_SPENDING_LIMIT_RESPONSE',
+  SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
+  SaveSpendingLimitResponse = 'SAVE_SPENDING_LIMIT_RESPONSE',
+  AssessSpendingLimitRequest = 'ASSESS_SPENDING_LIMIT_REQUEST',
+  AssessSpendingLimitResponse = 'ASSESS_SPENDING_LIMIT_RESPONSE',
+  GetStrictAuthenticationProtectorsRequest = 'GET_STRICT_AUTHENTICATION_PROTECTORS_REQUEST',
+  GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
+  VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
+  VerifyStrictActionAuthenticationResponse = 'VERIFY_STRICT_ACTION_AUTHENTICATION_RESPONSE',
   SignDataRequest = 'SIGN_DATA_REQUEST',
   SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
@@ -69,12 +89,20 @@ export enum WalletMessageType {
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
+  ImportHotKeyPairRequest = 'IMPORT_HOT_KEY_PAIR_REQUEST',
+  ImportHotKeyPairResponse = 'IMPORT_HOT_KEY_PAIR_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
+  RevertGuardianEndpointRequest = 'REVERT_GUARDIAN_ENDPOINT_REQUEST',
+  RevertGuardianEndpointResponse = 'REVERT_GUARDIAN_ENDPOINT_RESPONSE',
   SetGuardianOperatorCommitmentRequest = 'SET_GUARDIAN_OPERATOR_COMMITMENT_REQUEST',
   SetGuardianOperatorCommitmentResponse = 'SET_GUARDIAN_OPERATOR_COMMITMENT_RESPONSE',
   SetGuardianSyncStatusRequest = 'SET_GUARDIAN_SYNC_STATUS_REQUEST',
   SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
+  MarkHotKeyRotatedOutRequest = 'MARK_HOT_KEY_ROTATED_OUT_REQUEST',
+  MarkHotKeyRotatedOutResponse = 'MARK_HOT_KEY_ROTATED_OUT_RESPONSE',
+  RetireRotatedOutHotKeyRequest = 'RETIRE_ROTATED_OUT_HOT_KEY_REQUEST',
+  RetireRotatedOutHotKeyResponse = 'RETIRE_ROTATED_OUT_HOT_KEY_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
@@ -111,12 +139,6 @@ export enum WalletMessageType {
   DAppGetAllSessionsResponse = 'DAPP_GET_ALL_SESSIONS_RESPONSE',
   DAppRemoveSessionRequest = 'DAPP_REMOVE_SESSION_REQUEST',
   DAppRemoveSessionResponse = 'DAPP_REMOVE_SESSION_RESPONSE',
-  SendTrackEventRequest = 'SEND_TRACK_EVENT_REQUEST',
-  SendTrackEventResponse = 'SEND_TRACK_EVENT_RESPONSE',
-  SendPageEventRequest = 'SEND_PAGE_EVENT_REQUEST',
-  SendPageEventResponse = 'SEND_PAGE_EVENT_RESPONSE',
-  SendPerformanceEventRequest = 'SEND_PROOF_GENERATION_EVENT_REQUEST',
-  SendPerformanceEventResponse = 'SEND_PROOF_GENERATION_EVENT_RESPONSE',
   DecryptCiphertextsRequest = 'DECRYPT_CIPHERTEXTS_REQUEST',
   DecryptCiphertextsResponse = 'DECRYPT_CIPHERTEXTS_RESPONSE',
   GetOwnedRecordsRequest = 'GET_OWNED_RECORDS_REQUEST',
@@ -131,21 +153,27 @@ export enum WalletMessageType {
   // Transaction processing (popup → SW)
   ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
   ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // A page's delivery write (page → SW), so the SW's delivery sweep looks again
+  NoteDeliveryWrittenRequest = 'NOTE_DELIVERY_WRITTEN_REQUEST',
+  NoteDeliveryWrittenResponse = 'NOTE_DELIVERY_WRITTEN_RESPONSE',
+  // Developer endpoint overrides (popup → SW): re-hydrate the SW's override
+  // cache + rebuild its Miden client singleton(s) after a save.
+  ReloadEndpointOverridesRequest = 'RELOAD_ENDPOINT_OVERRIDES_REQUEST',
+  ReloadEndpointOverridesResponse = 'RELOAD_ENDPOINT_OVERRIDES_RESPONSE',
   // Note operations (popup → SW)
   ImportNoteBytesRequest = 'IMPORT_NOTE_BYTES_REQUEST',
   ImportNoteBytesResponse = 'IMPORT_NOTE_BYTES_RESPONSE',
+  RetryDeadletteredNotesRequest = 'RETRY_DEADLETTERED_NOTES_REQUEST',
+  RetryDeadletteredNotesResponse = 'RETRY_DEADLETTERED_NOTES_RESPONSE',
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
   GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
-  // Speculative pre-prove (popup → SW): kicked off when the review screen
-  // mounts so prove runs in parallel with the user reading the review;
-  // invalidated on review-screen unmount or if form params change.
-  // See lib/miden/back/speculation-manager.ts.
-  SpeculateSendRequest = 'SPECULATE_SEND_REQUEST',
-  SpeculateSendResponse = 'SPECULATE_SEND_RESPONSE',
-  SpeculateInvalidate = 'SPECULATE_INVALIDATE',
-  SpeculateInvalidateResponse = 'SPECULATE_INVALIDATE_RESPONSE'
+  ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE',
+  // USDCx burn fee dry run (popup → backend)
+  EstimateUsdcxBurnFeeRequest = 'ESTIMATE_USDCX_BURN_FEE_REQUEST',
+  EstimateUsdcxBurnFeeResponse = 'ESTIMATE_USDCX_BURN_FEE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -179,7 +207,7 @@ export interface SerializedVaultAsset {
     decimals: number;
     symbol: string;
     name: string;
-    thumbnailUri?: string;
+    description?: string;
     /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
     scaleIsUnknown?: boolean;
   };
@@ -189,6 +217,13 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  /** Network + nonce of the SAME account/vault read. Old cached payloads have no proof. */
+  balanceSnapshot?: import('lib/miden/balance-snapshot').BalanceSnapshot;
+  // When the service worker's last successful sync finished, so a reader can tell a
+  // live result from the snapshot persisted by an earlier session. A pass whose sync
+  // failed repeats the previous value. Absent before this service worker's first
+  // successful sync, and from snapshots written before the field existed.
+  syncedAt?: number;
 }
 
 export interface SyncCompleted extends WalletMessageBase {
@@ -212,6 +247,12 @@ export interface SerializedConsumableNote {
   noteType?: string; // 'public' | 'private' | 'unknown'
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
+  standardPayment?: boolean;
+  /** The note holds fungible assets beyond the one `faucetId` and `amountBaseUnits` describe; absent reads as not. */
+  carriesMoreAssets?: boolean;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
   swapOrder?: {
     orderId: string;
     depth: number;
@@ -225,7 +266,7 @@ export interface SerializedConsumableNote {
     decimals: number;
     symbol: string;
     name: string;
-    thumbnailUri?: string;
+    description?: string;
     /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
     scaleIsUnknown?: boolean;
   };
@@ -248,6 +289,39 @@ export interface ProcessTransactionsResponse extends WalletMessageBase {
   type: WalletMessageType.ProcessTransactionsResponse;
 }
 
+/**
+ * A delivery write an extension page made, such as Retry's landing or the in-app reconciler's, which the background
+ * counts as one of its own so its idle delivery sweep queries again. It carries no row data: the sweep reads the rows.
+ * Extension-only: on mobile and desktop the writer and the sweep share a realm and its count.
+ */
+export interface NoteDeliveryWrittenRequest extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenRequest;
+}
+
+export interface NoteDeliveryWrittenResponse extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenResponse;
+}
+
+/**
+ * Tell the SW to re-hydrate `lib/miden-chain/effective-endpoints`'s
+ * module-level override cache from storage and dispose its Miden client
+ * singleton(s), so the next `getMidenClient()` rebuilds against the
+ * freshly-saved endpoints. Fire-and-forget from the caller's perspective
+ * (the response payload carries no data) — mirrors `ProcessTransactionsRequest`.
+ * Still pairs with a Response type: `IntercomServer.processMessage` treats a
+ * handler returning `undefined` as "Not Found" and errors the round trip, so
+ * every case in `processRequest` must resolve to a typed response, even ones
+ * with nothing to report. Extension-only: mobile/desktop share the frontend's
+ * JS realm, so `applyEndpointOverride` alone already takes effect there.
+ */
+export interface ReloadEndpointOverridesRequest extends WalletMessageBase {
+  type: WalletMessageType.ReloadEndpointOverridesRequest;
+}
+
+export interface ReloadEndpointOverridesResponse extends WalletMessageBase {
+  type: WalletMessageType.ReloadEndpointOverridesResponse;
+}
+
 export interface ImportNoteBytesRequest extends WalletMessageBase {
   type: WalletMessageType.ImportNoteBytesRequest;
   noteBytes: string; // base64 encoded
@@ -256,6 +330,21 @@ export interface ImportNoteBytesRequest extends WalletMessageBase {
 export interface ImportNoteBytesResponse extends WalletMessageBase {
   type: WalletMessageType.ImportNoteBytesResponse;
   noteId: string;
+}
+
+/**
+ * Drain the note dead-letter store back onto the import queue (#788 follow-up)
+ * — the Activity notice's Retry. Handled in the realm that owns the import
+ * pass: the SW on extension, the single realm on mobile/desktop.
+ */
+export interface RetryDeadletteredNotesRequest extends WalletMessageBase {
+  type: WalletMessageType.RetryDeadletteredNotesRequest;
+}
+
+export interface RetryDeadletteredNotesResponse extends WalletMessageBase {
+  type: WalletMessageType.RetryDeadletteredNotesResponse;
+  /** How many notes were moved back onto the import queue. */
+  requeued: number;
 }
 
 export interface ExportNoteRequest extends WalletMessageBase {
@@ -281,44 +370,40 @@ export interface GetInputNoteDetailsRequest extends WalletMessageBase {
   noteIds: string[];
 }
 
-/**
- * Pre-prove the user's in-flight send transaction with the params currently
- * showing on the review screen. Fire-and-forget from the popup; the SW kicks
- * off execute + offscreen prove and caches the {txResult, proven} bytes
- * keyed by params hash. When the user clicks Confirm, the existing send
- * pipeline (initiateSendTransaction → SW processor) hits the cache via
- * MidenClientInterface.proveLocallyViaOffscreen and skips the prove step.
- *
- * Params shape mirrors what the wallet's SendTransaction DB record holds.
- * Skipping speculation when `recallBlocks` is set — block-height drift
- * between speculate-time and commit-time would invalidate the cached
- * reclaim height, easier to skip than handle.
- */
-export interface SpeculateSendRequest extends WalletMessageBase {
-  type: WalletMessageType.SpeculateSendRequest;
-  accountId: string;
-  recipientAccountId: string;
-  faucetId: string;
-  noteType: 'public' | 'private';
-  amount: string; // bigint as string (postMessage-safe)
+export interface ReportTelemetryEventRequest extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventRequest;
+  /** Only the event. Version and platform are derived in the background. */
+  event: TelemetryEvent;
 }
 
-export interface SpeculateSendResponse extends WalletMessageBase {
-  type: WalletMessageType.SpeculateSendResponse;
-}
-
-export interface SpeculateInvalidate extends WalletMessageBase {
-  type: WalletMessageType.SpeculateInvalidate;
-}
-
-export interface SpeculateInvalidateResponse extends WalletMessageBase {
-  type: WalletMessageType.SpeculateInvalidateResponse;
+export interface ReportTelemetryEventResponse extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventResponse;
 }
 
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
 }
+
+export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
+  type: WalletMessageType.EstimateUsdcxBurnFeeRequest;
+  /** The account that burns. */
+  accountPublicKey: string;
+  /** The chain the burn pays out on. The recipient does not change the cost, so the request names none. */
+  destinationChainId: number;
+}
+
+/**
+ * What a USDCx burn fee estimate found: the native-asset base units to hold back for the burn's cost once `measured`
+ * (0n for a burn that costs nothing), `busy` when the WASM lock was not won in time so no dry run ran, or `failed`
+ * when the dry run ran and could not measure, or could not be built.
+ */
+export type UsdcxBurnFeeEstimate = { outcome: 'measured'; reserve: bigint } | { outcome: 'busy' | 'failed' };
+
+/** A {@link UsdcxBurnFeeEstimate} on the wire, its reserve as a decimal string. */
+export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
+} & ({ outcome: 'measured'; feeReserve: string } | { outcome: 'busy' | 'failed' });
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
@@ -331,7 +416,15 @@ export interface GetStateResponse extends WalletMessageBase {
 }
 
 // TODO: Make generalizable and pull out somewhere
+export type GuardianRecoveryAction =
+  | { type: 'switch-guardian'; accountId: string; newGuardianEndpoint: string }
+  | { type: 'replace-hot-key'; accountId: string }
+  | { type: 'update-procedure-threshold'; accountId: string; procedure: string; threshold: number };
+
+export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';
+
 export interface WalletState {
+  seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[]; // Miden sdk might soon export a type for this
   networks: WalletNetwork[];
@@ -353,26 +446,45 @@ export interface ReadyWalletState extends WalletState {
  * Auth scheme an account uses for signing.
  *
  * Mirrors `@miden-sdk/miden-sdk` `AuthSchemeType` ("falcon" | "ecdsa").
- *
- * Optional on stored `WalletAccount` records. Records written before this
- * field existed have it absent on read; consumers MUST treat missing as
- * `"falcon"` (the historical wallet default). This preserves restore +
- * sign behavior 1:1 for pre-migration wallets while letting new accounts
- * be stamped with the new default ("ecdsa").
- *
  * Miden accounts cannot rotate auth, so this field is fixed at account
  * creation time and never mutated.
  */
 export type AuthScheme = 'falcon' | 'ecdsa';
 
 /**
+ * Key-derivation scheme an account's seed was derived under. Mirrors
+ * `KeyDerivation` in `@miden/hd-key`: label `miden seed`, path
+ * `m/44'/5063758'/<walletType>'/<authScheme>'/<hdIndex>'`. Fixed at account
+ * creation and never mutated, because the derivation decides which on-chain
+ * key the seed phrase recovers.
+ */
+export type KeyDerivation = 'v1';
+
+/**
  * Local reconciliation state of a Guardian account's endpoint vs its on-chain
  * guardian key. 'in-sync': stored endpoint matches on-chain. 'resolving':
  * an out-of-band switch was detected and auto-resolution is in progress.
  * 'needs-user-input': the new operator could not be identified (custom URL) and
- * the user must supply it. Absent on non-Guardian accounts and legacy records.
+ * the user must supply it. Absent until the drift reconciler first writes it.
  */
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
+
+/**
+ * Persisted finding that the account's on-chain hot signer (signer slot 0) is
+ * not the hot key this device holds: another device, most often a seed
+ * recovery, rotated the key and holds the account now. The verdict names the
+ * local key it was judged against, so it binds to that key alone: a record
+ * whose `hotPublicKey` has moved on carries a verdict about a key it no longer
+ * uses, and the predicate ignores it.
+ */
+export interface HotKeyRotatedOutVerdict {
+  /** This device's hot key at the time of the check (`WalletAccount.hotPublicKey`). */
+  hotPublicKey: string;
+  /** The hot-signer commitment the chain named instead. */
+  onChainHotCommitment: string;
+  /** Wall-clock time of the check, ms since the epoch. */
+  detectedAt: number;
+}
 
 /** Built-in guardian provider identity, reverse-mapped from the endpoint. */
 export type GuardianProvider = 'open-zeppelin' | 'gateway' | 'lambda-class' | 'custom';
@@ -392,8 +504,8 @@ export interface WalletAccount {
   type: WalletType;
   hdIndex: number;
   // Set on Guardian accounts created with the 3-key model (hot + cold + guardian).
-  // Absent on non-Guardian accounts and on legacy single-signer Guardian records
-  // produced before the migration; consumers should treat absence as "not 3-key".
+  // Absent on non-Guardian accounts. A seed-recovered account has no hot key until
+  // its rotation lands, and a hot-key-only import has no cold key.
   hotPublicKey?: string;
   coldPublicKey?: string;
   // True for Guardian accounts adopted via seed-phrase recovery — the on-chain
@@ -408,14 +520,10 @@ export interface WalletAccount {
    */
   guardianNoteRecoveryPending?: boolean;
   /**
-   * Guardian operator endpoint this account is registered with — the
+   * Guardian operator endpoint this account is registered with: the
    * authoritative source of truth for endpoint resolution (#408). Set at create /
-   * recovery time, stamped onto legacy accounts by the unlock-time on-chain
-   * backfill, and updated when the user switches guardians. Per-account so
-   * multiple Guardian accounts can live on different operators. When absent (a
-   * legacy record the backfill couldn't resolve on-chain), consumers fall back
-   * to the frozen, read-only, never-written legacy global
-   * `GUARDIAN_URL_STORAGE_KEY` (see `resolveGuardianEndpoint`). Non-Guardian
+   * recovery time and updated when the user switches guardians. Per-account so
+   * multiple Guardian accounts can live on different operators. Non-Guardian
    * accounts leave this undefined.
    */
   guardianEndpoint?: string;
@@ -426,23 +534,57 @@ export interface WalletAccount {
    * baseline for out-of-band-switch detection. Absent on non-Guardian accounts.
    */
   guardianOperatorCommitment?: string;
+  /**
+   * Version of the guardian BINDING (endpoint + commitment baseline), bumped
+   * by every applied binding write (`Vault.updateGuardianBinding`). A writer
+   * that snapshotted the account before a rotation carries a dead epoch and
+   * its write returns `stale` instead of resurrecting the old operator.
+   * Absent means 0 - pre-epoch records need no migration write.
+   */
+  guardianEpoch?: number;
   /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */
   guardianSyncStatus?: GuardianSyncStatus;
   /**
-   * Auth scheme this account was created with. See {@link AuthScheme} for
-   * the missing-on-read → `"falcon"` legacy interpretation.
+   * The verdict that another device rotated the account's hot key. See
+   * {@link HotKeyRotatedOutVerdict}. Set by the cold-signed signer check in the
+   * guardian sync's self-heal and by the direct guardian switch; cleared when
+   * this device's key is installed again (`swapHotKey`) or when the stale key is
+   * retired for a rotation to this device. Read only through
+   * `isHotKeyRotatedOut` in `lib/miden/guardian/sync-guard`.
    */
-  authScheme?: AuthScheme;
+  hotKeyRotatedOut?: HotKeyRotatedOutVerdict;
+  /** Auth scheme this account was created with. See {@link AuthScheme}. */
+  authScheme: AuthScheme;
   /**
-   * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
-   * Epoch lending position owner. Stamped at account creation and backfilled
-   * on unlock. Absent on imported accounts (hdIndex -1) and on records written
-   * before this field existed (until the unlock backfill runs). Public data —
-   * the matching private key lives AES-GCM-encrypted under the vault key at
+   * Key-derivation scheme this account's seed was derived under. See
+   * {@link KeyDerivation}. Absent on imported accounts (`hdIndex: -1`), which
+   * have no derivation.
+   */
+  keyDerivation?: KeyDerivation;
+  /**
+   * Wallet-derived EVM address (BIP-44 m/44'/60'/{walletTypeIndex}'/0/{hdIndex}),
+   * used as the Epoch lending position owner. Stamped at account creation and
+   * restore. Absent on importAccountFromPrivateKey accounts. Public data: the
+   * matching private key lives AES-GCM-encrypted under the vault key at
    * `accevmsecretkey_<address>` and is only ever decrypted transiently per
    * signing operation.
    */
   evmAddress?: string;
+}
+
+export interface ImportedAccountBackup {
+  accountId: string;
+  publicKeyCommitment: string;
+  authScheme: AuthScheme;
+  secretKeyHex: string;
+}
+
+export interface WalletBackupMaterial {
+  seedPhrase: string;
+  accounts: WalletAccount[];
+  midenClientDbContent: string;
+  walletDbContent: string;
+  importedAccounts: ImportedAccountBackup[];
 }
 
 export interface WalletNetwork {
@@ -474,14 +616,34 @@ export interface NewWalletRequest extends WalletMessageBase {
   ownMnemonic?: boolean;
   walletType: WalletType;
   // Guardian operator endpoint the onboarding flow picked (choose-guardian) or
-  // probed (import / recovery). Threaded explicitly so a new Guardian account
-  // binds to the caller's chosen endpoint without round-tripping through the
-  // legacy global GUARDIAN_URL_STORAGE_KEY. Undefined for non-guardian wallets.
+  // probed (import / recovery), threaded explicitly so a new Guardian account
+  // binds to the caller's chosen endpoint. Undefined for non-guardian wallets.
   guardianEndpoint?: string;
+  /** Bind the final account before wallet setup completes. */
+  accessCode?: string;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {
   type: WalletMessageType.NewWalletResponse;
+}
+
+/**
+ * Seed-less Guardian import: spawn a wallet from a pasted HOT secret key.
+ * The account is looked up at the guardian by the key's commitment and
+ * adopted; no mnemonic is generated, so the wallet's seed status is
+ * 'unavailable' from birth.
+ */
+export interface NewWalletFromHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.NewWalletFromHotKeyRequest;
+  password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
+  /** Two raw scalars in hot:evm order; validated again in the vault. */
+  keyPairPayload: string;
+  /** Operator picked/probed in onboarding; the network default when absent. */
+  guardianEndpoint?: string;
+}
+
+export interface NewWalletFromHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.NewWalletFromHotKeyResponse;
 }
 
 export interface UnlockRequest extends WalletMessageBase {
@@ -552,6 +714,17 @@ export interface RevealPrivateKeyResponse extends WalletMessageBase {
   privateKey: string;
 }
 
+export interface ExportAccountFileRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportAccountFileRequest;
+  accountPublicKey: string;
+  password?: string;
+}
+
+export interface ExportAccountFileResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportAccountFileResponse;
+  accountFileBase64: string;
+}
+
 export interface RevealHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.RevealHotKeyRequest;
   accountPublicKey: string;
@@ -560,20 +733,48 @@ export interface RevealHotKeyRequest extends WalletMessageBase {
 
 export interface RevealHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.RevealHotKeyResponse;
-  hotPrivateKey: string;
+  keyPairPayload: string;
 }
 
-export interface RevealGuardianKeysRequest extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysRequest;
-  accountPublicKey: string;
+export interface RemoveSeedPhraseRequest extends WalletMessageBase {
+  type: WalletMessageType.RemoveSeedPhraseRequest;
   password?: string;
 }
-
-export interface RevealGuardianKeysResponse extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysResponse;
-  coldPrivateKey: string;
-  coldPublicKey: string;
-  hotPublicKey?: string;
+export interface RemoveSeedPhraseResponse extends WalletMessageBase {
+  type: WalletMessageType.RemoveSeedPhraseResponse;
+}
+export interface ProvideRecoverySeedRequest extends WalletMessageBase {
+  type: WalletMessageType.ProvideRecoverySeedRequest;
+  action: GuardianRecoveryAction;
+  transactionId: string;
+  mnemonic: string;
+}
+export interface ProvideRecoverySeedResponse extends WalletMessageBase {
+  type: WalletMessageType.ProvideRecoverySeedResponse;
+}
+export interface PrepareRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.PrepareRecoveryRequest;
+  transactionId: string;
+}
+/**
+ * Result of `prepareRecoveryTransaction`. `ready` is false while the pipeline
+ * must wait for the seed prompt. `coldPublicKey` is set when the cold key came
+ * from that prompt rather than from the account record, so the pipeline can
+ * sign with a key that is stored nowhere.
+ */
+export interface RecoveryPreparation {
+  ready: boolean;
+  coldPublicKey?: string;
+}
+export interface PrepareRecoveryResponse extends WalletMessageBase, RecoveryPreparation {
+  type: WalletMessageType.PrepareRecoveryResponse;
+}
+export interface ReleaseRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.ReleaseRecoveryRequest;
+  transactionId: string;
+}
+export interface ReleaseRecoveryResponse extends WalletMessageBase {
+  type: WalletMessageType.ReleaseRecoveryResponse;
 }
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
@@ -584,6 +785,16 @@ export interface RevealMnemonicRequest extends WalletMessageBase {
 export interface RevealMnemonicResponse extends WalletMessageBase {
   type: WalletMessageType.RevealMnemonicResponse;
   mnemonic: string;
+}
+
+export interface ExportWalletBackupMaterialRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportWalletBackupMaterialRequest;
+  password?: string;
+}
+
+export interface ExportWalletBackupMaterialResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportWalletBackupMaterialResponse;
+  material: WalletBackupMaterial;
 }
 
 export interface RemoveAccountRequest extends WalletMessageBase {
@@ -650,6 +861,12 @@ export interface WalletSettings {
 export interface WalletContact {
   address: string;
   name: string;
+  /**
+   * Destination network a `0x` contact is for (a bridge network id, e.g. `sepolia`). The same
+   * `0x` address is valid on every EVM chain, so the contact remembers which one; a Miden address
+   * carries its own network and leaves this unset.
+   */
+  network?: string;
   addedAt?: number;
   accountInWallet?: boolean;
   isPublic?: boolean;
@@ -658,6 +875,62 @@ export interface WalletContact {
 
 export interface UpdateSettingsResponse extends WalletMessageBase {
   type: WalletMessageType.UpdateSettingsResponse;
+}
+
+export interface GetSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitRequest;
+  accountId: string;
+}
+
+export interface GetSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitResponse;
+  configuration?: PersistedSpendingLimit;
+}
+
+export interface SaveSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.SaveSpendingLimitRequest;
+  draft: SerializedSpendingLimitDraft;
+  observedRevision?: string;
+  strictlyAuthenticated: boolean;
+}
+
+export interface SaveSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.SaveSpendingLimitResponse;
+  configuration?: PersistedSpendingLimit;
+}
+
+export interface SerializedSpend {
+  faucetId: string;
+  amount: string;
+}
+
+export interface AssessSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.AssessSpendingLimitRequest;
+  accountId: string;
+  spends: SerializedSpend[];
+}
+
+export interface AssessSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.AssessSpendingLimitResponse;
+  assessment?: SerializedSpendingLimitAssessment;
+}
+
+export interface GetStrictAuthenticationProtectorsRequest extends WalletMessageBase {
+  type: WalletMessageType.GetStrictAuthenticationProtectorsRequest;
+}
+
+export interface GetStrictAuthenticationProtectorsResponse extends WalletMessageBase {
+  type: WalletMessageType.GetStrictAuthenticationProtectorsResponse;
+  protectors: StrictAuthenticationProtectors;
+}
+
+export interface VerifyStrictActionAuthenticationRequest extends WalletMessageBase {
+  type: WalletMessageType.VerifyStrictActionAuthenticationRequest;
+  credential?: string;
+}
+
+export interface VerifyStrictActionAuthenticationResponse extends WalletMessageBase {
+  type: WalletMessageType.VerifyStrictActionAuthenticationResponse;
 }
 
 export interface SignDataRequest extends WalletMessageBase {
@@ -683,6 +956,7 @@ export interface SignTransactionResponse extends WalletMessageBase {
 }
 
 export interface SignWordRequest extends WalletMessageBase {
+  transactionId?: string;
   type: WalletMessageType.SignWordRequest;
   publicKey: string;
   wordHex: string;
@@ -732,10 +1006,21 @@ export interface SwapHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyRequest;
   accountPublicKey: string;
   newHotPubKey: string;
+  expectedHotPubKey?: string | null;
 }
 
 export interface SwapHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyResponse;
+}
+
+export interface ImportHotKeyPairRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairRequest;
+  accountPublicKey: string;
+  keyPairPayload: string;
+}
+
+export interface ImportHotKeyPairResponse extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairResponse;
 }
 
 export interface SetGuardianEndpointRequest extends WalletMessageBase {
@@ -746,6 +1031,25 @@ export interface SetGuardianEndpointRequest extends WalletMessageBase {
 
 export interface SetGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointResponse;
+}
+
+/**
+ * The conditional rollback the pending-rotation recheck performs when the node
+ * reports a submitted guardian switch discarded. `discardedEndpoint` is the
+ * target of the rotation being rolled back - the backend refuses the write
+ * unless the account still names it, so a rollback whose evidence is half an
+ * hour old cannot clobber a binding something authoritative has since moved.
+ */
+export interface RevertGuardianEndpointRequest extends WalletMessageBase {
+  type: WalletMessageType.RevertGuardianEndpointRequest;
+  accountPublicKey: string;
+  discardedEndpoint: string;
+  revertTo: string;
+}
+
+export interface RevertGuardianEndpointResponse extends WalletMessageBase {
+  type: WalletMessageType.RevertGuardianEndpointResponse;
+  outcome: 'reverted' | 'superseded' | 'stale';
 }
 
 export interface SetGuardianOperatorCommitmentRequest extends WalletMessageBase {
@@ -768,6 +1072,37 @@ export interface SetGuardianSyncStatusResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianSyncStatusResponse;
 }
 
+/**
+ * Persist the rotated-out verdict (see {@link HotKeyRotatedOutVerdict}). The
+ * write lands only while the stored `hotPublicKey` is still `hotPublicKey`.
+ */
+export interface MarkHotKeyRotatedOutRequest extends WalletMessageBase {
+  type: WalletMessageType.MarkHotKeyRotatedOutRequest;
+  accountPublicKey: string;
+  hotPublicKey: string;
+  onChainHotCommitment: string;
+}
+
+export interface MarkHotKeyRotatedOutResponse extends WalletMessageBase {
+  type: WalletMessageType.MarkHotKeyRotatedOutResponse;
+}
+
+/**
+ * Make this device the account's main one again: drop the rotated-out hot key
+ * and flag the account for a hot-key rotation (`requiresHotKeyRotation`), which
+ * `HotKeyRotationGate` then runs. Refused unless the stored `hotPublicKey` is
+ * still `expectedHotPubKey`.
+ */
+export interface RetireRotatedOutHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.RetireRotatedOutHotKeyRequest;
+  accountPublicKey: string;
+  expectedHotPubKey: string;
+}
+
+export interface RetireRotatedOutHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.RetireRotatedOutHotKeyResponse;
+}
+
 export interface CheckGuardianDriftRequest extends WalletMessageBase {
   type: WalletMessageType.CheckGuardianDriftRequest;
   accountPublicKey: string;
@@ -784,9 +1119,19 @@ export interface ApplyUserGuardianEndpointRequest extends WalletMessageBase {
   guardianEndpoint: string;
 }
 
+/**
+ * Why applying a user-typed guardian endpoint did or did not stick.
+ *
+ * Not a boolean, because the banner that offers this repair accuses the URL
+ * the user typed when it fails, and only `'mismatch'` is evidence against it.
+ * `'unreachable'` (no answer, or an answer carrying no commitment) is a fact
+ * about the network, not about the URL.
+ */
+export type ApplyUserEndpointOutcome = 'applied' | 'mismatch' | 'unreachable' | 'no-onchain-guardian' | 'stale';
+
 export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.ApplyUserGuardianEndpointResponse;
-  applied: boolean;
+  outcome: ApplyUserEndpointOutcome;
 }
 
 export interface StartGuardianRecoveryRequest extends WalletMessageBase {
@@ -974,6 +1319,7 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic: string;
   walletAccounts: WalletAccount[];
+  importedAccounts: ImportedAccountBackup[];
 }
 
 export interface ImportFromClientResponse extends WalletMessageBase {
@@ -991,6 +1337,7 @@ export type WalletRequest =
   | AcknowledgeRequest
   | GetStateRequest
   | NewWalletRequest
+  | NewWalletFromHotKeyRequest
   | UnlockRequest
   | LockRequest
   | CreateAccountRequest
@@ -998,9 +1345,14 @@ export type WalletRequest =
   | RevealPublicKeyRequest
   | RevealViewKeyRequest
   | RevealPrivateKeyRequest
+  | ExportAccountFileRequest
   | RevealHotKeyRequest
-  | RevealGuardianKeysRequest
+  | RemoveSeedPhraseRequest
+  | ProvideRecoverySeedRequest
+  | PrepareRecoveryRequest
+  | ReleaseRecoveryRequest
   | RevealMnemonicRequest
+  | ExportWalletBackupMaterialRequest
   | RemoveAccountRequest
   | EditAccountRequest
   | ImportAccountRequest
@@ -1008,15 +1360,24 @@ export type WalletRequest =
   | ImportMnemonicAccountRequest
   | ConfirmationRequest
   | UpdateSettingsRequest
+  | GetSpendingLimitRequest
+  | SaveSpendingLimitRequest
+  | AssessSpendingLimitRequest
+  | GetStrictAuthenticationProtectorsRequest
+  | VerifyStrictActionAuthenticationRequest
   | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
+  | ImportHotKeyPairRequest
   | SetGuardianEndpointRequest
+  | RevertGuardianEndpointRequest
   | SetGuardianOperatorCommitmentRequest
   | SetGuardianSyncStatusRequest
+  | MarkHotKeyRotatedOutRequest
+  | RetireRotatedOutHotKeyRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
   | StartGuardianRecoveryRequest
@@ -1033,20 +1394,20 @@ export type WalletRequest =
   | DAppDeployConfirmationRequest
   | GetAllDAppSessionsRequest
   | RemoveDAppSessionRequest
-  | SendTrackEventRequest
-  | SendPageEventRequest
-  | SendPerformanceEventRequest
   | DecryptCiphertextsRequest
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
   | SyncRequest
   | NoteClaimStarted
   | ProcessTransactionsRequest
+  | NoteDeliveryWrittenRequest
+  | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
+  | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
-  | SpeculateSendRequest
-  | SpeculateInvalidate;
+  | ReportTelemetryEventRequest
+  | EstimateUsdcxBurnFeeRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1054,6 +1415,7 @@ export type WalletResponse =
   | LoadingResponse
   | GetStateResponse
   | NewWalletResponse
+  | NewWalletFromHotKeyResponse
   | UnlockResponse
   | LockResponse
   | CreateAccountResponse
@@ -1061,9 +1423,14 @@ export type WalletResponse =
   | RevealPublicKeyResponse
   | RevealViewKeyResponse
   | RevealPrivateKeyResponse
+  | ExportAccountFileResponse
   | RevealHotKeyResponse
-  | RevealGuardianKeysResponse
+  | RemoveSeedPhraseResponse
+  | ProvideRecoverySeedResponse
+  | PrepareRecoveryResponse
+  | ReleaseRecoveryResponse
   | RevealMnemonicResponse
+  | ExportWalletBackupMaterialResponse
   | RemoveAccountResponse
   | EditAccountResponse
   | ImportAccountResponse
@@ -1071,15 +1438,24 @@ export type WalletResponse =
   | ImportMnemonicAccountResponse
   | ConfirmationResponse
   | UpdateSettingsResponse
+  | GetSpendingLimitResponse
+  | SaveSpendingLimitResponse
+  | AssessSpendingLimitResponse
+  | GetStrictAuthenticationProtectorsResponse
+  | VerifyStrictActionAuthenticationResponse
   | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
+  | ImportHotKeyPairResponse
   | SetGuardianEndpointResponse
+  | RevertGuardianEndpointResponse
   | SetGuardianOperatorCommitmentResponse
   | SetGuardianSyncStatusResponse
+  | MarkHotKeyRotatedOutResponse
+  | RetireRotatedOutHotKeyResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
   | StartGuardianRecoveryResponse
@@ -1096,17 +1472,17 @@ export type WalletResponse =
   | DAppDeployConfirmationResponse
   //   | GetAllDAppSessionsResponse
   // | RemoveDAppSessionResponse
-  | SendTrackEventResponse
-  | SendPageEventResponse
-  | SendPerformanceEventResponse
   | DecryptCiphertextsResponse
   | GetOwnedRecordsResponse
   | ImportFromClientResponse
   | SyncResponse
   | NoteClaimStartedResponse
   | ProcessTransactionsResponse
+  | NoteDeliveryWrittenResponse
+  | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
+  | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
-  | SpeculateSendResponse
-  | SpeculateInvalidateResponse;
+  | ReportTelemetryEventResponse
+  | EstimateUsdcxBurnFeeResponse;

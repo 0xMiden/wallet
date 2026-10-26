@@ -1,0 +1,73 @@
+import React from 'react';
+
+import { cva, type VariantProps } from 'class-variance-authority';
+
+import { cn } from 'lib/ui/util';
+
+import { IconCircle } from './FactRow';
+
+const headingVariants = cva('min-w-0 truncate', {
+  variants: {
+    /** `sm`: `text-label` `muted` (default, the spec's section label). `md`: the same label at
+     * `text-row-title`, 16px, for a detail page's sections (a transaction's details and notes).
+     * `lg`: `text-title-section` `ink`, for a page-level section title such as Settings' coloured
+     * group headers. `xl`: `text-title-page` `ink`, the section title of a tab root, such as
+     * Explore's. `2xl`: `text-hero-name` at extrabold, `ink`, the size of Home's "Assets" heading, for a detail page
+     * whose sections should read at that weight (a token's page). */
+    size: {
+      sm: 'text-label text-muted',
+      md: 'text-row-title text-muted',
+      lg: 'text-title-section text-ink',
+      xl: 'text-title-page text-ink',
+      '2xl': 'text-hero-name font-extrabold text-ink'
+    },
+    /** `muted` quiets a `lg`/`xl` title to the label colour: a page's section labels beside `ink` values. */
+    tone: {
+      ink: '',
+      muted: 'text-muted'
+    }
+  },
+  defaultVariants: { size: 'sm', tone: 'ink' }
+});
+
+export interface SectionHeaderProps extends VariantProps<typeof headingVariants> {
+  /** The label, in sentence case. */
+  children: React.ReactNode;
+  /** Heading level; `h2` under a page title. */
+  as?: 'h2' | 'h3';
+  /** Trailing action beside the label (for example a text button). */
+  action?: React.ReactNode;
+  /**
+   * Leading glyph, drawn `aria-hidden` in a 32px round `bg-fill` circle before the label.
+   * `IconCircle` sets `text-ink`, which a glyph drawn in `currentColor` takes. An SVG whose root declares
+   * `fill="none"` must be passed `fill="currentColor"` or it draws nothing; an SVG with its own fills keeps them.
+   */
+  icon?: React.ReactNode;
+  /** Layout only (margins, padding). */
+  className?: string;
+  'data-testid'?: string;
+}
+
+/** The label over a `ListGroup`: `text-label` `muted`, 8px above its group, inset 4px. */
+export const SectionHeader: React.FC<SectionHeaderProps> = ({
+  children,
+  as: Heading = 'h2',
+  action,
+  icon,
+  size,
+  tone,
+  className,
+  'data-testid': dataTestId
+}) => (
+  <div className={cn('flex items-center justify-between gap-3 px-1 pb-2', className)} data-testid={dataTestId}>
+    {icon ? (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <IconCircle>{icon}</IconCircle>
+        <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
+      </span>
+    ) : (
+      <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
+    )}
+    {action && <div className="shrink-0">{action}</div>}
+  </div>
+);

@@ -1,158 +1,240 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import History from 'app/templates/history/History';
-import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
-import { SearchInput, TabHeader } from 'components/ui';
-import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
+import { IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
+import { ActivityGroupedHistory } from 'app/templates/history/ActivityGroupedHistory';
+import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
+import { ActivityViewMenu } from 'app/templates/history/ActivityViewMenu';
+import { ArcadeActivityHistory } from 'app/templates/history/ArcadeActivityHistory';
+import type { ActivityFilter } from 'app/templates/history/History';
+import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
+import { TabHeaderAction, TabRootHeader } from 'components/ui';
+import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
-import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
-import { navigate } from 'lib/woozie';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { setActivityView, useActivityView } from 'lib/settings/activity-view';
+import type { ActivityView } from 'lib/settings/constants';
+import { beginFlow, FlowHandle } from 'lib/telemetry';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
 };
 
-type FilterId = 'all' | 'sent' | 'received' | 'faucet';
+/**
+ * The filter the location names: the page's own record of a pick, or a link's, e.g.
+ * `/history?filter=pending&view=list` - which is where every received-transfer notification and the
+ * home prompt now land (`ACTIVITY_PENDING_PATH`). Arcade adds a contextual chip for its scoped feed;
+ * otherwise only an id the segmented control offers is accepted,
+ * so a link to a removed chip (`sent`, `received`, `faucet`) names no filter and the page shows All.
+ */
+function filterFromSearch(
+  search: string,
+  filters: readonly SegmentedControlItem<ActivityFilter>[]
+): ActivityFilter | undefined {
+  const asked = new URLSearchParams(search).get('filter');
+  return asked === 'arcade' ? 'arcade' : filters.find(candidate => candidate.id === asked)?.id;
+}
 
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
-  const { data: claimableNotes } = useClaimableNotes(account.publicKey);
-  const pendingNotesCount = claimableNotes?.length ?? 0;
-  const scrollParentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<FilterId>('all');
-  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const { search: locationSearch } = useLocation();
 
-  useEffect(() => {
-    let cancelled = false;
-    let running = false;
-
-    const poll = async () => {
-      if (cancelled || running) return;
-      running = true;
-      try {
-        await reconcileAgglayerBridgedReceives();
-      } catch (error) {
-        console.warn('[activity] AggLayer bridge poll failed', error);
-      } finally {
-        running = false;
-      }
-    };
-
-    void poll();
-    const timer = setInterval(poll, 8_000);
+  /**
+   * `activity_view` is a view flow, so its terminal state is the user actually
+   * seeing their activity: it completes when the list's first load settles and
+   * is cancelled when they leave before that: unmount, or the page going off
+   * screen (a tab switch, a page pushed over it), since a visited tab stays
+   * mounted. Coming back to the still-mounted tab begins no new flow, so it is
+   * one flow per mount. There is no later moment worth calling "completed":
+   * reading a list emits no such event, and inventing one (a tap on a row, say)
+   * would report every ordinary visit as abandoned. Held in a ref rather than
+   * state because settling must never re-render. Begun in a layout effect so it
+   * exists before the list's first report, which a warm cache sends on commit.
+   */
+  const flowRef = useRef<FlowHandle | null>(null);
+  useLayoutEffect(() => {
+    flowRef.current = beginFlow('activity_view');
     return () => {
-      cancelled = true;
-      clearInterval(timer);
+      flowRef.current?.cancel();
+      flowRef.current = null;
     };
   }, []);
+  const pageActive = usePageActive();
+  useEffect(() => {
+    if (pageActive) return;
+    flowRef.current?.cancel();
+    flowRef.current = null;
+  }, [pageActive]);
 
-  const filters = useMemo<Array<{ id: FilterId; label: string }>>(
+  // Clearing the ref keeps this to one terminal call per visit, and keeps the
+  // unmount above from re-reporting a view that already completed.
+  const handleHistoryLoaded = useCallback(() => {
+    const flow = flowRef.current;
+    if (!flow) return;
+    flowRef.current = null;
+    flow.complete();
+  }, []);
+
+  const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
     () => [
       { id: 'all', label: t('all') },
-      { id: 'sent', label: t('sent') },
-      { id: 'received', label: t('received') },
-      { id: 'faucet', label: t('faucet') }
+      { id: 'pending', label: t('pending') },
+      { id: 'transfer', label: t('transfer') },
+      { id: 'swap', label: t('swap') },
+      { id: 'earn', label: t('earn') },
+      { id: 'others', label: t('others') }
     ],
     [t]
   );
+  // `TabLayout` keeps this page mounted under another tab, whose location is not this page's, so off
+  // screen it keeps the search it last read on screen. Set during render, so it takes no extra commit.
+  const [heldSearch, setHeldSearch] = useState(locationSearch);
+  if (pageActive && heldSearch !== locationSearch) setHeldSearch(locationSearch);
+  const routeSearch = pageActive ? locationSearch : heldSearch;
+  // The filter the location names, read once per render.
+  const linkedFilter = filterFromSearch(routeSearch, filters);
+  // A link asks for the feed, the only view with filters and Accept All, with `view=list` beside its
+  // filter; the page's own record of a pick carries `view=list` only on a List a link opened, so Back
+  // or a reload onto any other record keeps the saved view.
+  const listAsked = linkedFilter !== undefined && new URLSearchParams(routeSearch).get('view') === 'list';
+  const [filter, setFilter] = useState<ActivityFilter>('all');
+  // The location's filter also becomes the kept choice, so a link's filter survives a return to
+  // Activity through the tab, whose `/history` names none, and a remount restores the recorded one.
+  // Putting it on screen from the first frame is `shownFilter`'s job, below.
+  useEffect(() => {
+    if (linkedFilter) setFilter(linkedFilter);
+  }, [linkedFilter]);
+  // A pick is written back to the URL, so a later link to a filter the URL no longer names is a
+  // change of location the effect above sees. A pick on a List a link asked for keeps that request.
+  const pickFilter = (next: ActivityFilter) => {
+    setFilter(next);
+    navigate(
+      ({ pathname, hash, state }) => ({
+        pathname,
+        search: listAsked ? `?filter=${next}&view=list` : `?filter=${next}`,
+        hash,
+        state
+      }),
+      HistoryAction.Replace
+    );
+  };
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Remembered per device in the app's settings module, so the tab reopens in the view the user
+  // left it in; `list` until they choose otherwise.
+  const savedView = useActivityView();
+  // A link's request shows the List for that visit without changing the saved view. Switching to the
+  // Activity tab from another tab goes to `/history`, which asks for nothing.
+  const view: ActivityView = listAsked ? 'list' : savedView;
+  // The filter on screen: the one the location names, read directly so a link's first frame already
+  // shows it (the effect above lands a render later); the kept choice otherwise.
+  const shownFilter = linkedFilter ?? filter;
+  // Leaving a link's List for Groups drops its request, or the override above would hold the List
+  // against the user's own choice, and keeps its filter as the page's own record.
+  const changeView = (next: ActivityView) => {
+    setActivityView(next);
+    if (next === 'groups' && listAsked) {
+      navigate(
+        ({ pathname, hash, state }) => ({ pathname, search: `?filter=${linkedFilter}`, hash, state }),
+        HistoryAction.Replace
+      );
+    }
+  };
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
-  const handleFilterTap = (id: FilterId) => {
-    if (id === filter) return;
-    hapticSelection();
-    setFilter(id);
+  // The search button in the header shows and hides the search field. A
+  // closed field also clears the query, so the list goes back to the full set.
+  const toggleSearch = () => {
+    setSearchOpen(open => {
+      if (open) setSearch('');
+      return !open;
+    });
   };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader title={t('activity')} />
+      <TabRootHeader
+        title={t('activity')}
+        search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
+        actions={
+          <>
+            <TabHeaderAction
+              label={t('activitySearch')}
+              icon={IconName.Search}
+              active={searchOpen}
+              onClick={toggleSearch}
+            />
+            <TabHeaderAction
+              ref={menuAnchorRef}
+              label={t('activityViewOptions')}
+              icon={IconName.List}
+              active={menuOpen}
+              onClick={() => setMenuOpen(open => !open)}
+              data-testid="activity-view-button"
+            />
+          </>
+        }
+        // The filter row belongs to the feed. The Groups view rolls the history up by counterparty,
+        // which is its own filtering, so it carries no row — and no filter anywhere else either:
+        // a narrowing with no visible control saying so is worse than none. The feed's choice is
+        // kept while the user is away in Groups, and the row shows it again on the way back.
+        filter={
+          view === 'list'
+            ? {
+                items: shownFilter === 'arcade' ? [...filters, { id: 'arcade', label: t('categoryArcade') }] : filters,
+                value: shownFilter,
+                onChange: pickFilter,
+                'aria-label': t('activityFilters')
+              }
+            : undefined
+        }
+      />
 
-      <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {filters.map(f => {
-          const isActive = f.id === filter;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => handleFilterTap(f.id)}
-              className={classNames(
-                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
-                isActive
-                  ? 'bg-accent-primary text-pure-white font-semibold'
-                  : 'bg-white text-text-primary-token border border-rule-strong'
-              )}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      <ActivityViewMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        anchorRef={menuAnchorRef}
+        view={view}
+        onViewChange={changeView}
+      />
 
-      <div className="shrink-0 px-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
-      </div>
+      {/* Notes the wallet gave up importing automatically (#788 follow-up) —
+          possibly the only copy of the funds, so surfaced where the user looks
+          for their incoming activity, with the manual drain the dead-letter
+          store's contract assumes. Renders nothing while the store is empty.
+          Under the filter row, so an empty store costs the page nothing. */}
+      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-2" />
 
-      {pendingNotesCount > 0 && (
-        <div className="shrink-0 px-4 pt-4 pb-4 border-b-4 border-[#827C7C33]">
-          <div className="flex items-center gap-1.5 mb-2">
-            <h2 className="font-heading text-sm font-extrabold text-heading-gray dark:text-pure-white">
-              {t('pendingNotes')}
-            </h2>
-            <button
-              type="button"
-              aria-label={t('whatArePendingNotes')}
-              onClick={() => {
-                hapticLight();
-                setInfoDrawerOpen(true);
-              }}
-              className="flex items-center justify-center text-heading-gray dark:text-pure-white"
-            >
-              <Icon name={IconName.InformationFill} className="w-4! h-4!" fill="currentColor" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              navigate('/pending-notes');
-            }}
-            className="w-full text-left rounded-2xl bg-gray-25 py-3 px-4"
-          >
-            <div className="flex items-center gap-1">
-              <span className="font-heading text-base font-extrabold text-heading-gray dark:text-pure-white">
-                {t('consumeYourNotes')}
-              </span>
-              <span className="rounded-full bg-accent-primary w-12 h-4 flex items-center justify-center text-xs font-bold font-heading text-pure-white">
-                {pendingNotesCount}
-              </span>
-            </div>
-            <p className="text-sm text-heading-gray font-heading font-semibold">{t('consumeYourNotesDescription')}</p>
-          </button>
-        </div>
+      {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
+      {view === 'groups' ? (
+        <ActivityGroupedHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          onReturnToList={() => changeView('list')}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
+      ) : shownFilter === 'arcade' ? (
+        <ArcadeActivityHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
+      ) : (
+        <ActivityPendingHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          filter={shownFilter}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
       )}
-
-      <PendingNotesInfoDrawer open={infoDrawerOpen} onOpenChange={setInfoDrawerOpen} notesCount={pendingNotesCount} />
-
-      <div ref={scrollParentRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
-        <div className="px-4">
-          <History
-            address={account.publicKey}
-            programId={programId}
-            fullHistory={true}
-            centerEmptyState={true}
-            scrollParentRef={scrollParentRef}
-            searchQuery={search}
-            filter={filter}
-          />
-        </div>
-      </div>
     </div>
   );
 };

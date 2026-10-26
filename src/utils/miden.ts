@@ -1,7 +1,8 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { isAddress } from 'viem';
 
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 export const isHexAddress = (address: string) => {
   return address.startsWith('0x');
@@ -10,25 +11,28 @@ export const isHexAddress = (address: string) => {
 const MIDEN_MAINNET_PREFIX = 'mm1';
 const MIDEN_TESTNET_PREFIX = 'mtst1';
 const MIDEN_DEVNET_PREFIX = 'mdev1';
-// The SDK's NetworkId::Localnet uses the 'mlcl' HRP, so a real localnet node
-// produces 'mlcl1…' addresses. It must be a recognized prefix or a genuine
-// localnet address is wrongly rejected as "invalid" at the gate below, before
-// the bech32 decode even runs (#599).
+// The SDK's NetworkId::Localnet uses the 'mlcl' HRP, so a real localnet node —
+// and this wallet on a localnet/localhost network (see getNetworkId's LOCALNET
+// branch) — produces 'mlcl1…' addresses. It must be a recognized prefix or a
+// genuine localnet address is wrongly rejected as "invalid" at the gate below,
+// before the bech32 decode even runs (#599), and the send flow's Confirm button
+// never enables.
 const MIDEN_LOCALNET_PREFIX = 'mlcl1';
 const MIDEN_BECH32_PREFIXES = [MIDEN_MAINNET_PREFIX, MIDEN_TESTNET_PREFIX, MIDEN_DEVNET_PREFIX, MIDEN_LOCALNET_PREFIX];
 
-// NOTE: this maps a network to its OWN-account "correct-network" prefix. This
-// wallet encodes its own localnet accounts with the testnet prefix because
-// getNetworkId() maps LOCALNET -> NetworkId.testnet() (the SDK's JS API exposes
-// no localnet constructor), so LOCALNET's correct-network prefix stays 'mtst1'.
-// A scanned 'mlcl1…' address therefore decodes fine (recognized above) but reads
-// as wrong-network here — which is the intended "still passes, surfaces a
-// network message" behavior, not the old hard rejection.
+// NOTE: this maps a network to its OWN-account "correct-network" prefix, read
+// through the EFFECTIVE network so it always agrees with what getNetworkId()
+// encodes with — including under a dev-settings override pointing at a localhost
+// network. Localnet encodes with the 'mlcl' HRP (getNetworkId -> NetworkId.custom
+// with the 'mlcl' prefix), so an 'mlcl1…' address is the correct-network form
+// there and reads as wrong-network only while the wallet targets another Miden
+// network — which the QR wrapper still accepts, surfacing a network message
+// instead of the old hard rejection.
 const NETWORK_ADDRESS_PREFIXES: Record<MIDEN_NETWORK_NAME, string> = {
   [MIDEN_NETWORK_NAME.MAINNET]: MIDEN_MAINNET_PREFIX,
   [MIDEN_NETWORK_NAME.TESTNET]: MIDEN_TESTNET_PREFIX,
   [MIDEN_NETWORK_NAME.DEVNET]: MIDEN_DEVNET_PREFIX,
-  [MIDEN_NETWORK_NAME.LOCALNET]: MIDEN_TESTNET_PREFIX
+  [MIDEN_NETWORK_NAME.LOCALNET]: MIDEN_LOCALNET_PREFIX
 };
 
 export class MidenAddressError extends Error {
@@ -51,7 +55,7 @@ export class MidenAddressError extends Error {
  * interface) and the bare account-id form (unspecified interface) — decode to
  * the same note tag, so no separate routing check is needed. A well-formed
  * address for a different Miden network (e.g. an `mm1…` mainnet address while
- * this build targets testnet) throws with reason `wrong-network` so the UI
+ * the wallet targets testnet) throws with reason `wrong-network` so the UI
  * can show a specific message.
  */
 export const isValidMidenAddress = (address: string): true => {
@@ -64,7 +68,7 @@ export const isValidMidenAddress = (address: string): true => {
   } catch {
     throw new MidenAddressError('invalid');
   }
-  if (!trimmed.startsWith(NETWORK_ADDRESS_PREFIXES[DEFAULT_NETWORK])) {
+  if (!trimmed.startsWith(NETWORK_ADDRESS_PREFIXES[getEffectiveNetworkName()])) {
     throw new MidenAddressError('wrong-network');
   }
   return true;

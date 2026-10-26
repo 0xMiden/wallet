@@ -1,0 +1,455 @@
+package com.miden.breadconnect
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+import org.bouncycastle.util.encoders.Base64
+import org.bouncycastle.util.encoders.DecoderException
+
+/** Where the client keeps the session, the waiting request and transaction outcomes across launches. */
+interface BreadConnectStorage {
+    fun read(key: String): String?
+
+    fun write(key: String, value: String?)
+}
+
+/**
+ * Runs a block only while its request is still waiting and active. The block does not suspend, so a cancel on
+ * another thread cannot land between the check and the open.
+ */
+class OpenAttempt internal constructor(private val lock: Any, private val waiting: () -> Boolean) {
+    /** The block's result, or null when this request can no longer open. */
+    fun <T> run(block: () -> T): T? = synchronized(lock) {
+        if (!waiting()) null else block()
+    }
+}
+
+/** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
+interface BreadOpener {
+    suspend fun open(link: String): Boolean
+}
+
+internal interface ManagedBreadOpener : BreadOpener {
+    override suspend fun open(link: String): Boolean = open(link, OpenAttempt(Any()) { true })
+
+    suspend fun open(link: String, attempt: OpenAttempt): Boolean
+}
+
+class BreadConnectException(val code: Code, message: String) : Exception(message) {
+    sealed class Code {
+        /** Bread's own answer. */
+        data class Bread(val code: ProtocolErrorCode) : Code()
+
+        data object NotInstalled : Code()
+
+        data object Superseded : Code()
+
+        data object Cancelled : Code()
+
+        data object Timeout : Code()
+    }
+}
+
+/** A connected session, with the permission request it answered and Bread's answer. */
+data class StoredSession(val session: AppSession, val request: JsonObject, val permission: JsonObject)
+
+/**
+ * Carries requests to Bread and its answers back through app switches, one request at a time: a new request
+ * replaces the one still waiting. The session and the waiting request are stored, so an answer that relaunches the
+ * app after the system stopped it still completes a connection and records a transaction's outcome.
+ *
+ * @param callback the app's https link for Bread's answers, which the app's `assetlinks.json` gives to the app.
+ */
+class BreadConnect(
+    val callback: String,
+    private val storage: BreadConnectStorage,
+    private val opener: BreadOpener,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private val lock = Any()
+    private var waiter: Waiter? = null
+
+    /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
+    private var settledId: String? = null
+
+    private class Waiter(val pending: Pending, val answer: CompletableDeferred<JsonObject>, var opening: Job? = null) {
+        var stopped = false
+    }
+
+    private sealed class Pending {
+        abstract val id: String
+        abstract val sentAt: Long
+
+        data class Connect(val connection: AppConnection, val request: JsonObject, override val sentAt: Long) : Pending() {
+            override val id get() = connection.id
+        }
+
+        data class Request(override val id: String, val session: String, override val sentAt: Long) : Pending()
+    }
+
+    init {
+        require(BreadConnectLinks.callbackOrigin(callback) != null) {
+            "The callback must be a canonical https link with no query or fragment"
+        }
+    }
+
+    /** The stored session, unless it was made for another callback: Bread answers in it only there. */
+    val session: StoredSession?
+        get() = storage.read(SESSION_KEY)?.let(::decodeSession)?.takeIf { it.session.callback == callback }
+
+    fun forgetSession() = storage.write(SESSION_KEY, null)
+
+    /** The outcome Bread reported with a transaction's answer, when this app sent it. */
+    fun transactionOutcome(transactionId: String): TransactionOutcome? = storedOutcomes()
+        .firstOrNull { it["transactionId"].string == transactionId }
+        ?.get("outcome")
+        ?.let(BreadConnectProtocol::transactionOutcome)
+
+    /** Asks Bread for a permission; returns Bread's PERMISSION_RESPONSE and keeps the session. */
+    suspend fun connect(request: JsonObject): JsonObject {
+        val (link, connection) = BreadConnectProtocol.startConnect(callback, request)
+        return exchange(Pending.Connect(connection, request, clock()), link)
+    }
+
+    /** Asks Bread to connect the app, named [appName], on [network]. */
+    suspend fun connect(
+        appName: String,
+        network: String = "testnet",
+        privateDataPermission: String = "UPON_REQUEST",
+    ): JsonObject = connect(
+        buildJsonObject {
+            put("type", "PERMISSION_REQUEST")
+            put("appMeta", buildJsonObject { put("name", appName) })
+            put("network", network)
+            put("force", false)
+            put("privateDataPermission", privateDataPermission)
+        },
+    )
+
+    /** Sends a request in the connected session; returns Bread's response. */
+    suspend fun request(request: JsonObject): JsonObject {
+        val session = session ?: throw BreadConnectException(
+            BreadConnectException.Code.Bread(ProtocolErrorCode.NOT_GRANTED),
+            "The app is not connected to Bread",
+        )
+        val sentAt = clock()
+        val (link, id) = BreadConnectProtocol.sendRequest(session.session, request, sentAt)
+        return exchange(Pending.Request(id, session.session.session, sentAt), link)
+    }
+
+    /** The account's login key for the callback's domain, as Bread's own provider returns it. */
+    suspend fun requestLoginKey(): ByteArray {
+        val response = request(
+            buildJsonObject {
+                put("type", "LOGIN_KEY_REQUEST")
+                put("sourceAccountId", connectedAccountId())
+            },
+        )
+        return standardBase64(response, "LOGIN_KEY_RESPONSE", "loginKey")
+    }
+
+    /** A signature by that key over the login message for [data]. The kind is only `word`. */
+    suspend fun signLoginBytes(data: ByteArray): ByteArray {
+        val response = request(
+            buildJsonObject {
+                put("type", "LOGIN_SIGN_REQUEST")
+                put("sourceAccountId", connectedAccountId())
+                put("payload", Base64.toBase64String(data))
+                put("kind", "word")
+            },
+        )
+        return standardBase64(response, "LOGIN_SIGN_RESPONSE", "signature")
+    }
+
+    private fun connectedAccountId(): String = session?.permission?.get("accountId")?.string
+        ?: throw BreadConnectException(
+            BreadConnectException.Code.Bread(ProtocolErrorCode.NOT_GRANTED),
+            "The app is not connected to Bread",
+        )
+
+    private fun standardBase64(response: JsonObject, type: String, field: String): ByteArray {
+        val text = response[field].string
+        if (response["type"].string != type || text == null || !STANDARD_BASE64.matches(text)) {
+            throw BreadConnectException(
+                BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR),
+                "Bread's answer has no well-formed $field",
+            )
+        }
+        return try {
+            val padded = if (text.endsWith('=')) text else text.padEnd((text.length + 3) / 4 * 4, '=')
+            Base64.decode(padded)
+        } catch (_: DecoderException) {
+            throw BreadConnectException(
+                BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR),
+                "Bread's answer has no well-formed $field",
+            )
+        }
+    }
+
+    /** Stops waiting for the answer to the request in flight. */
+    fun cancelPending() {
+        settle(null, failure(BreadConnectException.Code.Cancelled, "The request to Bread was cancelled"))
+    }
+
+    /**
+     * Reads a link the app was opened with. True when the link is under the callback, so it is Bread's and the app
+     * should not route it further; anything but an answer to the waiting request is dropped.
+     */
+    fun handle(link: String): Boolean {
+        val read = BreadConnectLinks.readLink(link, callback) ?: return false
+        val envelope = (read as? ReadLink.Message)?.envelope ?: return true
+        synchronized(lock) {
+            val pending = waiter?.pending ?: storedPending() ?: return true
+            when {
+                envelope is Envelope.Connected && pending is Pending.Connect && envelope.id == pending.id -> {
+                    val (session, answer) = try {
+                        BreadConnectProtocol.finishConnect(envelope, pending.connection)
+                    } catch (e: ProtocolException) {
+                        return true
+                    }
+                    when (answer) {
+                        is ConnectAnswer.Response -> {
+                            val kept = runCatching {
+                                storage.write(SESSION_KEY, encodeSession(StoredSession(session, pending.request, answer.response)))
+                            }
+                            settle(null, kept.fold({ Result.success(answer.response) }, { storageFailure(it) }))
+                        }
+                        is ConnectAnswer.Error -> settle(null, failure(answer.error))
+                    }
+                }
+                envelope is Envelope.Response && pending is Pending.Request && envelope.id == pending.id -> {
+                    // Without the session the link cannot be authenticated, and only an authenticated answer settles a request.
+                    val read = runCatching { session }.getOrElse { return true }
+                    val stored = read?.takeIf { it.session.session == pending.session } ?: return true
+                    val answer = try {
+                        BreadConnectProtocol.readResponse(envelope, stored.session)
+                    } catch (e: ProtocolException) {
+                        return true
+                    }
+                    when (answer) {
+                        is RequestAnswer.Response -> {
+                            val transactionId = answer.response["transactionId"].string
+                            if (answer.transaction != null && transactionId != null) {
+                                // The caller still gets the answer and its transaction id; only transactionOutcome goes without it.
+                                runCatching { recordOutcome(transactionId, answer.transaction) }
+                            }
+                            settle(null, Result.success(answer.response))
+                        }
+                        is RequestAnswer.Error -> settle(null, failure(answer.error))
+                    }
+                }
+                envelope is Envelope.Error && envelope.id != null && envelope.id == pending.id -> {
+                    // Kept, the dead session draws the same answer from Bread on the app's next request.
+                    if (envelope.error.code == ProtocolErrorCode.SESSION_NOT_FOUND) runCatching { forgetSession() }
+                    settle(null, failure(envelope.error))
+                }
+            }
+        }
+        return true
+    }
+
+    private suspend fun exchange(pending: Pending, link: String): JsonObject {
+        val callerJob = currentCoroutineContext()[Job]
+        val waiter = Waiter(pending, CompletableDeferred())
+        synchronized(lock) {
+            settle(null, failure(BreadConnectException.Code.Superseded, "A newer request to Bread replaced this one"))
+            storage.write(PENDING_KEY, encodePending(pending))
+            this.waiter = waiter
+        }
+        try {
+            // Null is this deadline alone: a caller's own timeout arrives as a cancellation and propagates as one.
+            val answer = withTimeoutOrNull(ANSWER_WAIT_MS) {
+                val timeoutJob = currentCoroutineContext().job
+                // The opener's own cancellation must not become the caller's answer; the deferred carries that.
+                supervisorScope {
+                    val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                        suspendCancellableCoroutine<Nothing> { continuation ->
+                            continuation.invokeOnCancellation { synchronized(lock) { waiter.stopped = true } }
+                        }
+                    }
+                    // Beside the wait, so a cancel or a newer request ends this request while the opener has not returned.
+                    val opening = launch(start = CoroutineStart.LAZY) {
+                        val openingJob = currentCoroutineContext().job
+                        val attempt = OpenAttempt(lock) {
+                            this@BreadConnect.waiter === waiter && !waiter.stopped && callerJob?.isActive != false &&
+                                timeoutJob.isActive && openingJob.isActive
+                        }
+                        val opened = try {
+                            when (val openingOpener = opener) {
+                                is PackageOpener -> openingOpener.open(link, attempt)
+                                is ManagedBreadOpener -> openingOpener.open(link, attempt)
+                                else -> openingOpener.open(link)
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            settle(waiter, failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "Bread could not be opened: $e")))
+                            true
+                        }
+                        if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
+                    }
+                    try {
+                        val attached = synchronized(lock) {
+                            if (this@BreadConnect.waiter === waiter && !waiter.stopped) {
+                                waiter.opening = opening
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        if (attached) opening.start() else opening.cancel()
+                        waiter.answer.await()
+                    } finally {
+                        cancellationWatcher.cancel()
+                        opening.cancel()
+                    }
+                }
+            }
+            if (answer != null) return answer
+            settle(waiter, failure(BreadConnectException.Code.Timeout, "Bread did not answer in time"))
+            throw BreadConnectException(BreadConnectException.Code.Timeout, "Bread did not answer in time")
+        } catch (e: CancellationException) {
+            settle(waiter, failure(BreadConnectException.Code.Cancelled, "The request to Bread was cancelled"))
+            throw e
+        }
+    }
+
+    /** Ends the waiting request, if any, and forgets it; with [only], just when that request is still waiting. */
+    private fun settle(only: Waiter?, result: Result<JsonObject>) {
+        synchronized(lock) {
+            if (only != null && waiter !== only) return
+            // Left behind, the record only lets a late answer to its request land after a relaunch.
+            runCatching { storage.write(PENDING_KEY, null) }
+            val current = waiter ?: return
+            waiter = null
+            settledId = current.pending.id
+            current.opening?.cancel()
+            result.fold({ current.answer.complete(it) }, { current.answer.completeExceptionally(it) })
+        }
+    }
+
+    private fun storedPending(): Pending? = storage.read(PENDING_KEY)?.let(::decodePending)
+        ?.takeIf { clock() - it.sentAt <= ANSWER_WAIT_MS && it.id != settledId }
+
+    private fun storedOutcomes(): List<JsonObject> =
+        (storage.read(OUTCOMES_KEY)?.let(::parseJson) as? JsonArray)?.mapNotNull { it.obj }.orEmpty()
+
+    private fun recordOutcome(transactionId: String, outcome: TransactionOutcome) {
+        val outcomeJson = when (outcome) {
+            is TransactionOutcome.Output -> JsonObject(mapOf("output" to outcome.output))
+            is TransactionOutcome.Error -> JsonObject(mapOf("error" to outcome.error.toJson()))
+        }
+        val entry = JsonObject(
+            linkedMapOf<String, JsonElement>("transactionId" to JsonPrimitive(transactionId), "outcome" to outcomeJson),
+        )
+        val kept = storedOutcomes().filter { it["transactionId"].string != transactionId }
+        storage.write(OUTCOMES_KEY, JsonArray((kept + entry).takeLast(OUTCOME_LIMIT)).serialized())
+    }
+
+    private fun failure(error: ProtocolError) = failure(BreadConnectException.Code.Bread(error.code), error.message)
+
+    private fun storageFailure(error: Throwable) =
+        failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "The session could not be kept: $error"))
+
+    private fun failure(code: BreadConnectException.Code, message: String): Result<JsonObject> =
+        Result.failure(BreadConnectException(code, message))
+
+    private fun encodeSession(stored: StoredSession): String = JsonObject(
+        linkedMapOf<String, JsonElement>(
+            "session" to JsonPrimitive(stored.session.session),
+            "callback" to JsonPrimitive(stored.session.callback),
+            "appSecretKey" to JsonPrimitive(stored.session.appSecretKey),
+            "appPublicKey" to JsonPrimitive(stored.session.appPublicKey),
+            "walletPublicKey" to JsonPrimitive(stored.session.walletPublicKey),
+            "request" to stored.request,
+            "permission" to stored.permission,
+        ),
+    ).serialized()
+
+    private fun decodeSession(text: String): StoredSession? {
+        val obj = parseJson(text).obj ?: return null
+        return StoredSession(
+            AppSession(
+                obj["session"].string ?: return null,
+                obj["callback"].string ?: return null,
+                obj["appSecretKey"].string ?: return null,
+                obj["appPublicKey"].string ?: return null,
+                obj["walletPublicKey"].string ?: return null,
+            ),
+            obj["request"].dAppMessage() ?: return null,
+            obj["permission"].dAppMessage() ?: return null,
+        )
+    }
+
+    private fun encodePending(pending: Pending): String = when (pending) {
+        is Pending.Connect -> buildJsonObject {
+            put("kind", "connect")
+            put(
+                "connection",
+                buildJsonObject {
+                    put("id", pending.connection.id)
+                    put("callback", pending.connection.callback)
+                    put("appSecretKey", pending.connection.appSecretKey)
+                    put("appPublicKey", pending.connection.appPublicKey)
+                },
+            )
+            put("request", pending.request)
+            put("sentAt", pending.sentAt)
+        }
+        is Pending.Request -> buildJsonObject {
+            put("kind", "request")
+            put("id", pending.id)
+            put("session", pending.session)
+            put("sentAt", pending.sentAt)
+        }
+    }.serialized()
+
+    private fun decodePending(text: String): Pending? {
+        val obj = parseJson(text).obj ?: return null
+        val sentAt = (obj["sentAt"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull ?: return null
+        return when (obj["kind"].string) {
+            "request" -> Pending.Request(obj["id"].string ?: return null, obj["session"].string ?: return null, sentAt)
+            "connect" -> {
+                val connection = obj["connection"].obj ?: return null
+                Pending.Connect(
+                    AppConnection(
+                        connection["id"].string ?: return null,
+                        connection["callback"].string ?: return null,
+                        connection["appSecretKey"].string ?: return null,
+                        connection["appPublicKey"].string ?: return null,
+                    ),
+                    obj["request"].dAppMessage() ?: return null,
+                    sentAt,
+                )
+            }
+            else -> null
+        }
+    }
+
+    companion object {
+        /**
+         * How long the client waits for Bread's answer and keeps the request it waits on: Bread starts answering up to
+         * 10 minutes after the request was sent, then waits for the user and for a transaction's outcome.
+         */
+        const val ANSWER_WAIT_MS = 30 * 60 * 1000L
+        internal const val SESSION_KEY = "bread-connect:session"
+        internal const val PENDING_KEY = "bread-connect:pending"
+        internal const val OUTCOMES_KEY = "bread-connect:outcomes"
+        private const val OUTCOME_LIMIT = 20
+        private val STANDARD_BASE64 = Regex("[A-Za-z0-9+/]*={0,2}")
+    }
+}

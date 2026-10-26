@@ -198,11 +198,12 @@ test.describe('Guardian switch stress - kill mid-switch resumes', () => {
  * gets stuck across a page teardown), this one targets a narrower claim:
  * `completeSwitchGuardianTransaction`'s register step
  * (`src/lib/miden/transaction/complete.ts`) calls into the guardian client's
- * register-with-retry path -- candidate `registerOnGuardianWithRetry` /
- * `MAX_GUARDIAN_REGISTER_RETRIES` in `src/lib/miden/guardian/index.ts`
- * (~521-543) -- and that path must itself survive a bounded number of
- * transient register failures via its own backoff, without the caller doing
- * anything special. `armGuardianFault({ mode: 'failFirstN', count: 2 })`
+ * register-with-retry path -- candidate `registerOnGuardianWithRetry` in
+ * `src/lib/miden/guardian/index.ts`, capped by `GUARDIAN_RETRY_MAX_ATTEMPTS`
+ * in `src/lib/miden/guardian/serialize.ts` -- and that path must itself
+ * survive a bounded number of transient register failures via its own
+ * backoff, without the caller doing anything special.
+ * `armGuardianFault({ mode: 'failFirstN', count: 2 })`
  * fails B's first 2 `/configure` calls (HTTP 500 -- see `guardian-fault.ts`'s
  * `fulfill500` action for `failFirstN`) and lets every call after that
  * through untouched, so the ONLY way `switchGuardian(B)` resolves is if the

@@ -11,11 +11,17 @@
  *
  * The confirm surface has no product-owned selectors other than the two
  * `data-testid`s added alongside this file (`ConfirmPage.tsx`) — the
- * `ConfirmPageSelectors` enum is an ANALYTICS event-name list that
- * `FormSubmitButton` passes to `trackEvent`, never to the DOM. The enum values
- * are reused verbatim as the testids so there is still one name per action.
+ * `ConfirmPageSelectors` enum is an ANALYTICS event-name list that the confirm
+ * button's own `onClick` passes to `trackEvent` by hand, never to the DOM. The
+ * enum values are reused verbatim as the testids so there is still one name
+ * per action.
  */
 import type { BrowserContext, Page } from '@playwright/test';
+
+import { CONFIRM_ACTIONS } from './confirm-actions';
+import { acknowledgeNetworkNotice } from './network-notice';
+import { passImportConfirmation } from './onboarding-confirmation';
+import { dismissTelemetryConsent } from './telemetry-consent';
 
 /**
  * A reserved-invalid host, so the fixture page can never accidentally hit the
@@ -24,15 +30,13 @@ import type { BrowserContext, Page } from '@playwright/test';
  */
 export const FIXTURE_DAPP_ORIGIN = 'https://miden-dapp-fixture.invalid';
 
-/**
- * Mirrors the `ConfirmPageSelectors` values that reach the DOM, which are not
- * importable from a Playwright spec. Only the actions currently driven are
- * listed — an unused selector here would be dead weight, not documentation.
- */
+export { CONFIRM_ACTIONS, type ConfirmKind } from './confirm-actions';
+
+/** The three actions the provider and spending-limit specs drive, named as before. */
 export const CONFIRM_TESTID = {
-  connectApprove: 'ConfirmPage/ConnectAction/ConnectButton',
-  signDecline: 'ConfirmPage/SignData/RejectButton',
-  transactionApprove: 'ConfirmPage/TransactionAction/AcceptButton'
+  connectApprove: CONFIRM_ACTIONS.connect.approve,
+  signDecline: CONFIRM_ACTIONS.sign.decline,
+  transactionApprove: CONFIRM_ACTIONS.transaction.approve
 } as const;
 
 /** One queued row from the wallet's own Dexie DB (`TridentMain` / `transactions`). */
@@ -61,6 +65,14 @@ export type QueuedTransactionRow = {
 const ACTION_TIMEOUT = 10_000;
 
 /**
+ * `OpenSidePanel.tsx`'s root — the only hook unique to the side-panel handoff
+ * screen. Its title and its button title are both shared verbatim with
+ * `Confirmation.tsx`, so matching on either alone also matches the screen the
+ * handoff was reached from.
+ */
+const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
+
+/**
  * Serves a minimal dApp page at {@link FIXTURE_DAPP_ORIGIN} and waits until the
  * extension has injected the provider. Resolving `window.midenWallet` here (and
  * not in every spec) means a spec that later times out is failing on ITS OWN
@@ -80,9 +92,11 @@ export async function openFixtureDapp(context: BrowserContext, timeoutMs = 30_00
 
   // contentScript.js runs at document_start and appends addToWindow.js, which
   // defines window.midenWallet asynchronously.
-  await page.waitForFunction(() => typeof (window as unknown as { midenWallet?: unknown }).midenWallet === 'object', {
-    timeout: timeoutMs
-  });
+  await page.waitForFunction(
+    () => typeof (window as unknown as { midenWallet?: unknown }).midenWallet === 'object',
+    undefined,
+    { timeout: timeoutMs }
+  );
 
   return page;
 }
@@ -136,6 +150,10 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
  * for every dApp approval (`withUnlocked` in `dapp.ts`), so specs must not skip
  * it. Mirrors `playwright/tests/popup-smoke.spec.ts`.
  *
+ * Onboarding now detours through the one-time telemetry consent prompt on its
+ * way to the handoff screen, so this declines it — see
+ * {@link dismissTelemetryConsent}.
+ *
  * Every navigation, fill and click carries an explicit timeout — see
  * {@link ACTION_TIMEOUT}. A wedged step must name itself, not silently consume
  * the caller's whole budget.
@@ -145,6 +163,11 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
 
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
   await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
+  // The network notice (#875) precedes the import flow.
+  await acknowledgeNetworkNotice(page, ACTION_TIMEOUT);
+  // Import now asks WHICH credential first; this helper drives the seed-phrase one.
+  await page.getByTestId('import-select-type').waitFor({ timeout: timeoutMs });
+  await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 
   const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
@@ -164,14 +187,25 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
   await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
+  // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
+  await page.getByTestId('reused-phrase-acknowledge').click({ timeout: ACTION_TIMEOUT });
   await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
-  await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
-  await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
+  await passImportConfirmation(page, timeoutMs);
+
+  // The helper returns once the import has registered by itself and routed on:
+  // to the consent prompt, or straight to the handoff screen for a profile that
+  // already answered it. So the handoff screen is the other half of the race:
+  // the prompt is declined if it is the one up, and a run that never sees it
+  // does not wait out the whole timeout.
+  const handoff = page.locator(HANDOFF_SELECTOR);
+  await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs });
 
   // "Open wallet" only renders once the store is Ready — deliberately NOT
-  // clicked: it hands off to the Chrome side panel and closes this tab.
-  await page.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
+  // clicked: it hands off to the Chrome side panel and closes this tab. Scoped
+  // to the handoff container because `Confirmation.tsx` titles its own submit
+  // button with the same `openWallet` string.
+  await handoff.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
 }
 
 /**
@@ -295,4 +329,84 @@ export async function readQueuedTransactions(page: Page): Promise<QueuedTransact
         };
       })
   );
+}
+
+export type LowContrastRow = { text: string; color: string; background: string; ratio: number };
+
+/**
+ * Every visible text run and `currentColor` icon glyph on `page` whose contrast against the
+ * background it actually sits on is below `minRatio` (WCAG 3:1 is the floor for
+ * large text and UI glyphs).
+ *
+ * This exists because a colour a component never sets is inherited, and `body`
+ * sets none: text that looked right on a light card rendered browser-default
+ * black on the dark one, and nothing that asserts text CONTENT could see it.
+ * Colours are normalised through a canvas so `oklch(...)` and `color(...)`
+ * computed values compare the same as `rgb(...)`.
+ */
+export async function readLowContrastText(page: Page, minRatio = 3): Promise<LowContrastRow[]> {
+  return page.evaluate(min => {
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+    const rgba = (css: string): [number, number, number, number] => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = '#000';
+      ctx.fillStyle = css;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r = 0, g = 0, b = 0, a = 0] = ctx.getImageData(0, 0, 1, 1).data;
+      return [r, g, b, a / 255];
+    };
+    const over = (top: number[], under: number[]) => {
+      const alpha = top[3] ?? 1;
+      return top.slice(0, 3).map((c, i) => c * alpha + (under[i] ?? 0) * (1 - alpha));
+    };
+    const backgroundOf = (el: Element | null): number[] => {
+      const layers: number[][] = [];
+      for (let node = el; node; node = node.parentElement) {
+        const bg = rgba(getComputedStyle(node).backgroundColor);
+        if (bg[3] > 0) layers.push(bg);
+        if (bg[3] === 1) break;
+      }
+      return layers.reduceRight<number[]>((under, top) => over(top, under), [255, 255, 255]);
+    };
+    const luminance = (rgb: number[]) => {
+      const [r = 0, g = 0, b = 0] = rgb.map(v => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const visible = (el: Element) => {
+      const style = getComputedStyle(el);
+      return el.getClientRects().length > 0 && style.visibility !== 'hidden' && Number(style.opacity) > 0;
+    };
+
+    const rows: LowContrastRow[] = [];
+    const check = (el: Element, text: string, colorCss: string) => {
+      const bg = backgroundOf(el);
+      const fg = over(rgba(colorCss), bg);
+      const [a, b] = [luminance(fg), luminance(bg)];
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      if (ratio < min) {
+        rows.push({ text, color: colorCss, background: `rgb(${bg.map(Math.round).join(', ')})`, ratio });
+      }
+    };
+
+    for (const el of Array.from(document.body.querySelectorAll('*'))) {
+      if (!visible(el)) continue;
+      if (el instanceof SVGGeometryElement) {
+        // Only `currentColor` glyphs inherit like text; literal-fill brand art
+        // layers shapes over each other, which a background walk cannot see.
+        const { fill, color } = getComputedStyle(el);
+        if (fill === color) check(el.ownerSVGElement ?? el, `<svg ${el.tagName}>`, fill);
+        continue;
+      }
+      const own = Array.from(el.childNodes)
+        .filter(node => node.nodeType === Node.TEXT_NODE)
+        .map(node => node.textContent ?? '')
+        .join('')
+        .trim();
+      if (own) check(el, own, getComputedStyle(el).color);
+    }
+    return rows;
+  }, minRatio);
 }

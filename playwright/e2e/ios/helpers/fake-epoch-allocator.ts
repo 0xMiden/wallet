@@ -1,6 +1,6 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
-import { MOCK_USDC_ADDRESS } from './evm-doubles';
+import { allocatorHealthResponse } from '../../helpers/fake-epoch-allocator';
 
 /**
  * Headless stand-in for the Epoch allocator (testnet-dev.epochprotocol.xyz) for
@@ -15,12 +15,18 @@ import { MOCK_USDC_ADDRESS } from './evm-doubles';
  *   POST /checkIfDepositNeeded                 → quote w/ resourceLockRequired:true
  *   POST /compact                              → allocation ack
  *   GET  /intentStatus/{address}/{nonce}       → [] (pending) then Miden-leg success
+ *   GET  /health                               → HealthCheckResponse (Fast bridge availability)
+ *   GET  /miden-recipient                      → allocator Miden collateral config
  *
  * The app fetches these cross-origin from the WKWebView, so every response
  * carries permissive CORS headers and OPTIONS preflights are answered.
  */
 
 const MIDEN_DESTINATION_CHAIN_ID = 999999999;
+
+/** The allocator's Miden collateral account on testnet, as testnet-dev answers `/miden-recipient`. */
+const TESTNET_MIDEN_RECIPIENT = '0x9b322a657c93e0d17a4e512fb1b532';
+const MIN_RECLAIM_BLOCKS = 1000;
 
 export interface AllocatorRequestLog {
   method: string;
@@ -37,7 +43,9 @@ export class FakeEpochAllocator {
   constructor(private readonly port: number = 8548) {}
 
   get baseUrl(): string {
-    return `http://127.0.0.1:${this.port}`;
+    const address = this.server?.address();
+    const port = address && typeof address === 'object' ? address.port : this.port;
+    return `http://127.0.0.1:${port}`;
   }
 
   /** Program the note id the /intentStatus poll should report as delivered. */
@@ -104,15 +112,17 @@ export class FakeEpochAllocator {
 
       // POST /checkIfDepositNeeded — resourceLockRequired:true routes the on-chain
       // deposit branch; tokenIn/tokenInDecimals present so no path-parsing runs.
+      // A reverse quote's tokenIn is the deposit in base units, which the SDK signs
+      // and the wallet holds to the balance: 1.01 USDC for the spec's 1, fee included.
       if (method === 'POST' && path === '/checkIfDepositNeeded') {
         this.send(res, 200, {
           success: true,
           resourceLockRequired: true,
           transactions: [],
           path: [],
-          tokenIn: MOCK_USDC_ADDRESS,
+          tokenIn: '1010000000000000000',
           tokenOut: '1000000',
-          tokenInDecimals: 6,
+          tokenInDecimals: 18,
           tokenInSymbol: 'USDC'
         });
         return;
@@ -139,6 +149,20 @@ export class FakeEpochAllocator {
             midenNoteId: this.midenNoteId
           }
         ]);
+        return;
+      }
+
+      if (method === 'GET' && path === '/health') {
+        this.send(res, 200, allocatorHealthResponse());
+        return;
+      }
+
+      if (method === 'GET' && path === '/miden-recipient') {
+        this.send(res, 200, {
+          success: true,
+          midenP2IDRecipientAccountId: TESTNET_MIDEN_RECIPIENT,
+          midenMinReclaimBlocks: MIN_RECLAIM_BLOCKS
+        });
         return;
       }
 

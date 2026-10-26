@@ -12,13 +12,21 @@
 // reap the document under memory pressure; the next `ensureOffscreenDocument`
 // recreates it. Cold start re-pays WASM init + thread-pool spawn (~1-3s).
 
+import { isInOffscreenDocument } from './offscreen-realm';
+
+// Re-exported so every existing importer of `isInOffscreenDocument` from here —
+// and every test that mocks this module wholesale — is unchanged by the split.
+// Modules that need ONLY the realm check should import `./offscreen-realm`
+// directly; see that file for why the two are separate.
+export { isInOffscreenDocument };
+
 const OFFSCREEN_URL = 'offscreen.html';
 
 // Lifecycle queue for create+close serialization. The offscreen API throws
 // "Only a single offscreen document may be created" if create races with
 // close, so we serialize all lifecycle ops through a chained promise.
-// Concurrent ensureOffscreenDocument() callers all wait on the same chain;
-// abortSpeculativeProve() does too. Replaces the older `creationPromise`
+// Concurrent ensureOffscreenDocument() callers all wait on the same chain, as
+// does forceCloseOffscreenDocument(). Replaces the older `creationPromise`
 // coalescer (which only handled concurrent creates).
 let lifecycleQueue: Promise<unknown> = Promise.resolve();
 
@@ -32,19 +40,17 @@ function withLifecycleLock<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-// Counter of in-flight non-speculative proves (real send / consume / new
-// transaction) dispatched via OFFSCREEN_PROVE. abortSpeculativeProve() bails
-// when this is > 0 — we MUST NOT terminate the offscreen doc while a real
-// send's prove is running, since killing it would error the user's actual
-// transaction. Speculative proves don't increment this counter, so abort can
-// safely kill them.
-let nonSpeculativeProveCount = 0;
+// Counter of in-flight proves dispatched via OFFSCREEN_PROVE, the path a service
+// worker that owns the client (MIDEN_USE_OFFSCREEN_CLIENT off) takes to prove in the
+// offscreen doc. Folded into `isCriticalOpInFlight`: the doc must not be torn down
+// while a real prove is running, since killing it would error the user's transaction.
+let inFlightProveCount = 0;
 
 // Counter of in-flight CRITICAL offscreen ops (issue #260, slice 5, design §3).
-// Generalizes `nonSpeculativeProveCount`: a whole-op offscreen WRITE
-// (`consumeNoteId`, and later send/swap/newTransaction) runs its own
+// Generalizes `inFlightProveCount`: a whole-op offscreen WRITE
+// (send, swap, consume, newTransaction and the guardian pipeline) runs its own
 // execute→prove→submit→apply IN-REALM — it never uses OFFSCREEN_PROVE, so it
-// does NOT bump `nonSpeculativeProveCount`. The SW write proxy brackets each
+// does NOT bump `inFlightProveCount`. The SW write proxy brackets each
 // such op with `incrementCriticalOp()`/`decrementCriticalOp()` so the same
 // "don't tear down a live value-moving op for someone else's deadline"
 // protection a real prove gets also covers the whole write pipeline.
@@ -63,28 +69,14 @@ export function decrementCriticalOp(): void {
 
 /**
  * True while ANY critical op owns the offscreen doc — a whole-op offscreen write
- * (`criticalOpCount > 0`) OR a real non-speculative prove
- * (`nonSpeculativeProveCount > 0`, folded in so the pre-slice-5 protection is
+ * (`criticalOpCount > 0`) OR an OFFSCREEN_PROVE
+ * (`inFlightProveCount > 0`, folded in so the pre-slice-5 protection is
  * preserved). The write proxy consults this so a coincident cheap READ deadline
  * DOWNGRADES to a reject-without-kill instead of tearing down a realm that is
- * mid-value-movement (design §3.3); `abortSpeculativeProve` bails on it too.
+ * mid-value-movement (design §3.3).
  */
 export function isCriticalOpInFlight(): boolean {
-  return criticalOpCount > 0 || nonSpeculativeProveCount > 0;
-}
-
-/**
- * True iff THIS realm is the chrome.offscreen document (issue #260 flip-prep #4).
- * Version-independent and deterministic: the offscreen doc sets
- * `globalThis.__MIDEN_IN_OFFSCREEN_DOC__ = true` at the top of `src/offscreen/main.ts`,
- * before any client is created; this reads that marker. It does NOT depend on
- * whether `chrome.offscreen` happens to be exposed inside the doc (an unreliable
- * Chrome quirk). Used to short-circuit {@link isOffscreenAvailable} so an
- * offscreen-doc write proves LOCALLY in-realm instead of recursively trying to
- * re-dispatch OFFSCREEN_PROVE to a handler that does not exist inside the doc.
- */
-export function isInOffscreenDocument(): boolean {
-  return (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ === true;
+  return criticalOpCount > 0 || inFlightProveCount > 0;
 }
 
 /**
@@ -99,8 +91,8 @@ export function isInOffscreenDocument(): boolean {
  * Inside the offscreen document itself this returns false FIRST (via
  * {@link isInOffscreenDocument}): a doc cannot spawn a sub-doc, and re-dispatching
  * OFFSCREEN_PROVE from inside would deadlock (no in-doc handler), so an
- * offscreen-doc write must prove locally on its own `useWorker:false` WASM
- * (issue #260 flip-prep #4).
+ * offscreen-doc write proves locally in the doc's own prove worker
+ * (issue #260 flip-prep #4, #945).
  */
 export function isOffscreenAvailable(): boolean {
   if (isInOffscreenDocument()) return false;
@@ -111,7 +103,17 @@ export function isOffscreenAvailable(): boolean {
   );
 }
 
-async function hasOffscreenDocument(): Promise<boolean> {
+/**
+ * True iff an offscreen document is currently open. Exported so a caller that
+ * wants to talk to an EXISTING realm — rather than demand one — can check first:
+ * every other entry point here goes through `ensureOffscreenDocument()`, which
+ * CREATES the document, and paying a ~120-150 MB cold start just to hand a fresh
+ * realm a message it does not need is worse than doing nothing.
+ *
+ * Dereferences `chrome.offscreen` (or, on the <116 fallback, the SW's `self.clients`),
+ * so callers must gate on {@link isOffscreenAvailable} first.
+ */
+export async function hasOffscreenDocument(): Promise<boolean> {
   // chrome.offscreen.hasDocument() is the supported API on Chrome 116+.
   // `clients.matchAll({ includeUncontrolled: true })` was the older
   // workaround when the API wasn't available; we don't bother since the
@@ -152,48 +154,9 @@ export async function ensureOffscreenDocument(): Promise<void> {
 }
 
 /**
- * Abort an in-flight SPECULATIVE prove by terminating and respawning the
- * offscreen document. Used by SpeculationManager to recover wasted CPU when
- * the user changes form params mid-prove (the active speculation is now
- * stale; rather than waiting ~6s for the rayon prove to grind to completion
- * with a result we'll discard, we kill the doc and let the next pending
- * prove start fresh).
- *
- * Safety:
- *   - Bails (returns false) if a non-speculative prove is in flight. A
- *     real send / consume / newTransaction prove MUST NOT be killed —
- *     that would surface as a transaction failure to the user.
- *   - Serialized through `withLifecycleLock` so close can't race with
- *     a concurrent ensureOffscreenDocument's create.
- *
- * Side effects:
- *   - The in-flight speculation's `chrome.runtime.sendMessage` promise
- *     rejects with "The message port closed before a response was
- *     received" (or similar). The caller's catch handles it; the
- *     speculation manager's executeAndProve `.catch` swallows.
- *   - Next proveViaOffscreen call respawns the doc, which costs
- *     ~300-500ms (createDocument + WASM init + rayon thread pool spawn).
- *     The savings (avoided ~6s of stale prove) easily dominate.
- *
- * Returns true if the doc was actually closed; false if we bailed.
- */
-export async function abortSpeculativeProve(): Promise<boolean> {
-  // Bail if ANY critical op is in flight — a real prove (nonSpeculativeProveCount)
-  // OR a whole-op offscreen write (criticalOpCount). A stale-speculation abort
-  // must never tear down a live value-moving op (issue #260, slice 5, design §3.2).
-  if (isCriticalOpInFlight()) return false;
-  return await withLifecycleLock(async () => {
-    if (!(await hasOffscreenDocument())) return false;
-    await chrome.offscreen.closeDocument();
-    return true;
-  });
-}
-
-/**
- * Unconditionally tear down the offscreen document (OS-level kill) via the same
- * `closeDocument()` primitive as {@link abortSpeculativeProve}, but WITHOUT its
- * speculative-only guard — this is the deadline / heal-alarm kill path (design
- * §3.2), whose whole purpose is to kill a wedged realm. Serialized through
+ * Unconditionally tear down the offscreen document (OS-level kill) via
+ * `closeDocument()`: the deadline / heal-alarm kill path (design §3.2), whose
+ * whole purpose is to kill a wedged realm. Serialized through
  * `withLifecycleLock` so the close can't race a concurrent create.
  *
  * Callers that must not kill a healthy critical op should gate on
@@ -231,35 +194,22 @@ export type ProveViaOffscreenResult = {
   durationMs: number;
 };
 
-export interface ProveViaOffscreenOptions {
-  /**
-   * When true, this prove is speculative — its result may be discarded if
-   * the user's form params change. abortSpeculativeProve() can terminate
-   * the offscreen doc to interrupt this prove early. When false (default),
-   * the prove counts as non-speculative and increments
-   * `nonSpeculativeProveCount`, which prevents abortSpeculativeProve()
-   * from killing the doc mid-flight (a real send must not be aborted).
-   */
-  speculative?: boolean;
-}
-
 /**
  * Send an executed `TransactionResult` (serialized bytes) to the offscreen
  * prover and await the proven `ProvenTransaction` (serialized bytes).
  *
- * `proverDescriptor` is the string returned by `TransactionProver.serialize()`
- * — `"local"` or `"remote|<endpoint>[|<timeout_ms>]"`. Pass `null` to make
- * the offscreen doc construct a fresh local prover (the common case).
+ * `proverDescriptor` is `null` or `"local"`: either way the offscreen document
+ * proves in its own prove worker (#945). The one caller always passes `null`.
+ * Any other string answers `ok: false` with `unsupported prover descriptor`,
+ * refused by the offscreen document before the worker, which proves locally only.
  */
 export async function proveViaOffscreen(
   txResultBytes: Uint8Array,
-  proverDescriptor: string | null,
-  opts?: ProveViaOffscreenOptions
+  proverDescriptor: 'local' | null
 ): Promise<ProveViaOffscreenResult> {
-  const isSpeculative = opts?.speculative === true;
-  // Increment BEFORE ensureOffscreenDocument so an interleaving abort sees
-  // us as in-flight. Decrement in finally.
-  if (!isSpeculative) nonSpeculativeProveCount++;
+  // Increment BEFORE ensureOffscreenDocument so an interleaving deadline kill
+  // sees us as in-flight. Decrement in finally.
+  inFlightProveCount++;
   try {
     await ensureOffscreenDocument();
     // chrome.runtime.sendMessage's payload IS structured-cloned in modern
@@ -277,11 +227,8 @@ export async function proveViaOffscreen(
       proverDescriptor
     })) as { ok: true; provenB64: string; durationMs: number } | { ok: false; error: string } | undefined;
     if (!response) {
-      // Either the doc was reaped under memory pressure, OR
-      // abortSpeculativeProve() closed the doc to interrupt a stale
-      // speculation. The caller distinguishes these via context — if it's
-      // a speculation, the manager's catch silences the warning; otherwise
-      // it propagates as a real failure.
+      // The doc was closed or reaped (memory pressure, a deadline kill) before
+      // it answered; the prove fails like any other.
       throw new Error('Offscreen prover returned no response (doc may have been closed or reaped)');
     }
     if (!response.ok) {
@@ -290,7 +237,7 @@ export async function proveViaOffscreen(
     const provenBytes = b64ToBytes(response.provenB64).buffer;
     return { provenBytes, durationMs: response.durationMs };
   } finally {
-    if (!isSpeculative) nonSpeculativeProveCount--;
+    inFlightProveCount--;
   }
 }
 

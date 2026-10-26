@@ -9,6 +9,8 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './playwright/e2e/stress',
+  // The directory also holds the driver's Jest tests, which Playwright's default testMatch would load and fail on.
+  testMatch: '**/*.spec.ts',
   timeout: 0, // driver's STRESS_NUM_NOTES is the stop condition
   expect: {
     timeout: 60_000,

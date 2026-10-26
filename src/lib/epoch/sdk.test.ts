@@ -1,19 +1,32 @@
-import { ensureEpochSmartAccount, resetEpochSdk } from './sdk';
+import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
+
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
+
+import { getEvmConnection } from './client';
+import { ensureEpochSmartAccount, getEpochReadOnlySdk, getEpochSdk, getEpochSigningSdk, resetEpochSdk } from './sdk';
+import { TEST_ALLOCATOR_URL } from './testing/bridge-config';
 
 const mockGetWalletGaslessStatus = jest.fn();
 const mockConvertToSmartAccount = jest.fn();
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
+  MIDEN_VIRTUAL_CHAIN_ID: 999999999,
   EpochIntentSDK: jest.fn(() => ({
     getWalletGaslessStatus: (...args: unknown[]) => mockGetWalletGaslessStatus(...args),
     convertToSmartAccount: (...args: unknown[]) => mockConvertToSmartAccount(...args)
   }))
 }));
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn(() => Promise.resolve()) }));
+jest.mock('lib/remote-config/values', () =>
+  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+);
 
 jest.mock('@reown/appkit/react', () => ({ useAppKitAccount: jest.fn() }));
 jest.mock('./client', () => ({
   buildEpochReadOnlyWalletClient: jest.fn(),
   buildEpochWalletClient: jest.fn(),
+  epochChain: (chainId = 11155111) => ({ id: chainId }),
   getEvmConnection: jest.fn()
 }));
 jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));
@@ -25,6 +38,21 @@ describe('ensureEpochSmartAccount', () => {
     resetEpochSdk();
     mockGetWalletGaslessStatus.mockReset();
     mockConvertToSmartAccount.mockReset();
+  });
+
+  it('uses the supplied guarded SDK for smart-account setup', async () => {
+    const guarded = {
+      getWalletGaslessStatus: jest
+        .fn()
+        .mockResolvedValueOnce({ delegation: 'none' })
+        .mockResolvedValueOnce({ delegation: 'epoch' }),
+      convertToSmartAccount: jest.fn().mockRejectedValueOnce(new Error('earnWithdrawRefresh'))
+    };
+    await expect(
+      ensureEpochSmartAccount('miden-account', EVM_ADDRESS, guarded as unknown as EpochIntentSDK)
+    ).rejects.toThrow('earnWithdrawRefresh');
+    expect(guarded.convertToSmartAccount).toHaveBeenCalledTimes(1);
+    expect(mockConvertToSmartAccount).not.toHaveBeenCalled();
   });
 
   it('is idempotent when the Epoch delegation is already active', async () => {
@@ -64,5 +92,60 @@ describe('ensureEpochSmartAccount', () => {
     mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
 
     await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('delegation is not active');
+  });
+});
+
+describe('the configured allocator', () => {
+  beforeEach(() => {
+    resetEpochSdk();
+    jest.mocked(EpochIntentSDK).mockClear();
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue(TEST_ALLOCATOR_URL);
+  });
+
+  const allocators = () => jest.mocked(EpochIntentSDK).mock.calls.map(([config]) => config.apiBaseUrl);
+
+  it('builds an SDK against the allocator the config names, and reuses it while that stays', async () => {
+    const first = await getEpochReadOnlySdk(EVM_ADDRESS);
+    expect(await getEpochReadOnlySdk(EVM_ADDRESS)).toBe(first);
+    expect(allocators()).toEqual([TEST_ALLOCATOR_URL]);
+  });
+
+  it('rebuilds the SDK against the new host once the config moves the allocator', async () => {
+    const first = await getEpochReadOnlySdk(EVM_ADDRESS);
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue('https://moved.test');
+    expect(await getEpochReadOnlySdk(EVM_ADDRESS)).not.toBe(first);
+    expect(allocators()).toEqual([TEST_ALLOCATOR_URL, 'https://moved.test']);
+  });
+
+  it.each([
+    ['the read-only SDK', () => getEpochReadOnlySdk(EVM_ADDRESS)],
+    ['the signing SDK', () => getEpochSigningSdk('miden-account', EVM_ADDRESS)],
+    ['the connected-wallet SDK', () => getEpochSdk()]
+  ])('builds %s against the allocator only once this realm has hydrated the bridge config', async (_label, build) => {
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: EVM_ADDRESS, chainId: 11155111, isNative: false });
+    let hydrated: () => void = () => undefined;
+    jest.mocked(initBridgeConfig).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          hydrated = () =>
+            resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
+        })
+    );
+    jest.mocked(getEpochAllocatorUrl).mockClear();
+    const built = build();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(getEpochAllocatorUrl).not.toHaveBeenCalled();
+    hydrated();
+    await expect(built).resolves.toBeDefined();
+    expect(allocators()).toEqual([TEST_ALLOCATOR_URL]);
+  });
+
+  it('builds nothing while the config names no allocator', async () => {
+    jest.mocked(getEpochAllocatorUrl).mockImplementation(() => {
+      throw new Error('no allocator');
+    });
+    await expect(getEpochReadOnlySdk(EVM_ADDRESS)).rejects.toThrow('no allocator');
+    await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('no allocator');
+    expect(EpochIntentSDK).not.toHaveBeenCalled();
   });
 });

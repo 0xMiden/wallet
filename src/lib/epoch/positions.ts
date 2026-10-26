@@ -1,17 +1,22 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
+import { withRequestTimeout } from 'lib/remote-json';
 
-import { EPOCH_POSITIONS_URL } from './config';
-import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
+import type { EarnVaultInfo } from './pools-read';
+
+export type { EarnVaultInfo };
 
 /**
- * Epoch "Dummy Lending" positions — the READ side of the Earn feature.
+ * Epoch Earn positions — the READ side of the Earn feature.
  *
  * `openEarnPosition` (`./earn`) WRITES a position: it deposits Miden-held USDC as
  * collateral and the solver opens an EVM lending position owned by the typed EVM
  * address. This module READS those positions back from Epoch's read-only positions
- * service (`EPOCH_POSITIONS_URL`), keyed by that EVM owner address.
+ * service (the bridge config's `epoch.positionsUrl`), keyed by that EVM owner address.
+ * It does not read the vault catalogue: the bridge-config derivation reads it once per
+ * document version (`selectEarnVaultCatalog` in `lib/remote-config/values`).
  *
  * The wallet has no single "my EVM address" (each deposit names its own owner), so
  * we collect every distinct `evmRecipient` the user has deposited to from the
@@ -22,8 +27,8 @@ import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
  *   NOT base units — do not re-apply `decimals`.
  * - Every supported token is returned per chain even at zero balance, so we filter
  *   to positions with a non-zero deposit.
- * - `marketUid` is returned checksum-cased; match case-insensitively against our
- *   lowercase `EARN_MARKET_UID` constant.
+ * - `marketUid` can be returned checksum-cased; match case-insensitively against the
+ *   catalogue's lowercase uids.
  */
 
 // ---- Raw positions-service response shapes -------------------------------------
@@ -67,7 +72,7 @@ interface PositionsApiChainItem {
   chainId: string;
   aprData: PositionsApiAprData;
   data: { positions: PositionsApiPosition[] }[];
-  lenderInfo: { lenderKey: string; name: string; logoUri: string };
+  lenderInfo: { lenderKey: string; name: string; logoUri?: string };
 }
 
 interface PositionsApiResponse {
@@ -77,8 +82,6 @@ interface PositionsApiResponse {
     items: PositionsApiChainItem[];
   };
 }
-
-const CATALOG_ACCOUNT = '0x0000000000000000000000000000000000000000';
 
 // ---- Flattened, UI-facing shapes ----------------------------------------------
 
@@ -106,33 +109,32 @@ export interface EarnPosition {
   priceUsd: number;
 }
 
-/**
- * An available lending vault (one lender on one chain). The positions service
- * returns every supported lender per chain even when the account holds no
- * position there, so this doubles as the "featured vaults" catalog.
- */
-export interface EarnVaultInfo {
-  lenderKey: string;
-  lenderName: string;
-  logoUri: string;
-  chainId: string;
-  /** Net APR (percent) for this lender/chain. */
-  apr: number;
-  /** Deposit APR (percent) for this lender/chain. */
-  depositApr: number;
-}
-
 export interface EarnPositionsResult {
-  /** Non-zero positions across every queried owner address. */
+  /** Non-zero positions across every queried owner address that loaded. */
   positions: EarnPosition[];
-  /** All lenders/chains the service reported, deduped — including zero-balance ones. */
-  vaults: EarnVaultInfo[];
   /** Sum of `depositsUSD` across all positions. */
   totalDepositsUSD: number;
   /** EVM owner addresses that were queried. */
   owners: string[];
-  /** Per-address fetch failures (network / non-2xx / unsuccessful body). */
+  /**
+   * Per-address failures (network / non-2xx / unsuccessful body / an unreadable payload). A failed owner has no
+   * positions in this result: carrying what it loaded before is the caller's (see `carryForward`).
+   */
   errors: { owner: string; error: string }[];
+}
+
+/**
+ * `next` with what its failures hid: `previous`'s positions of every owner in `next.errors`. Owners and errors stay
+ * `next`'s, so the failure is still reported. With no failed owner, or nothing loaded before, it is `next` itself.
+ */
+export function carryForward(
+  previous: EarnPositionsResult | undefined,
+  next: EarnPositionsResult
+): EarnPositionsResult {
+  if (!previous || next.errors.length === 0) return next;
+  const failed = new Set(next.errors.map(({ owner }) => owner));
+  const positions = [...next.positions, ...previous.positions.filter(({ owner }) => failed.has(owner))];
+  return { ...next, positions, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
 }
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -161,40 +163,85 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
   return [...seen];
 }
 
+// A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
+const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
+
 /**
  * Fetch lending positions for ONE EVM owner address. Never rejects: on any
- * failure it resolves to an empty `items` array plus an `error` string, so the
- * `Promise.all` in `fetchEarnPositions` can't be torn down by a single bad
- * address or transient network error.
+ * failure, a request or body read past 15 s included, it resolves to an empty
+ * `items` array plus an `error` string, so the `Promise.all` in
+ * `fetchEarnPositions` can't be torn down by a single bad address or transient
+ * network error.
  */
 async function fetchPositionsForOwner(
+  positionsUrl: string,
   owner: string,
   chains: number[]
 ): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string }> {
-  const url = `${EPOCH_POSITIONS_URL}/positions?account=${owner}&chains=${chains.join(',')}`;
+  const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      return { owner, items: [], error: `positions request failed (${res.status})` };
-    }
-    const body: PositionsApiResponse = await res.json();
-    if (!body.success || !body.data || !Array.isArray(body.data.items)) {
-      return { owner, items: [], error: body.error ?? 'positions request unsuccessful' };
-    }
-    return { owner, items: body.data.items };
+    return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
+      const res = await fetch(url, { signal });
+      if (!res.ok) {
+        return { owner, items: [], error: `positions request failed (${res.status})` };
+      }
+      const body: PositionsApiResponse = await res.json();
+      if (!body.success || !body.data || !Array.isArray(body.data.items)) {
+        return { owner, items: [], error: body.error ?? 'positions request unsuccessful' };
+      }
+      return { owner, items: body.data.items };
+    });
   } catch (err) {
     return { owner, items: [], error: err instanceof Error ? err.message : 'positions request threw' };
   }
 }
 
-/** Flatten one chain item's nested `data[].positions[]` into non-zero `EarnPosition`s. */
-function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosition[] {
+/**
+ * Throws unless every one of `strings` is a string and every one of `numbers` a finite number: the fields a position
+ * copies from an owner's payload, so a field of another type fails that owner as a read that throws does.
+ */
+function assertFieldTypes(strings: unknown[], numbers: unknown[]): void {
+  if (!strings.every(value => typeof value === 'string') || !numbers.every(value => Number.isFinite(value))) {
+    throw new TypeError('positions field of the wrong type');
+  }
+}
+
+/**
+ * True when `marketUid` names a market on one of the Epoch routes the document names, in that route's USDC. The
+ * document's vault list gates deposits only: a position exists on chain whatever the list says, so one in a market
+ * the document never listed, or has stopped listing, stays in sight and can still be withdrawn.
+ */
+function isRouteMarket(marketUid: string, routes: readonly EpochRoute[]): boolean {
+  const [, chainId, token] = marketUid.split(':');
+  return routes.some(route => chainId === String(route.chainId) && token?.toLowerCase() === route.usdc.toLowerCase());
+}
+
+/** Flatten one chain item's nested `data[].positions[]` into the non-zero `EarnPosition`s of the markets `keeps` names. */
+function flattenChainItem(
+  owner: string,
+  item: PositionsApiChainItem,
+  keeps: (marketUid: string) => boolean
+): EarnPosition[] {
   const out: EarnPosition[] = [];
   for (const group of item.data) {
     for (const pos of group.positions) {
-      if (pos.marketUid.toLowerCase() !== EARN_MARKET_UID.toLowerCase()) continue;
+      if (!keeps(pos.marketUid)) continue;
       // Every supported token is returned even at zero balance — keep only funded ones.
       if (pos.deposits === '0' && pos.depositsUSD === 0) continue;
+      const { asset, prices } = pos.underlyingInfo;
+      assertFieldTypes(
+        [
+          item.lenderInfo.lenderKey,
+          item.lenderInfo.name,
+          item.chainId,
+          pos.marketUid,
+          pos.deposits,
+          pos.withdrawable,
+          asset.symbol,
+          asset.address
+        ],
+        [item.aprData.depositApr, pos.depositsUSD, asset.decimals, prices.priceUsd]
+      );
       out.push({
         owner,
         marketUid: pos.marketUid,
@@ -205,10 +252,10 @@ function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosit
         withdrawable: pos.withdrawable,
         depositsUSD: pos.depositsUSD,
         depositApr: item.aprData.depositApr,
-        symbol: pos.underlyingInfo.asset.symbol,
-        underlyingAddress: pos.underlyingInfo.asset.address,
-        decimals: pos.underlyingInfo.asset.decimals,
-        priceUsd: pos.underlyingInfo.prices.priceUsd
+        symbol: asset.symbol,
+        underlyingAddress: asset.address,
+        decimals: asset.decimals,
+        priceUsd: prices.priceUsd
       });
     }
   }
@@ -220,51 +267,49 @@ export interface FetchEarnPositionsArgs {
   accountId?: string;
   /** Override the owner addresses to query (defaults to those from activity). */
   owners?: string[];
-  /** Chains to query (defaults to the earn destination chain, Ethereum Sepolia). */
+  /** Chains to query (defaults to every Epoch route the document names). */
   chains?: number[];
 }
 
 /**
- * Fetch every open lending position for the wallet. Collects the distinct EVM
- * owner addresses from `earn-deposit` activity and queries the positions service
- * for all of them at once via `Promise.all`. Per-address failures are isolated
- * (see `fetchPositionsForOwner`) and surfaced in `errors`.
+ * Fetch every open lending position for the wallet. Collects the distinct EVM owner addresses from `earn-deposit`
+ * activity and queries the positions service once for each of them, all at once. With no owner, it makes no
+ * request. Per-address failures are isolated (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a
+ * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept.
+ *
+ * Positions are asked for on every Epoch route the document names at once (`chains=8453,42161,1`), and a position is
+ * kept when its uid names a market on one of those routes in that route's USDC, whether or not the document lists the
+ * market: the vault list gates deposits only, and a position in an unlisted market must stay withdrawable. The vault
+ * catalogue is not read here (`selectEarnVaultCatalog`). It rejects only when the owner lookup fails or the bridge
+ * config names no positions host or no Epoch route, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const chains = args.chains ?? [EARN_DESTINATION_CHAIN_ID];
+  const [positionsUrl, routes] = [getEpochPositionsUrl(), getEpochRoutes()];
+  if (routes.length === 0) throw new Error('The bridge config names no Epoch route');
+  const chains = args.chains ?? routes.map(route => route.chainId);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
-  // The positions endpoint also serves as the supported-vault catalog. Query a
-  // neutral account when a wallet has no derived EVM owner yet so Featured
-  // Vaults works for new/imported Miden accounts.
-  const queryOwners = owners.length > 0 ? owners : [CATALOG_ACCOUNT];
-  const results = await Promise.all(queryOwners.map(owner => fetchPositionsForOwner(owner, chains)));
+  const results = await Promise.all(owners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)));
+
+  const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 
   const positions: EarnPosition[] = [];
-  const vaultsByKey = new Map<string, EarnVaultInfo>();
   const errors: { owner: string; error: string }[] = [];
   for (const result of results) {
     if (result.error) {
       errors.push({ owner: result.owner, error: result.error });
+      continue;
     }
-    for (const item of result.items) {
-      if (owners.length > 0) {
-        positions.push(...flattenChainItem(result.owner, item));
-      }
-      const vaultKey = `${item.lenderInfo.lenderKey}:${item.chainId}`;
-      if (!vaultsByKey.has(vaultKey)) {
-        vaultsByKey.set(vaultKey, {
-          lenderKey: item.lenderInfo.lenderKey,
-          lenderName: item.lenderInfo.name,
-          logoUri: item.lenderInfo.logoUri,
-          chainId: item.chainId,
-          apr: item.aprData.apr,
-          depositApr: item.aprData.depositApr
-        });
-      }
+    // An owner fails alone, like a failed request, when its holdings cannot be read (an item's positions, or a field a
+    // funded position copies), so the read does not reject after its requests are spent.
+    try {
+      positions.push(...result.items.flatMap(item => flattenChainItem(result.owner, item, keeps)));
+    } catch (err) {
+      console.warn(`[epoch] positions response unreadable for ${result.owner}`, err);
+      errors.push({ owner: result.owner, error: 'positions response unreadable' });
     }
   }
 
   const totalDepositsUSD = positions.reduce((sum, p) => sum + p.depositsUSD, 0);
-  return { positions, vaults: [...vaultsByKey.values()], totalDepositsUSD, owners, errors };
+  return { positions, totalDepositsUSD, owners, errors };
 }

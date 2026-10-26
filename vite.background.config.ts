@@ -3,6 +3,11 @@ import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
+import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
+
+const walletBuildIdentity = readWalletBuildIdentity(__dirname);
+
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 
@@ -373,6 +378,9 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(
+      process.env.MIDEN_UPDATE_NOTIFICATIONS ?? (TARGET_BROWSER === 'chrome' ? 'true' : 'false')
+    ),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: route flag-gated WASM-client work through the chrome.offscreen
     // document. DEFAULT ON in the service worker — this is the bundle that runs
@@ -383,25 +391,33 @@ export default defineConfig({
     // The other bundles default OFF; mobile hardcodes OFF (no chrome.offscreen).
     // See lib/miden/back/miden-client-proxy.ts.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
+    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+      process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+    ),
+    // Bridge config E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
+    // Explore catalog E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
     'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
     'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
       process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
     ),
-    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
-    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
-      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
-    ),
-    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
-      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
-    ),
-    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
-      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
-    ),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
@@ -412,19 +428,21 @@ export default defineConfig({
     // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
     // the prove with "Client not initialized".
     //
-    // Mobile (vite.mobile.config.ts) does NOT define this env, so its
-    // runtime value is undefined and the `=== 'true'` check fails — mobile
-    // always uses the bundled SDK path. Even if it somehow were true, the
-    // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
-    // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
+    // Mobile (vite.mobile.config.ts) PINS this to `'false'` at build time, so a
+    // stray shell env can never opt mobile into a code path it cannot run and
+    // dead-code elimination drops the offscreen import entirely — mobile always
+    // uses the bundled SDK path. The runtime `isOffscreenAvailable()` guard would
+    // return false in WKWebView / Capacitor anyway (no chrome.offscreen API), so
+    // the fallback fires regardless.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
-    // Speculative pre-prove: when the user reaches the review screen, the
-    // popup tells the SW to start proving with the form params so the proof
-    // is ready by the time they click Confirm. Default ON for desktop chrome
-    // (gated further on !delegateEnabled at runtime). Mobile config pins
-    // this false — speculation has nothing to dispatch to without
-    // chrome.offscreen anyway, but the explicit pin makes intent clear.
-    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
-    'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
+    'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.WALLET_BUILD_TARGET': JSON.stringify('background'),
+    'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
+    'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : '')
   }
 });

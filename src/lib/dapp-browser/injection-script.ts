@@ -14,10 +14,11 @@ export const INJECTION_SCRIPT = `
   // rerun the style block on every executeScript call.
   try {
     const STYLE_ID = 'miden-wallet-bottom-pad';
-    var existing = document.getElementById(STYLE_ID);
-    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     const installPadding = function() {
       if (!document || !document.head) return;
+      var existing = document.getElementById(STYLE_ID);
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      if (window.__breadPresentationState && window.__breadPresentationState.display === 'fullscreen') return;
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent =
@@ -25,6 +26,11 @@ export const INJECTION_SCRIPT = `
         'body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }';
       document.head.appendChild(style);
     };
+    if (window.__midenWalletPaddingListener) {
+      document.removeEventListener('breadpresentationchange', window.__midenWalletPaddingListener);
+    }
+    window.__midenWalletPaddingListener = installPadding;
+    document.addEventListener('breadpresentationchange', installPadding);
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', installPadding, { once: true });
     } else {
@@ -50,14 +56,25 @@ export const INJECTION_SCRIPT = `
       if (!this._events[event]) return;
       this._events[event] = this._events[event].filter(l => l !== listener);
     }
+    // A listener that throws stops neither the listeners after it nor the code that emitted, as on desktop.
     emit(event, ...args) {
       if (!this._events[event]) return;
-      this._events[event].forEach(listener => listener(...args));
+      this._events[event].slice().forEach(listener => {
+        try {
+          listener(...args);
+        } catch (e) {
+          console.error('[MidenWallet] Error in ' + event + ' listener:', e);
+        }
+      });
     }
   }
 
   // Pending requests map
   const pendingRequests = new Map();
+  // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
+  // match an answer meant for the one before it (#1416).
+  const requestPrefix =
+    'req_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('') + '_';
   let requestId = 0;
 
   // Send message to native app via Capacitor InAppBrowser
@@ -77,10 +94,60 @@ export const INJECTION_SCRIPT = `
     window.postMessage({ __midenNative: true, ...message }, '*');
   }
 
+  // The extension's provider errors (lib/adapter/client.ts), so a refusal reads the same on every provider.
+  class MidenWalletError {
+    constructor() {
+      this.name = 'MidenWalletError';
+      this.message = 'An unknown error occured. Please try again or report it';
+    }
+  }
+  class NotGrantedMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotGrantedMidenWalletError';
+      this.message = 'Permission Not Granted';
+    }
+  }
+  class NotFoundMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotFoundMidenWalletError';
+      this.message = 'Account Not Found. Try connect again';
+    }
+  }
+  class InvalidParamsMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'InvalidParamsMidenWalletError';
+      this.message = 'Some of the parameters you provided are invalid';
+    }
+  }
+  function createError(value) {
+    const message = Array.isArray(value)
+      ? typeof value[0] === 'string'
+        ? value[0]
+        : String(value[0])
+      : typeof value === 'string'
+        ? value
+        : value && typeof value === 'object' && typeof value.message === 'string'
+          ? value.message
+          : undefined;
+    const has = code => value === code || (typeof message === 'string' && message.includes(code));
+    const error = has('NOT_GRANTED')
+      ? new NotGrantedMidenWalletError()
+      : has('NOT_FOUND')
+        ? new NotFoundMidenWalletError()
+        : has('INVALID_PARAMS')
+          ? new InvalidParamsMidenWalletError()
+          : new MidenWalletError();
+    if (message) error.message = message;
+    return error;
+  }
+
   // Make request to wallet
   function request(payload) {
     return new Promise((resolve, reject) => {
-      const reqId = 'req_' + (++requestId);
+      const reqId = requestPrefix + (++requestId);
       pendingRequests.set(reqId, { resolve, reject });
       sendToNative('MIDEN_PAGE_REQUEST', payload, reqId);
 
@@ -108,7 +175,7 @@ export const INJECTION_SCRIPT = `
       pendingRequests.delete(reqId);
 
       if (type === 'MIDEN_PAGE_ERROR_RESPONSE' || error) {
-        pending.reject(new Error(error || payload || 'Unknown error'));
+        pending.reject(createError(error || payload || 'Unknown error'));
       } else {
         pending.resolve(payload);
       }
@@ -139,6 +206,41 @@ export const INJECTION_SCRIPT = `
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // Follows the wallet's current account after connect (#174), the way the extension's window
+  // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
+  // settles, so a slow answer never stacks polls; only disconnect() stops it.
+  const PERMISSION_POLL_MS = 10000;
+  let stopPermissionWatch = function() {};
+  // disconnect() counts itself before its request; a connect() it overlaps then rejects and starts no watch (#1227).
+  let disconnects = 0;
+
+  // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
+  // sees is a key that cannot be decoded, before any field changes.
+  function watchPermission(wallet) {
+    stopPermissionWatch();
+    let stopped = false;
+    let timer;
+    const tick = async function() {
+      try {
+        const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
+        const hasPermission = res && typeof res === 'object' && 'permission' in res;
+        if (!stopped && hasPermission) {
+          // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
+          const account = res.permission === null ? undefined : res.permission.address;
+          if (account !== wallet.address) wallet._applyPermission(res.permission);
+        }
+      } catch (e) {
+        // A refused or timed-out poll, or a key that cannot be decoded, leaves the account as it was; the next one asks again.
+      }
+      if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
+    };
+    timer = setTimeout(tick, PERMISSION_POLL_MS);
+    stopPermissionWatch = function() {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+
   // MidenWallet class
   class MidenWallet extends EventEmitter {
     constructor() {
@@ -160,6 +262,7 @@ export const INJECTION_SCRIPT = `
     }
 
     async connect(privateDataPermission, network, allowedPrivateData) {
+      const disconnectsBefore = disconnects;
       const res = await request({
         type: 'PERMISSION_REQUEST',
         appMeta: { name: window.location.hostname },
@@ -168,6 +271,7 @@ export const INJECTION_SCRIPT = `
         network,
         allowedPrivateData
       });
+      if (disconnects !== disconnectsBefore) throw new Error('The wallet was disconnected while connecting');
 
       // Decode publicKey BEFORE touching other wallet state so a
       // malformed publicKey response (e.g. wallet bug, corrupt
@@ -184,24 +288,58 @@ export const INJECTION_SCRIPT = `
         rpc: res.network,
         address: res.accountId,
         privateDataPermission: res.privateDataPermission,
-        allowedPrivateData: res.allowedPrivateData
+        allowedPrivateData: res.allowedPrivateData,
+        publicKey: decodedPublicKey
       };
       this.address = res.accountId;
       this.network = network;
       this.publicKey = decodedPublicKey;
 
+      // The watch starts first, so a listener that disconnects from this emission stops it.
+      watchPermission(this);
+
       // Emit connect event for wallet adapters that listen to events
       this.emit('connect', this.publicKey);
-
       return this.permission;
     }
 
+    // The connection ends whether the request succeeds, is refused or times out, and its error still reaches the
+    // caller. Only the call that clears a connected wallet signals it, so a listener that disconnects on the signal
+    // is refused once and stops, and two overlapping calls signal once (#1227).
     async disconnect() {
-      await request({ type: 'DISCONNECT_REQUEST' });
-      this.address = undefined;
-      this.permission = undefined;
-      this.publicKey = undefined;
-      this.emit('disconnect');
+      stopPermissionWatch();
+      disconnects++;
+      try {
+        await request({ type: 'DISCONNECT_REQUEST' });
+      } finally {
+        // A connect begun after this call is answered first only if this request was dropped; its timeout
+        // then ends that connection too, so the watch stops with the fields.
+        stopPermissionWatch();
+        const connected = !!this.address;
+        this.address = undefined;
+        this.permission = undefined;
+        this.publicKey = undefined;
+        if (connected) this.emit('disconnect');
+      }
+    }
+
+    // Fields follow the new account before listeners hear of it; null clears them. The permission
+    // carries the decoded key, the shape connect gives. A key that cannot be decoded throws before
+    // anything changes.
+    _applyPermission(perm) {
+      if (perm === null) {
+        this.address = undefined;
+        this.publicKey = undefined;
+        this.permission = undefined;
+        this.emit('accountChange', null);
+        return;
+      }
+      const publicKey = perm.publicKey ? b64ToU8(perm.publicKey) : undefined;
+      const permission = { ...perm, publicKey };
+      this.permission = permission;
+      this.address = perm.address;
+      this.publicKey = publicKey;
+      this.emit('accountChange', permission);
     }
 
     async requestSend(transaction) {
@@ -264,6 +402,28 @@ export const INJECTION_SCRIPT = `
       return { signature: b64ToU8(res.signature) };
     }
 
+    async requestLoginKey() {
+      const res = await request({
+        type: 'LOGIN_KEY_REQUEST',
+        sourceAccountId: this.address
+      });
+
+      return { loginKey: b64ToU8(res.loginKey) };
+    }
+
+    async signLoginBytes(data, kind) {
+      const messageAsB64 = u8ToB64(data);
+
+      const res = await request({
+        type: 'LOGIN_SIGN_REQUEST',
+        sourceAccountId: this.address,
+        payload: messageAsB64,
+        kind
+      });
+
+      return { signature: b64ToU8(res.signature) };
+    }
+
     async importPrivateNote(note) {
       const noteAsB64 = u8ToB64(note);
 
@@ -298,6 +458,13 @@ export const INJECTION_SCRIPT = `
         sourcePublicKey: this.address
       });
       return { guardianInfo: res.guardianInfo };
+    }
+
+    // Mirrors the extension's refusal; there is no wire message.
+    async createAccount() {
+      throw new Error(
+        'createAccount is not supported by the Miden wallet. No provider implements it and there is no wire message for it.'
+      );
     }
   }
 

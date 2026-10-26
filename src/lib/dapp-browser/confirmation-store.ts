@@ -23,9 +23,10 @@
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { DappMetadata } from 'lib/miden/types';
 
-export interface DAppConfirmationRequest {
+interface DAppConfirmationRequestFields {
   id: string;
   /**
    * Multi-instance session id (matches the `id` of the
@@ -35,7 +36,6 @@ export interface DAppConfirmationRequest {
    * slot. PR-4 chunk 8.
    */
   sessionId?: string;
-  type: 'connect' | 'sign' | 'transaction' | 'consume';
   origin: string;
   appMeta: DappMetadata;
   network: string;
@@ -43,9 +43,75 @@ export interface DAppConfirmationRequest {
   privateDataPermission: PrivateDataPermission;
   allowedPrivateData: AllowedPrivateData;
   existingPermission: boolean;
+  /**
+   * Set on a connect asked again because the account key read after its approval failed (#1471): that read's error
+   * message, empty when it had none. The sheet shows it, and its approve button reads Retry.
+   */
+  previousAttemptError?: string;
   // Transaction-specific fields
   transactionMessages?: string[];
   sourcePublicKey?: string;
+  spendingLimitAssessment?: SpendingLimitAssessment;
+}
+
+/** A login signature: the site's registrable domain, and the account whose login key for that domain signs. */
+export interface DAppLoginSignConfirmationRequest extends DAppConfirmationRequestFields {
+  type: 'loginSign';
+  domain: string;
+  accountId: string;
+}
+
+/**
+ * A request for the user's approval. `type` says what they are being asked to approve.
+ *
+ * `connect` and `loginSign` render the account panel; every other kind renders the
+ * `transactionMessages` detail list (see {@link isDetailsConfirmation}), the
+ * shape both the mobile modal and the desktop overlay already use for
+ * transactions. `sign`, `importPrivateNote` and `privateData` exist so the
+ * non-extension platforms can prompt for `signBytes`, `importPrivateNote` and
+ * the `UponRequest` private-data reads instead of leaving the dApp's promise
+ * unsettled (those handlers previously had no non-extension branch at all).
+ */
+export type DAppConfirmationRequest =
+  | DAppLoginSignConfirmationRequest
+  | (DAppConfirmationRequestFields & {
+      type: 'connect' | 'sign' | 'transaction' | 'consume' | 'importPrivateNote' | 'privateData';
+    });
+
+/**
+ * True for the request kinds whose modal body is the `transactionMessages`
+ * detail list rather than the connect-style account panel. Shared by the mobile
+ * modal and the desktop overlay so the two can't drift.
+ */
+export function isDetailsConfirmation(type: DAppConfirmationRequest['type']): boolean {
+  return type !== 'connect' && type !== 'loginSign';
+}
+
+/**
+ * i18n key for the one-line prompt above the detail list, per request kind.
+ */
+export function confirmationPromptKey(type: DAppConfirmationRequest['type']): string {
+  switch (type) {
+    case 'connect':
+      return 'dappConnectionRequest';
+    case 'sign':
+      return 'dappSignRequest';
+    case 'loginSign':
+      return 'dappLoginSignRequest';
+    case 'importPrivateNote':
+      return 'dappImportNoteRequest';
+    case 'privateData':
+      return 'dappPrivateDataRequest';
+    default:
+      return 'dappTransactionRequest';
+  }
+}
+
+/**
+ * Interpolation values for {@link confirmationPromptKey}'s prompt: a login names the site it signs in to.
+ */
+export function confirmationPromptValues(request: DAppConfirmationRequest): { domain: string } | undefined {
+  return request.type === 'loginSign' ? { domain: request.domain } : undefined;
 }
 
 export interface DAppConfirmationResult {
@@ -54,13 +120,51 @@ export interface DAppConfirmationResult {
   privateDataPermission?: PrivateDataPermission;
   // Transaction-specific result
   delegate?: boolean;
+  spendingLimitAuthenticated?: true;
 }
 
 type ConfirmationResolver = (result: DAppConfirmationResult) => void;
 
+/** The subset of a telemetry flow handle an approval needs. */
+export interface ApprovalFlow {
+  complete(): void;
+  cancel(): void;
+}
+
+export type ApprovalFlowReporter = (type: DAppConfirmationRequest['type']) => ApprovalFlow;
+
+let approvalFlowReporter: ApprovalFlowReporter | null = null;
+
+/**
+ * Install approval telemetry. Called by the UI; see below for why it is
+ * injected rather than imported.
+ *
+ * Pass `null` to uninstall (tests).
+ */
+export function setApprovalFlowReporter(reporter: ApprovalFlowReporter | null): void {
+  approvalFlowReporter = reporter;
+}
+
 interface PendingEntry {
   request: DAppConfirmationRequest;
   resolver: ConfirmationResolver;
+  /**
+   * The telemetry flow for this approval, when the UI has installed a reporter.
+   *
+   * Instrumented here because this store is where every approval that goes
+   * through a confirmation *modal* arrives — the in-app browser's sheet and the
+   * desktop dialog, for all four request types — rather than in each component.
+   * The extension is NOT one of them: `lib/miden/back/dapp.ts` guards these
+   * calls with `!isExtension()` and takes an intercom + popup-window path, which
+   * reports for itself from `ConfirmPage` via `useApprovalPrompt`.
+   *
+   * Injected rather than imported because this module is reachable from the
+   * background service worker's graph, and `lib/telemetry` reaches
+   * `lib/miden/front` and therefore React. A static import would pull React
+   * into the worker bundle; `guarantees.test.ts` forbids exactly that. In the
+   * worker no reporter is installed and this stays null.
+   */
+  flow: ApprovalFlow | null;
 }
 
 const DEFAULT_SESSION_KEY = '__default__';
@@ -97,10 +201,12 @@ class DAppConfirmationStore {
     const key = keyFor(request.sessionId);
     const previous = this.pending.get(key);
     if (previous) {
+      previous.flow?.cancel();
       previous.resolver({ confirmed: false });
     }
+    const flow = approvalFlowReporter?.(request.type) ?? null;
     return new Promise(resolve => {
-      this.pending.set(key, { request, resolver: resolve });
+      this.pending.set(key, { request, resolver: resolve, flow });
       this.notifyListeners();
     });
   }
@@ -109,14 +215,28 @@ class DAppConfirmationStore {
    * Resolve the pending confirmation for a session id. If sessionId is
    * undefined, resolves the legacy default slot (extension/desktop
    * single-session callers).
+   *
+   * With a `requestId`, resolves only while that request is still the one
+   * pending at the slot: a decision made on a request that has since been
+   * replaced must not settle its replacement. Without one, resolves whatever
+   * is pending (session close, the watchdog). Returns whether it resolved.
    */
-  resolveConfirmation(sessionId: string | undefined, result: DAppConfirmationResult): void {
+  resolveConfirmation(sessionId: string | undefined, result: DAppConfirmationResult, requestId?: string): boolean {
     const key = keyFor(sessionId);
     const entry = this.pending.get(key);
-    if (!entry) return;
+    if (!entry || (requestId !== undefined && entry.request.id !== requestId)) return false;
     this.pending.delete(key);
+    // Denying is a completed decision for the user and a cancelled flow for
+    // analysis: what this measures is approvals reached versus approvals given,
+    // so a refusal must not read the same as an approval.
+    if (result.confirmed) {
+      entry.flow?.complete();
+    } else {
+      entry.flow?.cancel();
+    }
     entry.resolver(result);
     this.notifyListeners();
+    return true;
   }
 
   /**

@@ -5,9 +5,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { PropsWithChildren } from 'lib/props-with-children';
+// Deep path, not the `lib/telemetry` barrel: the barrel re-exports the
+// frontend flow reporter, which pulls in React via `lib/miden/front`.
+import { captureCrash } from 'lib/telemetry/crash';
 
-import { WindowType } from './env';
+import { reloadPage, WindowType } from './env';
 import { Icon, IconName } from './icons/v2';
+import { needsReloadToRecover } from './reload-to-recover';
 
 interface ErrorBoundaryProps extends PropsWithChildren {
   className?: string;
@@ -28,6 +32,13 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error(error.message, errorInfo.componentStack);
+    // Consent-gated and scrubbed downstream; guarded so a reporting failure
+    // cannot replace the error screen with a second crash.
+    try {
+      captureCrash(error, 'react');
+    } catch {
+      /* best-effort */
+    }
   }
 
   componentDidMount() {
@@ -49,6 +60,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps> {
           className={this.props.className}
           whileMessage={this.props.whileMessage}
           windowType={this.props.windowType}
+          reloadOnTryAgain={needsReloadToRecover(this.state.error)}
         />
       );
     }
@@ -61,9 +73,10 @@ interface ErrorDisplayProps {
   className?: string;
   whileMessage?: string;
   windowType?: WindowType;
+  reloadOnTryAgain: boolean;
 }
 
-const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowType }) => {
+const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowType, reloadOnTryAgain }) => {
   const { t } = useTranslation();
   // Subscribe to connectivity so the offline hint updates live if the user
   // reconnects while on the crash screen (resilience gap 11 — was a one-shot read).
@@ -83,7 +96,11 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
   // Try Again was a dead control (no onClick). Fire the reset channel the boundary
   // already listens for: it clears the error and re-mounts the children, which
   // re-initialise (the client singleton self-heals — see gap 7). (resilience gap 11)
-  const handleTryAgain = () => window.dispatchEvent(new Event('reseterrorboundary'));
+  // A failure the page keeps, such as a failed SDK start, would fail that re-mount the same way, so it reloads.
+  const handleTryAgain = () => {
+    if (reloadOnTryAgain) reloadPage();
+    else window.dispatchEvent(new Event('reseterrorboundary'));
+  };
 
   return (
     <div
@@ -94,7 +111,7 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
         fullPage && 'mt-[-24px]'
       )}
     >
-      <div className={classNames('p-4', 'flex flex-col items-center', 'text-black')}>
+      <div className={classNames('p-4', 'flex flex-col items-center', 'text-ink')}>
         <Icon name={IconName.Frown} size="3xl" className="mb-8" />
 
         <h2 className="mb-1 text-2xl">{t('oops')}</h2>

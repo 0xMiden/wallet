@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bread Wallet by Miden",
-  "version": "1.15.21",
+  "version": "1.17.7",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
@@ -13,9 +13,19 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Bread",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "notifications", "alarms", "sidePanel", "offscreen"],
+  "permissions": [
+    "storage",
+    "clipboardWrite",
+    "unlimitedStorage",
+    "activeTab",
+    "notifications",
+    "alarms",
+    "sidePanel",
+    "offscreen"
+  ],
   "host_permissions": [
     "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://faucet-api.forkchoice.xyz/*",
     "https://*.miden.fi/*",
     "https://*.miden.io/*"
@@ -38,7 +48,11 @@
 
   "__firefox__browser_specific_settings": {
     "gecko": {
-      "id": "support@miden.fi"
+      "id": "support@miden.fi",
+      "data_collection_permissions": {
+        "required": ["locationInfo"],
+        "optional": ["technicalAndInteraction"]
+      }
     }
   },
 

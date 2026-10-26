@@ -46,6 +46,9 @@ const derive = (over: Partial<SwapReceiptInputs> = {}) =>
     settlement: null,
     autoConsume: true,
     expiresAt: 1_700_000_120,
+    // Pinned, so the cancel/reclaim boundary is a fact about the inputs rather
+    // than about when the suite happened to run.
+    nowSeconds: 1_700_000_000,
     ...over
   });
 
@@ -137,13 +140,79 @@ describe('filledRequestedAmount', () => {
 });
 
 describe('deriveSwapReceipt', () => {
+  it.each([null, tracking({ state: 'reclaimed', currentDepth: 1, remainingOffered: 0n, remainingRequested: 0n })])(
+    'keeps original-note reclaims at zero after restart or a cleared lineage',
+    lineage => {
+      const view = derive({
+        originalOutputNoteIds: ['original-pswap'],
+        tracking: lineage,
+        settlement: settlement({
+          reclaimed: ['original-pswap'],
+          reclaimedTransactions: [consume({ noteIds: ['original-pswap'], faucetId: OFFERED_FAUCET, amount: 1000n })]
+        })
+      });
+      expect(view.filledAmount).toBe(0n);
+      expect(view.orderState).toBe('reclaimed');
+    }
+  );
+
+  it('does not confuse a partial-fill remainder with the original order output', () => {
+    const view = derive({
+      originalOutputNoteIds: ['original-pswap'],
+      tracking: tracking({ state: 'reclaimed', currentDepth: 2, remainingRequested: 0n }),
+      settlement: settlement({
+        settledTransactions: [consume({ amount: 400n })],
+        reclaimed: ['new-remainder'],
+        reclaimedTransactions: [consume({ noteIds: ['new-remainder'], faucetId: OFFERED_FAUCET })]
+      })
+    });
+    expect(view.filledAmount).toBe(400n);
+    expect(view.isPartialFill).toBe(true);
+  });
+
+  it('keeps a zero-fill reclaim at zero when the terminal lineage clears its remainder', () => {
+    const view = derive({
+      tracking: tracking({ state: 'reclaimed', currentDepth: 0, remainingOffered: 0n, remainingRequested: 0n }),
+      settlement: settlement({
+        reclaimed: ['original-output'],
+        reclaimedTransactions: [consume({ faucetId: OFFERED_FAUCET, amount: 1000n })]
+      })
+    });
+    expect(view.orderState).toBe('reclaimed');
+    expect(view.filledAmount).toBe(0n);
+    expect(view.isPartialFill).toBe(false);
+  });
+
+  it('uses real paybacks, not the terminal zero, after reclaiming a partial fill', () => {
+    const view = derive({
+      tracking: tracking({ state: 'reclaimed', currentDepth: 2, remainingOffered: 0n, remainingRequested: 0n }),
+      settlement: settlement({
+        settledTransactions: [consume({ amount: 400n })],
+        reclaimedTransactions: [consume({ faucetId: OFFERED_FAUCET, amount: 600n })]
+      })
+    });
+    expect(view.filledAmount).toBe(400n);
+    expect(view.isPartialFill).toBe(true);
+    expect(view.orderState).toBe('reclaimed');
+  });
+
+  it('does not invent a fill amount for a cleared partial lineage without payback evidence', () => {
+    expect(
+      derive({
+        tracking: tracking({ state: 'reclaimed', currentDepth: 1, remainingOffered: 0n, remainingRequested: 0n })
+      }).filledAmount
+    ).toBeUndefined();
+  });
+
   it('says nothing it cannot support when neither signal has answered', () => {
     expect(derive()).toEqual({
       orderState: null,
       filledAmount: undefined,
       isPartialFill: false,
       settlementFound: false,
-      offerClaimRoute: false
+      offerClaimRoute: false,
+      offerCancel: false,
+      reclaimPending: false
     });
   });
 
@@ -158,6 +227,70 @@ describe('deriveSwapReceipt', () => {
     expect(view.orderState).toBe('reclaimed');
     expect(view.filledAmount).toBe(400n);
     expect(view.isPartialFill).toBe(true);
+  });
+
+  describe('fill target', () => {
+    // 1000 requested at 100 bps: the order is filled once ceil(1000 × 0.99) = 990 arrives.
+    it('calls an open order that received requested × (1 − slippage) filled, not partial, and offers no cancel', () => {
+      const view = derive({ slippageBps: 100, tracking: tracking({ remainingRequested: 10n }) });
+
+      expect(view.orderState).toBe('filled');
+      expect(view.filledAmount).toBe(990n);
+      expect(view.isPartialFill).toBe(false);
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(false);
+    });
+
+    it('keeps an order one unit short of the target open and partial', () => {
+      const view = derive({ slippageBps: 100, tracking: tracking({ remainingRequested: 11n }) });
+
+      expect(view.orderState).toBe('active');
+      expect(view.isPartialFill).toBe(true);
+      expect(view.offerCancel).toBe(true);
+    });
+
+    it('needs the full amount when the order stored no slippage', () => {
+      const view = derive({ tracking: tracking({ remainingRequested: 1n }) });
+
+      expect(view.orderState).toBe('active');
+      expect(view.isPartialFill).toBe(true);
+    });
+
+    it('still calls an expired order that reached the target filled once its remainder came back', () => {
+      const tip = consume({
+        id: 'local-row-2',
+        transactionId: '0xchain2',
+        noteIds: ['0xtip'],
+        amount: 4n,
+        faucetId: OFFERED_FAUCET
+      });
+      const view = derive({
+        slippageBps: 100,
+        tracking: tracking({ state: 'reclaimed', remainingRequested: 10n, remainingOffered: 4n }),
+        settlement: settlement({
+          settled: ['0xnote1'],
+          settledTransactions: [consume({ amount: 990n })],
+          reclaimed: ['0xtip'],
+          reclaimedTransactions: [tip]
+        }),
+        nowSeconds: 1_700_000_200
+      });
+
+      expect(view.orderState).toBe('filled');
+      expect(view.filledAmount).toBe(990n);
+      expect(view.isPartialFill).toBe(false);
+      // The reclaim is on the receipt's own rows, and nothing is left owed or claimable.
+      expect(view.settlementFound).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+      expect(view.offerCancel).toBe(false);
+      expect(view.offerClaimRoute).toBe(false);
+    });
+
+    it('never calls an order filled with nothing received', () => {
+      const view = derive({ requestedAmount: 1n, slippageBps: 100, tracking: tracking({ remainingRequested: 1n }) });
+
+      expect(view.orderState).toBe('active');
+    });
   });
 
   it('covers the lineage lag with the local stamp while the order reads active', () => {
@@ -296,6 +429,110 @@ describe('deriveSwapReceipt', () => {
 
     it('is offered for an unresolvable lineage, because stranding funds is worse', () => {
       expect(derive({ autoConsume: false, tracking: null }).offerClaimRoute).toBe(true);
+    });
+  });
+
+  describe('cancelling a live order', () => {
+    it('is offered while the order is open and the wallet is the one that will reclaim it', () => {
+      const view = derive({ tracking: tracking({ state: 'active' }) });
+
+      expect(view.offerCancel).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+    });
+
+    it('is withheld from an order that is no longer open', () => {
+      // Nothing is left on offer, so bringing the expiry forward would reclaim
+      // nothing while reading as though it had undone the swap.
+      expect(derive({ tracking: tracking({ state: 'filled', remainingRequested: 0n }) }).offerCancel).toBe(false);
+      expect(derive({ tracking: tracking({ state: 'reclaimed' }) }).offerCancel).toBe(false);
+    });
+
+    it('is withheld while the lineage cannot say whether the order is still open', () => {
+      // An unresolvable lineage cannot tell an open order from one that settled
+      // while the wallet was away.
+      expect(derive({ tracking: null }).offerCancel).toBe(false);
+    });
+
+    it('is withheld from an order the wallet was told to leave alone', () => {
+      // `reconcileSwapOrderNotes` skips a manual-consume order before it reads
+      // the expiry at all, so the stamp a Cancel writes would never be acted on.
+      const view = derive({ autoConsume: false, tracking: tracking({ state: 'active' }) });
+
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(false);
+    });
+
+    it('becomes the reclaim notice once the expiry has lapsed', () => {
+      // The state a successful Cancel lands in, and the state a natural expiry
+      // lands in: one fact about the row, so one rendering.
+      const view = derive({ tracking: tracking({ state: 'active' }), nowSeconds: 1_700_000_120 });
+
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(true);
+    });
+
+    it('is offered for an order carrying no expiry at all', () => {
+      // Nothing will ever deem it expired, so it waits forever; the stamp the
+      // Cancel writes is the only thing that can end it.
+      const view = derive({ tracking: tracking({ state: 'active' }), expiresAt: null });
+
+      expect(view.offerCancel).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+    });
+  });
+  describe('cancelling a recovered order', () => {
+    // Recovery records Auto accept off, and the one thing the wallet does for such an order is return it on this
+    // wallet's Cancel (#1487). Its lineage is the node's answer about the order note.
+    it('is offered while the node says the order note is open', () => {
+      const view = derive({ recovered: true, autoConsume: false, expiresAt: null, tracking: tracking() });
+
+      expect(view.offerCancel).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+      expect(view.filledAmount).toBe(0n);
+    });
+
+    it('becomes the reclaim notice once the Cancel brought its expiry forward', () => {
+      const view = derive({ recovered: true, autoConsume: false, expiresAt: 1_700_000_000, tracking: tracking() });
+
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(true);
+    });
+
+    it('is withheld while the node has not answered', () => {
+      expect(derive({ recovered: true, autoConsume: false, expiresAt: null, tracking: null }).offerCancel).toBe(false);
+    });
+  });
+
+  // A recovered order's linked payout may be a partial fill's while its remainder is still on offer, so whether it is
+  // open is its lineage's alone to say (#1487).
+  describe("a recovered order's state", () => {
+    const partial = tracking({ currentDepth: 1, remainingOffered: 600n, remainingRequested: 600n });
+    const linkedPayout = settlement({ settled: ['0xnote1'], settledTransactions: [consume()] });
+    const recovered = { recovered: true, autoConsume: false, expiresAt: null, settlement: linkedPayout };
+
+    it('stays active, with Cancel, over a linked settled payout while its lineage is open', () => {
+      const view = derive({ ...recovered, tracking: partial });
+
+      expect(view.orderState).toBe('active');
+      expect(view.offerCancel).toBe(true);
+      expect(view.filledAmount).toBe(400n);
+      expect(view.isPartialFill).toBe(true);
+      expect(view.settlementFound).toBe(true);
+    });
+
+    it('is unresolved, with no Cancel, while the node has not answered', () => {
+      const view = derive({ ...recovered, tracking: null });
+
+      expect(view.orderState).toBeNull();
+      expect(view.offerCancel).toBe(false);
+      expect(view.filledAmount).toBe(400n);
+    });
+
+    it('leaves a live order reading filled over the same payout, which covers its lineage lag', () => {
+      const view = derive({ tracking: partial, settlement: linkedPayout });
+
+      expect(view.orderState).toBe('filled');
+      expect(view.offerCancel).toBe(false);
     });
   });
 });

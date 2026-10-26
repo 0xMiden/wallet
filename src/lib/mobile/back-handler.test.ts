@@ -230,3 +230,116 @@ describe('back-handler', () => {
     });
   });
 });
+
+describe('back-handler overlay tier', () => {
+  async function setup(android = false) {
+    jest.resetModules();
+    let backButtonCallback: (() => void) | null = null;
+    const minimizeApp = jest.fn();
+    jest.doMock('@capacitor/app', () => ({
+      App: {
+        addListener: jest.fn().mockImplementation((event: string, callback: () => void) => {
+          if (event === 'backButton') {
+            backButtonCallback = callback;
+          }
+          return Promise.resolve({ remove: jest.fn() });
+        }),
+        minimizeApp
+      }
+    }));
+    jest.doMock('lib/platform', () => ({
+      isMobile: jest.fn().mockReturnValue(true),
+      isAndroid: jest.fn().mockReturnValue(android)
+    }));
+    const { initMobileBackHandler, registerMobileBackHandler } = await import('./back-handler');
+    await initMobileBackHandler();
+    return { register: registerMobileBackHandler, back: () => backButtonCallback!(), minimizeApp };
+  }
+
+  it('runs an overlay before a page handler registered after it', async () => {
+    const { register, back } = await setup();
+    const order: string[] = [];
+    register(
+      () => {
+        order.push('overlay');
+        return true;
+      },
+      { overlay: true }
+    );
+    register(() => {
+      order.push('page');
+      return true;
+    });
+
+    back();
+
+    expect(order).toEqual(['overlay']);
+  });
+
+  it('falls through to page handlers when the overlay passes', async () => {
+    const { register, back } = await setup();
+    const order: string[] = [];
+    register(() => {
+      order.push('page');
+      return true;
+    });
+    register(
+      () => {
+        order.push('overlay');
+        return false;
+      },
+      { overlay: true }
+    );
+
+    back();
+
+    expect(order).toEqual(['overlay', 'page']);
+  });
+
+  it('runs overlays newest first', async () => {
+    const { register, back } = await setup();
+    const order: string[] = [];
+    register(
+      () => {
+        order.push('first');
+        return false;
+      },
+      { overlay: true }
+    );
+    register(
+      () => {
+        order.push('second');
+        return false;
+      },
+      { overlay: true }
+    );
+
+    back();
+
+    expect(order).toEqual(['second', 'first']);
+  });
+
+  it('unregisters an overlay from its own tier', async () => {
+    const { register, back } = await setup();
+    const page = jest.fn(() => true);
+    const overlay = jest.fn(() => true);
+    register(page);
+    const unregister = register(overlay, { overlay: true });
+
+    unregister();
+    back();
+
+    expect(overlay).not.toHaveBeenCalled();
+    expect(page).toHaveBeenCalledTimes(1);
+  });
+
+  it('still minimizes on Android when neither tier consumes', async () => {
+    const { register, back, minimizeApp } = await setup(true);
+    register(() => false, { overlay: true });
+    register(() => false);
+
+    back();
+
+    expect(minimizeApp).toHaveBeenCalledTimes(1);
+  });
+});

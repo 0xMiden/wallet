@@ -4,7 +4,8 @@ import {
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_DELEGATE_PROOF,
   DEFAULT_AUTO_CONSUME,
-  DEFAULT_HAPTIC_FEEDBACK
+  DEFAULT_HAPTIC_FEEDBACK,
+  TELEMETRY_STORAGE_KEY
 } from './constants';
 import {
   setDelegateProofSetting,
@@ -17,10 +18,16 @@ import {
   getThemeSetting,
   isValidGuardianUrl,
   sanitizeGuardianUrl,
+  sameGuardianEndpoint,
   isAutoConsumeEnabledAsync,
+  isCrashReportingEnabledAsync,
   isDelegateProofEnabledAsync,
   mirrorBackgroundSettings,
-  areBackgroundSettingsMirrored
+  areBackgroundSettingsMirrored,
+  setTelemetrySetting,
+  isTelemetryEnabled,
+  isTelemetryEnabledAsync,
+  hasTelemetryChoice
 } from './helpers';
 
 const mockKvStore: Record<string, unknown> = {};
@@ -80,6 +87,60 @@ describe('settings helpers', () => {
 
     it('leaves an already-clean URL unchanged', () => {
       expect(sanitizeGuardianUrl('https://guardian.example.com')).toBe('https://guardian.example.com');
+    });
+  });
+
+  describe('sameGuardianEndpoint', () => {
+    it('treats host case, a default port, trailing slashes and whitespace as the same endpoint', () => {
+      expect(sameGuardianEndpoint('https://guardian.example.com', 'https://Guardian.Example.COM')).toBe(true);
+      expect(sameGuardianEndpoint('https://guardian.example.com:443/', 'https://guardian.example.com')).toBe(true);
+      expect(sameGuardianEndpoint('http://localhost:80', 'http://localhost')).toBe(true);
+      expect(sameGuardianEndpoint('  https://guardian.example.com/v1/ ', 'https://guardian.example.com/v1')).toBe(true);
+    });
+
+    it('keeps the scheme, a non-default port, the path case and the query meaningful', () => {
+      expect(sameGuardianEndpoint('http://guardian.example.com', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com:8443', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com/Path', 'https://guardian.example.com/path')).toBe(
+        false
+      );
+      expect(sameGuardianEndpoint('https://guardian.example.com/?a=1', 'https://guardian.example.com/?a=2')).toBe(
+        false
+      );
+    });
+
+    it('compares an unparseable value as its own text', () => {
+      expect(sameGuardianEndpoint('not a url', ' NOT A URL/')).toBe(true);
+      expect(sameGuardianEndpoint('not a url', 'https://guardian.example.com')).toBe(false);
+    });
+
+    // A stored spelling with userinfo, a query or a fragment isn't the working
+    // endpoint: GuardianHttpClient concatenates `${baseUrl}${path}`, so a `?` or `#`
+    // swallows every path the client appends, and credentials in a URL make `fetch`
+    // throw. None may compare equal to the plain endpoint it looks like.
+    it('keeps userinfo, an empty query and the fragment meaningful', () => {
+      expect(sameGuardianEndpoint('https://u:p@guardian.example.com', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://:p@guardian.example.com', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com#section', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com#', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com?', 'https://guardian.example.com')).toBe(false);
+    });
+
+    it('treats a renamed built-in host as its current name', () => {
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com', 'https://guardian-testnet.openzeppelin.com')
+      ).toBe(true);
+      expect(
+        sameGuardianEndpoint('https://Guardian-Stg.OpenZeppelin.com/', 'https://guardian-devnet.openzeppelin.com')
+      ).toBe(true);
+      // The rename is per network: the old testnet name is not the devnet operator.
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com', 'https://guardian-devnet.openzeppelin.com')
+      ).toBe(false);
+      // Only the host is renamed: a path on the old host is not the new host's root.
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com/v1', 'https://guardian-testnet.openzeppelin.com')
+      ).toBe(false);
     });
   });
 
@@ -256,5 +317,63 @@ describe('settings helpers', () => {
 
       localStorage.setItem = originalSetItem;
     });
+  });
+});
+
+describe('telemetry consent setting', () => {
+  afterEach(() => {
+    localStorage.clear();
+    for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
+  });
+
+  it('is off on a fresh install', () => {
+    expect(isTelemetryEnabled()).toBe(false);
+  });
+
+  it('reports no choice made on a fresh install', () => {
+    expect(hasTelemetryChoice()).toBe(false);
+  });
+
+  it('reports a choice once the user turns it on', () => {
+    setTelemetrySetting(true);
+    expect(hasTelemetryChoice()).toBe(true);
+    expect(isTelemetryEnabled()).toBe(true);
+  });
+
+  it('reports a choice once the user explicitly turns it off', () => {
+    setTelemetrySetting(false);
+    expect(hasTelemetryChoice()).toBe(true);
+    expect(isTelemetryEnabled()).toBe(false);
+  });
+
+  it('persists under the documented key', () => {
+    setTelemetrySetting(true);
+    expect(localStorage.getItem(TELEMETRY_STORAGE_KEY)).toBe('true');
+  });
+
+  it('resolves false from the background mirror on a read miss', async () => {
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('permits crash reporting before a usage-sharing choice is stored', async () => {
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('keeps crash reporting enabled after usage sharing is explicitly disabled', async () => {
+    await setTelemetrySetting(false);
+
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('does not read the usage-sharing mirror to permit crash reporting', async () => {
+    mockStorageThrows = true;
+    try {
+      await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+      await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+    } finally {
+      mockStorageThrows = false;
+    }
   });
 });

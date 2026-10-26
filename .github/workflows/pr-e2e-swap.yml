@@ -1,48 +1,56 @@
 name: Swap E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: swap-e2e-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
-  # Runs on EVERY PR (no path filter, by choice) so a change that breaks swaps
-  # WITHOUT touching swap paths -- an @miden-sdk bump, a shared-file edit, a node
-  # image tag change -- is still caught. It runs in parallel with the other CI
-  # workflows on its own runner, so it doesn't lengthen the critical path; the
-  # cost is ~20-30m of runner time (mostly cold Rust compiles) per PR. Also
-  # runnable on demand via workflow_dispatch. swap-e2e-gate is the stable
-  # required-check name.
+  # Heavy job runs on workflow_dispatch (Release E2E's nightly on main), not on pull_request.
+  # The workflow still triggers on PRs so swap-e2e-gate (the required check) can
+  # report green when the suite is skipped. A swap regression is caught on the
+  # merge commit, not on every PR.
   swap-e2e:
     name: swap-e2e (chrome)
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04-arm
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m).
     # The suite is real-network and intermittently flaky under CI load, so it runs
     # with `--retries=1`; the partial-fill spec alone sits through a real ~2-min
     # order expiry (~6m/attempt). When two specs each need their retry, a 45m cap
     # cancels the job mid-retry — turning a would-be-green (retry passes) into red.
     # 60m (matching e2e-blockchain.yml) lets the existing retry mechanism finish.
-    timeout-minutes: 60
+    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
+    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
+    # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
+    # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
+    # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
+    # binds on a cold build; a warm run is unaffected by raising it.
+    # A dispatch may first build a linked web-sdk PR from source (still unfinished at 33 min on this runner,
+    # pr-e2e-bridge-guardian.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI and the node cold (14 and 71 min here).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 270 || 120 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: yarn }
+        with: { node-version: 22 }
       # Pinned exact (NOT @stable): a required gate must not drift with upstream
       # rustc -- a newer stable can reject the pinned older CLI/transport crates and
       # go red on unrelated PRs. Bump this deliberately (and the cache key below).
-      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: dtolnay/rust-toolchain@1.98.1
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -52,45 +60,49 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
-      - run: yarn install --frozen-lockfile
+      # These suites drive a real extension build, so they need the same unreleased
+      # dependencies the compile surfaces do: the fee APIs from the linked web-sdk PR and
+      # `resolveAuthArg` from the linked guardian PR. Without them the suite builds against
+      # the published packages and fails on missing exports — which reads as a product
+      # failure rather than an unshipped dependency. Both are no-ops when the PR body
+      # carries no marker.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      # Plain `yarn install`: the injections rewrite package.json to `file:` deps, which the
+      # committed lockfile cannot match, so `--frozen-lockfile` would fail by construction.
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
-        run: |
-          # The harness auto-installs the CLI lazily on first use, but that ~7min
-          # compile blows the 300s per-test timeout. Pre-install the SAME pinned
-          # rev here so the harness's `miden-client --version` check short-circuits.
-          # Skip when the cargo cache already restored it (else `cargo install`
-          # errors "binary already exists"). The cache key hashes package.json, so
-          # a present binary is guaranteed to be the pinned rev.
-          if ! command -v miden-client >/dev/null 2>&1; then
-            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
-            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
-            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
-          fi
-          miden-client --version
-      - name: Bring up node + prover
-        working-directory: playwright/e2e/local-stack
-        run: |
-          # --wait-timeout caps how long --wait blocks on readiness (--timeout is the
-          # unrelated shutdown timeout). Retry the bring-up so a transient GHCR image
-          # pull failure/rate-limit doesn't fail this gate.
-          for attempt in 1 2 3; do
-            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
-            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
-            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
-            sleep 10
-          done
-          exit 1
+        # The harness auto-installs the CLI lazily on first use, but that ~7min compile
+        # blows the 300s per-test timeout, so it is pre-installed here. The action also
+        # rebuilds it against a linked Protocol PR when the PR carries one: the CLI
+        # EXECUTES AND PROVES transactions client-side, so an unpatched one dies inside
+        # its own local execution with a bare `x assert` that the harness misreports as
+        # a drained chain. No marker, no rebuild, and nothing about this step changes.
+        uses: ./.github/actions/install-miden-client-cli
+      - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
+        uses: ./.github/actions/run-local-node
+        with:
+          # A fee-charging chain makes the kernel emit a fee note alongside the swap note --
+          # the case that broke the maker->taker note handoff. Verified locally: 3/3.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |
@@ -106,9 +118,22 @@ jobs:
       # co-signer (Tier-2). Guardian maker swaps work end-to-end; see that spec.
       - name: Bring up guardian (Tier-2)
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
+        # ghcr image pulls can transiently time out (Client.Timeout on ghcr.io/v2/);
+        # retry so a flaky guardian pull doesn't fail this (to-be-required) gate.
+        run: |
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian && exit 0
+            echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2
+            sleep 10
+          done
+          exit 1
       - name: Start note-transport
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Install xvfb
@@ -135,14 +160,18 @@ jobs:
         # read off the log / tracked over time. Diagnostic only -- never fails.
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
+      - name: Dump local node logs on failure
+        if: failure()
+        uses: ./.github/actions/dump-local-node-logs
+
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
-        # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
+        # on PRs, upload only when the run failed.
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: swap-e2e-report
           path: test-results/
@@ -152,16 +181,22 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff swap-e2e succeeded, fails if it
-  # failed/cancelled. Mark THIS "required" in branch protection (not swap-e2e
-  # directly) so the required check name stays stable if the job is renamed.
+  # Stable required-check name. On PRs the heavy job is skipped and this still
+  # reports success so branch protection is not blocked. On main it requires
+  # swap-e2e to have succeeded.
   swap-e2e-gate:
     name: swap-e2e-gate
     needs: [swap-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
-          if [ "${{ needs.swap-e2e.result }}" != "success" ]; then
-            echo "swap-e2e ${{ needs.swap-e2e.result }}"; exit 1; fi
-          echo "swap-e2e ok"
+          RESULT="${{ needs.swap-e2e.result }}"
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = pull_request ]; then
+            [ "$RESULT" = skipped ] || { echo "swap-e2e $RESULT on PR, expected skipped"; exit 1; }
+            echo "swap-e2e skipped on PR"
+          else
+            [ "$RESULT" = success ] || { echo "swap-e2e $RESULT"; exit 1; }
+            echo "swap-e2e ok"
+          fi

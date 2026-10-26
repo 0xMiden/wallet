@@ -19,8 +19,7 @@ jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
   IconName: {
     Checkmark: 'Checkmark',
-    SettingsNew: 'SettingsNew',
-    Add: 'Add'
+    SettingsNew: 'SettingsNew'
   }
 }));
 
@@ -53,13 +52,15 @@ jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} data-close-on-back={String(closeOnBack)}>
       <button data-testid="drawer-onOpenChange-false" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -75,6 +76,20 @@ const renderDrawer = (props: Partial<React.ComponentProps<typeof AccountsDrawer>
   render(<AccountsDrawer open onOpenChange={jest.fn()} {...props} />);
 
 describe('AccountsDrawer', () => {
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
+    // Left unset, the Drawer closes the sheet on back (drawer.test pins how) through onOpenChange.
+    expect(screen.getByTestId('drawer')).toHaveAttribute('data-close-on-back', 'undefined');
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('adds no rule of its own after the shared header', () => {
+    renderDrawer();
+    expect(screen.getByTestId('drawer-header').nextElementSibling).not.toHaveClass('h-1', 'rounded-full');
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockedUseCardColor.mockReturnValue('slate');
@@ -92,13 +107,30 @@ describe('AccountsDrawer', () => {
     expect(screen.getByTestId('drawer').getAttribute('data-open')).toBe('false');
   });
 
-  it('renders the title, card-color label, and both action buttons', () => {
+  it('renders the title, card-color label, and the Settings action only', () => {
     renderDrawer();
 
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
-    expect(screen.getByText('settings').closest('button')?.className).toContain('dark:text-pure-white');
-    expect(screen.getByText('addAccountComingSoon')).toBeTruthy();
+    expect(screen.getByText('settings')).toBeTruthy();
+    // The wallet holds one account, so the private-key import row is gone.
+    expect(screen.queryByText('importAccount')).toBeNull();
+  });
+
+  it('draws the Settings action as a grouped fill list row with a chevron', () => {
+    renderDrawer();
+
+    const row = screen.getByText('settings').closest('button')!;
+    const group = row.parentElement!;
+    expect(group.className).toContain('bg-fill');
+    expect(group.className).toContain('rounded-2xl');
+
+    // A row that navigates carries the chevron, and the hairline is inset past its icon.
+    expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    expect(row.className).toContain('before:bg-hairline');
+    expect(row.className).toContain('active:bg-fill-pressed');
+    expect(row.className).not.toContain('#ECEAE7');
+    expect(row.className).not.toContain('dark:text-pure-white');
   });
 
   it('renders one swatch per card color with its background class', () => {
@@ -156,13 +188,5 @@ describe('AccountsDrawer', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(navigate).toHaveBeenCalledWith('/settings');
-  });
-
-  it('renders the "Add Account" placeholder as a disabled button', () => {
-    renderDrawer();
-
-    const addButton = screen.getByText('addAccountComingSoon').closest('button')!;
-    expect(addButton).toBeDisabled();
-    expect(addButton.getAttribute('aria-disabled')).toBe('true');
   });
 });

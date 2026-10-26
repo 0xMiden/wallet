@@ -48,7 +48,7 @@ test.describe('Multi-Note Claiming', () => {
       async () => {
         // Total minted: 100_000_000_000 base units = 1000 tokens with 8 decimals
         // Wait for balance to reflect all mints
-        const balance = await walletA.waitForBalanceAbove(0, 180_000, timeline);
+        const balance = await walletA.waitForBalanceAbove(0, 180_000, timeline, 'TST');
         expect(balance).toBeGreaterThan(0);
 
         timeline.emit({

@@ -1,3 +1,8 @@
+import type { BrowserContext } from '@playwright/test';
+
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
+import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
 
 test.describe.configure({ mode: 'serial' });
@@ -18,6 +23,34 @@ const IGNORED_CONSOLE_ERRORS = [
 ];
 
 const isIgnoredConsoleError = (text: string) => IGNORED_CONSOLE_ERRORS.some(pattern => pattern.test(text));
+
+/**
+ * `OpenSidePanel.tsx`'s root, and the only unambiguous hook for the side-panel
+ * handoff screen: its "Your Wallet is ready!" title and its "Open wallet" button
+ * are both rendered verbatim by `Confirmation.tsx` too, so neither of those on
+ * its own can tell "handed off" apart from "still on the confirmation screen".
+ */
+const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
+
+const openSeedPhraseImport = async (extensionContext: BrowserContext, extensionId: string) => {
+  const page = await extensionContext.newPage();
+  await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
+
+  const welcome = page.getByTestId('onboarding-welcome');
+  await welcome.waitFor({ timeout: 30000 });
+  if (page.isClosed()) {
+    throw new Error('Page closed before onboarding');
+  }
+  await page.locator('#import-link').click();
+
+  await acknowledgeNetworkNotice(page, 15000);
+  // Import now asks WHICH credential first; this flow is the seed-phrase one.
+  await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+  await page.getByTestId('import-type-seed-phrase').click();
+  const seedForm = page.getByTestId('import-seed-phrase');
+  await seedForm.waitFor({ timeout: 15000 });
+  return { page, seedForm };
+};
 
 test.describe('Fullpage UI', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
@@ -113,29 +146,25 @@ test.describe('Fullpage UI', () => {
     // is gated on the store reaching Ready, so seeing it confirms the wallet was
     // created and is functional. Recovery/import completes the same way (#428) —
     // see the import flow test below.
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
+    //
+    // The consent prompt sits between creation and the handoff for a profile
+    // that has never answered it, and creation runs for as long as it runs —
+    // hence the race rather than a bare wait. See `dismissTelemetryConsent`.
+    const handoff = page.locator(HANDOFF_SELECTOR);
+    await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs: 30000 });
+
+    await expect(handoff).toBeVisible({ timeout: 30000 });
+    // Both of these are now scoped to the handoff container, so they can no
+    // longer be satisfied by the screen this test has just left.
+    await expect(handoff.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(handoff.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('onboarding import flow completes and hands off to the side panel', async ({
     extensionContext,
     extensionId
   }) => {
-    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
-    const page = await extensionContext.newPage();
-
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-
-    const welcome = page.getByTestId('onboarding-welcome');
-    await welcome.waitFor({ timeout: 30000 });
-    if (page.isClosed()) {
-      throw new Error('Page closed before onboarding');
-    }
-    await page.locator('#import-link').click();
-
-    // Recovery is seed-phrase only — the old "select import type" screen is gone
-    // and the welcome link lands directly on the seed entry form.
-    await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
+    const { page } = await openSeedPhraseImport(extensionContext, extensionId);
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
       ' '
@@ -153,37 +182,38 @@ test.describe('Fullpage UI', () => {
     // Import-recovery-method step — pick "Import public account".
     await page.getByTestId('import-recovery-method').waitFor({ timeout: 15000 });
     await page.getByText(/import public account/i).click();
+    // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
+    await page.getByTestId('reused-phrase-acknowledge').click();
     await page.getByRole('button', { name: /continue/i }).click();
 
-    // Confirmation: the "Your Wallet is ready" heading is split by <Trans>, so
-    // assert the container testid instead of the text.
-    await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
+    // Complete onboarding. Recovery hands off to the Chrome side panel just like
+    // first-run create (#428), and registers as soon as Confirmation appears, so
+    // there is no tap (#1097): the wallet becomes Ready in the background and the
+    // "Open wallet" handoff screen appears (rather than the classic in-tab
+    // Explore page). The in-tab path still applies to non-extension builds and builds
+    // with MIDEN_E2E_DISABLE_SIDEPANEL, and is covered by the Welcome/ForgotPassword
+    // unit tests. The helper fails if a Confirmation button, or the Retry of a failed
+    // auto-register, shows instead.
+    await passImportConfirmation(page, 30000);
 
-    // Complete onboarding. Recovery now hands off to the Chrome side panel just
-    // like first-run create (#428): the wallet becomes Ready in the background and
-    // the "Open wallet" handoff screen appears (rather than the classic in-tab
-    // Explore page). The in-tab path still applies to non-extension / E2E builds
-    // and is covered by the Welcome/ForgotPassword unit tests.
-    await page.getByTestId('onboarding-confirmation-submit').click();
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
+    // …by way of the one-time telemetry consent prompt, which this profile has
+    // never answered. Raced against the handoff screen because the helper returns
+    // on whichever of the two showed first; see `dismissTelemetryConsent`.
+    const handoff = page.locator(HANDOFF_SELECTOR);
+    await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs: 30000 });
+
+    await expect(handoff).toBeVisible({ timeout: 30000 });
+    // Scoped to the handoff container, which is what the two assertions below
+    // were missing: unscoped they match the confirmation screen as well, and
+    // cannot tell "handed off" from "never left". That is exactly what happened
+    // when the consent screen was inserted — the text assertion passed on the
+    // confirmation screen while the button assertion failed.
+    await expect(handoff.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(handoff.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
-    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
-    const page = await extensionContext.newPage();
-
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-
-    const welcome = page.getByTestId('onboarding-welcome');
-    await welcome.waitFor({ timeout: 30000 });
-    if (page.isClosed()) {
-      throw new Error('Page closed before onboarding');
-    }
-    await page.locator('#import-link').click();
-
-    const seedForm = page.getByTestId('import-seed-phrase');
-    await seedForm.waitFor({ timeout: 15000 });
+    const { page, seedForm } = await openSeedPhraseImport(extensionContext, extensionId);
 
     const continueButton = page.getByRole('button', { name: /continue/i });
     await seedForm.locator('#seed-phrase-input-0').fill('notaword');
@@ -197,6 +227,25 @@ test.describe('Fullpage UI', () => {
     }
 
     await expect(continueButton).toBeEnabled();
+  });
+
+  test('import seed phrase: Enter moves to the next word, and on the last word focus stays (desktop)', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    const { seedForm } = await openSeedPhraseImport(extensionContext, extensionId);
+
+    const first = seedForm.locator('#seed-phrase-input-0');
+    await first.fill('abandon');
+    await first.press('Enter');
+    await expect(seedForm.locator('#seed-phrase-input-1')).toBeFocused();
+
+    // The extension is a desktop surface: there is no soft keyboard for Done to dismiss, so
+    // Enter on the last word keeps focus there instead of blurring to body.
+    const last = seedForm.locator('#seed-phrase-input-11');
+    await last.fill('about');
+    await last.press('Enter');
+    await expect(last).toBeFocused();
   });
 
   test('send flow renders and stays disabled without inputs', async ({ extensionContext, extensionId }) => {

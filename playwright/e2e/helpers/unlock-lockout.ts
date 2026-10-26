@@ -12,17 +12,20 @@
  *
  *   LOCK_TIME = 60_000, LAST_ATTEMPT = 3, `attempt` starts at 1 and both
  *   `attempt` and `timelock` persist in localStorage, so they survive the reload
- *   `lockWallet()` performs.
+ *   `lockWallet()` performs. Each guess records its count there BEFORE
+ *   unlock() runs.
  *
  *     fail #1 -> attempt=2, lockLevel=0                        -> NOT disabled
  *     fail #2 -> attempt=3, lockLevel=60_000 but timelock=0    -> NOT disabled
  *                (`Date.now() - 0 <= 60_000` is false)
- *     fail #3 -> `attempt >= LAST_ATTEMPT` arms setTimeLock(Date.now()),
- *                attempt=4, lockLevel=60_000                   -> DISABLED, 60s
+ *     fail #3 -> at stored attempt >= LAST_ATTEMPT the guess records attempt=4
+ *                and a provisional timelock stamp before unlock(); the
+ *                rejection re-stamps it at the failure, so the tier runs in
+ *                full from the rejection. lockLevel=60_000     -> DISABLED, 60s
  *
  *   THREE wrong passwords are the minimum to render the lockout, and the first
- *   tier is exactly 60 seconds. A 1s interval clears it with `setTimeLock(0)`
- *   once it expires, with no user action.
+ *   tier is exactly 60 seconds from the third rejection. A 1s interval clears
+ *   the stamp to 0 once it expires, with no user action.
  *
  *   Each of those three claims is pinned by an assertion here, not just by this
  *   comment: `expectNotLockedOut` after rejections #1 and #2 (the field is still
@@ -64,10 +67,12 @@ export const WRONG_PASSWORDS_TO_LOCKOUT = 3;
 export const LOCKOUT_MS = 60_000;
 
 /**
- * `MidenSharedStorageKey.TimeLock` (src/lib/miden/types.ts). Unlock.tsx stamps
- * `Date.now()` here through `useLocalStorage`, which JSON-encodes, so the stored
- * value is a bare number. This is the PRODUCT's clock for the lockout, and the
- * only origin a duration measured by the harness can honestly be taken from.
+ * `MidenSharedStorageKey.TimeLock` (src/lib/miden/types.ts). A guess at stored
+ * attempt 3 or more writes a provisional `Date.now()` stamp here before
+ * unlock(), and its rejection re-stamps it at the failure, both through
+ * `writeLocalStorage`, which JSON-encodes, so the stored value is a bare number.
+ * This is the PRODUCT's clock for the lockout, and the only origin a duration
+ * measured by the harness can honestly be taken from.
  */
 const TIMELOCK_STORAGE_KEY = 'TimeLock';
 
@@ -243,9 +248,10 @@ export async function expectLockedOut(page: Page, opts: { timeoutMs?: number } =
     );
   }
 
-  // Unlock.tsx renders `getTimeLeft(Date.now(), LOCK_TIME)` on the rejection that
-  // arms the timelock — one full tier, formatted as `01:00` or `00:59` depending
-  // on where the sub-millisecond drift inside `getTimeLeft` falls — and the 1s
+  // On the rejection that arms the timelock, Unlock.tsx opens the countdown at
+  // the time left on the stored stamp and level (`getTimeLeft(stamp, level)`).
+  // The re-stamp at the failure makes that one full tier, formatted as `01:00`
+  // or `00:59` depending on where the sub-millisecond drift falls, and the 1s
   // interval walks it down from there. Anything above the tier means the lockout
   // is LONGER than documented; zero means the timer is degenerate.
   const tierSeconds = LOCKOUT_MS / 1_000;

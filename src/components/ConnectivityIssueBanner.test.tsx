@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ConnectivityIssueBanner, ExtensionMessageListener } from './ConnectivityIssueBanner';
 
@@ -19,7 +20,18 @@ import { ConnectivityIssueBanner, ExtensionMessageListener } from './Connectivit
 
 // i18n: identity translator so we can assert on the raw message keys.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string) =>
+      [
+        'connectivityNetworkBody',
+        'connectivityNodeBody',
+        'connectivityGuardianBody',
+        'connectivityProverBody',
+        'connectivityResolvingBody'
+      ].includes(key)
+        ? `Visible ${key}`
+        : key
+  })
 }));
 
 // Haptics wrap the native Capacitor plugin; a spy lets us assert the light
@@ -40,11 +52,30 @@ jest.mock('lib/miden/front/useSyncTrigger', () => ({
 
 // The SW poke goes through the store's intercom client. Expose a spyable
 // `request` so we can assert the SyncRequest payload and drive its resolve /
-// reject paths.
+// reject paths. `useWalletStore` feeds the current-account pubkey the
+// guardian-outage lookup keys on.
 const mockRequest = jest.fn();
+// Mutable so a test can switch accounts mid-session — the guardian outage flag
+// is per-account, so which account is current decides which banner shows and
+// which dismiss applies.
+const currentAccount = { publicKey: 'acct-1' };
 jest.mock('lib/store', () => ({
-  getIntercom: () => ({ request: mockRequest })
+  getIntercom: () => ({ request: mockRequest }),
+  useWalletStore: (selector: (s: { currentAccount: { publicKey: string } }) => unknown) => selector({ currentAccount })
 }));
+
+// Guardian-outage flag: a mutable holder so tests can arm/clear it and fire
+// the subscription like the real sync loop does.
+const guardianOutage = { accounts: new Set<string>(), listeners: new Set<() => void>() };
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  isGuardianSyncOutage: (pk: string) => guardianOutage.accounts.has(pk),
+  subscribeGuardianSyncOutage: (listener: () => void) => {
+    guardianOutage.listeners.add(listener);
+    return () => guardianOutage.listeners.delete(listener);
+  }
+}));
+
+jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 // Message-type enum: only `SyncRequest` is referenced by the component.
 jest.mock('lib/shared/types', () => ({
@@ -106,9 +137,27 @@ function setState(active: Partial<Record<Category, boolean>> = {}) {
 describe('ConnectivityIssueBanner', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    guardianOutage.accounts.clear();
+    guardianOutage.listeners.clear();
+    currentAccount.publicKey = 'acct-1';
     mockIsExtension.mockReturnValue(false);
     mockRequest.mockResolvedValue(undefined);
     setState({});
+  });
+
+  it('does not suspend the screen around it while its storage is cold', () => {
+    // The hook reads storage through suspending hooks; a cold key must defer only the banner.
+    mockUseConnectivityState.mockImplementation(() => {
+      throw new Promise<void>(() => {});
+    });
+    render(
+      <Suspense fallback={<div data-testid="root-fallback" />}>
+        <div data-testid="screen-content" />
+        <ConnectivityIssueBanner />
+      </Suspense>
+    );
+    expect(screen.queryByTestId('root-fallback')).toBeNull();
+    expect(screen.getByTestId('screen-content')).toBeInTheDocument();
   });
 
   it('renders nothing when no connectivity category is active', () => {
@@ -123,7 +172,7 @@ describe('ConnectivityIssueBanner', () => {
 
     expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
     expect(screen.getByText('connectivityNetworkTitle')).toBeInTheDocument();
-    expect(screen.getByText('connectivityNetworkBody')).toBeInTheDocument();
+    expect(screen.getByText('Visible connectivityNetworkBody')).toBeInTheDocument();
     // Retry CTA present with the network-specific label.
     expect(screen.getByRole('button', { name: 'connectivityRetry' })).toBeInTheDocument();
     // Leading icon uses the warning fill.
@@ -161,11 +210,27 @@ describe('ConnectivityIssueBanner', () => {
     expect(screen.getByTestId('icon-Refresh')).toBeInTheDocument();
   });
 
-  // -- pickActiveCategory priority: network > node > prover > resolving -----
+  // -- pickActiveCategory priority: network > node > guardian > prover > resolving
+  //
+  // `guardian` sits above prover deliberately: a co-signer that cannot be reached
+  // blocks every transaction, while a prover problem has a fallback.
   it('prefers network over every other active category', () => {
     setState({ network: true, node: true, prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
+  });
+
+  it('announces the banner as a polite live region', () => {
+    // The outage can arm from a background sync tick while Explore is already up,
+    // so the banner appears with no other signal to assistive tech. Polite, not
+    // assertive: every category here is a degraded-service notice, not something
+    // worth cutting off whatever is being read.
+    setState({ network: true });
+    render(<ConnectivityIssueBanner />);
+
+    const banner = screen.getByTestId('connectivity-banner-network');
+    expect(banner).toHaveAttribute('role', 'status');
+    expect(banner).toHaveAttribute('aria-live', 'polite');
   });
 
   it('prefers node when network is clear but node/prover/resolving are active', () => {
@@ -178,6 +243,158 @@ describe('ConnectivityIssueBanner', () => {
     setState({ prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-prover')).toBeInTheDocument();
+  });
+
+  // -- guardian outage ------------------------------------------------------
+  it('renders the guardian banner with the Switch Guardian CTA when the current account is flagged', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    expect(screen.getByText('connectivityGuardianTitle')).toBeInTheDocument();
+    expect(screen.getByText('Visible connectivityGuardianBody')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'connectivityGuardianCta' }));
+    expect(mockHapticLight).toHaveBeenCalled();
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/rotate-guardian');
+    // The guardian CTA is a route, never a sync poke.
+    expect(mockRequestImmediateSync).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not render the guardian banner for an outage on a DIFFERENT account', () => {
+    guardianOutage.accounts.add('someone-else');
+    const { container } = render(<ConnectivityIssueBanner />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('node outranks guardian (a dead node masks the guardian signal); guardian outranks prover', () => {
+    guardianOutage.accounts.add('acct-1');
+    setState({ node: true, prover: true });
+    const { rerender } = render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-node')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    setState({ prover: true });
+    guardianOutage.listeners.forEach(listener => listener());
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-node')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-prover')).not.toBeInTheDocument();
+  });
+
+  it('guardian dismiss is banner-local (no shared-category dismiss) and the banner clears with the flag', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The dismiss is keyed by ACCOUNT, not a bare boolean. Two guardian accounts
+  // on two dead operators keep `guardianOutage` true across the switch, so a
+  // boolean's reset effect would never fire and the first dismiss would silently
+  // suppress the second account's banner.
+  it('does not carry a guardian dismiss across an account switch to another flagged account', () => {
+    guardianOutage.accounts.add('acct-1');
+    guardianOutage.accounts.add('acct-2');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-2';
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
+  it('keeps the guardian dismiss when switching back to the account it was made on', () => {
+    guardianOutage.accounts.add('acct-1');
+    guardianOutage.accounts.add('acct-2');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+
+    act(() => {
+      currentAccount.publicKey = 'acct-2';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The commonest switch of all: one guardian account in outage plus a healthy
+  // (or non-guardian) second account. Expiring the dismiss on the CURRENT
+  // account's flag threw it away the moment the healthy account was selected,
+  // so coming back re-surfaced a banner the user had already dismissed — and
+  // this view stays mounted across account switches, so nothing else reset it.
+  it('keeps the guardian dismiss across a switch to a HEALTHY account and back', () => {
+    guardianOutage.accounts.add('acct-1');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'healthy-acct';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The other half of keying the expiry on the dismissed account: a recovery
+  // that lands while the user is elsewhere must still expire the dismiss, so a
+  // later, genuinely new outage is not suppressed by a stale one.
+  it('expires the dismiss when the dismissed account recovers while another account is selected', () => {
+    guardianOutage.accounts.add('acct-1');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+    fireEvent.click(screen.getByLabelText('close'));
+
+    act(() => {
+      currentAccount.publicKey = 'healthy-acct';
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    act(() => {
+      guardianOutage.accounts.delete('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+      guardianOutage.accounts.add('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
+  it('clears the guardian banner when the sync loop stands the flag down', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+
+    act(() => {
+      guardianOutage.accounts.delete('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
   });
 
   // -- onRetry --------------------------------------------------------------
@@ -211,12 +428,16 @@ describe('ConnectivityIssueBanner', () => {
     setState({ node: true });
     render(<ConnectivityIssueBanner />);
 
+    // What this proves is the absence of an unhandled rejection. Jest fails the
+    // running test on one, but Node reports it only after a macrotask: the
+    // version that awaited two microtasks finished first, so deleting the
+    // `.catch` left it green. (A process.on('unhandledRejection') listener here
+    // would never fire: each test file gets its own copy of `process`.)
     fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
 
     await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
-    // Let the rejected promise settle so the `.catch(() => {})` handler runs.
     await Promise.resolve();
-    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   // -- onDismiss ------------------------------------------------------------
@@ -246,5 +467,83 @@ describe('ExtensionMessageListener', () => {
   it('renders nothing (legacy no-op)', () => {
     const { container } = render(<ExtensionMessageListener />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible connectivity errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    guardianOutage.accounts.clear();
+    guardianOutage.listeners.clear();
+    currentAccount.publicKey = 'acct-1';
+    setState({});
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['network', 'connectivityNetworkBody'],
+    ['node', 'connectivityNodeBody'],
+    ['guardian', 'connectivityGuardianBody']
+  ] as const)('reports only the selected %s outage using %s after 1000 ms', (category, id) => {
+    if (category === 'guardian') guardianOutage.accounts.add('acct-1');
+    else setState({ [category]: true, prover: true, resolving: true });
+    const view = render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId(`connectivity-banner-${category}`)).toHaveTextContent(`Visible ${id}`);
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+    view.rerender(<ConnectivityIssueBanner className="layout-only" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+  });
+
+  it.each(['prover', 'resolving'] as const)('does not report %s informational state', category => {
+    setState({ [category]: true });
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId(`connectivity-banner-${category}`)).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it.each(['none', 'other-account'] as const)('does not report %s hidden state', category => {
+    if (category === 'other-account') guardianOutage.accounts.add('other-account');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('drops a guardian outage dismissed at 999 ms', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('drops a network outage recovered at 999 ms', () => {
+    setState({ network: true });
+    const view = render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    setState({});
+    view.rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
   });
 });

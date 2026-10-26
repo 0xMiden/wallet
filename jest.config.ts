@@ -13,8 +13,18 @@ export default {
   // fails the gate — drift can no longer hide, and coveragePathIgnorePatterns
   // below is the single, reviewable record of intentional exclusions.
   collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
+    // `.mjs` is in the list because a module keeps the same gate whatever its
+    // extension: the update-catalog validator ships as ESM so a plain `node` CI
+    // step can share it with the app bundle.
+    'src/**/*.{ts,tsx,mjs}',
+    'packages/hd-key/src/**/*.ts',
+    '!packages/hd-key/src/**/*.test.ts',
+    'packages/bread-connect/src/**/*.ts',
+    '!packages/bread-connect/src/**/*.test.ts',
+    'packages/bread-connect-capacitor/src/**/*.ts',
+    '!packages/bread-connect-capacitor/src/**/*.test.ts',
     '!src/**/*.d.ts',
+    '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
     '!src/**/*.spec.ts',
     '!src/**/__mocks__/**',
@@ -29,10 +39,8 @@ export default {
   //   QR/native-share UI, and transaction-list interactions covered by E2E.
   // - `app/providers/DappBrowserProvider.tsx` — Capacitor inappbrowser
   //   provider wired to native plugins, exercised via mobile-e2e.
-  // - `components/TransactionProgressModal.tsx` — react-modal portal
-  //   with framer-motion animation, covered by Playwright.
-  // - `components/review/ReviewRow.tsx`, `lib/ui/drawer.tsx`, and the swap
-  //   success view — interaction/animation wrappers with no domain logic.
+  // - `lib/ui/drawer.tsx` and the swap success view — interaction/animation
+  //   wrappers with no domain logic.
   // - `lib/animation/use-motion.ts` — browser media-query/animation plumbing.
   // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
   // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
@@ -44,18 +52,23 @@ export default {
   // - `lib/miden/swap/test-hooks.ts` — E2E-only window hooks, not production
   //   application behavior.
   // - `packages/dapp-browser/` — external package build output.
-  // - `lib/lock-up/run-checks.ts` — extension popup bootstrap with module-scope
-  //   top-level `await`; @swc/jest emits bare TLA into a CommonJS wrapper that
-  //   won't load, so it has no clean unit surface without a source refactor
-  //   (extract the logic out of the bootstrap) or a brittle transformer hack.
+  // - `lib/lock-up/run-checks.ts` - the extension pages' bootstrap; it holds
+  //   the extension-page guard and a top-level `await` of `runLockUpChecks`
+  //   (the tested lock-up logic lives in `lib/lock-up/checks.ts`). @swc/jest
+  //   emits bare TLA into a CommonJS wrapper that won't load, so this file
+  //   stays untestable.
   // - `lib/miden/assets/stake.ts` — zero-byte placeholder module: no exports,
   //   not referenced by the `./index` barrel, not imported anywhere. It has no
   //   runtime surface to test; when real staking logic lands, remove it from
   //   this list so the gate demands proper tests.
+  // - `lib/telemetry/types.ts` — pure types and interfaces, no enums; TypeScript
+  //   erases the whole file at compile time, so it has no runtime surface to
+  //   execute or cover, ever.
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/lib/lock-up/run-checks\\.ts$',
     '/src/lib/miden/assets/stake\\.ts$',
+    '/src/lib/telemetry/types\\.ts$',
     '/src/app/pages/Browser/',
     '/src/app/pages/Pending\\.tsx$',
     '/src/app/pages/PendingNotes\\.tsx$',
@@ -71,8 +84,6 @@ export default {
     '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',
     '/src/app/providers/DappBrowserProvider\\.tsx$',
-    '/src/components/TransactionProgressModal\\.tsx$',
-    '/src/components/review/ReviewRow\\.tsx$',
     '/src/lib/animation/use-motion\\.ts$',
     '/src/lib/ui/drawer\\.tsx$',
     '/src/lib/mobile/faucet-webview\\.ts$',
@@ -90,21 +101,30 @@ export default {
     '/src/screens/generating-transaction/success/SwapSuccess\\.tsx$',
     '/packages/dapp-browser/'
   ],
-  // 'json-summary' emits coverage/coverage-summary.json, consumed by the
-  // coverage-badge workflow to publish the README shields.io badge.
+  // 'json-summary' serves local unsharded coverage runs. The README badge reads
+  // the summary scripts/merge-jest-coverage.mjs writes in pr.yml instead.
   coverageReporters: ['json-summary', 'text-summary', 'lcov'],
-  coverageThreshold: {
-    global: {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95
-    }
-  },
+  // Sharded CI runs set JEST_COVERAGE_SHARD and check the 95% gate after merge
+  // (scripts/merge-jest-coverage.mjs). A partial map would fail the threshold
+  // even when the union is fine.
+  coverageThreshold: process.env.JEST_COVERAGE_SHARD
+    ? undefined
+    : {
+        global: {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95
+        }
+      },
   moduleNameMapper: {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the
     // stub instead of trying to execute the PNG bytes as JavaScript.
+    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query. Its stub differs
+    // from the raster one, so a test tells an svg URL from a PNG without a virtual mock, which this mapper can bypass.
+    '\\.svg\\?raw$': '<rootDir>/__mocks__/svgRawMock.js',
+    '\\.svg\\?url$': '<rootDir>/__mocks__/svgUrlMock.js',
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
     '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
@@ -114,8 +134,17 @@ export default {
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
+    // The in-house key-derivation package is consumed from source so unit
+    // tests need no build step; the app bundles resolve it through the
+    // `link:` symlink and its built `dist/` instead.
+    '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
+    '^@miden-sdk/bread-connect$': '<rootDir>/packages/bread-connect/src/index.ts',
+    // The Bread Connect packages publish ES modules, so their sources import each other with the `.js` extension
+    // Node needs. Without it the bare path still finds the `.ts` source, or a real `.js` file of that name.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
+    '^@reown/appkit-controllers$': '<rootDir>/__mocks__/reownAppKitControllers.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',
     '^@wagmi/core$': '<rootDir>/__mocks__/wagmiCore.ts',
     '^wagmi$': '<rootDir>/__mocks__/wagmi.ts',
@@ -125,9 +154,6 @@ export default {
     // - `@miden-sdk/miden-sdk/mt`      (eager + MT)
     // - `@miden-sdk/miden-sdk/mt/lazy` (lazy + MT)
     '^@miden-sdk/miden-sdk(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/wasmMock.js',
-    // React SDK now also has /mt and /mt/lazy subpaths matching the
-    // underlying SDK's MT variants. Tests mock all four identically.
-    '^@miden-sdk/react(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts',
     '^@openzeppelin/miden-multisig-client$': '<rootDir>/__mocks__/@openzeppelin/miden-multisig-client.ts',
     '^@openzeppelin/guardian-client$': '<rootDir>/__mocks__/@openzeppelin/guardian-client.ts'
   },
@@ -135,8 +161,16 @@ export default {
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
+  // The wallet-adapter packages publish only a `module` field pointing at an
+  // ESM bundle — no `main`, no `exports` — so CommonJS cannot load them and
+  // every test mocks them instead. `conformance.test.ts` is the one test that
+  // must load the REAL package, so it needs @swc/jest to transpile it; without
+  // this entry that `require` dies on `Unexpected token 'export'`, the suite
+  // catches it and skips, and it would keep skipping through every future
+  // adapter release while reporting the reason as a missing export.
+  // @openzeppelin/guardian-client is ESM too: its stub re-exports the real error-code list from dist.
   transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown)/)'
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden|@openzeppelin/guardian-client)/)'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a

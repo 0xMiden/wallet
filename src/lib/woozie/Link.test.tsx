@@ -11,11 +11,6 @@ import { changeState, HistoryAction } from 'lib/woozie/history';
 import Link from './Link';
 
 // Mock dependencies
-jest.mock('lib/analytics', () => ({
-  useAnalytics: () => ({ trackEvent: jest.fn() }),
-  AnalyticsEventCategory: { ButtonPress: 'button_press' }
-}));
-
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));

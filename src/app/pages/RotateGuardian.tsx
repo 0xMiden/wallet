@@ -5,9 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import PageLayout from 'app/layouts/PageLayout';
-import { NavigationHeader } from 'components/NavigationHeader';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { navigate } from 'lib/woozie';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
@@ -29,11 +28,12 @@ const RotateGuardian: FC = () => {
 
   const handleSubmit = useCallback(
     ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
-      // Sanitized on both sides: the picker hands over a normalized custom URL but
-      // a built-in option's endpoint is a literal, and `currentEndpoint` comes from
-      // storage or a default — so a difference in trailing slash alone read as a
-      // real change and persisted a second spelling of the Guardian already in use.
-      if (sanitizeGuardianUrl(guardianEndpoint) === sanitizeGuardianUrl(currentEndpoint ?? '')) {
+      // Compared as endpoints, not exact strings: the picker hands over a normalized
+      // custom URL but a built-in option's endpoint is a literal, and `currentEndpoint`
+      // comes from storage or a default, so a host-case, explicit-default-port, or
+      // trailing-slash difference alone must not read as a real change and persist a
+      // second spelling.
+      if (sameGuardianEndpoint(guardianEndpoint, currentEndpoint ?? '')) {
         setError(t('guardianEndpointUnchanged'));
         return;
       }
@@ -48,17 +48,15 @@ const RotateGuardian: FC = () => {
 
   return (
     <PageLayout hideToolbar>
-      {/* No title: ChooseGuardianScreen renders its own h1 ("Choose your
-          Guardian") plus the description and the "What is a Guardian?" link, and
-          titling the header too gave the page two level-1 headings and two
-          stacked titles. Hiding the picker's header instead would drop the
-          description and the info affordance with it. */}
-      <NavigationHeader onBack={handleBack} variant="prominent" titleAlign="left" />
+      {/* The picker draws the page: the shared header (back, "Choose your Guardian"), its
+          explainer and cards in the body, and Continue pinned under it. */}
       <ChooseGuardianScreen
+        onBack={handleBack}
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}
         allowCustomEndpoint
         error={error}
+        errorId="guardianEndpointUnchanged"
       />
     </PageLayout>
   );

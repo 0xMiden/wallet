@@ -1,9 +1,11 @@
 import { useLayoutEffect } from 'react';
 
+import { usePageActive } from 'app/layouts/page-active';
+
 /**
  * While `open` is true, hide the bottom tab navbar — the React `BottomNav`
- * rendered by `TabLayout` and tagged `data-tabbar-footer`. Reverses on
- * close / unmount.
+ * rendered by `TabLayout` and tagged `data-tabbar-footer`. Release the hold
+ * when the surface closes, unmounts, or its page moves out of view.
  *
  * A single reference counter keeps concurrent callers honest: if a second
  * surface opens before the first closes, the navbar stays hidden until both
@@ -32,20 +34,31 @@ function applyVisible() {
   document.body.removeAttribute('data-hide-navbar');
 }
 
-export function useHideNavbarWhileOpen(open = true): void {
-  useLayoutEffect(() => {
-    if (!open) return;
-
-    openCount += 1;
-    if (openCount === 1) {
-      applyHidden();
+/**
+ * Take one hold on the hidden navbar outside React, on the same counter as the hook. Returns its
+ * release, which is idempotent. For a native listener that must flip the flag in the same task as
+ * its own layout write (lib/mobile/keyboard-inset), where a React commit would land a frame late.
+ */
+export function holdNavbarHidden(): () => void {
+  openCount += 1;
+  if (openCount === 1) {
+    applyHidden();
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    openCount = Math.max(0, openCount - 1);
+    if (openCount === 0) {
+      applyVisible();
     }
+  };
+}
 
-    return () => {
-      openCount = Math.max(0, openCount - 1);
-      if (openCount === 0) {
-        applyVisible();
-      }
-    };
-  }, [open]);
+export function useHideNavbarWhileOpen(open = true): void {
+  const pageActive = usePageActive();
+  useLayoutEffect(() => {
+    if (!open || !pageActive) return;
+    return holdNavbarHidden();
+  }, [open, pageActive]);
 }

@@ -28,7 +28,7 @@ export const AdvancedDetails: React.FC<AdvancedDetailsProps> = ({ label, childre
       </button>
       {open && (
         <div
-          className="text-xs font-mono bg-gray-50 rounded-lg p-2 overflow-x-auto break-words whitespace-pre-wrap"
+          className="text-xs font-mono bg-fill rounded-lg p-2 overflow-x-auto break-words whitespace-pre-wrap"
           data-testid="advanced-details-content"
         >
           {children}

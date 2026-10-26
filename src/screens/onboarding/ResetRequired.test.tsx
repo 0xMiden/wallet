@@ -16,37 +16,16 @@ jest.mock('react-i18next', () => ({
 
 // Icon barrel — expose only the `IconName` members the screen references.
 jest.mock('app/icons/v2', () => ({
-  IconName: { MidenLogo: 'MidenLogo' }
+  IconName: { MidenLogo: 'MidenLogo' },
+  Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />
 }));
 
-// `NavigationHeader` — surface just the title so the header wiring is
-// assertable without dragging in `CircleButton` / the real icon set.
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title }: { title: string }) => <div data-testid="nav-header">{title}</div>
-}));
-
-// `Message` — echo every prop the screen threads through as data attributes /
-// text so each one can be asserted individually.
-jest.mock('components/Message', () => ({
-  Message: ({
-    title,
-    description,
-    secondDescription,
-    icon,
-    iconClassName,
-    className
-  }: {
-    title: string;
-    description: string;
-    secondDescription?: string;
-    icon: string;
-    iconClassName?: string;
-    className?: string;
-  }) => (
-    <div data-testid="message" data-icon={icon} data-icon-classname={iconClassName} data-classname={className}>
-      <span data-testid="message-title">{title}</span>
-      <span data-testid="message-description">{description}</span>
-      <span data-testid="message-second-description">{secondDescription}</span>
+// `PageHeader` — surface just the title so the header wiring is assertable
+// without dragging in `IconButton` / the real icon set.
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, className }: { title: string; className?: string }) => (
+    <div data-testid="nav-header" className={className}>
+      {title}
     </div>
   )
 }));
@@ -72,18 +51,19 @@ describe('ResetRequired', () => {
   it('renders the navigation header with the reset-required title', () => {
     renderComponent();
     expect(screen.getByTestId('nav-header')).toHaveTextContent('resetRequired');
+    // PageHeader has no horizontal padding of its own — the page supplies it,
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
+    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });
 
-  it('renders the Message with the reset-required copy, icon and icon sizing', () => {
+  it('explains under a lone Miden hero, with Reset pinned in the footer', () => {
     renderComponent();
 
-    const message = screen.getByTestId('message');
-    expect(screen.getByTestId('message-title')).toHaveTextContent('resetRequired');
-    expect(screen.getByTestId('message-description')).toHaveTextContent('resetRequiredDescription');
-    expect(screen.getByTestId('message-second-description')).toHaveTextContent('resetRequiredSecondDescription');
-    expect(message).toHaveAttribute('data-icon', 'MidenLogo');
-    expect(message).toHaveAttribute('data-icon-classname', 'w-[218px] h-[218px]');
-    expect(message).toHaveAttribute('data-classname', 'flex-1');
+    expect(screen.getByText('resetRequiredDescription')).toHaveClass('text-ink');
+    expect(screen.getByText('resetRequiredSecondDescription')).toHaveClass('text-muted');
+    expect(screen.getByTestId('icon-MidenLogo')).toBeInTheDocument();
+    expect(screen.getByTestId('reset-button').closest('[data-slot="footer"]')).not.toBeNull();
+    expect(screen.getAllByText('resetRequired')).toHaveLength(1);
   });
 
   it('renders the primary reset button', () => {
@@ -91,7 +71,7 @@ describe('ResetRequired', () => {
 
     const button = screen.getByTestId('reset-button');
     expect(button).toHaveTextContent('reset');
-    expect(button).toHaveAttribute('data-variant', 'Primary');
+    expect(button).not.toHaveAttribute('data-variant');
   });
 
   it('invokes onConfirm when the reset button is clicked', () => {

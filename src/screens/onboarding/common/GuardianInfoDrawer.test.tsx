@@ -26,7 +26,7 @@ jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className }: { name: string; className?: string }) => (
     <span data-testid="icon" data-name={name} className={className} />
   ),
-  IconName: { Checkmark: 'checkmark', Close: 'close' }
+  IconName: { FactCheck: 'fact-check', FactAlert: 'fact-alert', FactCross: 'fact-cross' }
 }));
 
 // `Button` — render the title and forward the click so the "gotIt" wiring can
@@ -46,19 +46,39 @@ jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} data-close-on-back={String(closeOnBack)}>
       <button data-testid="drawer-onOpenChange-false" onClick={() => onOpenChange(false)} />
       {children}
     </div>
   ),
-  DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
+  DrawerContent: ({
+    children,
+    className,
+    overlayClassName
+  }: {
+    children: React.ReactNode;
+    className?: string;
+    overlayClassName?: string;
+  }) => (
+    <div data-testid="drawer-content" data-class={className} data-overlay-class={overlayClassName}>
+      {children}
+    </div>
+  ),
+  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>,
+  DrawerFooter: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+    <div data-testid="drawer-footer" data-class={className}>
+      {children}
+    </div>
+  )
 }));
 
 // ---------------------------------------------------------------------------
@@ -78,6 +98,15 @@ const renderDrawer = (props: GuardianInfoDrawerProps = makeProps()) => render(<G
 // ---------------------------------------------------------------------------
 
 describe('GuardianInfoDrawer', () => {
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer(makeProps({ open: true, onOpenChange }));
+    // Left unset, the Drawer closes the sheet on back (drawer.test pins how) through onOpenChange.
+    expect(screen.getByTestId('drawer')).toHaveAttribute('data-close-on-back', 'undefined');
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it('forwards the open prop to the drawer scaffold when open', () => {
     renderDrawer(makeProps({ open: true }));
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'true');
@@ -119,20 +148,57 @@ describe('GuardianInfoDrawer', () => {
     });
   });
 
-  it('renders the checkmark and close icon badges plus the exclamation badge', () => {
+  it('renders the check, alert and cross badges, all drawn from the icon set', () => {
     renderDrawer();
-    const icons = screen.getAllByTestId('icon');
-    const names = icons.map(icon => icon.getAttribute('data-name'));
-    expect(names).toEqual(expect.arrayContaining(['checkmark', 'close']));
-    // The "switching is easy" badge is a plain "!" glyph, not an Icon.
-    expect(screen.getByText('!')).toBeInTheDocument();
+    const names = screen.getAllByTestId('icon').map(icon => icon.getAttribute('data-name'));
+    expect(names).toEqual(['fact-check', 'fact-alert', 'fact-cross']);
+    // The "switching is easy" badge used to be a typed "!"; it is the set's alert glyph now.
+    expect(screen.queryByText('!')).not.toBeInTheDocument();
   });
 
-  it('draws a divider under exactly the first two rows and none under the last (hasDivider branch)', () => {
+  it('states the facts in the shared sheet header as plain rows, hairlines starting after the badge', () => {
     const { container } = renderDrawer();
-    // Only the InfoRow divider wrappers use `border-b`; the third row passes
-    // `hasDivider={false}` so its wrapper class is `undefined`.
-    expect(container.querySelectorAll('.border-b')).toHaveLength(2);
+
+    // The title now sits in the app's one sheet header, not in a centred hero line of its own.
+    expect(screen.getByTestId('drawer-header')).toContainElement(screen.getByTestId('drawer-title'));
+    // No rules across the sheet and no group fill: the rows sit on the sheet, as the testnet notice's do.
+    expect(container.querySelectorAll('.border-b')).toHaveLength(0);
+    expect(screen.getByText('guardianInfoWhatItDoesTitle').closest('[class*="bg-fill"]')).toBeNull();
+    // The shared FactRow, whose own test pins the hairline after the badge, in an inset plain ListGroup.
+    const rows = container.querySelectorAll('[data-slot="fact-row"]');
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.parentElement).toHaveClass('shrink-0', '[&>*]:before:left-[var(--row-flush-inset,0px)]');
+    expect(screen.getByText('guardianInfoWhatItDoesDescription')).toHaveClass('text-caption-heading', 'text-muted');
+  });
+
+  it('carries no literal colours: every badge is on a token tint', () => {
+    const { container } = renderDrawer();
+
+    const badgeOf = (glyph: HTMLElement) => glyph.closest('[aria-hidden="true"]');
+    const [check, alert, cross] = ['fact-check', 'fact-alert', 'fact-cross'].map(
+      name => screen.getAllByTestId('icon').find(icon => icon.getAttribute('data-name') === name)!
+    );
+    // Solid discs in each status's deep ink with the glyph in its pale tint, which flips cleanly in dark mode.
+    expect(badgeOf(check!)).toHaveClass('bg-positive-tint-ink', 'text-positive-tint');
+    expect(badgeOf(alert!)).toHaveClass('bg-accent-tint-ink', 'text-accent-tint');
+    expect(badgeOf(cross!)).toHaveClass('bg-negative-tint-ink', 'text-negative-tint');
+    // The colour replaces the shared circle's default fill rather than sitting beside it.
+    for (const glyph of [check!, alert!, cross!]) expect(badgeOf(glyph)).not.toHaveClass('bg-fill');
+    expect(container.innerHTML).not.toMatch(/#[0-9A-Fa-f]{6}/);
+  });
+
+  it('never clips the sheet, so the skirt under an overshoot shows; its body shrinks to scroll instead', () => {
+    renderDrawer();
+
+    expect(screen.getByTestId('drawer-content').getAttribute('data-class') ?? '').not.toMatch(/overflow-hidden/);
+    expect(screen.getByText('guardianInfoWhatItDoesTitle').closest('.overflow-y-auto')).toHaveClass('min-h-0');
+  });
+
+  it('dims the page behind with the shared sheet scrim, like every other sheet', () => {
+    renderDrawer();
+
+    // No overlay override: DrawerContent's own bg-scrim applies.
+    expect(screen.getByTestId('drawer-content')).not.toHaveAttribute('data-overlay-class');
   });
 
   it('closes the drawer when the "gotIt" button is clicked', () => {
@@ -143,6 +209,15 @@ describe('GuardianInfoDrawer', () => {
 
     expect(onOpenChange).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('pins Got it in the footer, outside the scrolling body (#1279)', () => {
+    renderDrawer();
+
+    const gotIt = screen.getByTestId('btn-gotIt');
+    expect(screen.getByTestId('drawer-footer')).toContainElement(gotIt);
+    expect(gotIt.closest('.overflow-y-auto')).toBeNull();
+    expect(screen.getByTestId('drawer-footer').getAttribute('data-class') ?? '').toContain('shrink-0');
   });
 
   it("propagates the drawer's own onOpenChange requests", () => {

@@ -1,47 +1,72 @@
-import React, { FC, useEffect, useRef } from 'react';
+import React, { FC, useState } from 'react';
 
+import { motion, TargetAndTransition, useIsPresent, useReducedMotion } from 'framer-motion';
+
+import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
+import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
+import { usePreset } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 
+export interface FullScreenPageProps extends PropsWithChildren {
+  /** How the page arrives. Defaults to `defaultPageEntrance()`. */
+  entrance?: 'fade' | 'slide';
+}
+
 /**
- * Wrapper for full-screen pages (Send, Receive, etc.) that slides in from the right.
- * Animation is only enabled for mobile (disabled for Chrome extension).
+ * On mobile every page slides in (and out on back) unless it opts into a fade. Elsewhere a page
+ * keeps the fade unless it asks for a slide: in the extension a slide page whose entrance never
+ * ran to completion sat at translateX(100%), wholly off screen, where a fade that never ran still
+ * leaves the page in place (guardian-lifecycle-e2e on #929).
  */
-const FullScreenPage: FC<PropsWithChildren> = ({ children }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+export const defaultPageEntrance = (): 'fade' | 'slide' => (isMobile() ? 'slide' : 'fade');
 
-  useHideNavbarWhileOpen();
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    // Only animate on mobile
-    if (!isMobile()) return;
-
-    const el = containerRef.current;
-    el.classList.add('mobile-page-enter');
-
-    // Remove class after animation completes to prevent restart on display toggle
-    // (resetViewportAfterWebview toggles display:none which restarts CSS animations)
-    const handleAnimationEnd = () => {
-      el.classList.remove('mobile-page-enter');
-    };
-    el.addEventListener('animationend', handleAnimationEnd, { once: true });
-
-    return () => {
-      el.removeEventListener('animationend', handleAnimationEnd);
-    };
-  }, []);
+const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultPageEntrance() }) => {
+  const present = useIsPresent();
+  const reduce = useReducedMotion();
+  // A page a return mounted never slides in like a push: it fades in, or plays nothing when its layer
+  // reveals it.
+  const mountedByReturn = usePageMountedByReturn();
+  const revealedByLayer = usePageRevealedByLayer();
+  const appear = !reduce && !isReturningFromWebview() && !revealedByLayer;
+  const slide = appear && entrance === 'slide' && !mountedByReturn;
+  const [entered, setEntered] = useState(false);
+  // Read in the first render, before the covered page's hold ends in this same commit (its layer
+  // stops being active as the push starts), so a navbar that page hid never fades back in under us.
+  const [arrivedOverHiddenNavbar] = useState(() => document.body.hasAttribute('data-hide-navbar'));
+  const [arrivedOverHiddenHomeActions] = useState(() => document.body.hasAttribute('data-hide-home-actions'));
+  // Keep the outgoing Send layer stable while this full-screen page covers or reveals it.
+  useHideHomeActionsWhileOpen(present && arrivedOverHiddenHomeActions);
+  // Keep the previous tab's navbar visible under the incoming page, and give
+  // it back the moment this page starts to slide out.
+  useHideNavbarWhileOpen(present && (!slide || entered || arrivedOverHiddenNavbar));
+  // A slide page is the incoming page of the `page` preset; the page beneath moves with it in
+  // `MobilePageLayers`. Any other page fades in on `fade`.
+  const page = usePreset('page');
+  const fade = usePreset('fade');
+  const motionPreset = slide ? page : fade;
+  let initial: false | TargetAndTransition = false;
+  switch (true) {
+    case slide:
+      initial = { ...page.initial, opacity: 1 };
+      break;
+    case appear:
+      initial = fade.initial ?? false;
+      break;
+  }
 
   return (
-    <div
-      ref={containerRef}
+    <motion.div
       className="flex flex-col h-full w-full bg-app-bg"
-      style={{ willChange: 'transform, opacity' }}
+      initial={initial}
+      animate={slide ? { ...page.animate, opacity: 1 } : fade.animate}
+      transition={motionPreset.transition}
+      onAnimationComplete={() => setEntered(true)}
     >
       {children}
-    </div>
+    </motion.div>
   );
 };
 

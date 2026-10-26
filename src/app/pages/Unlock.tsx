@@ -8,11 +8,13 @@ import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
-import { Numpad } from 'components/Numpad';
-import { useFormAnalytics } from 'lib/analytics';
-import { useLocalStorage, useMidenContext } from 'lib/miden/front';
+import { PasscodeScreen } from 'components/PasscodeScreen';
+import type { BiometricAvailability } from 'lib/biometric';
+import { readLocalStorage, useLocalStorage, useMidenContext, writeLocalStorage } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
+import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 const BrandIcon = () => {
@@ -20,7 +22,7 @@ const BrandIcon = () => {
   return (
     <div className="flex flex-col items-center gap-2">
       <BreadLogo style={{ width: 80, height: 'auto' }} />
-      <span className="text-3xl font-semibold font-heading text-heading-gray">{t('unlockBrandName')}</span>
+      <span className="text-3xl font-semibold font-heading text-ink">{t('unlockBrandName')}</span>
     </div>
   );
 };
@@ -31,12 +33,68 @@ const LAST_ATTEMPT = 3;
 
 const checkTime = (i: number) => (i < 10 ? '0' + i : i);
 
-const getTimeLeft = (start: number, end: number) => {
-  const isPositiveTime = start + end - Date.now() < 0 ? 0 : start + end - Date.now();
-  const diff = isPositiveTime / 1000;
-  const seconds = Math.floor(diff % 60);
-  const minutes = Math.floor(diff / 60);
-  return `${checkTime(minutes)}:${checkTime(seconds)}`;
+const formatDuration = (ms: number) => {
+  const diff = Math.max(ms, 0) / 1000;
+  return `${checkTime(Math.floor(diff / 60))}:${checkTime(Math.floor(diff % 60))}`;
+};
+
+// The stored attempt count is failures plus one; each full three of it adds LOCK_TIME to the lockout.
+const lockLevelOf = (attempt: number) => LOCK_TIME * Math.floor(attempt / 3);
+
+const isLockedAt = (stamp: number, level: number, now: number) => now - stamp <= level;
+
+const msLeft = (stamp: number, level: number, now: number) => stamp + level - now;
+
+const getTimeLeft = (stamp: number, level: number) => formatDuration(msLeft(stamp, level, Date.now()));
+
+interface StoredLockout {
+  attempt: number;
+  timelock: number;
+  level: number;
+  locked: boolean;
+}
+
+// What this window's own writes of the guess record could not store; 0 where nothing is held back.
+interface LockoutFloor {
+  attempt: number;
+  timelock: number;
+}
+
+// Judged from storage, not a window's state: another window may have counted failures or armed a lockout
+// since this one mounted, and a guess judged from the stale count would skip or shorten the lockout (#1192).
+// The floor is merged in, so a window whose writes fail still judges from what it recorded itself.
+const readStoredLockout = (floor: LockoutFloor): StoredLockout => {
+  const attempt = Math.max(readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1), floor.attempt);
+  const timelock = Math.max(readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0), floor.timelock);
+  const level = lockLevelOf(attempt);
+  return { attempt, timelock, level, locked: isLockedAt(timelock, level, Date.now()) };
+};
+
+// A write that lands holds nothing back; one that fails keeps its value in the floor, so storage that
+// cannot persist never makes guessing free.
+const recordLockout = (floor: LockoutFloor, field: keyof LockoutFloor, value: number) => {
+  const key = field === 'attempt' ? MidenSharedStorageKey.PasswordAttempts : MidenSharedStorageKey.TimeLock;
+  floor[field] = writeLocalStorage(key, value) ? 0 : value;
+};
+
+/** Resets the stored guess record to no failures and no lockout, writing only a field that is not clear already. */
+export const retireLockoutRecord = () => {
+  if (readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1) !== 1) {
+    writeLocalStorage(MidenSharedStorageKey.PasswordAttempts, 1);
+  }
+  if (readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) !== 0) {
+    writeLocalStorage(MidenSharedStorageKey.TimeLock, 0);
+  }
+};
+
+/**
+ * Retires the guess record once this window's wallet is ready, whichever path unlocked it: a correct guess
+ * whose window went away mid-call then leaves no phantom failure or provisional stamp behind (#1192).
+ */
+export const useRetireLockoutOnReady = (ready: boolean) => {
+  useEffect(() => {
+    if (ready) retireLockoutRecord();
+  }, [ready]);
 };
 
 interface UnlockProps {
@@ -46,12 +104,20 @@ interface UnlockProps {
 const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { t } = useTranslation();
   const { unlock } = useMidenContext();
-  const formAnalytics = useFormAnalytics('UnlockWallet');
   const { compact } = useAppEnv();
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
-  const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
+  const lockLevel = lockLevelOf(attempt);
+
+  // The live lockout stamp. setTimeLock is a new function every render, so the 1 s interval below is
+  // re-created constantly, and a tick from before the render that armed a lockout still holds the old
+  // `timelock` (0, or an earlier lockout's stamp). Read from its closure, that stamp would drive the
+  // countdown (00:00 from a 0), or with no guess in flight have the tick adopt storage's lockout over an
+  // expired one; it never clears the new stamp, which storage holds. Arming writes this first; the tick reads it.
+  const timelockRef = useRef(timelock);
+  // Empty while storage works; every read of the lockout merges it in (see readStoredLockout).
+  const floorRef = useRef<LockoutFloor>({ attempt: 0, timelock: 0 });
 
   // HARDWARE UNLOCK STATE
   // Mobile & Desktop: tries hardware unlock (biometric/passcode) automatically
@@ -60,9 +126,40 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [hardwareUnlockChecked, setHardwareUnlockChecked] = useState(false);
   // For hardware-only wallets (no password protector), show biometric-only UI
   const [isHardwareOnlyWallet, setIsHardwareOnlyWallet] = useState(false);
+  // Mobile: a biometric-bound hardware key exists, so the keypad offers a Face ID / Touch ID key
+  // that retries the same hardware unlock the mount effect tried first.
+  const [hasBiometricKey, setHasBiometricKey] = useState(false);
+  // Which sensor the key stands for, so it draws Face ID or a fingerprint rather than Face ID on
+  // every device.
+  const [biometryType, setBiometryType] = useState<BiometricAvailability['biometryType']>('none');
 
   // Use ref to prevent double unlock attempts (React 18 Strict Mode runs effects twice)
   const unlockInProgressRef = useRef(false);
+
+  // One unlock() at a time across every path on this screen: the mount-time hardware attempt, the
+  // keypad's biometric key and the passcode. Taken at the ENTRY of a path, never at the call:
+  // submitPasscode can sleep 1-3s for the post-lockout throttle before reaching unlock(), and a
+  // guard taken there leaves that window open to a biometric tap. Distinct from the ref above,
+  // which is a one-shot latch against Strict Mode double-running the mount effect and is never
+  // released - reusing it here would make every later attempt a no-op.
+  const unlockInFlightRef = useRef(false);
+  // The passcode path's share of the guard: the tick leaves a guess to its own catch or success, while a
+  // hardware attempt in flight leaves the tick as it was.
+  const guessInFlightRef = useRef(false);
+  // The ref is the synchronous check-and-set; this is what the screen reads. Every path sets it
+  // with the guard and clears it on every exit that does not navigate away, so the keypad, the
+  // auto-submit and the password form all wait for the attempt in flight instead of starting one
+  // the guard would silently refuse.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const beginUnlock = useCallback(() => {
+    if (unlockInFlightRef.current) return false;
+    unlockInFlightRef.current = true;
+    return true;
+  }, []);
+  const endUnlock = useCallback(() => {
+    unlockInFlightRef.current = false;
+  }, []);
+  const [biometricError, setBiometricError] = useState(false);
 
   // On mobile/desktop, try hardware unlock automatically on mount
   useEffect(() => {
@@ -79,6 +176,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       unlockInProgressRef.current = true;
 
       setHardwareUnlockAttempted(true);
+      beginUnlock();
+      setIsSubmitting(true);
+      let navigated = false;
 
       try {
         if (isDesktop()) {
@@ -91,18 +191,30 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             await unlock();
             setAttempt(1);
             navigate('/');
+            navigated = true;
             return;
           }
         } else if (isMobile()) {
-          const { hasHardwareKey } = await import('lib/biometric');
+          const { hasHardwareKey, checkBiometricAvailability } = await import('lib/biometric');
           const hasKey = await hasHardwareKey();
           console.log('[Unlock] Mobile hardware key available:', hasKey);
+          setHasBiometricKey(hasKey);
+          if (hasKey) {
+            // Only the glyph depends on this, so a failure to read the sensor must not stop the
+            // unlock below: it keeps the default, and the key still works.
+            try {
+              setBiometryType((await checkBiometricAvailability()).biometryType);
+            } catch (sensorErr) {
+              console.log('[Unlock] Could not read the biometric sensor type:', sensorErr);
+            }
+          }
 
           if (hasKey) {
             console.log('[Unlock] Attempting mobile hardware unlock (biometric)...');
             await unlock();
             setAttempt(1);
             navigate('/');
+            navigated = true;
             return;
           }
         }
@@ -118,37 +230,107 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         } catch (checkErr) {
           console.log('[Unlock] Failed to check password protector:', checkErr);
         }
+      } finally {
+        endUnlock();
+        if (!navigated) setIsSubmitting(false);
       }
 
       setHardwareUnlockChecked(true);
     };
 
     tryHardwareUnlock();
-  }, [hardwareUnlockAttempted, unlock, setAttempt]);
+  }, [hardwareUnlockAttempted, unlock, setAttempt, beginUnlock, endUnlock]);
 
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
+
+  // Takes a stored lockout into this window, countdown included. It leaves the code alone: each caller
+  // clears it when it shows its result, so a failure's dots empty with its shake, not before.
+  const adoptLockout = useCallback(
+    (lockout: StoredLockout) => {
+      timelockRef.current = lockout.timelock;
+      setTimeLock(lockout.timelock);
+      setAttempt(lockout.attempt);
+      setTimeleft(getTimeLeft(lockout.timelock, lockout.level));
+    },
+    [setTimeLock, setAttempt]
+  );
 
   const [code, setCode] = useState('');
   // Extension-only: the vault is protected by a full password, not a passcode.
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isError, setIsError] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Counts failed attempts (a rejected passcode, a failed biometric retry); each new value shakes
+  // the dots once.
+  const [errorCount, setErrorCount] = useState(0);
 
-  const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
+  const isDisabled = useMemo(() => isLockedAt(timelock, lockLevel, Date.now()), [timelock, lockLevel]);
+  // What the live region says while a lockout runs, captured whenever it is re-derived: when the
+  // lockout starts, when this screen mounts, and on each biometric failure or retry during it.
+  // Never on a clock tick (see `announcement`). Synchronous by design: an effect writing this into
+  // state would leave the transition render announcing the previous capture. `afterFailure` records
+  // what the transition was, which is also why reading `biometricError` here is real work rather
+  // than a dependency the body ignores (which `yarn lint` rejects). `t` stays out, so its identity
+  // cannot re-read the clock.
+  const lockout = useMemo(
+    () => (isDisabled ? { leftMs: msLeft(timelock, lockLevel, Date.now()), afterFailure: biometricError } : null),
+    [isDisabled, biometricError, timelock, lockLevel]
+  );
+
+  // A failure from before or during a lockout is not what the screen means once the lockout ends:
+  // the line would read "incorrect passcode" (or, on the password form, "incorrect password") at the
+  // moment the wallet becomes usable again, and the live region would announce it. Cleared on the
+  // transition, not on the interval's tick: `timelock` outlives its lockout (no success path resets
+  // it), so the tick clears a stale stamp once with no lockout on screen. No errorCount bump, so
+  // nothing shakes. The mount run is a no-op: both flags start false.
+  useEffect(() => {
+    if (!isDisabled) {
+      setIsError(false);
+      setBiometricError(false);
+    }
+  }, [isDisabled]);
 
   const submitPasscode = useCallback(
     async (passcode: string) => {
       if (isSubmitting) return;
+      // The fast path: a window another one locked refuses at once, instead of sleeping 1-3s first.
+      const stored = readStoredLockout(floorRef.current);
+      if (stored.locked) {
+        adoptLockout(stored);
+        setCode('');
+        return;
+      }
+      if (!beginUnlock()) return;
+      guessInFlightRef.current = true;
       setIsSubmitting(true);
       setIsError(false);
-      formAnalytics.trackSubmit();
+      setBiometricError(false);
 
+      let provisionalStamp: number | null = null;
+      // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
-        if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+        if (stored.attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+
+        // The final check and the record are one synchronous step right before unlock(), so another window
+        // checking while this guess is in flight finds it counted, and at the threshold locked out (#1192).
+        const preUnlock = readStoredLockout(floorRef.current);
+        if (preUnlock.locked) {
+          adoptLockout(preUnlock);
+          setCode('');
+          setIsSubmitting(false);
+          return;
+        }
+        // Not through this window's state: that would disable its own form while a correct guess at the
+        // threshold is still in flight. Success resets the count, which makes the provisional stamp inert.
+        recordLockout(floorRef.current, 'attempt', preUnlock.attempt + 1);
+        if (preUnlock.attempt >= LAST_ATTEMPT) {
+          provisionalStamp = Date.now();
+          recordLockout(floorRef.current, 'timelock', provisionalStamp);
+        }
+
         await unlock(passcode);
 
-        formAnalytics.trackSubmitSuccess();
+        floorRef.current = { attempt: 0, timelock: 0 };
         setAttempt(1);
 
         // On mobile/desktop, don't reload - the backend state is already updated in-process.
@@ -159,20 +341,26 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        formAnalytics.trackSubmitFail();
-        if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
-        setAttempt(attempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+        // Re-stamped at the failure, so the tier runs in full from it, but only over this guess's own
+        // provisional stamp: a different one is another window's lockout (#1192).
+        if (provisionalStamp !== null && readStoredLockout(floorRef.current).timelock === provisionalStamp) {
+          recordLockout(floorRef.current, 'timelock', Date.now());
+        }
+        adoptLockout(readStoredLockout(floorRef.current));
 
         console.error(err);
 
         await new Promise(res => setTimeout(res, 300));
         setIsError(true);
+        setErrorCount(count => count + 1);
         setCode('');
         setIsSubmitting(false);
+      } finally {
+        guessInFlightRef.current = false;
+        endUnlock();
       }
     },
-    [isSubmitting, unlock, formAnalytics, attempt, setAttempt, setTimeLock]
+    [isSubmitting, unlock, setAttempt, beginUnlock, endUnlock, adoptLockout]
   );
 
   useEffect(() => {
@@ -189,16 +377,18 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     (digit: string) => {
       if (isDisabled || isSubmitting) return;
       if (isError) setIsError(false);
+      if (biometricError) setBiometricError(false);
       setCode(prev => (prev.length >= PASSCODE_LENGTH ? prev : prev + digit));
     },
-    [isDisabled, isSubmitting, isError]
+    [isDisabled, isSubmitting, isError, biometricError]
   );
 
   const handleDelete = useCallback(() => {
     if (isDisabled || isSubmitting) return;
     if (isError) setIsError(false);
+    if (biometricError) setBiometricError(false);
     setCode(prev => prev.slice(0, -1));
-  }, [isDisabled, isSubmitting, isError]);
+  }, [isDisabled, isSubmitting, isError, biometricError]);
 
   const onForgotPasswordClick = useCallback(() => {
     if (openForgotPasswordInFullPage) {
@@ -230,27 +420,74 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   );
 
   const onRetryHardwareUnlock = useCallback(async () => {
+    if (!beginUnlock()) return;
+    setIsSubmitting(true);
+    // The latest failure is what the screen shows, whichever path it came from.
+    setIsError(false);
+    setBiometricError(false);
+    let navigated = false;
     try {
       await unlock();
       setAttempt(1);
       navigate('/');
+      navigated = true;
     } catch (err) {
       console.log('[Unlock] Hardware unlock retry failed:', err);
+      // A cancelled prompt lands here too. Say so on screen: the key is tappable on every unlock
+      // now, and a retry that fails silently reads as a key that does nothing. Like a rejected
+      // passcode it clears the code and shakes the dots once.
+      setBiometricError(true);
+      setErrorCount(count => count + 1);
+      setCode('');
+    } finally {
+      endUnlock();
+      if (!navigated) setIsSubmitting(false);
     }
-  }, [unlock, setAttempt]);
+  }, [unlock, setAttempt, beginUnlock, endUnlock]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (Date.now() - timelock > lockLevel) {
-        setTimeLock(0);
+      const stamp = timelockRef.current;
+      // This window's own attempt can be stale (level 0) while it armed from a stored count another
+      // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
+      const stored = readStoredLockout(floorRef.current);
+      // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing. A guess in
+      // flight is left to its own catch or success: its provisional stamp is not a lockout (#1192).
+      if (!guessInFlightRef.current && stamp !== 0 && !isLockedAt(stamp, stored.level, Date.now())) {
+        if (stored.timelock === stamp) {
+          // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
+          timelockRef.current = 0;
+          setTimeLock(0);
+        } else {
+          // Storage no longer holds this stamp: adopt it, or isDisabled stays frozen on an expired
+          // value with nothing left to trigger the re-render that would clear it (#1192).
+          adoptLockout(stored);
+          return;
+        }
       }
-      setTimeleft(getTimeLeft(timelock, lockLevel));
+      setTimeleft(getTimeLeft(stamp, stored.level));
     }, 1_000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [timelock, lockLevel, setTimeLock]);
+  }, [setTimeLock, adoptLockout]);
+
+  const unlockErrorVisible = hardwareUnlockChecked || isExtension();
+  useUserVisibleError(
+    unlockErrorVisible && isHardwareOnlyWallet && biometricError ? 'biometricFailed' : null,
+    'inline'
+  );
+  useUserVisibleError(
+    unlockErrorVisible && !isHardwareOnlyWallet && !isMobile()
+      ? isDisabled
+        ? 'unlockPasswordErrorDelay'
+        : isError
+          ? 'incorrectPassword'
+          : null
+      : null,
+    'passcode'
+  );
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
@@ -269,22 +506,27 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold mb-2">{t('biometricUnlockRequired')}</h2>
             <p className="text-text-muted text-sm">{t('biometricUnlockRequiredDescription')}</p>
+            {biometricError && (
+              <p role="alert" className="mt-2 text-sm text-negative-ink">
+                {t('biometricFailed')}
+              </p>
+            )}
           </div>
           <Button
             id="retry-biometric"
             title={t('tryAgain')}
             variant={ButtonVariant.Primary}
             onClick={onRetryHardwareUnlock}
-            className="w-full justify-center mb-3"
-            style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
+            isLoading={isSubmitting}
+            disabled={isSubmitting}
+            className="w-full mb-3"
           />
           <Button
             id="reset-wallet"
             title={t('resetWallet')}
             variant={ButtonVariant.Ghost}
             onClick={onForgotPasswordClick}
-            className="w-full justify-center"
-            style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
+            className="w-full"
           />
         </div>
       </SimplePageLayout>
@@ -306,7 +548,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         <div className="min-h-full flex flex-col items-center px-6 pb-8">
           <div className="flex flex-col items-center w-full mt-10 shrink-0">
             <BrandIcon />
-            <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight mt-8">
+            <h1 className="text-3xl font-semibold font-heading text-ink text-center leading-[100%] tracking-tight mt-8">
               {t('enterYourPassword')}
             </h1>
             <p
@@ -346,7 +588,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             id="forgot-password"
             type="button"
             onClick={onForgotPasswordClick}
-            className="mt-6 text-heading-gray text-base font-medium"
+            className="mt-6 text-ink text-base font-medium"
           >
             {t('forgotPassword')}
           </button>
@@ -355,54 +597,62 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     );
   }
 
+  // What a screen reader hears. It changes only when the STATE does, never on a clock tick: the
+  // visible countdown below re-renders every second, and inside a live region that re-announced
+  // the remaining time sixty times a minute. So it carries the time left as captured at the last
+  // transition - the sentence ends where the duration goes, so dropping it would announce
+  // "...blocked for". A failed biometric attempt is announced WITH the lockout, never instead of
+  // it: the countdown is aria-hidden, so a region naming only the failure would leave a screen
+  // reader with no way to learn the wallet is locked or for how long.
+  const announcement =
+    lockout === null
+      ? undefined
+      : lockout.afterFailure
+        ? `${t('biometricFailed')} ${t('unlockPasswordErrorDelay')} ${formatDuration(lockout.leftMs)}`
+        : `${t('unlockPasswordErrorDelay')} ${formatDuration(lockout.leftMs)}`;
   const subtitle = isDisabled
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError
       ? t('incorrectPasscode')
-      : t('enterYour6DigitCode');
-
-  const subtitleClass = isDisabled || isError ? 'text-red-500' : 'text-gray-secondary';
+      : biometricError
+        ? t('biometricFailed')
+        : t('enterYour6DigitCode');
 
   return (
-    <div className="bg-app-bg h-full overflow-y-auto" data-testid="unlock-passcode">
-      <div className="min-h-full flex flex-col items-center px-6 pb-8">
-        <div className="flex flex-col items-center w-full mt-8 shrink-0">
-          <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight">
-            {t('enterYourPasscode')}
-          </h1>
-          <p className={`text-lg text-center mt-3 ${subtitleClass}`}>{subtitle}</p>
-
-          <div className="flex items-center gap-3.5 mt-6">
-            {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
-              const filled = index < code.length;
-              return (
-                <div
-                  key={index}
-                  className={
-                    filled
-                      ? 'w-3.5 h-3.5 rounded-full bg-[#C7C7CC] border-2 border-[#C7C7CC]'
-                      : 'w-3.5 h-3.5 rounded-full border-2 border-[#C7C7CC]'
-                  }
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="w-full pt-8">
-          <Numpad onDigit={handleDigit} onDelete={handleDelete} />
-        </div>
-
+    <PasscodeScreen
+      data-testid="unlock-passcode"
+      title={t('enterYourPasscode')}
+      message={subtitle}
+      announcement={announcement}
+      errorId={isDisabled ? 'unlockPasswordErrorDelay' : isError ? 'incorrectPasscode' : 'biometricFailed'}
+      isError={isDisabled || isError || biometricError}
+      filled={code.length}
+      length={PASSCODE_LENGTH}
+      errorKey={errorCount}
+      onDigit={handleDigit}
+      onDelete={handleDelete}
+      onBiometric={hasBiometricKey ? onRetryHardwareUnlock : undefined}
+      biometryType={biometryType}
+      // A press that will be dropped must not look accepted. Entry is refused through a lockout and
+      // while any attempt runs; the biometric key only while one runs - it stays usable in a lockout.
+      disabled={isDisabled || isSubmitting}
+      biometricDisabled={isSubmitting}
+      action={
+        // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
+        // but past the last key row, so it is not hit while a code is typed.
         <button
           id="forgot-password"
           type="button"
-          onClick={onForgotPasswordClick}
-          className="mt-4 text-heading-gray text-base font-medium"
+          onClick={() => {
+            hapticLight();
+            onForgotPasswordClick();
+          }}
+          className="min-h-11 px-3 font-heading text-[15px] font-bold text-accent-tint-ink outline-none rounded-full focus-visible:ring-2 focus-visible:ring-accent-primary"
         >
           {t('forgotPasscode')}
         </button>
-      </div>
-    </div>
+      }
+    />
   );
 };
 

@@ -19,7 +19,7 @@
  * `persistNewHotKey` running SW-side BEFORE dispatch (byte-identical order flag-on
  * vs flag-off), the proxy-routed `waitForTransactionCommit` running AFTER with the
  * re-derived tx id, and the structural apply-after-submit classifier (reconcile for
- * replace-hot-key / switch-guardian; Fail for update-procedure-threshold).
+ * every structural type; update-procedure-threshold completes with its finalization).
  *
  * Coverage:
  *   - §4.0 round-trip: the co-signed request crosses to the offscreen leaf as the
@@ -38,7 +38,9 @@
  *     AFTER the leaf with the id re-derived from `result.executedTransaction().id()`,
  *     on both flags — never the raw SW `getMidenClient().waitForTransactionCommit`.
  *   - kill-window (funds-safety): an offscreen `OperationAbortedError` (wedge-kill)
- *     runs `abandonCandidate` exactly once (as inline) and marks the row FAILED —
+ *     keeps the candidate for the node's verdict on the value-moving types and the
+ *     Agglayer bridged-send (#1081), and abandons it exactly once (as inline) on the
+ *     structural types and the earn deposit. Either way it marks the row FAILED:
  *     it is NOT auto-requeued, and it dispatches exactly ONCE. A guardian
  *     send/swap/execute has NO input-note nullifier (each retry builds a FRESH
  *     proposal with a new random output-note serial), so auto-requeueing would let
@@ -48,13 +50,23 @@
  *     double-apply. Falling through to Failed matches slices 5a/5b and flag-OFF.
  *   - errorCode: a round-tripped `ApplyTransactionAfterSubmitFailed` reaches the
  *     GUARDIAN classifier → value-moving marks Completed (mirrors the fixed
- *     non-guardian bug); structural replace-hot-key / switch-guardian route to the
- *     reconcile handler, update-procedure-threshold to Failed.
+ *     non-guardian bug); every structural type routes to its reconcile, and
+ *     update-procedure-threshold completes with its finalization (#1233).
  */
 
-import { generateTransaction } from './index';
+import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { WalletType } from 'screens/onboarding/types';
+
+import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
+import { generateTransaction, MAX_QUEUED_AGE } from './index';
+import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
+import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
@@ -64,7 +76,55 @@ import { ITransactionStatus } from '../db/types';
 // the flag-flip guardian E2E, structurally here).
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
 
+// What the mock `createRebasedCustomProposal` hands back as the request the proposal was
+// made from. Distinct from every row's seeded bytes, so an assertion can tell the rebased
+// request from the one the row carried in.
+const REBASED_BYTES = [0x5e, 0xba, 0x5e];
+
+const INDEFINITE = `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
+// The attempt's entry records its kept candidate with the proposal nonce (#1081).
+const KEPT_AT_7 = expect.arrayContaining([expect.objectContaining({ candidateKept: true, guardianProposalNonce: 7 })]);
+
 const txStore: Array<Record<string, unknown>> = [];
+
+// When set, the row write that LEAVES the row at this stage rejects — the Dexie
+// hiccup a stage stamp must survive. Only the stamp for that one stage throws
+// (nothing else in a run sets `stage` to a leaf stage), so it isolates the stamp
+// from the surrounding status writes. Null (the default, restored in beforeEach)
+// leaves every write untouched.
+// eslint-disable-next-line no-var
+var mockThrowOnStageWrite: string | null = null;
+// Makes the row read inside the requeue wake fail a bounded number of times, so
+// the wake's read-failure path is reachable. Armed AFTER the requeue, since the
+// requeue itself reads the row through the same seam.
+var mockFailDiagnosticWrite = false;
+var mockFailRowReads: { id: string; times: number } | null = null;
+
+// One-shot: the next read of this row returns the row as it was, then advances
+// the stored row to GeneratingTransaction, as a concurrent driver picking it up
+// would. Lets a test occupy the gap between a read and its write.
+var mockClaimRowOnRead: { id: string } | null = null;
+
+// How many `modify` callbacks returned `false`. Dexie skips the put on exactly
+// that value and treats anything else — `undefined` included — as "modified",
+// re-putting the clone and firing a `liveQuery` event for it. A guard written as
+// a bare `return` therefore still writes, and without counting the declines no
+// assertion can tell the two apart: the clone equals the row, so the stored
+// fields look identical either way.
+var mockDeclinedWrites = 0;
+
+// Lets the loop's table scans see the stored rows, so a wake can drive a row other than the one it was armed for.
+// Off (scans empty) by default, which keeps every other test's loop laps from picking up its own row.
+var mockScansSeeStore = false;
+
+// Dexie's `innerDeepClone`: recurse into plain objects, hand everything else
+// back by reference.
+function dexieLikeClone<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || value.constructor !== Object) return value;
+  const copy: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value)) copy[key] = dexieLikeClone(nested);
+  return copy as T;
+}
 
 jest.mock('lib/miden/repo', () => ({
   db: { transaction: async (_mode: string, _t: unknown, cb: () => unknown) => cb() },
@@ -73,15 +133,92 @@ jest.mock('lib/miden/repo', () => ({
       txStore.push({ ...tx });
     }),
     where: jest.fn((query: { id: string }) => ({
-      modify: jest.fn(async (fn: (tx: Record<string, unknown>) => void) => {
+      modify: jest.fn(async (fn: (tx: Record<string, unknown>) => unknown) => {
         const row = txStore.find(r => r.id === query.id);
-        if (row) fn(row);
+        const stageBefore = row?.stage;
+        // Dexie hands the callback a CLONE and only writes it back when the
+        // callback does not return `false` — which is the entire mechanism
+        // behind the write-time terminal guards. Mutating the stored row
+        // directly would make those guards untestable: move one below its first
+        // assignment and the suite would stay green while production wrote over
+        // a terminal row.
+        if (row) {
+          // Deep over PLAIN objects only, which is what Dexie's own clone does:
+          // it recurses into plain objects and returns anything with a
+          // non-`Object` constructor — typed arrays, class instances — by
+          // reference. A shallow copy would share `stageTimestamps` and
+          // `extraInputs` with the stored row, so a callback that mutated a
+          // nested field and then declined would still have written through,
+          // which is the one case this mock exists to catch. `structuredClone`
+          // is not a substitute: it throws on the functions and class instances
+          // these fixtures carry.
+          const draft = dexieLikeClone(row);
+          if (fn(draft) === false) mockDeclinedWrites += 1;
+          else {
+            if (mockFailDiagnosticWrite && draft.failureDiagnostics !== row.failureDiagnostics) {
+              mockFailDiagnosticWrite = false;
+              throw new Error('diagnostic storage unavailable');
+            }
+            for (const key of Object.keys(row)) {
+              if (!Object.prototype.hasOwnProperty.call(draft, key)) delete row[key];
+            }
+            Object.assign(row, draft);
+          }
+        }
+        if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite && stageBefore !== row.stage) {
+          throw new Error(`dexie write blew up stamping '${mockThrowOnStageWrite}'`);
+        }
       }),
-      first: jest.fn(async () => txStore.find(r => r.id === query.id))
+      first: jest.fn(async () => {
+        if (mockFailRowReads !== null && mockFailRowReads.id === query.id && mockFailRowReads.times > 0) {
+          mockFailRowReads.times -= 1;
+          throw new Error('dexie read blew up');
+        }
+        const found = txStore.find(r => r.id === query.id);
+        // Model a concurrent driver claiming the row in the gap between a
+        // caller's read and its write: hand back the stale snapshot the caller
+        // would have seen, and advance the stored row as the driver would.
+        if (found && mockClaimRowOnRead !== null && mockClaimRowOnRead.id === query.id) {
+          mockClaimRowOnRead = null;
+          const snapshot = { ...found };
+          found.status = ITransactionStatus.GeneratingTransaction;
+          return snapshot;
+        }
+        return found;
+      })
     })),
-    filter: jest.fn(() => ({ toArray: jest.fn(async () => []) }))
+    filter: jest.fn((predicate: (row: Record<string, unknown>) => boolean) => ({
+      toArray: jest.fn(async () => (mockScansSeeStore ? txStore.filter(predicate) : []))
+    }))
   }
 }));
+
+// `generateTransactionsLoop` reaches the table through `filter`, so its call
+// count is the only observable this suite has for "the queue was actually
+// driven" — which is what a wake exists to do, and what a timer merely firing
+// does not prove.
+const repoMock = jest.requireMock('lib/miden/repo') as { transactions: { filter: jest.Mock } };
+
+/**
+ * jsdom has no `navigator.locks`, so `safeGenerateTransactionsLoop` throws into
+ * its own catch and returns false without ever touching the table — which would
+ * make "the wake drove the queue" unobservable and the assertion vacuous.
+ * Granting the lock lets the loop run for real.
+ */
+const installNavigatorLocks = (): (() => void) => {
+  const nav = globalThis.navigator as unknown as Record<string, unknown>;
+  const had = 'locks' in nav;
+  const prev = nav.locks;
+  Object.defineProperty(nav, 'locks', {
+    value: { request: (_n: string, _o: unknown, cb: (lock: object) => unknown) => cb({}) },
+    writable: true,
+    configurable: true
+  });
+  return () => {
+    if (had) Object.defineProperty(nav, 'locks', { value: prev, writable: true, configurable: true });
+    else delete nav.locks;
+  };
+};
 
 jest.mock('../front', () => ({
   putToStorage: jest.fn(async () => {}),
@@ -89,7 +226,22 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-jest.mock('lib/settings/constants', () => ({ GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting' }));
+const mockPrepareCustomRequestBytes = jest.fn(
+  async (
+    _client: unknown,
+    _account: string,
+    bytes: Uint8Array,
+    _hold?: unknown,
+    _observe?: (diagnostics: import('lib/telemetry/transaction-failure').TransactionFailureDiagnostics) => void
+  ) => bytes
+);
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: (...args: Parameters<typeof mockPrepareCustomRequestBytes>) =>
+    mockPrepareCustomRequestBytes(...args)
+}));
+
+jest.mock('lib/settings/constants', () => ({}));
+jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();
@@ -105,21 +257,80 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 // structural test can inspect the co-signed-request bytes and abandon/complete
 // call order.
 const mockBuildColdMultisigService = jest.fn();
-jest.mock('lib/miden/guardian', () => ({
-  MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
+jest.mock('lib/miden/guardian', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+  return {
+    GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
+  };
+});
+
+// The rotation mints its hot key in the transaction layer (#904).
+const mockGenerateHotKey = jest.fn(async () => ({
+  ciphertext: 'new-cx',
+  publicKeyHex: '0xNEWHOT',
+  commitmentHex: '0xnewcommit'
+}));
+jest.mock('lib/secure-hot-key', () => ({
+  generateHotKey: () => mockGenerateHotKey()
+}));
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: async () => '0xnewcommit'
 }));
 
-const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
+// See the same block in transactions.guardian.test.ts: the pipeline re-checks hold
+// ownership before proving and before submit (#777), so the mock must own a hold.
+let currentHold: object | null = null;
+const mockWithWasmClientLock = jest.fn(async (fn: (hold: object) => Promise<unknown>) => {
+  const hold = { mock: 'wasm-lock-hold' };
+  currentHold = hold;
+  try {
+    return await fn(hold);
+  } finally {
+    if (currentHold === hold) currentHold = null;
+  }
+});
 const mockGetMidenClient = jest.fn();
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+  getCurrentWasmLockHold: () => currentHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && currentHold === hold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
+  withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn(),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));
 
 // The routing seam under test: `dispatchGuardianPipeline` is a controllable spy,
 // and `midenClientProxy.syncState` is the pre-guardian sync (no-op here).
 const mockDispatchGuardianPipeline = jest.fn();
+
+// The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
+// gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it. A test turns
+// `mockLeafOpensGate` off for a leaf that stopped before its gate.
+let mockLeafOpensGate = true;
+const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
+  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+  try {
+    const result = await mockDispatchGuardianPipeline(...a);
+    if (mockLeafOpensGate) await gate?.();
+    return result;
+  } catch (error) {
+    if (mockLeafOpensGate && !hasErrorBeforeSubmit(error)) await gate?.();
+    throw error;
+  }
+};
 // The SW-side local-client `getAccount` (structural ops resolve the SDK account
 // here to build a cold service / mint the replacement hot key). Value-moving
 // types never call it, so the default `null` is harmless for them.
@@ -135,13 +346,17 @@ const mockProxyWaitForCommit = jest.fn(async (..._a: unknown[]) => {});
 // Default: note not found → 'unknown' → the killed consume falls through to Failed
 // (the pre-#3a behavior for the non-consume kill tests that don't touch it).
 const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as unknown[]);
+// The node's verdict on a transaction, which the real `didDirectSwitchLand` reads after a structural
+// commit wait fails. Default: still pending, no verdict.
+const mockProxyGetCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
 jest.mock('../back/miden-client-proxy', () => ({
-  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
+  dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
     waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a),
-    getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a)
+    getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a),
+    getTransactionCommitState: (...a: unknown[]) => mockProxyGetCommitState(...a)
   }
 }));
 
@@ -173,7 +388,6 @@ jest.mock('./complete', () => ({
   completeUpdateProcedureThresholdTransaction: (...a: unknown[]) => mockComplete.updateThreshold(...a)
 }));
 
-const mockCreateWasmWebClient = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -181,8 +395,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionProver: {
       newLocalProver: jest.fn(() => 'local-prover'),
       newCallbackProver: jest.fn(() => 'callback-prover')
-    },
-    WasmWebClient: { createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint) }
+    }
   };
 });
 
@@ -192,9 +405,15 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 
 // eslint-disable-next-line no-var
 var mockPlatformIsMobile = false;
+// jsdom carries a mocked `chrome.runtime.id`, so the real `isExtension()` is
+// TRUE in every unit test. Anything gated on being off-extension is therefore
+// unreachable — and silently so — unless the test can drive this.
+// eslint-disable-next-line no-var
+var mockPlatformIsExtension = true;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => mockPlatformIsMobile
+  isMobile: () => mockPlatformIsMobile,
+  isExtension: () => mockPlatformIsExtension
 }));
 
 jest.mock('shared/logger', () => ({
@@ -225,27 +444,43 @@ const makeResult = (bytes: number[] = [9, 9, 9]) => ({
 
 // The inline (flag-off) SW client leaf: execute→prove→submit→apply, returning the
 // TransactionExecution whose `.result` runGuardianPipeline hands back.
-const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
+const makeInlineClient = (result: ReturnType<typeof makeResult>, onProof?: () => void) => {
+  const submit = jest.fn(async () => ({ result, apply: jest.fn(async () => {}) }));
   const executeRequest = jest.fn(async () => ({
     id: result.executedTransaction().id(),
     result,
-    prove: async () => ({
-      submit: async () => ({ result, apply: jest.fn(async () => {}) })
-    })
+    prove: async () => {
+      onProof?.();
+      return { submit };
+    }
   }));
+  const client = {
+    syncChain: jest.fn(async () => {}),
+    getSyncHeight: jest.fn(async () => 100),
+    feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
+    transactions: { executeRequest }
+  };
+  bindFeeFaucetClientScope(client, 'fixture-rpc|testnet');
   return {
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
-    client: { transactions: { executeRequest } },
-    __executeRequest: executeRequest
+    client,
+    __executeRequest: executeRequest,
+    __submit: submit
   };
 };
 
 const makeService = () => ({
+  guardianEndpoint: 'https://guardian.test',
+  priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
   createSendProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createCustomProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+  createRebasedCustomProposal: jest.fn(async () => ({
+    proposal: { id: 'prop', nonce: 7 },
+    requestBytes: new Uint8Array(REBASED_BYTES)
+  })),
   signAndCreateTransactionRequest: jest.fn(async () => ({
     serialize: () => new Uint8Array(TR_BYTES),
     authArg: () => undefined
@@ -295,11 +530,22 @@ const valueMovingCases = (): Case[] => [
 // custom-proposal sends that cross the SAME leaf as send/swap — bridged-send
 // (agglayer) previews its pre-built request into a custom proposal; earn-deposit
 // carries a pre-seeded `requestBytes` so `ensureGuardianRecallableSendRequestBytes`
-// short-circuits (no WasmWebClient / getSyncHeight) and routes through the SAME
+// short-circuits (no height or account read) and routes through the SAME
 // custom proposal. They match the value-moving cases on routing / byte-identity /
 // kill-window; they DIVERGE only on the errorCode classifier (→ Failed, not
 // Completed — see the dedicated block below), so they are their own case list.
 const bridgeEarnCases = (): Case[] => [
+  {
+    type: 'bridged-send',
+    row: {
+      type: 'bridged-send',
+      faucetId: 'f',
+      amount: '3',
+      requestBytes: new Uint8Array([6, 6]),
+      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
+    },
+    complete: mockComplete.bridged
+  },
   {
     type: 'bridged-send',
     row: {
@@ -326,6 +572,14 @@ const bridgeEarnCases = (): Case[] => [
   }
 ];
 
+/** One bridge or earn case by what sets it apart: the bridge provider, or the earn-deposit type. */
+const bridgeEarnCase = (pick: 'usdcx' | 'agglayer' | 'earn-deposit'): Case =>
+  bridgeEarnCases().find(c => {
+    if (pick === 'earn-deposit') return c.type === 'earn-deposit';
+    const inputs = c.row.extraInputs;
+    return typeof inputs === 'object' && inputs !== null && Reflect.get(inputs, 'provider') === pick;
+  })!;
+
 const buildTx = (id: string, extra: Record<string, unknown>) => ({
   id,
   accountId: 'guardian-acc',
@@ -340,12 +594,12 @@ const buildTx = (id: string, extra: Record<string, unknown>) => ({
 const signCallback = jest.fn(async () => new Uint8Array([2]));
 
 /** Arrange a full value-moving guardian run: seed the row, service, inline client. */
-function arrange(id: string, extra: Record<string, unknown>, result = makeResult()) {
+function arrange(id: string, extra: Record<string, unknown>, result = makeResult(), onProof?: () => void) {
   const row = buildTx(id, extra);
   txStore.push({ ...row });
   const service = makeService();
   mockGetOrCreateMultisigService.mockResolvedValue(service);
-  const inline = makeInlineClient(result);
+  const inline = makeInlineClient(result, onProof);
   mockGetMidenClient.mockResolvedValue(inline);
   mockIsGuardianAccount.mockResolvedValue(true);
   return { row, service, inline };
@@ -355,11 +609,24 @@ beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
   mockPlatformIsMobile = false;
+  // Reset alongside its siblings. Left `false` by a test that forgot to restore
+  // it, every LATER unauthorized requeue in this file arms a real 16-56s timer
+  // (the suite runs on real timers), which then fires after the run has moved on.
+  mockPlatformIsExtension = true;
+  mockThrowOnStageWrite = null;
+  mockFailRowReads = null;
+  mockFailDiagnosticWrite = false;
+  mockClaimRowOnRead = null;
+  mockDeclinedWrites = 0;
+  mockScansSeeStore = false;
+  mockLeafOpensGate = true;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
 afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+  // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+  clearGuardianAccountLocks();
 });
 
 describe('guardian leaf routing — flag OFF (inline)', () => {
@@ -406,6 +673,1717 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   );
 
+  it('an unknown submit outcome from the offscreen leaf keeps the candidate for the verdict (#1081)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${INDEFINITE}`)
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-indefinite', row);
+
+    await generateTransaction(buildTx('on-send-indefinite', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-indefinite') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored.submitEvidence).toEqual([expect.objectContaining({ candidateKept: true, guardianProposalNonce: 7 })]);
+  });
+
+  it('a failure the offscreen leaf proved came before its submit still abandons at once, so it is retryable at once (#1081)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error("Offscreen call 'guardianPipeline' failed: failed to execute transaction: kernel assertion")
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-pre-submit', row);
+
+    await generateTransaction(buildTx('on-send-pre-submit', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-pre-submit') as Record<string, unknown>;
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
+  it('an untagged failure after the offscreen dispatch keeps the candidate, a node refusal included (#1081)', async () => {
+    // Once the request reached the leaf no classifier tells a refusal from a lost response, so the candidate waits
+    // for the node's verdict or the Guardian's own discard.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error("Offscreen call 'guardianPipeline' failed: node refused the proven transaction")
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-refused', row);
+
+    await generateTransaction(buildTx('on-send-refused', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-refused') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+  });
+
+  it('an "unauthorized" execution failure requeues even though the realm cannot author `stage`', async () => {
+    // The guardian co-signs a summary bound to the state it saw; if that state
+    // moves before the leaf's executeRequest recomputes it, execution rejects
+    // the signature. `guardianPipeline` throws from executeRequest, which sits
+    // before its own postStageEvent('submitting') and provenTx.submit(), so
+    // nothing reached the chain and the transfer is recoverable.
+    //
+    // The requeue must NOT be gated on the row's `stage`: an offscreen leaf's
+    // stamps are replayed as `timingOnly` precisely so they never author that
+    // field, so the row still reads whichever stage the SW stamped last. Gating
+    // on 'executing' would make the whole arm dead code on the shipping path —
+    // the service-worker bundle defaults MIDEN_USE_OFFSCREEN_CLIENT to 'true'.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Tagged as the offscreen leaf tags every failure it raises before its submit call (Task 8).
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary ' +
+            'TransactionSummary { nonce_delta: 1 }'
+        )
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-unauthorized', row);
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(buildTx('on-send-unauthorized', row) as never, signCallback, false, provider as never);
+
+    // Read the clock AFTER the requeue as well: the stamp is taken from Date.now() inside
+    // the call, and a run that straddles a second boundary makes `before + 54` one short.
+    const after = Math.floor(Date.now() / 1000);
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized') as Record<string, unknown>;
+    // The leaf was actually reached — without this the test would pass for any
+    // earlier crash, e.g. a renamed mock silently short-circuiting the pipeline.
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    // Guards the point of the test: if the realm ever DID author `stage`, a
+    // stage-gated implementation would pass here for the wrong reason.
+    expect(stored.stage).not.toBe('executing');
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(stored.processingStartedAt).toBeUndefined();
+    // Provably before the submit, so the candidate is abandoned at once and the requeue never meets it (#1081).
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    // Bounded on BOTH sides: a bare "is a number" assertion stays green if the
+    // cooldown is changed to 0 (the row is re-picked every ~5s poll, hammering
+    // the guardian and starving other accounts) or to something so large the row
+    // never becomes eligible again before MAX_QUEUED_AGE reaps it. The jitter is
+    // pinned below rather than left to the draw, which only caught a zeroed base
+    // cooldown about three runs in four.
+    expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(after + 54);
+  });
+
+  it('the stamped cooldown lands inside the jittered 15-54s window', async () => {
+    // The BOUNDS are pinned here; the boundary VALUES are pinned directly on
+    // `unauthorizedRequeueCooldownSec` in transactions.cooldown.test.ts. Split
+    // that way deliberately: pinning the exact value here needs a constant
+    // `Math.random`, and a constant draw held across a failing assertion makes
+    // jest's source-map sort degenerate, so the run reports
+    // `RangeError: Maximum call stack size exceeded` instead of the expectation
+    // that failed. This test therefore mocks no clock and no draw, and asserts
+    // the property that matters end to end: whatever the draw, the row is
+    // re-eligible inside the documented window.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-jitter', row);
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-jitter', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // Read the clock AFTER the requeue as well: the stamp is taken from Date.now() inside
+    // the call, and a run that straddles a second boundary makes `before + 54` one short.
+    const after = Math.floor(Date.now() / 1000);
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-jitter') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(after + 54);
+  });
+
+  it('an unauthorized consume requeues too — the same race hit claims in the field', async () => {
+    // The stress run that motivated this arm produced 20 failed consumes
+    // alongside the 47 failed sends, with the identical error. `consume` reaches
+    // the arm through the same set as `send`, and only `send` was covered.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      )
+    );
+    const row = { type: 'consume', noteId: 'note-unauth' };
+    arrange('on-consume-unauthorized', row);
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(buildTx('on-consume-unauthorized', row) as never, signCallback, false, provider as never);
+
+    // Read the clock AFTER the requeue as well: the stamp is taken from Date.now() inside
+    // the call, and a run that straddles a second boundary makes `before + 54` one short.
+    const after = Math.floor(Date.now() / 1000);
+    const stored = txStore.find(r => r.id === 'on-consume-unauthorized') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    // Bounded like the send case rather than merely "is a number", which stays
+    // green at a cooldown of 0 — the row re-picked every poll, hammering the
+    // guardian this arm is trying to give room to recover.
+    expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(after + 54);
+  });
+
+  it('an unauthorized replace-hot-key is NOT requeued — a structural op must not re-mint', async () => {
+    // By this arm the row's key is already persisted, so a rerun would read it
+    // back rather than mint another; the type gate is the only thing stopping a
+    // structural op from being requeued here regardless, so it fails for the
+    // user to re-initiate instead - the same honest-outcome call as
+    // `earn-deposit`. Without this test the whole `UNAUTHORIZED_EXECUTION_REQUEUEABLE`
+    // conjunct is mutation-dead: deleting it leaves every suite green.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    arrange('on-replace-hot-key-unauthorized', row);
+
+    await generateTransaction(
+      buildTx('on-replace-hot-key-unauthorized', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-replace-hot-key-unauthorized') as Record<string, unknown>;
+    // Pins WHY it failed. Without this the test is vacuous: this file's shared
+    // `provider` fixture returns no accounts (`getAccounts: async () => []`), so
+    // THIS arrangement's replace-hot-key case throws on its own account lookup
+    // before ever reaching the leaf, for a reason unrelated to the type gate -
+    // not a claim that a structural op can never reach it (a stale-state rebuild
+    // does, elsewhere). The `earn-deposit` case above and the membership test
+    // below are what actually hold that gate honest.
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+  });
+
+  it('the unauthorized requeue set is exactly the value-moving retryable types', async () => {
+    // Membership asserted directly because the behavioural tests cannot reach it
+    // from both sides: the replace-hot-key test above throws on its own account
+    // lookup (this file's shared `provider` fixture returns no accounts) before
+    // ever reaching this arm's decision, for a reason unrelated to the gate, so
+    // ADDING `replace-hot-key` here changes no test's outcome; and no suite sends
+    // an unauthorized `swap` or `execute`, so DROPPING those changes nothing
+    // either. Both directions matter - one lets a post-persist rerun retry a
+    // structural op the design fails for the user to re-initiate instead, the
+    // other silently narrows the fix back to the two types that happen to have
+    // tests.
+    const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
+    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual(['consume', 'execute', 'send', 'swap']);
+  });
+
+  it('an "unauthorized" that is NOT execution-scoped stays terminally Failed (no double-send)', async () => {
+    // The requeue arm above concludes "never reached the chain" from the error
+    // text alone, so that text has to pin the failure to the execute step. A
+    // rejection carrying the same word from anywhere AFTER submit describes a
+    // transfer that may already have landed, and requeueing it would rebuild
+    // and co-sign a second valid send — the account debited twice, with no
+    // input-note nullifier for the chain to reject the duplicate on.
+    //
+    // Without this, `isGuardianUnauthorizedExecutionError` could be reduced to
+    // a bare /unauthorized/ match and every suite would stay green.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error("Offscreen call 'guardianPipeline' failed: submit rejected by node: transaction is unauthorized")
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-post-submit', row);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-post-submit', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-post-submit') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+  });
+
+  it('an execution-scoped "unauthorized" whose cause is a deadline kill is NOT requeued (#1313)', async () => {
+    // The killed pipeline may still submit, so a requeue would build and co-sign a second send.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}',
+        { cause: new OperationAbortedError('op-1', 'deadline') }
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-wrapped-kill', row);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-wrapped-kill', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-wrapped-kill') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+    expect(stored.unauthorizedRetryUntil).toBeUndefined();
+  });
+
+  it('off-extension, an unauthorized requeue arms a wake to drive the row', async () => {
+    // Off-extension there is no service worker polling the queue: the only driver
+    // is the generating-transaction screen's interval, which the user cancels by
+    // leaving the screen. Without this wake the requeued row sits Queued until
+    // the next app launch — a send that silently does nothing, worse than the
+    // failure the requeue replaced. Gated on `isExtension()`, which is TRUE for
+    // every other test in this file, so without the override below the whole
+    // wake is unreachable and deleting it would leave the suite green.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake')?.status).toBe(ITransactionStatus.Queued);
+      // Scheduled past the cooldown rather than immediately — firing before
+      // `nextEligibleAt` would just put the loop straight back to sleep.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      // Past the longest cooldown the jitter can draw: the wake fires and
+      // actually DRIVES the queue. Without this the whole callback body could be
+      // deleted and the suite would stay green.
+      await jest.advanceTimersByTimeAsync(56_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+
+      // Firing is not progress. The loop takes its lock with `ifAvailable` and
+      // services the oldest eligible row, so a wake can land and leave this row
+      // exactly where it was — which is the state the wake exists to prevent. It
+      // re-arms while the row is still Queued.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const runsAfterFirst = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsAfterFirst);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, an unreachable guardian requeue arms a wake (#779)', async () => {
+    // Same stranding risk as the unauthorized arm above: off-extension nothing else drives a requeued send.
+    // The wake is timed one second past the fixed 60 s cooldown, so it must not drive the queue before then.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('off-send-unreachable-wake', row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await generateTransaction(
+        buildTx('off-send-unreachable-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Failed at the proposal creator, so the requeue came from the creating-proposal gate.
+      expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === 'off-send-unreachable-wake')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a pending-delta requeue arms a wake a beat past its 15 s cooldown (#312)', async () => {
+    // Before #312 this arm armed no wake, so off-extension a 409 left the send to the generating screen's interval,
+    // which the user cancels by leaving the screen.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('off-send-busy-wake', row);
+      service.createSendProposal.mockRejectedValue({ status: 409, code: 'conflict_pending_delta' });
+
+      let settled = false;
+      void generateTransaction(
+        buildTx('off-send-busy-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      ).then(() => {
+        settled = true;
+      });
+      // One real event-loop turn with the clock held: the requeue needs no timer, while an in-process 409 retry
+      // sleeps on one, so that regression fails here rather than hanging the test.
+      await jest.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(true);
+
+      expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+      const stored = txStore.find(r => r.id === 'off-send-busy-wake');
+      expect(stored?.status).toBe(ITransactionStatus.Queued);
+      expect(stored?.guardianBusy).toBe(true);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a wake lap that requeues its row again comes back a beat past the new nextEligibleAt (#779)', async () => {
+    // The lap's re-arm replaces the wake its own requeue armed. Aimed at nextEligibleAt itself, it can fire on a clock
+    // still short of it, find the row excluded, and cost a wasted lap plus the re-arm minimum.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-relap';
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+      const stored = () => txStore.find(r => r.id === id) as Record<string, unknown>;
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      const firstEligibleAt = Number(stored().nextEligibleAt);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+      // The first lap drove the row, and its refused connection requeued it again inside the lap.
+      expect(service.createSendProposal).toHaveBeenCalledTimes(2);
+      expect(stored().status).toBe(ITransactionStatus.Queued);
+      const secondEligibleAt = Number(stored().nextEligibleAt);
+      expect(secondEligibleAt).toBeGreaterThan(firstEligibleAt);
+
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsAfterLap = loopRuns();
+      await jest.advanceTimersByTimeAsync(secondEligibleAt * 1000 + 500 - Date.now());
+      expect(loopRuns()).toBe(runsAfterLap);
+
+      await jest.advanceTimersByTimeAsync(500);
+      expect(loopRuns()).toBeGreaterThan(runsAfterLap);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a backed-off requeue wakes its row at the reap boundary when that comes first (#1223)', async () => {
+    // A doubled cooldown can outlast the row's queue life, and off the extension the wake is what drives the reaper, so
+    // a first wake aimed a beat past nextEligibleAt left an expired row Queued for up to the whole cooldown.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-reap-first';
+      const row = {
+        type: 'send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '1',
+        // 20 s of queue life left, and a streak whose next unreachable requeue waits the 240 s cap.
+        initiatedAt: Math.floor(Date.now() / 1000) - (MAX_QUEUED_AGE - 20),
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+      const stored = () => txStore.find(r => r.id === id) as Record<string, unknown>;
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      expect(stored().status).toBe(ITransactionStatus.Queued);
+      expect(Number(stored().nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(240);
+
+      // The reap boundary is 20 s out, and the wake comes one 3 s re-arm beat past it.
+      await jest.advanceTimersByTimeAsync(24_000);
+      expect(stored().status).toBe(ITransactionStatus.Failed);
+      expect(stored().error).toBe(TRANSACTION_EXPIRED_ERROR);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, an unreachable requeue of a row with no usable initiatedAt wakes a beat past nextEligibleAt (#1223)', async () => {
+    // With no reap boundary to aim at, the new chain's ceiling stands in, so the first wake keeps its old timing.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-unusable-stamp';
+      // NaN, the unusable value the Number.isFinite guard in requeueWakeDelayMs rejects.
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', initiatedAt: NaN };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      expect(txStore.find(r => r.id === id)?.status).toBe(ITransactionStatus.Queued);
+
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it("off-extension, an older row driven by another row's wake signs under its own id (#779)", async () => {
+    // The wake drives the whole queue with the provider its row was generated with, and generateTransaction wraps
+    // that provider again for whichever row the loop picks. The vault looks a recovery authorization up by the id
+    // signWord carries, so an older row signing under the requeued row's id would be refused as needing the seed.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('wake-requeued-a', row);
+      txStore.push({ ...buildTx('wake-older-b', row), initiatedAt: Math.floor(Date.now() / 1000) - 10 });
+      let serviceProvider: GuardianAccountProvider | undefined;
+      mockGetOrCreateMultisigService.mockImplementation(async (_accountId: string, p: GuardianAccountProvider) => {
+        serviceProvider = p;
+        return service;
+      });
+      // The real service signs through a WalletSigner, which passes only the public key and the word.
+      service.createSendProposal
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockImplementation(async () => {
+          await serviceProvider?.signWord('pk', '0xword');
+          return { id: 'prop', nonce: 7 };
+        });
+      const signWord = jest.fn(async (..._a: unknown[]) => 'sig');
+
+      await generateTransaction(buildTx('wake-requeued-a', row) as never, signCallback, false, {
+        ...provider,
+        signWord
+      } as never);
+      expect(txStore.find(r => r.id === 'wake-requeued-a')?.status).toBe(ITransactionStatus.Queued);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+
+      expect(signWord).toHaveBeenCalledTimes(1);
+      expect(signWord).toHaveBeenCalledWith('pk', '0xword', 'wake-older-b');
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('an unreachable-looking failure from the offscreen leaf fails the row, never requeues it (#779)', async () => {
+    // The shipping path: flag ON, the leaf runs offscreen and its replayed stamps never author `stage`; only its
+    // submit gate does (#1644), so a row whose leaf got past that gate reads 'submitting'. A transport error at submit
+    // reads exactly like a silent guardian, and the send may already be on chain, so the stage gate is what keeps it
+    // Failed. Off the extension, so a requeue would also arm its wake.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(new Error('Failed to fetch'));
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unreachable-at-sending', row);
+
+      await generateTransaction(
+        buildTx('on-send-unreachable-at-sending', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unreachable-at-sending') as Record<string, unknown>;
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(stored.stage).toBe('submitting');
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect(stored.nextEligibleAt).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('comes back after a row read that fails, instead of abandoning the row', async () => {
+    // The wake decides whether to re-arm by reading its own row. That read is
+    // the only thing standing between the row and being stranded, so a Dexie
+    // hiccup there must not end the chain — off-extension nothing else would
+    // come back for it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-readfail', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-readfail', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Armed only now: the requeue itself reads the row through this same seam.
+      mockFailRowReads = { id: 'on-send-unauthorized-wake-readfail', times: 1 };
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+
+      // Past the longest cooldown: the wake fires, drives the queue, and its row
+      // read throws.
+      await jest.advanceTimersByTimeAsync(56_000);
+      // The read really did fail. Without this the test would pass on the
+      // ordinary still-Queued re-arm — which produces the same timer count and
+      // the same loop drive — and would never touch the catch it exists for.
+      expect(mockFailRowReads?.times).toBe(0);
+      const runsAfterFailedRead = loopRuns();
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      // It came back, and the next lap drives the queue again.
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsAfterFailedRead);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps at most one wake per row, so repeated requeues cannot compound chains', async () => {
+    // `scheduleRequeueWake` is called afresh on every unauthorized requeue, and
+    // in production the second one lands while the first callback is still
+    // awaiting its loop drive — before that callback reaches its own re-arm.
+    // Without the per-row cancel both chains survive and each drives the loop
+    // independently, multiplying queue-driver load on a row whose whole problem
+    // is a guardian already under load.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-dedupe', row);
+      const tx = buildTx('on-send-unauthorized-wake-dedupe', row) as never;
+
+      await generateTransaction(tx, signCallback, false, provider as never);
+      expect(jest.getTimerCount()).toBe(1);
+
+      // A second unauthorized failure on the SAME row arms a second wake.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-dedupe') as Record<string, unknown>;
+      stored.status = ITransactionStatus.Queued;
+      await generateTransaction(tx, signCallback, false, provider as never);
+
+      expect(jest.getTimerCount()).toBe(1);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it.each([
+    ['Completed', ITransactionStatus.Completed],
+    ['Unconfirmed', ITransactionStatus.Unconfirmed]
+  ])('stops re-arming the wake once the row leaves Queued as %s', async (_label, leftAs) => {
+    // The re-arm chain has to end on its own. A row the user cancelled, or one a
+    // later cycle completed, must not keep a timer alive behind it. Nor one waiting
+    // for the node's verdict: no driver can move it, only the reconciler (#1081).
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-stop', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-stop', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-stop') as Record<string, unknown>;
+      stored.status = leftAs;
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps watching a row another driver picked up, and drives it again if that attempt requeues', async () => {
+    // `GeneratingTransaction` is not an ending. The attempt that claimed the row
+    // can finish by requeueing rather than completing — through the 409, 429,
+    // prover-outage or locked-wallet arms, none of which schedules a wake, since
+    // only the unauthorized and unreachable arms do. A chain that stopped on any non-Queued
+    // status would hand the row back to a queue with no driver off-extension,
+    // which is the strand it exists to prevent, and the row would look healthy
+    // on the way there.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    // Needed for the DRIVE half: without a lock implementation
+    // `safeGenerateTransactionsLoop` returns before touching the queue, so the
+    // chain would stay armed while driving nothing and the assertion below could
+    // not tell the difference.
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-inflight', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-inflight', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-inflight') as Record<string, unknown>;
+      stored.status = ITransactionStatus.GeneratingTransaction;
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      // Still armed. Watching, not abandoning.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      // That attempt requeues for an unrelated reason and schedules no wake of
+      // its own. The chain that stayed alive is what drives it.
+      stored.status = ITransactionStatus.Queued;
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps waking a row for longer than its whole retry budget', async () => {
+    // The wake has to outlast what it is covering. An earlier version stopped
+    // after 20 re-arms of 3s — about a minute against a three-minute budget — so
+    // a row whose wakes kept losing the loop lock ran out of liveness while it
+    // was still perfectly retryable, and sat Queued until the next app launch.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-budget', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-budget', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Past the full 180s retry budget, with the row never picked up.
+      await jest.advanceTimersByTimeAsync(200_000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-budget')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      // The loop drive, not just the timer. Both assertions below hold for a
+      // chain that re-arms forever without ever calling
+      // `safeGenerateTransactionsLoop` — the silent no-op this wake exists to
+      // prevent, and which the row-status assertion cannot distinguish from a
+      // working chain, since the row stays Queued either way.
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps waking a row whose deadline an unrelated backoff pushed past the old fixed ceiling', async () => {
+    // The retry budget is a wall clock that OTHER arms extend: a 429 from the
+    // same overloaded guardian parks the row and pushes `unauthorizedRetryUntil`
+    // out by its own cooldown. An earlier version fixed the chain's ceiling at
+    // 10 minutes from the first wake, so a row that had waited out two clamped
+    // 429s held a live deadline the chain had already stopped covering — Queued,
+    // still retryable, and off-extension with nothing left to drive it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-extended', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-extended', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Park the row on a clamped rate-limit cooldown, as the same overloaded
+      // guardian readily does next. That is the shape that broke the old fixed
+      // ceiling: two of these and the row is still waiting, still retryable,
+      // ten minutes after the chain would have given up.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-extended') as Record<string, unknown>;
+      stored.nextEligibleAt = Math.floor(Date.now() / 1000) + 600;
+
+      // Well past the old 10-minute ceiling, and past the 180s budget too, but
+      // still inside the queue's own 30-minute cap — where the row remains
+      // Queued and therefore still needs a driver.
+      await jest.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-extended')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      // The loop drive, not just the timer. Both assertions below hold for a
+      // chain that re-arms forever without ever calling
+      // `safeGenerateTransactionsLoop` — the silent no-op this wake exists to
+      // prevent, and which the row-status assertion cannot distinguish from a
+      // working chain, since the row stays Queued either way.
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps waking a row past MAX_QUEUED_AGE, because the reaper it is waiting for runs inside the loop', async () => {
+    // A row older than MAX_QUEUED_AGE looks like the chain's natural stopping
+    // point: `cancelStaleQueuedTransactions` will fail it as expired, so the
+    // wake has nothing left to do. That reasoning is circular. The reaper runs
+    // INSIDE `generateTransactionsLoop`, which off-extension this wake is what
+    // drives, and the drive takes the loop lock with `ifAvailable` — a lap that
+    // loses it to a long-running pipeline reaps nothing. Stopping on age would
+    // abandon the row on exactly the lap that failed to do the work, leaving it
+    // Queued with nothing left to reap it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-stale', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-stale', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Older than MAX_QUEUED_AGE (30 min) — a row the reaper WOULD take, if a
+      // loop pass ever got the lock. The `filter` mock returns nothing, so here
+      // none does, standing in for a lap that lost the lock.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-stale') as Record<string, unknown>;
+      stored.initiatedAt = Math.floor(Date.now() / 1000) - 31 * 60;
+
+      // Past the longest cooldown, so the first wake has fired and decided.
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-stale')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      // The loop drive, not just the timer. Both assertions below hold for a
+      // chain that re-arms forever without ever calling
+      // `safeGenerateTransactionsLoop` — the silent no-op this wake exists to
+      // prevent, and which the row-status assertion cannot distinguish from a
+      // working chain, since the row stays Queued either way.
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('drives a stale row at the reap boundary instead of sleeping out its cooldown first', async () => {
+    // Past MAX_QUEUED_AGE the row's own cooldown stops being the right thing to
+    // wait for: what it needs is a loop pass, so the reaper inside it can fail
+    // the row with a reason. A row parked on a 429's clamped 300s cooldown would
+    // otherwise sit five more minutes past the point it should already be gone.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-clamp', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-clamp', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Already past the reap boundary, and parked on a long rate-limit cooldown.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-clamp') as Record<string, unknown>;
+      const nowSec = Math.floor(Date.now() / 1000);
+      stored.initiatedAt = nowSec - 31 * 60;
+      stored.nextEligibleAt = nowSec + 600;
+
+      // Let the first wake fire and decide when to come back.
+      await jest.advanceTimersByTimeAsync(60_000);
+      const runsBefore = repoMock.transactions.filter.mock.calls.length;
+
+      // Without the clamp the next drive is 10 minutes out, not seconds.
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(repoMock.transactions.filter.mock.calls.length).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('stops the chain at its ceiling even when every row read fails', async () => {
+    // The read-failure re-arm carries the chain's ORIGINAL start time. Carrying
+    // the current time instead would push the ceiling out on every failed read,
+    // so a row whose read never recovers would re-arm every three seconds for
+    // the life of the process — the one thing the ceiling exists to stop.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-readfail-cap', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-readfail-cap', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Every read from here on throws.
+      mockFailRowReads = { id: 'on-send-unauthorized-wake-readfail-cap', times: Number.MAX_SAFE_INTEGER };
+
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('stops the chain when the row has vanished from the table', async () => {
+    // A deleted row is not a waiting row. `row?.status !== Queued` is what makes
+    // `undefined` a stop rather than a reason to keep coming back.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-gone', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-gone', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(jest.getTimerCount()).toBe(1);
+
+      const idx = txStore.findIndex(r => r.id === 'on-send-unauthorized-wake-gone');
+      txStore.splice(idx, 1);
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('caps the wake chain so a row that can never be driven cannot run timers forever', async () => {
+    // The row stays Queued for the whole test, so only the cap can end the
+    // chain. Without one, a row nothing will ever pick up leaves a timer chain
+    // running for the life of the process. The cap is absolute and generous —
+    // sized past MAX_QUEUED_AGE, because up to that point a Queued row still has
+    // work owed to it (a retry, a terminal failure, or a reap) and off-extension
+    // this wake is what runs it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-cap', row);
+      const warn = jest.spyOn(console, 'warn');
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-cap', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Past the absolute ceiling (MAX_QUEUED_AGE + 60s from the first wake).
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+      // The other half of the boolean `cancelTransaction` now returns: this row
+      // WAS expired here, and the log has to say so. Together with the declined
+      // case asserted in the claimed-row test, this is what makes the return
+      // value falsifiable rather than decorative.
+      const ceilingLogs = warn.mock.calls
+        .map(call => String(call[0]))
+        .filter(line => line.includes('absolute ceiling'));
+      warn.mockRestore();
+      expect(ceilingLogs).toHaveLength(1);
+      expect(ceilingLogs[0]).toContain('expired the row');
+
+      // Terminal, NOT still Queued. Off-extension this chain is the only thing
+      // that would ever drive the row, so a ceiling that merely stopped would
+      // leave it Queued with nothing watching it — the exact silent no-op the
+      // wake exists to prevent, and the reaper cannot be assumed to have run
+      // because it needs a lap that won the loop lock.
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-cap')?.status).toBe(ITransactionStatus.Failed);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('does not expire a fresh incarnation of the row the chain started on', async () => {
+    // `requeueFailedTransaction` refreshes `initiatedAt` on the SAME row id, and
+    // the wake map is keyed by id, so a user who cancels and retries mid-chain
+    // hands the old chain a transaction it never started timing. Expiring that
+    // on the inherited deadline tells the user their minutes-old retry "expired
+    // after being queued too long" — and the reaper, which this ceiling claims
+    // only to be standing in for, would not have touched it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const adoptions = () =>
+      warn.mock.calls.filter(c => typeof c[0] === 'string' && c[0].includes('adopted a newer row')).length;
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-reborn', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-reborn', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Most of the way to the ceiling, then the user retries: same id, fresh
+      // `initiatedAt`, as `requeueFailedTransaction` writes it.
+      await jest.advanceTimersByTimeAsync(20 * 60 * 1000);
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-reborn') as Record<string, unknown>;
+      stored.initiatedAt = Math.floor(Date.now() / 1000);
+
+      await jest.advanceTimersByTimeAsync(12 * 60 * 1000);
+
+      // Still alive, and still being driven — the new incarnation gets its own
+      // chain rather than inheriting a deadline that was never about it.
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-reborn')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      // The chain is FRESH, not merely alive. Hand the adoption the old
+      // `chainStartedAt` and the row survives this far all the same, but every
+      // 3s lap lands back on an already-expired ceiling and re-adopts — a row
+      // that is driven, yet can never again reach the expiry the ceiling exists
+      // to produce. One adoption, not a cadence of them, is what distinguishes
+      // the two.
+      expect(adoptions()).toBe(1);
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(adoptions()).toBe(1);
+    } finally {
+      warn.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  }, 20_000);
+
+  it.each([
+    ['absent', undefined],
+    ['a whole day ahead of the clock', () => Math.floor(Date.now() / 1000) + 86_400]
+  ])(
+    'expires a row whose initiatedAt is %s, rather than adopting it forever',
+    async (_label, stamp) => {
+      // The adoption branch asks "is this row younger than the reaper's cap?". An
+      // absent stamp answers NaN, which loses every comparison, and a stamp a day
+      // in the future is not a clock skew - it is a stamp that means nothing.
+      // Routed to adoption, either re-arms a chain whose ceiling reaches the same
+      // answer 31 minutes later, forever, and the reaper it defers to filters on
+      // the same comparison so it will never take the row either. The ceiling is
+      // the only thing that can end it.
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockPlatformIsExtension = false;
+      jest.useFakeTimers();
+      try {
+        mockDispatchGuardianPipeline.mockRejectedValue(
+          markErrorBeforeSubmit(
+            new Error(
+              "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+                'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+            )
+          )
+        );
+        const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+        arrange('on-send-unauthorized-wake-noage', row);
+
+        await generateTransaction(
+          buildTx('on-send-unauthorized-wake-noage', row) as never,
+          signCallback,
+          false,
+          provider as never
+        );
+
+        const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-noage') as Record<string, unknown>;
+        if (stamp === undefined) delete stored.initiatedAt;
+        else stored.initiatedAt = stamp();
+
+        await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+
+        expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-noage')?.status).toBe(ITransactionStatus.Failed);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+        mockPlatformIsExtension = true;
+      }
+    },
+    20_000
+  );
+
+  it('adopts a row a minute ahead of the clock instead of expiring it', async () => {
+    // The MAGNITUDE of the discrepancy is what disqualifies a stamp, not its
+    // sign — the rule `pipelineMayStillBeRunning` already states for this same
+    // arithmetic, where a small skew stays live and errs toward funds safety. A
+    // predicate rejecting every negative age fails a row a user retried a moment
+    // before an NTP correction stepped the clock back, and reports it to them as
+    // "expired after being queued too long" seconds into its life. The day-ahead
+    // case above still expires, so the two halves of the bound are separated.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn');
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-skew', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-skew', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-skew') as Record<string, unknown>;
+      // Stamped so the age is a SMALL negative number at the moment the ceiling
+      // reads it, ~31 minutes from now — a clock stepped back under a row that
+      // was retried, not a stamp from another epoch.
+      stored.initiatedAt = Math.floor(Date.now() / 1000) + 32 * 60 + 1;
+
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+
+      const adoptions = warn.mock.calls.filter(call => String(call[0]).includes('adopted a newer row')).length;
+      warn.mockRestore();
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-skew')?.status).toBe(ITransactionStatus.Queued);
+      expect(adoptions).toBe(1);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      warn.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  }, 20_000);
+
+  it('does not expire a row at the ceiling that another driver has just picked up', async () => {
+    // The expiry runs OUTSIDE the loop lock, so unlike the reaper it imitates it
+    // races every other driver. A row past its cooldown can be advanced to
+    // GeneratingTransaction between the ceiling's read and its write, and failing
+    // that row would report a failure for a pipeline that is still running and
+    // can still submit — the double-send shape this whole arm is careful about.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    // Pinned, because the whole test turns on WHICH read consumes the one-shot.
+    // The first wake lands a jittered cooldown after the requeue and every later
+    // lap is exactly REQUEUE_WAKE_REARM_MS after that, so an unpinned draw shifts
+    // the lap phase and can let an ORDINARY lap take the claim instead of the
+    // ceiling's. That still leaves the row in GeneratingTransaction, so the
+    // assertion below passes with the guard removed — the test looks green while
+    // testing nothing.
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    // Silenced for as long as the draw is constant, and that is the POINT rather
+    // than noise reduction. Jest formats each console line as it is written, and
+    // that formatting sorts source maps with `Math.random` as its pivot — with a
+    // constant draw the sort degenerates and throws, so the run reports
+    // `RangeError: Maximum call stack size exceeded` INSTEAD of the expectation
+    // that failed. Restoring the draw before the assertion does not help: the
+    // overflow already happened, inside `generateTransaction`, when production
+    // logged. No console output while the draw is pinned means nothing to sort.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-claimed', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-claimed', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Run right up to the ceiling first. The claim has to land on the CEILING's
+      // read, so it is armed only once the next lap is the one that crosses:
+      // armed earlier, an ordinary lap consumes it and the chain simply stops on
+      // a non-Queued row, which would exercise nothing.
+      await jest.advanceTimersByTimeAsync(31 * 60 * 1000 - 2_000);
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-claimed')?.status).toBe(ITransactionStatus.Queued);
+
+      // Occupy the gap: the ceiling reads Queued, a driver claims the row, and
+      // only then does the write land.
+      mockClaimRowOnRead = { id: 'on-send-unauthorized-wake-claimed' };
+      // Zeroed here so the count below belongs to the CEILING's write and not to
+      // any earlier decline in the run.
+      mockDeclinedWrites = 0;
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      const ceilingLogs = warn.mock.calls
+        .map(call => String(call[0]))
+        .filter(line => line.includes('absolute ceiling'));
+      random.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+
+      // Left alone. The running pipeline owns this row's outcome.
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-claimed')?.status).toBe(
+        ITransactionStatus.GeneratingTransaction
+      );
+      // The log has to say which of the two things happened, because it is the
+      // only record of it. Asserted rather than assumed: `cancelTransaction`'s
+      // boolean is otherwise mutation-dead — dropping its `applied` bookkeeping
+      // leaves every other assertion green while this line claims the row was
+      // expired when it was not.
+      expect(ceilingLogs).toHaveLength(1);
+      expect(ceilingLogs[0]).toContain('another driver had already taken it');
+      expect(ceilingLogs[0]).not.toContain('expired the row');
+      // The declining write returned `false`, so Dexie skipped the put. Written
+      // as a bare `return` it would have re-put the unchanged clone and fired a
+      // `liveQuery` event for a write that changed nothing — invisible in any
+      // field assertion, since the clone matches the row.
+      expect(mockDeclinedWrites).toBeGreaterThan(0);
+      // And the row is still being watched: a declined expiry means someone else
+      // owns the attempt, and that attempt can requeue rather than finish.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      random.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  }, 20_000);
+
+  it('on extension, no wake is armed — the service worker already drives the queue', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-nowake', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-nowake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-nowake')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it('an unauthorized earn-deposit stays Failed - the unauthorized arm leaves Earn out', async () => {
+    // A scope choice (see UNAUTHORIZED_EXECUTION_REQUEUEABLE): this arm's short retry cap does not extend to
+    // Earn, so a deposit that races a signature fails at once, even though the error is the same recoverable
+    // race that requeues every other value-moving type.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = {
+      type: 'earn-deposit',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '5',
+      requestBytes: new Uint8Array([4, 4]),
+      extraInputs: { recallBlocks: 10 }
+    };
+    arrange('on-earn-unauthorized', row);
+
+    await generateTransaction(buildTx('on-earn-unauthorized', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-earn-unauthorized') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+  });
+
+  it('stops requeueing an unauthorized send once it has outlived the retry window', async () => {
+    // The race clears in a block or two, so a row still being rejected minutes
+    // later is not racing — it is genuinely unauthorized (a rotated-out key, a
+    // missing co-signature). Retrying it until MAX_QUEUED_AGE would hold the user
+    // on a progress screen for 30 minutes and then replace the real reason with a
+    // generic "expired", which is strictly worse than the terminal failure this
+    // change replaced. Past the window it fails with the reason it actually got.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-aged', row);
+    // A row that has already spent its retry budget: the deadline stamped by an
+    // earlier unauthorized failure is in the past. Well inside MAX_QUEUED_AGE, so
+    // the only thing that can fail it is this arm giving up, not the reaper.
+    const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-aged') as Record<string, unknown>;
+    stored0.unauthorizedRetryUntil = Math.floor(Date.now() / 1000) - 60;
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-aged', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-aged') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+    // The whole point of giving up early is that the user gets the reason they
+    // actually got. If this row ages out to the reaper instead, that text is
+    // replaced by a generic "expired" and the diagnosis is lost.
+    expect(String(stored.error)).toMatch(/transaction is unauthorized/i);
+  });
+
+  it('does not park an unauthorized send on a cooldown that outlives its retry window', async () => {
+    // Being inside the deadline is not the same as having room to retry: the
+    // cooldown runs up to 54s, so a failure with seconds left would requeue,
+    // wait most of a minute, and then fail on arrival for the reason it already
+    // had. The user waits longer to see the same error, and no retry that could
+    // have succeeded is lost. Fail now instead.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-nowindow', row);
+    // Still inside the deadline — 10s left — but under the 15s MINIMUM cooldown,
+    // so no draw of the jitter can schedule an attempt that lands in time.
+    const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-nowindow') as Record<string, unknown>;
+    stored0.unauthorizedRetryUntil = Math.floor(Date.now() / 1000) + 10;
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-nowindow', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-nowindow') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(String(stored.error)).toMatch(/transaction is unauthorized/i);
+  });
+
+  it('fails a retry whose cooldown lands exactly ON the deadline, not a beat inside it', async () => {
+    // The boundary itself. A cooldown that ends exactly at the deadline buys an
+    // attempt that arrives with zero budget and fails the same way, so `<` is
+    // right and `<=` would spend a full cooldown to learn nothing. Nothing else
+    // in the suite separates the two: every other fixture sits well clear of the
+    // edge, so relaxing the comparison passes them all.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    // Time is pinned as well as the jitter. The fixture derives the deadline from
+    // one `Date.now()` and production reads its own later; if the wall clock
+    // crosses a second between them the row fails for the ORDINARY reason and the
+    // test passes under `<=` too, quietly ceasing to pin the boundary it names.
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    // Silenced while the draw is constant — see the claimed-row test above: jest
+    // formats console lines through a source-map sort pivoted on `Math.random`,
+    // and a constant draw turns a failure here into a stack overflow with no
+    // expectation printed.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-exactly-at', row);
+      // random()=0 pins the cooldown to the 15s floor, so a deadline exactly 15s
+      // out makes `nowSec + cooldownSec` and the deadline the same number.
+      const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-exactly-at') as Record<string, unknown>;
+      stored0.unauthorizedRetryUntil = Math.floor(Date.now() / 1000) + 15;
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-exactly-at', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-exactly-at') as Record<string, unknown>;
+      random.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      random.mockRestore();
+      now.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it('treats an error that reports BOTH a mempool accept and an execution failure as submitted', async () => {
+    // The arm's safety rests on `isApplyAfterSubmitError` being consulted first:
+    // that one means the transaction REACHED THE CHAIN, so requeueing on it would
+    // broadcast the transfer twice. The two classifiers are disjoint on every SDK
+    // string today, which is exactly why nothing would go red if the arms were
+    // reordered. This fixture makes the order load-bearing by handing the catch
+    // chain text both would claim.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: transaction execution failed: " +
+          'transaction is unauthorized with summary TransactionSummary {}, and the transaction was ' +
+          "accepted into the node's mempool but the local store update failed"
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-and-submitted', row);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-and-submitted', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // Completed, specifically, and not merely "not Queued". The row is picked up
+    // as GeneratingTransaction, so a `not.toBe(Queued)` assertion also passes if
+    // the apply-after-submit arm stops writing anything at all — leaving the
+    // status untouched at pickup value and pinning nothing. Asserting the arm's
+    // actual verdict is what makes the ordering load-bearing.
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-and-submitted') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('stamps a retry deadline on the first unauthorized failure and keeps it across cycles', async () => {
+    // The budget has to run from the first FAILURE, not from enqueue: under the
+    // queue depth this arm exists to survive, a row can wait longer than the whole
+    // window before its first attempt, and an enqueue-based clock would give it
+    // zero retries — a silent no-op exactly when it is needed.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-deadline', row);
+    // Enqueued far longer ago than the retry window — an enqueue-based bound
+    // would refuse to retry this at all. Still inside MAX_QUEUED_AGE (30 min),
+    // so the row is one the queue would really hand to this arm: past that the
+    // loop's own reaper takes it first and the scenario cannot arise.
+    const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-deadline') as Record<string, unknown>;
+    stored0.initiatedAt = Math.floor(Date.now() / 1000) - 20 * 60;
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      { ...buildTx('on-send-unauthorized-deadline', row), initiatedAt: stored0.initiatedAt } as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const first = txStore.find(r => r.id === 'on-send-unauthorized-deadline') as Record<string, unknown>;
+    expect(first.status).toBe(ITransactionStatus.Queued);
+    // Bounded on BOTH sides. A lower bound alone lets the window be widened to
+    // half an hour — the exact outcome the budget exists to prevent — without
+    // reddening anything.
+    expect(Number(first.unauthorizedRetryUntil)).toBeGreaterThanOrEqual(before + 180);
+    expect(Number(first.unauthorizedRetryUntil)).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 180);
+
+    // Second cycle: the deadline must NOT be pushed out, or the budget renews
+    // every cycle and the row retries forever. Seeded with a distinctive value
+    // rather than compared to the first write — both cycles land in the same
+    // wall-clock second, so `now + 180` twice over would compare equal and a
+    // renew-every-cycle bug would read as a pass.
+    // Still live, with room for another cooldown, so the arm takes the requeue
+    // branch — and distinct from any `now + 180` the branch could write.
+    const seeded = before + 100;
+    first.unauthorizedRetryUntil = seeded;
+    await generateTransaction(
+      { ...buildTx('on-send-unauthorized-deadline', row), initiatedAt: stored0.initiatedAt } as never,
+      signCallback,
+      false,
+      provider as never
+    );
+    const second = txStore.find(r => r.id === 'on-send-unauthorized-deadline') as Record<string, unknown>;
+    expect(second.status).toBe(ITransactionStatus.Queued);
+    expect(Number(second.unauthorizedRetryUntil)).toBe(seeded);
+  });
+
   it('delegated flag ON forwards delegateTransaction=true to the offscreen leaf', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
@@ -426,6 +2404,108 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
     expect(mockDispatchGuardianPipeline.mock.calls[0][2]).toBe(true);
   });
+
+  // #784: wire compatibility only. The proposal metadata's base64 anchor still
+  // fills dispatchGuardianPipeline's last parameter unchanged, though the
+  // offscreen leaf reads nothing from it: it executes at the tip against the
+  // block the request's auth args bind.
+  it('hands dispatchGuardianPipeline the metadata anchor unchanged, for wire compatibility only (#784)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-anchored', row);
+    service.createSendProposal.mockResolvedValue({
+      id: 'prop',
+      nonce: 7,
+      metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+    } as never);
+
+    await generateTransaction(buildTx('on-send-anchored', row) as never, signCallback, false, provider as never);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(mockDispatchGuardianPipeline.mock.calls[0][5]).toBe('BwcH');
+  });
+});
+
+// ─── PR #524 × #260: the guardian leaf's per-step stage stamps, on BOTH flags ──
+//
+// `runGuardianPipeline` has always stamped `executing` / `proving` / `submitting`
+// as it runs; the generating-transaction screen turns those persisted stamps into a
+// duration per step and into the active-step highlight. Guardian is the wallet's
+// DEFAULT account type and the SW build (vite.background.config.ts) is the one build
+// that defaults MIDEN_USE_OFFSCREEN_CLIENT ON, so a stamp that rode the inline leaf
+// only would blank the default send flow's step timings on Chrome — and skip the
+// `submitting` highlight entirely, since no other writer stamps it.
+describe('guardian leaf per-step stage stamps (PR #524 × #260)', () => {
+  /** The leaf's three stamps, in the order the row recorded them. The row also
+   * carries the surrounding coarse stages (`syncing`, `creating-proposal`, …); the
+   * leaf boundaries are what the two paths must agree on. */
+  const leafStamps = (id: string): string[] => {
+    const stamps = txStore.find(r => r.id === id)?.stageTimestamps as Record<string, number> | undefined;
+    return Object.keys(stamps ?? {}).filter(s => s === 'executing' || s === 'proving' || s === 'submitting');
+  };
+
+  it('flag ON stamps the SAME three boundaries as flag OFF, replayed through the callback the offscreen leaf is handed', async () => {
+    // Flag OFF: the inline pipeline stamps as it drives execute → prove → submit.
+    arrange('stage-parity-off', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
+    await generateTransaction(
+      buildTx('stage-parity-off', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // Flag ON: the offscreen leaf posts an OFFSCREEN_STAGE_EVENT per boundary and the
+    // proxy replays each through the callback it was handed — modelled here by
+    // invoking that callback at the same three points.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockImplementation(async (..._args: unknown[]) => {
+      const onStage = _args[4] as (s: string) => Promise<void>;
+      await onStage('executing');
+      await onStage('proving');
+      await onStage('submitting');
+      return makeResult();
+    });
+    arrange('stage-parity-on', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
+    await generateTransaction(
+      buildTx('stage-parity-on', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // A fifth argument EXISTS flag-ON — without it the offscreen realm has nowhere to
+    // deliver its stamps and the whole default send flow renders blank durations.
+    expect(typeof mockDispatchGuardianPipeline.mock.calls[0][4]).toBe('function');
+    expect(leafStamps('stage-parity-off')).toEqual(['executing', 'proving', 'submitting']);
+    expect(leafStamps('stage-parity-on')).toEqual(leafStamps('stage-parity-off'));
+  });
+
+  it('flag OFF: a stamp whose row write REJECTS never fails the guardian write (a stamp is telemetry)', async () => {
+    // The inline leaf AWAITS its stage callback (`await setStage('proving')`), so an
+    // unguarded Dexie failure there would propagate out of the leaf, hit the guardian
+    // catch, abandon the candidate and Fail a transaction that was about to prove.
+    mockThrowOnStageWrite = 'proving';
+    const { service, inline } = arrange('stage-throw-off', {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1'
+    });
+
+    await generateTransaction(
+      buildTx('stage-throw-off', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // The leaf ran to completion and the send finalized normally: no abandon, no Failed.
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockComplete.send).toHaveBeenCalledTimes(1);
+    expect(txStore.find(r => r.id === 'stage-throw-off')!.status).not.toBe(ITransactionStatus.Failed);
+  });
 });
 
 // The double-send guard has to be written by the LEAF, at the point it commits
@@ -437,6 +2517,52 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 // rebuilding the serial that is the only reason the chain would reject the
 // duplicate. Both leaves must therefore stamp `mayHaveSubmitted` themselves.
 describe('guardian leaf records the submit crossing', () => {
+  it('refuses an expired 1Click send after proving and before submit', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const row = {
+      type: 'send' as const,
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: {
+        oneClick: {
+          fundingDeadline,
+          request: { deadline: fundingDeadline },
+          quote: {
+            quoteRequest: { deadline: fundingDeadline },
+            quote: { deadline: providerDeadline }
+          }
+        }
+      }
+    };
+    const { inline, service } = arrange('one-click-expired-inline', row, makeResult(), () => {
+      now = Date.parse(fundingDeadline);
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('one-click-expired-inline', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(mockComplete.send).not.toHaveBeenCalled();
+    const finalRow = txStore.find(item => item.id === 'one-click-expired-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+  });
+
   it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {
     arrange('cross-inline', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
 
@@ -501,6 +2627,249 @@ describe('guardian leaf records the submit crossing', () => {
 
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
     expect(flagAtDispatch()).toBeUndefined();
+  });
+});
+
+// A request the wallet built itself is proposed re-bound to the current sync height, and the
+// rebased bytes replace the row's: signing and execution rebuild from `requestBytes`, so they
+// must be the bytes the proposal was made from. Authenticated dApp requests keep their bytes;
+// supported requests missing auth receive wallet-resolved auth before proposing.
+describe('guardian custom proposals preserve the prepared request through signing', () => {
+  const walletBuiltCases = () => [
+    // A Guardian approval expiration rides with each wallet-built type that set a request delta (#1081).
+    { ...valueMovingCases().find(c => c.type === 'swap')!, proposalType: 'swap', approvalExpirationDelta: 180 },
+    { ...bridgeEarnCase('agglayer'), proposalType: 'agglayer_bridged_send', approvalExpirationDelta: 180 },
+    { ...bridgeEarnCase('earn-deposit'), proposalType: 'earn_deposit', approvalExpirationDelta: undefined }
+  ];
+
+  it.each(walletBuiltCases())(
+    '$type: proposes the persisted bytes rebased as $proposalType, then signs and persists the rebased bytes',
+    async ({ row, proposalType, approvalExpirationDelta }) => {
+      const id = `rebase-${row.type}`;
+      const { service } = arrange(id, row);
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(
+        row.requestBytes,
+        proposalType,
+        approvalExpirationDelta
+      );
+      expect(service.createCustomProposal).not.toHaveBeenCalled();
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array(REBASED_BYTES));
+      expect(Array.from(txStore.find(r => r.id === id)!.requestBytes as Uint8Array)).toEqual(REBASED_BYTES);
+    }
+  );
+
+  it('execute: persists enriched bytes before proposing and signs those exact bytes', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'enriched-execute';
+    const { service } = arrange(id, executeCase.row);
+    const enriched = new Uint8Array([71, 72, 73]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(enriched);
+    service.createCustomProposal.mockImplementationOnce(async () => {
+      expect(txStore.find(row => row.id === id)?.requestBytes).toBe(enriched);
+      return { id: 'prop', nonce: 7 };
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
+    expect(Array.from(txStore.find(row => row.id === id)!.requestBytes as Uint8Array)).toEqual([71, 72, 73]);
+  });
+
+  it('execute: persists auth diagnostics before creating the proposal', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-execute';
+    const { service } = arrange(id, executeCase.row);
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, bytes, _hold, observe) => {
+      observe?.(diagnostics);
+      return bytes;
+    });
+    service.createCustomProposal.mockImplementationOnce(async () => {
+      expect(txStore.find(row => row.id === id)?.failureDiagnostics).toEqual(diagnostics);
+      return { id: 'prop', nonce: 7 };
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(txStore.find(row => row.id === id)?.failureDiagnostics).toEqual(diagnostics);
+  });
+
+  it('execute: preserves auth diagnostics when request preparation throws', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-prepare-failure';
+    arrange(id, executeCase.row);
+    const diagnostics = { authPreparation: 'failed', authLayout: 'absent', commitmentMatch: 'unavailable' } as const;
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, _bytes, _hold, observe) => {
+      observe?.(diagnostics);
+      throw new Error('unsupported custom request');
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(txStore.find(row => row.id === id)?.failureDiagnostics).toEqual(diagnostics);
+    expect(txStore.find(row => row.id === id)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('execute: automatic retry clears observed auth facts before a service failure on the next attempt', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-automatic-retry';
+    const { service } = arrange(id, executeCase.row);
+    const tx = buildTx(id, executeCase.row);
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, bytes, _hold, observe) => {
+      observe?.(diagnostics);
+      return bytes;
+    });
+    service.createCustomProposal.mockRejectedValueOnce(new GuardianBackpressureError('guardian-acc', 7));
+    await generateTransaction(tx as never, signCallback, false, provider as never);
+    const stored = txStore.find(row => row.id === id)!;
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(stored).not.toHaveProperty('failureDiagnostics');
+    mockGetOrCreateMultisigService.mockRejectedValueOnce(new Error('unsupported service configuration'));
+    await generateTransaction(tx as never, signCallback, false, provider as never);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored).not.toHaveProperty('failureDiagnostics');
+    expect(tx).not.toHaveProperty('failureDiagnostics');
+    expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ diagnostics: undefined })
+    );
+    expect(stored.requestBytes).toBe(executeCase.row.requestBytes);
+  });
+
+  it('execute: explicit retry clears old auth facts before client creation fails on the next attempt', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    const id = 'diagnosed-explicit-retry';
+    const { row: tx } = arrange(id, {
+      ...executeCase.row,
+      status: ITransactionStatus.Failed,
+      stage: 'proving',
+      failureDiagnostics: diagnostics
+    });
+    const restoreLocks = installNavigatorLocks();
+    try {
+      await requeueFailedTransaction(id);
+      const stored = txStore.find(row => row.id === id)!;
+      expect(stored).not.toHaveProperty('failureDiagnostics');
+      mockGetMidenClient.mockRejectedValueOnce(new Error('unsupported client configuration'));
+      await generateTransaction(tx as never, signCallback, false, provider as never);
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect(stored).not.toHaveProperty('failureDiagnostics');
+      expect(tx).not.toHaveProperty('failureDiagnostics');
+      expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ diagnostics: undefined })
+      );
+      expect(stored.requestBytes).toBe(executeCase.row.requestBytes);
+    } finally {
+      restoreLocks();
+    }
+  });
+
+  it('execute: continues proposing when the diagnostic storage write fails', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-storage-failure';
+    const { service } = arrange(id, executeCase.row);
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, bytes, _hold, observe) => {
+      observe?.({ authPreparation: 'provided', authLayout: 'guardian', commitmentMatch: 'guardian' });
+      mockFailDiagnosticWrite = true;
+      return bytes;
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(service.createCustomProposal).toHaveBeenCalledWith(executeCase.row.requestBytes);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(txStore.find(row => row.id === id)?.status).not.toBe(ITransactionStatus.Failed);
+    expect(mockFailDiagnosticWrite).toBe(false);
+  });
+
+  it('execute: proposes the dApp bytes as they are and signs those same bytes', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const { service } = arrange('rebase-execute', executeCase.row);
+
+    await generateTransaction(
+      buildTx('rebase-execute', executeCase.row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.createCustomProposal).toHaveBeenCalledWith(new Uint8Array([2, 2]));
+    expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array([2, 2]));
+    expect(Array.from(txStore.find(r => r.id === 'rebase-execute')!.requestBytes as Uint8Array)).toEqual([2, 2]);
+  });
+});
+
+/**
+ * Run the recallable Guardian send of the crossing tests above, offscreen, with `overrides` on its row, swallow the
+ * leaf's failure and return what the row stored about its attempt.
+ */
+async function runGuardianRowExpectingFailure(
+  overrides: Record<string, unknown>
+): Promise<Pick<ITransaction, 'submitEvidence' | 'mayHaveSubmitted'>> {
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+  const id = 'pin-retire';
+  const row = {
+    type: 'send',
+    secondaryAccountId: 'r',
+    faucetId: 'f',
+    amount: '1',
+    extraInputs: { recallBlocks: 100 },
+    ...overrides
+  };
+  arrange(id, row);
+  await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never).catch(() => undefined);
+  expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+  const stored = txStore.find(r => r.id === id);
+  return {
+    submitEvidence: Array.isArray(stored?.submitEvidence) ? stored.submitEvidence : undefined,
+    mayHaveSubmitted: typeof stored?.mayHaveSubmitted === 'boolean' ? stored.mayHaveSubmitted : undefined
+  };
+}
+
+describe('the pin is per attempt and retires on a tagged failure (#1081)', () => {
+  it('a tagged failure marks the pin preSubmitEnd and clears the flag it raised', async () => {
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(new Error('transaction execution failed: transaction is unauthorized'))
+    );
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('a request that cannot serialize is never pinned', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const row = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: { recallBlocks: 100 },
+      requestBytes: new Uint8Array([1])
+    };
+    const { service } = arrange('pin-unserializable', row);
+    service.signAndCreateTransactionRequest.mockResolvedValueOnce({
+      serialize: () => {
+        throw new Error('request serialize failed');
+      },
+      authArg: () => undefined
+    });
+    await generateTransaction(
+      buildTx('pin-unserializable', row) as never,
+      signCallback,
+      false,
+      provider as never
+    ).catch(() => undefined);
+    const stored = txStore.find(r => r.id === 'pin-unserializable');
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(stored?.submitEvidence).toBeUndefined();
+    expect(stored?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('an untagged failure keeps the pin and the flag', async () => {
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new Error('guardianPipeline: result decode failed'));
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence?.[0]?.preSubmitEnd).toBeUndefined();
+    expect(row.mayHaveSubmitted).toBe(true);
   });
 });
 
@@ -575,10 +2944,23 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
   );
 });
 
+// An Agglayer bridged-send and a USDCx burn can await the node's verdict, so a killed attempt keeps the candidate
+// (#1081); an earn deposit cannot, so it still abandons at once.
+type KillCase = Case & { abandons: number[][]; evidence: unknown };
+const bridgeEarnKillCases = (): KillCase[] => [
+  { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
+  { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
+  {
+    ...bridgeEarnCase('earn-deposit'),
+    abandons: [[7]],
+    evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
+  }
+];
+
 describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
-  it.each(bridgeEarnCases())(
+  it.each(bridgeEarnKillCases())(
     '$type: an OperationAbortedError marks the row Failed, does NOT requeue, and dispatches exactly ONCE (no double-send)',
-    async ({ row, complete }) => {
+    async ({ row, complete, abandons, evidence }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       // A wedge-kill fires AFTER the offscreen submit may have landed → retryable
       // OperationAbortedError. bridged-send has no input-note nullifier (fresh
@@ -592,9 +2974,9 @@ describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an
       await generateTransaction(buildTx(`be-kill-${row.type}`, row) as never, signCallback, false, provider as never);
 
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate.mock.calls).toEqual(abandons);
       const finalRow = txStore.find(r => r.id === `be-kill-${row.type}`)!;
+      expect(finalRow.submitEvidence ?? []).toEqual(evidence);
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
       expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
       expect(finalRow.nextEligibleAt).toBeUndefined();
@@ -603,27 +2985,58 @@ describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an
   );
 });
 
-describe('guardian bridged-send / earn-deposit errorCode preservation → classifier marks Failed (not Completed)', () => {
-  it.each(bridgeEarnCases())(
-    '$type: a round-tripped ApplyTransactionAfterSubmitFailed marks the row Failed — byte-identical to the flag-OFF inline apply throw',
-    async ({ row, complete }) => {
+describe('guardian bridged-send / earn-deposit errorCode preservation → classifier routes on the ROW, not the type alone', () => {
+  /**
+   * A round-tripped `ApplyTransactionAfterSubmitFailed` means the submit LANDED and
+   * only the local apply threw. What that should do to the row depends on whether
+   * anything is awaiting the row's `resultBytes` / `outputNoteIds`:
+   *
+   *   - `earn-deposit` and EPOCH `bridged-send` → Failed. `createEarnP2IDNote` /
+   *     `createBridgeP2IDNote` block on `waitForTransactionCompletion` and read those
+   *     fields back; there is no `TransactionResult` here to repopulate them from, so
+   *     the caller must resolve via its error branch. The recallable P2IDE collateral
+   *     note reclaims itself at its recall height.
+   *   - AGGLAYER `bridged-send` → Completed. `initiateB2AggBridge` returns the txId
+   *     immediately and never awaits the row, and the B2AGG note is on chain. Failing
+   *     it would hide the only in-wallet L1 claim path (`BridgeClaimSection` gates the
+   *     deposit tracker and the Connect-wallet / Claim-Asset block on `status !==
+   *     Failed`) on funds that already left the account.
+   *
+   * Either way the preserved `errorCode` is what the classifier reads, which is what
+   * this suite exists to prove survives the offscreen round-trip.
+   */
+  // `bridgeEarnCases()`'s bridged-send row is the AGGLAYER route (pre-built
+  // `requestBytes`). The Epoch counterpart needs a whole recallable-P2IDE build to
+  // reach this point, so its Failed outcome is pinned in transactions.guardian.test.ts
+  // ('Guardian bridged-send: submit lands but local apply fails') instead.
+  const applyCases = () => [
+    { label: 'earn-deposit', ...bridgeEarnCase('earn-deposit'), expected: ITransactionStatus.Failed },
+    { label: 'bridged-send (agglayer)', ...bridgeEarnCase('agglayer'), expected: ITransactionStatus.Completed },
+    { label: 'bridged-send (usdcx)', ...bridgeEarnCase('usdcx'), expected: ITransactionStatus.Completed }
+  ];
+
+  it.each(applyCases())(
+    '$label: a round-tripped ApplyTransactionAfterSubmitFailed reaches the classifier',
+    async ({ label, row, complete, expected }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      const id = `be-apply-${label}`;
+      const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
+        'local apply failed after submit'
+      );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
-      const { service } = arrange(`be-apply-${row.type}`, row);
+      const { service } = arrange(id, row);
 
-      await generateTransaction(buildTx(`be-apply-${row.type}`, row) as never, signCallback, false, provider as never);
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
 
-      // Unlike send/swap/execute/consume (marked Completed on a post-submit apply
-      // failure), bridged-send and earn-deposit are NOT in that Completed branch — the
-      // guardian classifier routes their preserved errorCode to cancelTransaction →
-      // Failed (earn-deposit so its awaiting caller resolves via the error branch;
-      // bridged-send as the generic terminal). This is the SAME outcome the flag-OFF
-      // inline `apply()` throw produces, proving the errorCode survived the round-trip.
-      const finalRow = txStore.find(r => r.id === `be-apply-${row.type}`)!;
-      expect(finalRow.status).toBe(ITransactionStatus.Failed);
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(expected);
+      expect(finalRow.transactionId).toBe('0xlanded');
+      // No abandon: the submit resolved, so the candidate will land (#1233).
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      // No `TransactionResult` exists on this path, so the completion handler never
+      // runs regardless of which terminal status the row lands on.
       expect(complete).not.toHaveBeenCalled();
     }
   );
@@ -677,12 +3090,12 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
 
       // Dispatched exactly ONCE — the abort did NOT trigger a second offscreen submit.
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      // The killed attempt may have submitted, so its candidate is kept for the node's verdict, not abandoned (#1081).
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       // The row is terminally FAILED — NOT requeued to Queued (which would let a fresh
       // retry double-send), and carries no requeue cooldown stamp.
       const finalRow = txStore.find(r => r.id === `kill-${row.type}`)!;
+      expect(finalRow.submitEvidence).toEqual(KEPT_AT_7);
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
       expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
       expect(finalRow.nextEligibleAt).toBeUndefined();
@@ -701,6 +3114,103 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
 // (ConsumedExternal — consumed but NOT provably mine), 'not-landed', 'invalid', and
 // 'unknown' → the unchanged funds-safe Failed. A false 'Received' is impossible —
 // only a LOCAL consumed state completes the row.
+// #1644: the offscreen leaf submits only through a gate this worker opens, so an attempt that never opened it never
+// called submit. A kill that cut such an attempt off, a consume's proof past its deadline in the reported case,
+// abandons its candidate at once instead of holding the account for the Guardian's whole hold.
+describe('guardian offscreen submit gate (#1644)', () => {
+  const consumeRow = { type: 'consume', noteId: '0xn1', noteIds: ['0xn1'] };
+  const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+
+  it.each([
+    ['consume', consumeRow],
+    ['send', sendRow]
+  ])('a %s killed before its gate opened abandons its candidate and keeps none', async (label, row) => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const id = `gate-shut-${label}`;
+    const { service } = arrange(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === id) as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
+  it('a kill after the gate opened keeps the candidate for the verdict, as any kill did before', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const { service } = arrange('gate-open-kill', consumeRow);
+
+    await generateTransaction(buildTx('gate-open-kill', consumeRow) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'gate-open-kill') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+  });
+
+  it('opening the gate records the crossing before it answers', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    let seenAtGate: Record<string, unknown> | undefined;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate({ refBlock: 9 })).toBe(true);
+      seenAtGate = { ...(txStore.find(r => r.id === 'gate-records') as Record<string, unknown>) };
+      mockLeafOpensGate = false;
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    arrange('gate-records', consumeRow);
+
+    await generateTransaction(buildTx('gate-records', consumeRow) as never, signCallback, false, provider as never);
+
+    expect(seenAtGate?.mayHaveSubmitted).toBe(true);
+    expect(seenAtGate?.stage).toBe('submitting');
+  });
+
+  it('an attempt that settles while its crossing stamp is pending reads as never past its gate', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    let pending: Promise<boolean> | undefined;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      pending = gate();
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const { service } = arrange('gate-pending', consumeRow);
+
+    await generateTransaction(buildTx('gate-pending', consumeRow) as never, signCallback, false, provider as never);
+
+    expect(await pending).toBe(false);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+  });
+
+  it('the gate refuses once the attempt has settled', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    let lateGate: ((evidence?: unknown) => Promise<boolean>) | undefined;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      lateGate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    arrange('gate-late', consumeRow);
+
+    await generateTransaction(buildTx('gate-late', consumeRow) as never, signCallback, false, provider as never);
+
+    expect(await lateGate?.()).toBe(false);
+    const stored = txStore.find(r => r.id === 'gate-late') as Record<string, unknown>;
+    expect(stored.stage).not.toBe('submitting');
+  });
+});
+
 describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
   const consumeRow = { type: 'consume', noteId: '0xn1', noteIds: ['0xn1'] };
 
@@ -719,9 +3229,9 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    // Dispatched once; the guardian candidate was still abandoned (idempotent).
+    // Dispatched once; the killed consume keeps its candidate for the node's verdict (#1081).
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     // Node-verified landed → Completed with the normal consume label, no requeue.
     const finalRow = txStore.find(r => r.id === 'kill-consume-landed')!;
     expect(finalRow.status).toBe(ITransactionStatus.Completed);
@@ -749,7 +3259,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-external')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
@@ -770,7 +3280,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-committed')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
@@ -791,7 +3301,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-nodeerr')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(mockComplete.consume).not.toHaveBeenCalled();
@@ -813,7 +3323,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     expect(mockProxyGetInputNoteDetails).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-noid')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
@@ -826,8 +3336,11 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     '$type: a round-tripped ApplyTransactionAfterSubmitFailed marks the row Completed, not Failed',
     async ({ row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
+        'local apply failed after submit'
+      );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service } = arrange(`apply-${row.type}`, row);
 
@@ -838,12 +3351,88 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       // sync reconciles. NOT Failed → requeue → double-spend.
       const finalRow = txStore.find(r => r.id === `apply-${row.type}`)!;
       expect(finalRow.status).toBe(ITransactionStatus.Completed);
-      // The submit-catch still abandoned the candidate (idempotent), and the value-moving
+      expect(finalRow.transactionId).toBe('0xlanded');
+      // The submit resolved, so the candidate is not abandoned (#1233), and the value-moving
       // completion handler did NOT run (Completed was set directly by the classifier).
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       expect(complete).not.toHaveBeenCalled();
     }
   );
+
+  it('send: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+            'local nonce 4 but commitments differ for account 0xacc'
+        )
+      )
+    );
+    const row = {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType: 'private'
+    };
+    const { service } = arrange('refusal-private-send', row);
+
+    await generateTransaction(buildTx('refusal-private-send', row) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'refusal-private-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(finalRow.displayMessage).not.toBe('Sent');
+  });
+
+  it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // As the proxy rebuilds the reply: the code and the landed facts on a plain Error.
+    const applyErr = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      landed: { transactionId: '0xlanded', privateOutputNotes: 2 }
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]) };
+    arrange('apply-execute-private', row);
+
+    await generateTransaction(buildTx('apply-execute-private', row) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'apply-execute-private')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.noteDelivery).toBe('undelivered');
+    expect(finalRow.displayMessage).toBe('Executed - 2 private notes could not be delivered');
+    expect(finalRow.transactionId).toBe('0xlanded');
+  });
+
+  it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+            'local nonce 4 but commitments differ for account 0xacc'
+        )
+      )
+    );
+    const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };
+    const { service } = arrange('refusal-execute-recipient', row);
+
+    await generateTransaction(
+      buildTx('refusal-execute-recipient', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'refusal-execute-recipient')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(finalRow.displayMessage).not.toBe('Sent');
+  });
 });
 
 // ─── Structural guardian types (issue #260, slice 6b) ────────────────────────
@@ -858,21 +3447,29 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 // buildColdMultisigService (the cold co-sign / the cold-bound service that
 // replace-hot-key + update-procedure-threshold build on), so a structural run has a
 // single service object to assert on.
-const makeStructuralService = () => ({
-  createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
-  createReplaceHotKeyProposal: jest.fn(async () => ({
-    proposal: { id: 'prop', nonce: 7 },
-    newHot: { publicKeyHex: '0xNEWHOT', ciphertext: new Uint8Array([0xab, 0xcd]) }
-  })),
-  createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
-  signProposal: jest.fn(async () => {}),
-  signAndCreateTransactionRequest: jest.fn(async () => ({
-    serialize: () => new Uint8Array(TR_BYTES),
-    authArg: () => undefined
-  })),
-  abandonCandidate: jest.fn(async () => {}),
-  sync: jest.fn(async () => {})
-});
+const makeStructuralService = () => {
+  const pushSwitchDelta = jest.fn(async (_proposalId: string) => {});
+  return {
+    createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
+    createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+    createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+    signProposal: jest.fn(async () => {}),
+    signAndCreateTransactionRequest: jest.fn(async () => ({
+      serialize: () => new Uint8Array(TR_BYTES),
+      authArg: () => undefined
+    })),
+    abandonCandidate: jest.fn(async () => {}),
+    pushSwitchDelta,
+    // The service's bounded push over this mock's own `pushSwitchDelta`: resolving is 'pushed', a rejection 'refused'.
+    pushSwitchDeltaBounded: jest.fn((proposalId: string) =>
+      pushSwitchDelta(proposalId).then(
+        () => 'pushed' as const,
+        () => 'refused' as const
+      )
+    ),
+    sync: jest.fn(async () => {})
+  };
+};
 
 // The guardian provider a structural run needs: it resolves a wallet account by
 // publicKey (in-sync, so the sync guard is a no-op) and — for replace-hot-key —
@@ -1034,7 +3631,8 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
 
     // Persisted exactly once, with the freshly-minted key material, on BOTH flags.
     expect(sp.persistNewHotKey).toHaveBeenCalledTimes(1);
-    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', new Uint8Array([0xab, 0xcd]));
+    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', 'new-cx');
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
 
     // Ordering: persist ran BEFORE signAndCreateTransactionRequest, which ran BEFORE the
     // leaf — the SAME relative order flag-on vs flag-off. The offscreen move does not
@@ -1049,6 +3647,55 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
         : inline.__executeRequest.mock.invocationCallOrder[0]
     )!;
     expect(signOrder).toBeLessThan(leafOrder);
+  });
+});
+
+describe('replace-hot-key stale-state rebuild, flag ON (#904)', () => {
+  // Queues one rejection then one resolution on the shared module-level mock; if the
+  // rebuild under test regresses to a single attempt, the resolution is never consumed
+  // and `jest.clearAllMocks()` (the file's own beforeEach) does not drop queued
+  // once-values, so it would otherwise leak into the next test to call this mock.
+  afterEach(() => {
+    mockDispatchGuardianPipeline.mockReset();
+  });
+
+  it('a superseded-commitment refusal crossing the offscreen bus is rebuilt once with the same key', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline
+      .mockRejectedValueOnce(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: transaction conflicts with current mempool state: initial " +
+            'account commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333'
+        )
+      )
+      .mockResolvedValueOnce(makeResult());
+    const tx = new ReplaceHotKeyTransaction('guardian-acc', false);
+    const { service } = arrangeStructural(tx.id, { type: 'replace-hot-key', extraInputs: {} });
+    const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
+    const rotationProvider: GuardianAccountProvider = {
+      getAccounts: async () => [
+        {
+          publicKey: 'guardian-acc',
+          name: 'Guardian',
+          isPublic: false,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        }
+      ],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey
+    };
+
+    await generateTransaction(tx, signCallback, false, rotationProvider);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(2);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.createReplaceHotKeyProposal).toHaveBeenCalledTimes(2);
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+    expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+    expect(mockComplete.replaceHotKey).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1086,24 +3733,41 @@ describe('structural guardian leaf kill-window (funds-safety) — an offscreen k
 });
 
 describe('structural guardian leaf errorCode preservation → guardian classifier routes per type', () => {
+  // The two refusals the pinned multisig client (0.17.0) throws from syncState (#1233), as the
+  // service worker rebuilds an offscreen failure.
+  const REFUSAL_EQUAL_NONCE =
+    'Refusing to overwrite local state: incoming nonce 4 equals local nonce 4 but commitments differ for account 0xacc';
+  const REFUSAL_ONCHAIN_COMMITMENT =
+    'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account 0xacc';
+  const guardianManagerMock = jest.requireMock<{ clearGuardianServiceFor: jest.Mock }>(
+    'lib/miden/front/guardian-manager'
+  );
+
   it.each([
     {
       type: 'replace-hot-key',
       row: { type: 'replace-hot-key', extraInputs: {} },
-      complete: mockComplete.replaceHotKey
+      complete: mockComplete.replaceHotKey,
+      landedArg: 3
     },
     {
       type: 'switch-guardian',
       row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
-      complete: mockComplete.switchGuardian
+      complete: mockComplete.switchGuardian,
+      landedArg: 5
     }
   ])(
     '$type: a round-tripped ApplyTransactionAfterSubmitFailed reaches the RECONCILE handler (row not Failed)',
-    async ({ type, row, complete }) => {
+    async ({ type, row, complete, landedArg }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
+        'local apply failed after submit'
+      );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+      // A rotation completes only on the node's committed verdict (#1233).
+      if (type === 'replace-hot-key') mockProxyGetCommitState.mockResolvedValueOnce('committed');
       const { service, provider: sp } = arrangeStructural(`s-apply-${type}`, row);
 
       await generateTransaction(buildTx(`s-apply-${type}`, row) as never, signCallback, false, sp as never);
@@ -1113,32 +3777,513 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       // handler runs (with an UNDEFINED result) to finalize the vault / guardian state
       // rather than cancelling. This proves the errorCode survived the offscreen round-trip
       // and reached the guardian classifier.
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
+      expect(complete.mock.calls[0]![landedArg]).toEqual({ transactionId: '0xlanded' });
       const finalRow = txStore.find(r => r.id === `s-apply-${type}`)!;
       expect(finalRow.status).not.toBe(ITransactionStatus.Failed);
     }
   );
 
-  it('update-procedure-threshold: a round-tripped ApplyTransactionAfterSubmitFailed reaches the classifier → Failed', async () => {
+  it('update-procedure-threshold landed: a round-tripped ApplyTransactionAfterSubmitFailed completes the row with its finalization', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
+      'local apply failed after submit'
+    );
     applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    applyErr.landed = { transactionId: '0xlanded' };
     mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    mockProxyGetCommitState.mockResolvedValueOnce('committed');
     const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
     const { service, provider: sp } = arrangeStructural('s-apply-upt', row);
 
     await generateTransaction(buildTx('s-apply-upt', row) as never, signCallback, false, sp as never);
 
-    // update-procedure-threshold has NO reconcile handler (unlike replace-hot-key /
-    // switch-guardian): the classifier routes its post-submit apply failure straight to
-    // cancelTransaction → Failed — byte-identical to flag-OFF (the same inline apply throw
-    // classifies the same way). The errorCode still reached the classifier; the
-    // type-appropriate outcome is Failed, and the completion handler does not run.
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    // The node has the update, so the row gets the happy path's finalization without a
+    // TransactionResult; the typed completion handler is not called with an undefined one,
+    // and no service is built for a re-register (one build, the proposal's).
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     const finalRow = txStore.find(r => r.id === 's-apply-upt')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.transactionId).toBe('0xlanded');
+    expect(finalRow.displayMessage).toBe('Account secured');
+  });
+
+  it('replace-hot-key: a round-tripped apply-after-submit failure with no transaction id fails without completing (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    const { provider: sp } = arrangeStructural('s-apply-no-id', row);
+
+    await generateTransaction(buildTx('s-apply-no-id', row) as never, signCallback, false, sp as never);
+
+    expect(mockComplete.replaceHotKey).not.toHaveBeenCalled();
+    expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 's-apply-no-id')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toMatch(/transaction id could not be read/);
+  });
+
+  it('update-procedure-threshold: an unwrapped refusal from the leaf ends Failed with no finalization (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
+    );
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { service, provider: sp } = arrangeStructural('s-refusal-upt', row);
+
+    await generateTransaction(buildTx('s-refusal-upt', row) as never, signCallback, false, sp as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+    expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    expect(guardianManagerMock.clearGuardianServiceFor).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 's-refusal-upt')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Account secured');
+  });
+
+  it('update-procedure-threshold: the on-chain-commitment refusal ends Failed too, never Completed as a send (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const id = 's-refusal-upt-onchain';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_ONCHAIN_COMMITMENT}`)
+    );
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { service, provider: sp } = arrangeStructural(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+    expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Account secured');
+  });
+
+  it.each([
+    {
+      type: 'replace-hot-key',
+      row: { type: 'replace-hot-key', extraInputs: {} },
+      complete: mockComplete.replaceHotKey,
+      refusal: REFUSAL_EQUAL_NONCE
+    },
+    {
+      type: 'switch-guardian',
+      row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
+      complete: mockComplete.switchGuardian,
+      refusal: REFUSAL_ONCHAIN_COMMITMENT
+    }
+  ])(
+    '$type: an unwrapped structural refusal never reaches the reconcile: Failed, abandoned, nothing pushed (#1233)',
+    async ({ type, row, complete, refusal }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValueOnce(
+        new Error(`Offscreen call 'guardianPipeline' failed: ${refusal}`)
+      );
+      const { service, provider: sp } = arrangeStructural(`s-refusal-${type}`, row);
+
+      await generateTransaction(buildTx(`s-refusal-${type}`, row) as never, signCallback, false, sp as never);
+
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === `s-refusal-${type}`)!.status).toBe(ITransactionStatus.Failed);
+    }
+  );
+
+  it('switch-guardian: a structural refusal builds no outgoing service for a reconcile and ends Failed (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const id = 's-refusal-switch-reconcile-throws';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_ONCHAIN_COMMITMENT}`)
+    );
+    const row = { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } };
+    const { service, provider: sp } = arrangeStructural(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    // One build, the proposal's: no reconcile rebuilt the outgoing service.
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+    expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it.each(structuralCases())(
+    '$type: a canonicalization refusal before the co-sign returns ends Failed and abandons the candidate (#1233)',
+    async ({ type, row, complete }) => {
+      const id = `s-refusal-precosign-${type}`;
+      const { service, provider: sp } = arrangeStructural(id, row);
+      service.signAndCreateTransactionRequest.mockRejectedValueOnce(new Error(REFUSAL_ONCHAIN_COMMITMENT));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(finalRow.displayMessage).not.toBe('Account secured');
+    }
+  );
+
+  it('update-procedure-threshold: a refusal at proposal creation, before the main try, ends Failed (#1233)', async () => {
+    const id = 's-refusal-upt-proposal';
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { service, provider: sp } = arrangeStructural(id, row);
+    service.createUpdateProcedureThresholdProposal.mockRejectedValueOnce(new Error(REFUSAL_EQUAL_NONCE));
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Account secured');
+  });
+
+  it('earn-deposit: an unwrapped canonicalization refusal marks the row Failed, not Completed (#1233)', async () => {
+    // The inline tests throw the refusal from apply(), which the pipeline wraps, so this unwrapped
+    // shape is what pins the result-awaiting row's refusal check. Completed would leave no
+    // resultBytes for the caller.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const id = 's-refusal-earn';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
+    );
+    const { row, complete } = bridgeEarnCase('earn-deposit');
+    expect(row.type).toBe('earn-deposit');
+    arrange(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Sent');
+    expect(complete).not.toHaveBeenCalled();
   });
 });
+
+describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => {
+  const switchRow = { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } };
+
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])('pushes the executed switch delta after submit and before the commit wait (flag $flag)', async ({ on }) => {
+    if (on) {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    }
+    const { service, provider: sp } = arrangeStructural(`push-ok-${on}`, switchRow);
+
+    await generateTransaction(buildTx(`push-ok-${on}`, switchRow) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
+    const pushed = service.pushSwitchDelta.mock.invocationCallOrder[0]!;
+    expect(pushed).toBeLessThan(mockProxyWaitForCommit.mock.invocationCallOrder[0]!);
+    expect(pushed).toBeLessThan(mockComplete.switchGuardian.mock.invocationCallOrder[0]!);
+  });
+
+  it.each([
+    [
+      'an apply failure',
+      () =>
+        Object.assign(new Error('local apply failed after submit'), { errorCode: 'ApplyTransactionAfterSubmitFailed' })
+    ]
+  ])('pushes the delta after a landed submit reported as %s', async (_label, makeError) => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(makeError());
+    const { service, provider: sp } = arrangeStructural('push-landed', switchRow);
+
+    await generateTransaction(buildTx('push-landed', switchRow) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
+    expect(mockComplete.switchGuardian).toHaveBeenCalledTimes(1);
+    // What the self-heal needs to re-push a delta that did not arrive, persisted by completion.
+    expect(mockComplete.switchGuardian.mock.calls[0]![0]).toMatchObject({
+      extraInputs: { switchProposalId: 'prop', switchDeltaPushed: true }
+    });
+  });
+
+  it('records a landed switch whose delta the outgoing guardian did not take as not pushed', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      Object.assign(new Error('local apply failed after submit'), { errorCode: 'ApplyTransactionAfterSubmitFailed' })
+    );
+    const { service, provider: sp } = arrangeStructural('push-landed-refused', switchRow);
+    service.pushSwitchDelta.mockRejectedValueOnce(new Error('409 a pending delta exists'));
+
+    await generateTransaction(buildTx('push-landed-refused', switchRow) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+    expect(mockComplete.switchGuardian.mock.calls[0]![0]).toMatchObject({
+      extraInputs: { switchProposalId: 'prop', switchDeltaPushed: false }
+    });
+  });
+
+  // Review Focus 5: a delta the chain may never see must not reach the outgoing guardian, and the
+  // candidate is still abandoned.
+  it.each([
+    ['a kill', () => new OperationAbortedError('op-kill', 'deadline')],
+    [
+      'a node refusal at submit',
+      () =>
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: transaction conflicts with current mempool state: initial " +
+            'account commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333'
+        )
+    ],
+    [
+      'a canonicalization refusal',
+      () =>
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming commitment does " +
+            'not match on-chain commitment for account 0xacc'
+        )
+    ]
+  ])(
+    'switch-guardian: a killed or pre-submit-failed switch pushes no delta and still abandons (%s) (#1233)',
+    async (_label, makeError) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValueOnce(makeError());
+      const { service, provider: sp } = arrangeStructural('push-none', switchRow);
+
+      await generateTransaction(buildTx('push-none', switchRow) as never, signCallback, false, sp as never);
+
+      expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('a push the outgoing guardian refuses leaves the switch to complete as before', async () => {
+    const { service, provider: sp } = arrangeStructural('push-refused', switchRow);
+    service.pushSwitchDelta.mockRejectedValueOnce(new Error('409 a pending delta exists'));
+
+    await generateTransaction(buildTx('push-refused', switchRow) as never, signCallback, false, sp as never);
+
+    expect(mockComplete.switchGuardian).toHaveBeenCalledTimes(1);
+  });
+
+  it('a hot-key rotation pushes no switch delta', async () => {
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    const { service, provider: sp } = arrangeStructural('push-rotation', row);
+
+    await generateTransaction(buildTx('push-rotation', row) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+  });
+
+  // The pushed delta is a candidate for a nonce the chain will never see once the node discards the
+  // switch; abandoned before the row fails, so nothing reads Failed while it stands.
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])(
+    'abandons the switch candidate before the row fails when the node discards the switch at the commit wait (flag $flag)',
+    async ({ on }) => {
+      if (on) {
+        process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+        mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      }
+      const id = `wait-discarded-${on}`;
+      const { service, provider: sp } = arrangeStructural(id, switchRow);
+      let statusAtAbandon: unknown;
+      service.abandonCandidate.mockImplementation(async () => {
+        statusAtAbandon = txStore.find(r => r.id === id)?.status;
+      });
+      mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction rejected: exec-tx-hash'));
+
+      await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+      expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+      expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+      expect(statusAtAbandon).toBeDefined();
+      expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.error).toMatch(/Transaction rejected: exec-tx-hash/);
+      expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    }
+  );
+
+  // The co-sign already handed the guardian these types' candidates.
+  it.each(structuralCases().filter(c => c.type !== 'switch-guardian'))(
+    '$type: abandons its co-signed candidate before the row fails when the node discards it at the commit wait',
+    async ({ row, complete }) => {
+      const id = `wait-discarded-${row.type}`;
+      const { service, provider: sp } = arrangeStructural(id, row);
+      let statusAtAbandon: unknown;
+      service.abandonCandidate.mockImplementation(async () => {
+        statusAtAbandon = txStore.find(r => r.id === id)?.status;
+      });
+      mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction rejected: exec-tx-hash'));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+      expect(statusAtAbandon).toBeDefined();
+      expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.error).toMatch(/Transaction rejected: exec-tx-hash/);
+      expect(complete).not.toHaveBeenCalled();
+    }
+  );
+
+  // Flag off, so the real inline leaf stamps the submit crossing these rows carry.
+  it.each(
+    structuralCases().flatMap(c => [
+      {
+        ...c,
+        shape: 'at the wait',
+        arrangeWait: () => mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction rejected: exec-tx-hash'))
+      },
+      {
+        ...c,
+        shape: 'by the verdict',
+        arrangeWait: () => {
+          mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction confirmation timed out after 60000ms'));
+          mockProxyGetCommitState.mockResolvedValueOnce('discarded');
+        }
+      }
+    ])
+  )(
+    '$type: a write the node discarded $shape is a definite failure (#1233)',
+    async ({ type, row, shape, arrangeWait }) => {
+      const id = `node-discarded-${type}-${shape}`;
+      const { provider: sp } = arrangeStructural(id, row);
+      arrangeWait();
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect(finalRow.extraInputs).toMatchObject({ nodeDiscarded: true });
+      expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+      expect(type === 'replace-hot-key' && describeRotationFailure(finalRow as never, null).unconfirmed).toBe(false);
+    }
+  );
+
+  it.each(
+    structuralCases().flatMap(c => [
+      {
+        ...c,
+        shape: 'a timeout the node has no verdict for',
+        arrangeWait: () =>
+          mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction confirmation timed out after 60000ms'))
+      },
+      {
+        ...c,
+        shape: 'a watchdog-evicted wait',
+        arrangeWait: () => mockProxyWaitForCommit.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'))
+      }
+    ])
+  )('$type: $shape stays not confirmed (#1233)', async ({ type, row, shape, arrangeWait }) => {
+    const id = `no-verdict-${type}-${shape}`;
+    const { provider: sp } = arrangeStructural(id, row);
+    arrangeWait();
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBe(true);
+    expect(finalRow.extraInputs).not.toHaveProperty('nodeDiscarded');
+    expect(isUnconfirmedFailure(finalRow as never)).toBe(true);
+    expect(type !== 'replace-hot-key' || describeRotationFailure(finalRow as never, null).unconfirmed).toBe(true);
+  });
+
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])(
+    'asks the node after a commit wait that ends without a verdict, and fails the row when the node has none either (flag $flag)',
+    async ({ on }) => {
+      if (on) {
+        process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+        mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      }
+      const id = `wait-no-verdict-${on}`;
+      const { service, provider: sp } = arrangeStructural(id, switchRow);
+      mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction confirmation timed out after 60000ms'));
+
+      await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+      expect(mockProxyGetCommitState).toHaveBeenCalledWith('exec-tx-hash');
+      expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+      expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    }
+  );
+
+  // An evicted wait parked the realm's sync and a verdict sync would join it; the write may still
+  // land, so this is the no-verdict arm.
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])('fails the row on a commit wait the watchdog evicted, without asking the node (flag $flag)', async ({ on }) => {
+    if (on) {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    }
+    const id = `wait-evicted-${on}`;
+    const { service, provider: sp } = arrangeStructural(id, switchRow);
+    mockProxyWaitForCommit.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+    expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])(
+    'treats a commit wait the watchdog evicted under another error the same way (flag $flag, #1313)',
+    async ({ on }) => {
+      if (on) {
+        process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+        mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      }
+      const id = `wait-wrapped-eviction-${on}`;
+      const { service, provider: sp } = arrangeStructural(id, switchRow);
+      mockProxyWaitForCommit.mockRejectedValueOnce(
+        new Error('commit wait failed', { cause: new WasmClientPoisonedError('watchdog') })
+      );
+
+      await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+      expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+    }
+  );
+});
+
+// Routing fixtures deliberately isolate vault admission, covered by swap/balance and admission suites.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

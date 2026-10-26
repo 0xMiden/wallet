@@ -1,10 +1,101 @@
 import '../../../test/jest-mocks';
 
+import axios from 'axios';
+
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MidenMessageType } from 'lib/miden/types';
+import type * as EffectiveEndpointsModule from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
+import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { useWalletStore, selectIsReady, selectIsLocked, selectIsIdle, getIntercom } from './index';
+import {
+  useWalletStore,
+  selectIsReady,
+  selectIsLocked,
+  selectIsIdle,
+  getIntercom,
+  reloadEndpointOverridesInSW,
+  __resetFaucetAssetsMetadataForTest,
+  faucetMetadataOf
+} from './index';
+import { fetchingAddresses } from './utils/fetchBalances';
+import type * as FetchBalancesModule from './utils/fetchBalances';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
+
+// A balance read a case holds open. Every other case reads through the real module, which is
+// reached lazily: the module is part of an import cycle, so its exports are not ready at mock time.
+// A held read reports the display faucet setting when it starts, as the reader does.
+let mockHeldBalanceRead: ((options?: FetchBalancesModule.FetchBalancesOptions) => Promise<unknown>) | null = null;
+jest.mock('./utils/fetchBalances', () => {
+  const actual = jest.requireActual<typeof FetchBalancesModule>('./utils/fetchBalances');
+  return {
+    get fetchingAddresses() {
+      return actual.fetchingAddresses;
+    },
+    fetchBalances: (...args: Parameters<typeof actual.fetchBalances>) => {
+      if (!mockHeldBalanceRead) return actual.fetchBalances(...args);
+      args[2]?.onDisplayFaucetId?.(mockFaucetIdSetting ?? null);
+      return mockHeldBalanceRead(args[2]);
+    }
+  };
+});
+
+let mockFaucetIdSetting: string | null | undefined;
+jest.mock('lib/miden/assets/faucet-id-setting', () => {
+  const actual = jest.requireActual<typeof FaucetIdSettingModule>('lib/miden/assets/faucet-id-setting');
+  return {
+    getFaucetIdSetting: () =>
+      mockFaucetIdSetting === undefined ? actual.getFaucetIdSetting() : Promise.resolve(mockFaucetIdSetting)
+  };
+});
+
+// The override write is the storage boundary of the override actions. The apply logic is the real one.
+const mockWriteTokenMetadataOverride = jest.fn();
+jest.mock('lib/miden/metadata/overrides', () => ({
+  ...jest.requireActual('lib/miden/metadata/overrides'),
+  writeTokenMetadataOverride: (...args: unknown[]) => mockWriteTokenMetadataOverride(...args)
+}));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+
+let mockNativeAssetId: string | null = null;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => mockNativeAssetId
+}));
+
+// The effective network a case moves while a read is out, as a Developer Settings save does.
+let mockEffectiveNetwork: { name: MIDEN_NETWORK_NAME; rpcUrl: string } | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof EffectiveEndpointsModule>('lib/miden-chain/effective-endpoints');
+  return {
+    ...actual,
+    getEffectiveNetworkName: () => mockEffectiveNetwork?.name ?? actual.getEffectiveNetworkName(),
+    getEffectiveRpcUrl: () => mockEffectiveNetwork?.rpcUrl ?? actual.getEffectiveRpcUrl()
+  };
+});
 
 // Mock the intercom module
 const mockRequest = jest.fn();
@@ -49,8 +140,24 @@ describe('useWalletStore', () => {
 
       syncFromBackend({
         status: WalletStatus.Ready,
-        accounts: [{ publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
-        currentAccount: { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+        accounts: [
+          {
+            publicKey: 'pk1',
+            name: 'Account 1',
+            isPublic: true,
+            type: WalletType.OnChain,
+            hdIndex: 0,
+            authScheme: 'ecdsa'
+          }
+        ],
+        currentAccount: {
+          publicKey: 'pk1',
+          name: 'Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        },
         networks: [],
         settings: { contacts: [] },
         ownMnemonic: true
@@ -65,10 +172,30 @@ describe('useWalletStore', () => {
     });
   });
 
+  // The Guardian cold key has no import path, so nothing may request it: the
+  // reveal screen is gone and so is the action behind it.
+  it('exposes no Guardian cold-key reveal action', () => {
+    expect(useWalletStore.getState()).not.toHaveProperty('revealGuardianKeys');
+  });
+
   describe('editAccountName', () => {
     const mockAccounts = [
-      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OnChain, hdIndex: 1 }
+      {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      },
+      {
+        publicKey: 'pk2',
+        name: 'Account 2',
+        isPublic: false,
+        type: WalletType.OnChain,
+        hdIndex: 1,
+        authScheme: 'ecdsa' as const
+      }
     ];
 
     beforeEach(() => {
@@ -132,8 +259,22 @@ describe('useWalletStore', () => {
 
   describe('updateCurrentAccount', () => {
     const mockAccounts = [
-      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OnChain, hdIndex: 1 }
+      {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      },
+      {
+        publicKey: 'pk2',
+        name: 'Account 2',
+        isPublic: false,
+        type: WalletType.OnChain,
+        hdIndex: 1,
+        authScheme: 'ecdsa' as const
+      }
     ];
 
     beforeEach(() => {
@@ -238,6 +379,120 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('spending-limit actions', () => {
+    const draft = { accountId: 'account-a', limit: 90n };
+
+    it('reads the one configuration through a serializable transport response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetSpendingLimitResponse,
+        configuration: {
+          accountId: 'account-a',
+          limit: '90',
+          revision: 'revision-1',
+          createdAt: 1,
+          updatedAt: 2
+        }
+      });
+
+      await expect(useWalletStore.getState().readSpendingLimit('account-a')).resolves.toEqual({
+        accountId: 'account-a',
+        limit: 90n,
+        revision: 'revision-1',
+        createdAt: 1,
+        updatedAt: 2
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.GetSpendingLimitRequest,
+        accountId: 'account-a'
+      });
+    });
+
+    it('reports no configuration for an account with none', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.GetSpendingLimitResponse });
+
+      await expect(useWalletStore.getState().readSpendingLimit('account-a')).resolves.toBeUndefined();
+    });
+
+    it('serializes a bigint limit and parses the saved response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        configuration: {
+          accountId: 'account-a',
+          limit: '90',
+          revision: 'revision-2',
+          createdAt: 1,
+          updatedAt: 2
+        }
+      });
+
+      await expect(useWalletStore.getState().saveSpendingLimit(draft, 'revision-1', false)).resolves.toMatchObject({
+        limit: 90n,
+        revision: 'revision-2'
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: { accountId: 'account-a', limit: '90' },
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: false
+      });
+    });
+
+    it('serializes a spend list and parses its structured preflight assessment', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        assessment: {
+          accountId: 'account-a',
+          usdAmount: '20',
+          revision: 'revision-1',
+          assessedAt: 100,
+          breach: {
+            spent: '90',
+            proposedTotal: '110',
+            limit: '100',
+            overBy: '10',
+            resetAt: 200
+          }
+        }
+      });
+
+      await expect(
+        useWalletStore.getState().assessSpendingLimit('account-a', [{ faucetId: 'faucet-a', amount: 20n }])
+      ).resolves.toMatchObject({
+        usdAmount: 20n,
+        breach: { overBy: 10n }
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        spends: [{ faucetId: 'faucet-a', amount: '20' }]
+      });
+    });
+  });
+
+  describe('strict authentication actions', () => {
+    it('loads protectors and verifies a credential', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+          protectors: { hardware: false, password: true }
+        })
+        .mockResolvedValueOnce({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
+
+      await expect(useWalletStore.getState().getStrictAuthenticationProtectors()).resolves.toEqual({
+        hardware: false,
+        password: true
+      });
+      await expect(useWalletStore.getState().verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenNthCalledWith(1, {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsRequest
+      });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, {
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential: 'secret'
+      });
+    });
+  });
+
   describe('setAssetsMetadata', () => {
     it('merges new metadata with existing', () => {
       useWalletStore.setState({
@@ -251,6 +506,500 @@ describe('useWalletStore', () => {
       expect(state.assetsMetadata).toEqual({
         asset1: { name: 'Token 1', symbol: 'TK1', decimals: 8 },
         asset2: { name: 'Token 2', symbol: 'TK2', decimals: 6 }
+      });
+    });
+  });
+
+  describe('token metadata overrides', () => {
+    const FAUCET = 'mtst1faucet';
+    const OTHER = 'mtst1other';
+    const NATIVE = 'mtst1native';
+    const faucetMetadata = { name: 'Faucet Token', symbol: 'FCT', decimals: 8 };
+    const row = (tokenId: string, balance: number, metadata: { name: string; symbol: string; decimals: number }) => ({
+      tokenId,
+      tokenSlug: metadata.symbol,
+      metadata,
+      balance,
+      fiatPrice: 0,
+      change24h: 0
+    });
+
+    beforeEach(() => {
+      __resetFaucetAssetsMetadataForTest();
+      mockWriteTokenMetadataOverride.mockReset().mockResolvedValue({});
+      mockNativeAssetId = NATIVE;
+      useWalletStore.setState({ tokenMetadataOverrides: {}, balances: {}, tokenPrices: {} });
+      useWalletStore.getState().setAssetsMetadata({ [FAUCET]: faucetMetadata, [OTHER]: faucetMetadata });
+    });
+
+    afterEach(() => {
+      mockNativeAssetId = null;
+      mockBridgeSnapshot = undefined;
+    });
+
+    it('applies the override to the shown metadata and stores it', async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
+
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata[FAUCET]).toEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+      expect(state.assetsMetadata[OTHER]).toEqual(faucetMetadata);
+      expect(state.tokenMetadataOverrides).toEqual({ [FAUCET]: { name: 'Mine', symbol: 'MN' } });
+      expect(mockWriteTokenMetadataOverride).toHaveBeenCalledWith(FAUCET, { name: 'Mine', symbol: 'MN' });
+    });
+
+    it("keeps the override when the faucet metadata comes again, on the faucet's scale", async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 2 });
+
+      useWalletStore
+        .getState()
+        .setAssetsMetadata({ [FAUCET]: { ...faucetMetadata, description: 'Described by faucet' } });
+
+      expect(useWalletStore.getState().assetsMetadata[FAUCET]).toStrictEqual({
+        name: 'Mine',
+        symbol: 'MN',
+        decimals: 8,
+        description: 'Described by faucet'
+      });
+    });
+
+    it('shows the faucet values again after a clear', async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 2 });
+      await useWalletStore.getState().clearTokenMetadataOverride(FAUCET);
+
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
+      expect(state.tokenMetadataOverrides).toEqual({});
+      expect(mockWriteTokenMetadataOverride).toHaveBeenLastCalledWith(FAUCET, undefined);
+    });
+
+    it('does nothing on a clear when no override is set', async () => {
+      await useWalletStore.getState().clearTokenMetadataOverride(FAUCET);
+
+      expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+      expect(useWalletStore.getState().assetsMetadata[FAUCET]).toEqual(faucetMetadata);
+    });
+
+    it("rescales the balance rows of every account when the user states an unknown-scale token's decimals, and back on a clear", async () => {
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      useWalletStore.getState().setAssetsMetadata({ [FAUCET]: unknown });
+      // 1.5 at the placeholder's guessed 6 decimals is 1500000 base units.
+      useWalletStore.setState({
+        balances: {
+          'account-1': [row(FAUCET, 1.5, unknown), row(OTHER, 3, faucetMetadata)],
+          'account-2': [row(FAUCET, 0.25, unknown)]
+        }
+      });
+
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 4 });
+
+      let balances = useWalletStore.getState().balances;
+      expect(balances['account-1']![0]).toMatchObject({
+        tokenId: FAUCET,
+        tokenSlug: 'MN',
+        balance: 150,
+        metadata: { symbol: 'MN', decimals: 4, scaleIsUnknown: false, scaleFromOverride: true }
+      });
+      expect(balances['account-1']![1]).toMatchObject({ tokenId: OTHER, balance: 3, metadata: faucetMetadata });
+      expect(balances['account-2']![0]).toMatchObject({ tokenId: FAUCET, balance: 25 });
+
+      await useWalletStore.getState().clearTokenMetadataOverride(FAUCET);
+
+      balances = useWalletStore.getState().balances;
+      expect(balances['account-1']![0]).toMatchObject({ tokenSlug: 'Unknown', balance: 1.5, metadata: unknown });
+      expect(balances['account-2']![0]).toMatchObject({ balance: 0.25 });
+    });
+
+    it("keeps a known-scale token's balance rows and entry on the faucet's scale when the override carries decimals", async () => {
+      useWalletStore.setState({ balances: { 'account-1': [row(FAUCET, 1.5, faucetMetadata)] } });
+
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 2 });
+
+      const state = useWalletStore.getState();
+      expect(state.balances['account-1']![0]).toMatchObject({ tokenSlug: 'MN', balance: 1.5 });
+      expect(state.balances['account-1']![0]!.metadata).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+      expect(state.assetsMetadata[FAUCET]).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+    });
+
+    it('makes an unknown-scale token quantifiable when the user states its decimals', async () => {
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      useWalletStore.getState().setAssetsMetadata({ [FAUCET]: unknown });
+      // 2000 base units, divided by the placeholder's guessed 6 decimals.
+      useWalletStore.setState({ balances: { 'account-1': [row(FAUCET, 0.002, unknown)] } });
+
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 3 });
+
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata[FAUCET]).toMatchObject({
+        decimals: 3,
+        scaleIsUnknown: false,
+        scaleFromOverride: true
+      });
+      expect(state.balances['account-1']![0]).toMatchObject({ balance: 2, metadata: { scaleIsUnknown: false } });
+    });
+
+    it('shows the change before the write lands', async () => {
+      let finishWrite: () => void = () => {};
+      mockWriteTokenMetadataOverride.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            finishWrite = () => resolve({});
+          })
+      );
+
+      const saved = useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
+
+      expect(useWalletStore.getState().assetsMetadata[FAUCET]!.symbol).toBe('MN');
+      finishWrite();
+      await saved;
+    });
+
+    it('rolls back the metadata and the balances when the write fails', async () => {
+      useWalletStore.setState({ balances: { 'account-1': [row(FAUCET, 1.5, faucetMetadata)] } });
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Old', symbol: 'OLD' });
+      mockWriteTokenMetadataOverride.mockRejectedValueOnce(new Error('storage full'));
+
+      await expect(
+        useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'New', symbol: 'NEW', decimals: 2 })
+      ).rejects.toThrow('storage full');
+
+      const state = useWalletStore.getState();
+      expect(state.tokenMetadataOverrides).toEqual({ [FAUCET]: { name: 'Old', symbol: 'OLD' } });
+      expect(state.assetsMetadata[FAUCET]).toEqual({ ...faucetMetadata, name: 'Old', symbol: 'OLD' });
+      expect(state.balances['account-1']![0]).toMatchObject({ tokenSlug: 'OLD', balance: 1.5 });
+    });
+
+    it('rolls back a failed clear', async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
+      mockWriteTokenMetadataOverride.mockRejectedValueOnce(new Error('storage full'));
+
+      await expect(useWalletStore.getState().clearTokenMetadataOverride(FAUCET)).rejects.toThrow('storage full');
+
+      expect(useWalletStore.getState().tokenMetadataOverrides).toEqual({ [FAUCET]: { name: 'Mine', symbol: 'MN' } });
+      expect(useWalletStore.getState().assetsMetadata[FAUCET]!.name).toBe('Mine');
+    });
+
+    it('refuses an override of the native token', async () => {
+      const native = { name: 'Miden', symbol: 'MIDEN', decimals: 6 };
+      useWalletStore.getState().setAssetsMetadata({ [NATIVE]: native });
+
+      await expect(
+        useWalletStore.getState().setTokenMetadataOverride(NATIVE, { name: 'Fake', symbol: 'FAKE', decimals: 2 })
+      ).rejects.toThrow();
+
+      expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+      expect(useWalletStore.getState().assetsMetadata[NATIVE]).toEqual(native);
+    });
+
+    it("gives the faucet's own record through faucetMetadataOf, never an entry an override made", async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
+      expect(faucetMetadataOf(FAUCET)).toEqual(faucetMetadata);
+
+      // A faucet with no record: the hydration writes the placeholder with the override on top.
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ mtst1fresh: { name: 'Fresh', symbol: 'FRS', decimals: 3 } });
+      expect(useWalletStore.getState().assetsMetadata.mtst1fresh).toMatchObject({ symbol: 'FRS', decimals: 3 });
+      expect(faucetMetadataOf('mtst1fresh')).toBeUndefined();
+
+      useWalletStore.setState(state => ({ assetsMetadata: { ...state.assetsMetadata, mtst1plain: faucetMetadata } }));
+      expect(faucetMetadataOf('mtst1plain')).toEqual(faucetMetadata);
+    });
+
+    it('applies the stored overrides on hydrate and removes the ones storage no longer has', async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
+
+      useWalletStore.getState().hydrateTokenMetadataOverrides({
+        [OTHER]: { name: 'Other', symbol: 'OTH' },
+        [NATIVE]: { name: 'Fake', symbol: 'FAKE', decimals: 1 }
+      });
+
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
+      expect(state.assetsMetadata[OTHER]).toEqual({ ...faucetMetadata, name: 'Other', symbol: 'OTH' });
+      expect(state.assetsMetadata[NATIVE]).toBeUndefined();
+    });
+
+    it("keeps testnet iETH's own metadata under an override stored for it, since the wallet names it itself (#477)", async () => {
+      // The document lists IETH, which testnet names itself.
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      const IETH = TEST_TOKEN_IETH.faucetId;
+      const ieth = { name: 'iETH', symbol: 'IETH', decimals: 8 };
+      useWalletStore.getState().setAssetsMetadata({ [IETH]: ieth });
+
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ [IETH]: { name: 'Mine', symbol: 'MINE' } });
+      expect(useWalletStore.getState().assetsMetadata[IETH]).toEqual(ieth);
+
+      await expect(
+        useWalletStore.getState().setTokenMetadataOverride(IETH, { name: 'Mine', symbol: 'MINE' })
+      ).rejects.toThrow('The metadata of this token cannot be overridden');
+      expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+      expect(useWalletStore.getState().assetsMetadata[IETH]).toEqual(ieth);
+    });
+
+    it("shows the Test Epoch USDC faucet's own record once the bridge config names it (#477)", () => {
+      const USDC = TEST_MIDEN_USDC_FAUCET;
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      useWalletStore.getState().setAssetsMetadata({ [USDC]: unknown });
+      // 2000 base units, divided by the placeholder's guessed 6 decimals.
+      useWalletStore.setState({ balances: { 'account-1': [row(USDC, 0.002, unknown)] } });
+
+      // Hydrated while the config is still loading: the faucet is not yet one the wallet names.
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ [USDC]: { name: 'Mine', symbol: 'MINE', decimals: 3 } });
+      expect(useWalletStore.getState().assetsMetadata[USDC]).toMatchObject({ symbol: 'MINE', decimals: 3 });
+      expect(useWalletStore.getState().balances['account-1']![0]).toMatchObject({ tokenSlug: 'MINE', balance: 2 });
+
+      // The config names it: the provider applies the overrides again.
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+      useWalletStore.getState().hydrateTokenMetadataOverrides(useWalletStore.getState().tokenMetadataOverrides);
+
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata[USDC]).toEqual(unknown);
+      expect(state.balances['account-1']![0]).toMatchObject({
+        tokenSlug: 'Unknown',
+        balance: 0.002,
+        metadata: unknown
+      });
+      expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+    });
+
+    describe('a balance read that lands after an override change', () => {
+      const HELD = 'mtst1held';
+      const LEGACY = 'mtst1legacy';
+      let landRead: (rows: unknown[]) => void = () => {};
+
+      beforeEach(() => {
+        mockHeldBalanceRead = () =>
+          new Promise(resolve => {
+            landRead = resolve;
+          });
+        mockFaucetIdSetting = LEGACY;
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockFaucetIdSetting = undefined;
+      });
+
+      it('shows the override saved while it was in flight, scaled by its decimals', async () => {
+        const previous = { name: 'Old', symbol: 'OLD', decimals: 2 };
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [HELD]: previous });
+        // What the read built: the placeholder with the override it read, 150000 base units at 2 decimals.
+        const builtWith = { ...DEFAULT_TOKEN_METADATA, ...previous, scaleIsUnknown: false, scaleFromOverride: true };
+        const read = useWalletStore.getState().fetchBalances('account-1', useWalletStore.getState().assetsMetadata);
+
+        await useWalletStore.getState().setTokenMetadataOverride(HELD, { name: 'New', symbol: 'NEW', decimals: 4 });
+        landRead([row(HELD, 1500, builtWith)]);
+        await read;
+
+        const landed = useWalletStore.getState().balances['account-1']![0]!;
+        expect(landed.tokenSlug).toBe('NEW');
+        expect(landed.balance).toBe(15);
+        expect(landed.metadata).toMatchObject({ symbol: 'NEW', decimals: 4 });
+        expect(useWalletStore.getState().balancesLoading['account-1']).toBe(false);
+      });
+
+      it('shows the placeholder for an unresolved faucet whose override was cleared while it was in flight', async () => {
+        const UNRESOLVED = 'mtst1unresolved';
+        const stated = { name: 'Mine', symbol: 'MN', decimals: 3 };
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [UNRESOLVED]: stated });
+        let readOptions: FetchBalancesModule.FetchBalancesOptions | undefined;
+        mockHeldBalanceRead = options => {
+          readOptions = options;
+          return new Promise(resolve => {
+            landRead = resolve;
+          });
+        };
+        const read = useWalletStore.getState().fetchBalances('account-1', useWalletStore.getState().assetsMetadata);
+
+        await useWalletStore.getState().clearTokenMetadataOverride(UNRESOLVED);
+        // As the reader does when its storage read returned the override: 2000 base units at the stated 3.
+        readOptions?.onOverrideApplied?.(UNRESOLVED);
+        const builtWith = { ...DEFAULT_TOKEN_METADATA, ...stated, scaleIsUnknown: false, scaleFromOverride: true };
+        landRead([row(UNRESOLVED, 2, builtWith)]);
+        await read;
+
+        const landed = useWalletStore.getState().balances['account-1']![0]!;
+        expect(landed.tokenSlug).toBe('Unknown');
+        expect(landed.metadata).toEqual(DEFAULT_TOKEN_METADATA);
+        expect(landed.balance).toBe(0.002);
+      });
+
+      it('leaves the display row of a legacy faucet setting as the read built it', async () => {
+        useWalletStore.getState().setAssetsMetadata({ [LEGACY]: { name: 'Legacy', symbol: 'LEGACY', decimals: 2 } });
+        // The read built the display row before the legacy record reached it: the native display metadata.
+        const display = getNativeDisplayMetadataSync(undefined, LEGACY);
+        const read = useWalletStore.getState().fetchBalances('account-1', {});
+
+        landRead([row(LEGACY, 5, display), row(FAUCET, 1.5, faucetMetadata)]);
+        await read;
+
+        const rows = useWalletStore.getState().balances['account-1']!;
+        expect(rows[0]).toMatchObject({ tokenSlug: display.symbol, balance: 5, metadata: display });
+        expect(rows[1]).toMatchObject({ tokenSlug: 'FCT', balance: 1.5, metadata: faucetMetadata });
+      });
+    });
+
+    describe("the display row of the faucet-id setting's legacy faucet", () => {
+      const LEGACY = 'mtst1legacy';
+      const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
+      const override = { name: 'Mine', symbol: 'MINE' };
+      // The read built the display row before the legacy record reached it: the native display metadata.
+      const display = getNativeDisplayMetadataSync(undefined, LEGACY);
+      let landRead: (rows: unknown[]) => void = () => {};
+      const land = async (account: string, rows: unknown[]) => {
+        const read = useWalletStore.getState().fetchBalances(account, {});
+        landRead(rows);
+        await read;
+      };
+      const displayRow = (account: string) =>
+        useWalletStore.getState().balances[account]!.find(entry => entry.tokenId === LEGACY)!;
+      const expectAsBuilt = (account: string) => {
+        expect(displayRow(account).tokenSlug).toBe(display.symbol);
+        expect(displayRow(account)).toMatchObject({ balance: 5, metadata: display });
+      };
+
+      beforeEach(() => {
+        useWalletStore.setState({ balancesDisplayFaucetId: {} });
+        mockHeldBalanceRead = () =>
+          new Promise(resolve => {
+            landRead = resolve;
+          });
+        mockFaucetIdSetting = LEGACY;
+        useWalletStore.getState().setAssetsMetadata({ [LEGACY]: legacyRecord });
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockFaucetIdSetting = undefined;
+      });
+
+      it("keeps the reader's build when the hydrate brings an override for that faucet", async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().assetsMetadata[LEGACY]).toEqual({ ...legacyRecord, ...override });
+      });
+
+      it("keeps the reader's build when the user saves an override for that faucet", async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+
+        await useWalletStore.getState().setTokenMetadataOverride(LEGACY, override);
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().assetsMetadata[LEGACY]).toEqual({ ...legacyRecord, ...override });
+      });
+
+      it("keeps the reader's build when the user clears the override of that faucet", async () => {
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+        await land('account-1', [row(LEGACY, 5, display)]);
+
+        await useWalletStore.getState().clearTokenMetadataOverride(LEGACY);
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().assetsMetadata[LEGACY]).toEqual(legacyRecord);
+      });
+
+      it('exempts no row before any read has landed', () => {
+        useWalletStore.setState({ balances: { 'account-1': [row(LEGACY, 5, display)] } });
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expect(displayRow('account-1').tokenSlug).toBe('MINE');
+      });
+
+      it('still applies the override to the row of an account whose read used no display faucet', async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+        mockFaucetIdSetting = null;
+        await land('account-2', [row(LEGACY, 1.25, legacyRecord)]);
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expect(displayRow('account-2').tokenSlug).toBe('MINE');
+        expect(displayRow('account-2')).toMatchObject({ balance: 1.25, metadata: { ...legacyRecord, ...override } });
+      });
+
+      it('records the display faucet the read built the row for, not the setting when it lands', async () => {
+        const read = useWalletStore.getState().fetchBalances('account-1', {});
+        mockFaucetIdSetting = null;
+        landRead([row(LEGACY, 5, display)]);
+        await read;
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().balancesDisplayFaucetId['account-1']).toBe(LEGACY);
+      });
+
+      it('lifts the exemption when a later read of that account used no display faucet', async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+        mockFaucetIdSetting = null;
+        await land('account-1', [row(LEGACY, 1.25, legacyRecord)]);
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expect(displayRow('account-1').tokenSlug).toBe('MINE');
+      });
+    });
+
+    describe('decimals the user stated while the scale was unknown', () => {
+      const FRESH = 'mtst1fresh';
+      const stated = { name: 'Mine', symbol: 'MN', decimals: 3 };
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      const retiredOverride = { name: 'Mine', symbol: 'MN' };
+
+      it('are dropped when the faucet record with a known scale arrives through setAssetsMetadata', async () => {
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [FRESH]: stated });
+
+        useWalletStore.getState().setAssetsMetadata({ [FRESH]: faucetMetadata });
+        await Promise.resolve();
+
+        expect(mockWriteTokenMetadataOverride.mock.calls).toStrictEqual([[FRESH, retiredOverride]]);
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(retiredOverride);
+        expect(useWalletStore.getState().assetsMetadata[FRESH]).toStrictEqual({
+          name: 'Mine',
+          symbol: 'MN',
+          decimals: 8
+        });
+      });
+
+      it('are dropped when the faucet record with a known scale arrives through fetchAssetMetadata', async () => {
+        const { fetchTokenMetadata } = jest.requireMock('lib/miden/metadata');
+        fetchTokenMetadata.mockResolvedValueOnce(faucetMetadata);
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [FRESH]: stated });
+
+        await useWalletStore.getState().fetchAssetMetadata(FRESH);
+
+        expect(mockWriteTokenMetadataOverride.mock.calls).toStrictEqual([[FRESH, retiredOverride]]);
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(retiredOverride);
+      });
+
+      it('are dropped when the override arrives after the known record, and never for the native token', async () => {
+        const native = { name: 'Miden', symbol: 'MIDEN', decimals: 6 };
+        useWalletStore.getState().setAssetsMetadata({ [FRESH]: faucetMetadata, [NATIVE]: native });
+
+        useWalletStore
+          .getState()
+          .hydrateTokenMetadataOverrides({ [FRESH]: stated, [NATIVE]: { name: 'Fake', symbol: 'FAKE', decimals: 1 } });
+        await Promise.resolve();
+
+        expect(mockWriteTokenMetadataOverride.mock.calls).toStrictEqual([[FRESH, retiredOverride]]);
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(retiredOverride);
+      });
+
+      it('stay while the faucet record arriving has an unknown scale', async () => {
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [FRESH]: stated });
+
+        useWalletStore.getState().setAssetsMetadata({ [FRESH]: unknown });
+        await Promise.resolve();
+
+        expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(stated);
+        expect(useWalletStore.getState().assetsMetadata[FRESH]).toMatchObject({ decimals: 3, scaleFromOverride: true });
       });
     });
   });
@@ -292,15 +1041,19 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', []);
+      await importWalletFromClient('password123', 'mnemonic words', [], importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
-        walletAccounts: []
+        walletAccounts: [],
+        importedAccounts
       });
     });
 
@@ -372,6 +1125,60 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.RevealPrivateKeyRequest,
         accountPublicKey: 'pk1',
+        password: 'password123'
+      });
+    });
+
+    it('exportAccountFile decodes through the imported Buffer, not a broken global one', async () => {
+      // A global Buffer whose from() ignores the encoding argument (public/globals.js once installed
+      // one on every extension page) returns an EMPTY array for a bare global decode, so the user is
+      // handed a 0-byte account file with a success message. Jest runs on Node, where the real global
+      // hides that entirely.
+      const realBuffer = (globalThis as any).Buffer;
+      (globalThis as any).Buffer = { isBuffer: () => false, from: (a: unknown) => new Uint8Array(a as number) };
+      try {
+        mockRequest.mockResolvedValueOnce({
+          type: WalletMessageType.ExportAccountFileResponse,
+          accountFileBase64: 'BAUG'
+        });
+
+        const { exportAccountFile } = useWalletStore.getState();
+
+        await expect(exportAccountFile('mtst1account', 'password123')).resolves.toEqual(new Uint8Array([4, 5, 6]));
+      } finally {
+        (globalThis as any).Buffer = realBuffer;
+      }
+    });
+
+    it('exportAccountFile decodes the base64 response into bytes', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64: 'BAUG'
+      });
+
+      const { exportAccountFile } = useWalletStore.getState();
+      const result = await exportAccountFile('mtst1account', 'password123');
+
+      expect(result).toEqual(new Uint8Array([4, 5, 6]));
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey: 'mtst1account',
+        password: 'password123'
+      });
+    });
+
+    it('exportWalletBackupMaterial returns the dedicated snapshot response', async () => {
+      const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
+      });
+
+      const result = await useWalletStore.getState().exportWalletBackupMaterial('password123');
+
+      expect(result).toBe(material);
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
         password: 'password123'
       });
     });
@@ -478,6 +1285,46 @@ describe('useWalletStore', () => {
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
 
+    it('importHotKeyPair posts an ImportHotKeyPairRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportHotKeyPairResponse });
+
+      await useWalletStore.getState().importHotKeyPair('acc', 'hot:evm');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey: 'acc',
+        keyPairPayload: 'hot:evm'
+      });
+    });
+
+    it('swapHotKey posts a SwapHotKeyRequest carrying the expectation (#1233)', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
+
+      const { swapHotKey } = useWalletStore.getState();
+      await swapHotKey('acc', 'new-pub', null);
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'acc',
+        newHotPubKey: 'new-pub',
+        expectedHotPubKey: null
+      });
+    });
+
+    // A completion passes no expectation, and a null one would refuse every keyed swap (#1233).
+    it('swapHotKey posts no expectation when the caller passes none (#1233)', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
+
+      const { swapHotKey } = useWalletStore.getState();
+      await swapHotKey('acc', 'new-pub');
+
+      expect(mockRequest.mock.calls[0]?.[0]).toEqual({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'acc',
+        newHotPubKey: 'new-pub'
+      });
+    });
+
     it('setGuardianOperatorCommitment posts a SetGuardianOperatorCommitmentRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SetGuardianOperatorCommitmentResponse });
 
@@ -511,6 +1358,33 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('markHotKeyRotatedOut posts a MarkHotKeyRotatedOutRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.MarkHotKeyRotatedOutResponse });
+
+      const { markHotKeyRotatedOut } = useWalletStore.getState();
+      await markHotKeyRotatedOut('pub-key', 'hot-1', '0xabc');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.MarkHotKeyRotatedOutRequest,
+        accountPublicKey: 'pub-key',
+        hotPublicKey: 'hot-1',
+        onChainHotCommitment: '0xabc'
+      });
+    });
+
+    it('retireRotatedOutHotKey posts a RetireRotatedOutHotKeyRequest carrying the expected key', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.RetireRotatedOutHotKeyResponse });
+
+      const { retireRotatedOutHotKey } = useWalletStore.getState();
+      await retireRotatedOutHotKey('pub-key', 'hot-1');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.RetireRotatedOutHotKeyRequest,
+        accountPublicKey: 'pub-key',
+        expectedHotPubKey: 'hot-1'
+      });
+    });
+
     it('setGuardianSyncStatus throws on a type-mismatched response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
 
@@ -541,21 +1415,21 @@ describe('useWalletStore', () => {
       await expect(checkGuardianDrift('pk')).rejects.toThrow('Invalid response');
     });
 
-    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns whether it applied', async () => {
+    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns the outcome', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.ApplyUserGuardianEndpointResponse,
-        applied: true
+        outcome: 'applied'
       });
 
       const { applyUserGuardianEndpoint } = useWalletStore.getState();
-      const applied = await applyUserGuardianEndpoint('pub-key', 'https://mine');
+      const outcome = await applyUserGuardianEndpoint('pub-key', 'https://mine');
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ApplyUserGuardianEndpointRequest,
         accountPublicKey: 'pub-key',
         guardianEndpoint: 'https://mine'
       });
-      expect(applied).toBe(true);
+      expect(outcome).toBe('applied');
     });
 
     it('applyUserGuardianEndpoint throws on a type-mismatched response', async () => {
@@ -569,9 +1443,7 @@ describe('useWalletStore', () => {
   describe('Asset actions', () => {
     it('fetchAssetMetadata fetches and stores metadata', async () => {
       const { fetchTokenMetadata } = jest.requireMock('lib/miden/metadata');
-      fetchTokenMetadata.mockResolvedValueOnce({
-        base: { name: 'New Token', symbol: 'NEW', decimals: 6 }
-      });
+      fetchTokenMetadata.mockResolvedValueOnce({ name: 'New Token', symbol: 'NEW', decimals: 6 });
 
       const { fetchAssetMetadata } = useWalletStore.getState();
       const result = await fetchAssetMetadata('asset-id');
@@ -691,6 +1563,20 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('confirmDAppUnlock sends correct request', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: MidenMessageType.DAppUnlockConfirmationResponse
+      });
+
+      const { confirmDAppUnlock } = useWalletStore.getState();
+      await confirmDAppUnlock('req-id');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id: 'req-id'
+      });
+    });
+
     it('confirmDAppImportPrivateNote sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppImportPrivateNoteConfirmationResponse
@@ -721,19 +1607,20 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('confirmDAppTransaction sends correct request with delegate', async () => {
+    it('confirmDAppTransaction sends strict-authentication success only when supplied', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppTransactionConfirmationResponse
       });
 
       const { confirmDAppTransaction } = useWalletStore.getState();
-      await confirmDAppTransaction('req-id', true, true);
+      await confirmDAppTransaction('req-id', true, true, true);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id: 'req-id',
         confirmed: true,
-        delegate: true
+        delegate: true,
+        spendingLimitAuthenticated: true
       });
     });
 
@@ -761,6 +1648,47 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: MidenMessageType.DAppRemoveSessionRequest,
         origin: 'https://example.com'
+      });
+    });
+  });
+
+  describe('USDCx burn fee estimate', () => {
+    it('asks for the account and chain and decodes the reserve as a bigint', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
+        feeReserve: '9007199254740993'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'measured',
+        reserve: 9007199254740993n
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey: 'mm1account',
+        destinationChainId: 5042002
+      });
+    });
+
+    it('decodes a measured zero as a measurement', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
+        feeReserve: '0'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
+        outcome: 'measured',
+        reserve: 0n
+      });
+    });
+
+    it.each<'busy' | 'failed'>(['busy', 'failed'])('decodes %s as itself, with no reserve', async outcome => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
+        outcome
       });
     });
   });
@@ -852,6 +1780,46 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('reloadEndpointOverridesInSW', () => {
+    it('sends a ReloadEndpointOverridesRequest and resolves on completion', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ReloadEndpointOverridesResponse });
+      await expect(reloadEndpointOverridesInSW()).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WalletMessageType.ReloadEndpointOverridesRequest })
+      );
+    });
+
+    it('swallows a failed request instead of rejecting', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockRequest.mockRejectedValueOnce(new Error('port disconnected'));
+
+      await expect(reloadEndpointOverridesInSW()).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith('[reloadEndpointOverridesInSW] failed to nudge SW:', expect.any(Error));
+
+      warnSpy.mockRestore();
+    });
+
+    it('resolves after a bounded timeout instead of hanging forever when the request never settles (e.g. the SW port disconnects mid-request, which IntercomClient does not surface as a rejection)', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRequest.mockImplementationOnce(() => new Promise(() => {})); // never settles
+
+        const settled = jest.fn();
+        reloadEndpointOverridesInSW().then(settled);
+
+        // Still pending well before the timeout — proves this isn't just a same-tick resolve.
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(4000);
+        expect(settled).toHaveBeenCalledTimes(1);
+        expect(settled).toHaveBeenCalledWith(undefined);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   // ── Additional coverage for action methods ────────────────────────
 
   describe('registerWallet / importWalletFromClient / unlock', () => {
@@ -870,9 +1838,15 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', []);
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ type: WalletMessageType.ImportFromClientRequest })
+        expect.objectContaining({
+          type: WalletMessageType.ImportFromClientRequest,
+          importedAccounts
+        })
       );
     });
 
@@ -1050,14 +2024,39 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(false);
     });
 
+    it("clearBalances drops every address's balances, loading flag and last fetch, and nothing else", () => {
+      const row = { tokenId: 'asset-1', tokenSlug: 'A', metadata: { decimals: 6, symbol: 'A' } as any, balance: 1 };
+      useWalletStore.setState({
+        balances: { 'addr-1': [row as any], 'addr-2': [row as any] },
+        balancesLoading: { 'addr-1': false, 'addr-2': true },
+        balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
+        assetsMetadata: { 'asset-1': row.metadata },
+        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0 } } as any,
+        accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
+      });
+      const { balances, balancesLoading, balancesLastFetched, ...others } = useWalletStore.getState();
+
+      useWalletStore.getState().clearBalances();
+
+      const after = useWalletStore.getState();
+      expect(after.balances).toEqual({});
+      expect(after.balancesLoading).toEqual({});
+      expect(after.balancesLastFetched).toEqual({});
+      const { balances: _b, balancesLoading: _l, balancesLastFetched: _f, ...othersAfter } = after;
+      expect(othersAfter).toEqual(others);
+      expect(othersAfter.assetsMetadata).toBe(others.assetsMetadata);
+      expect(othersAfter.tokenPrices).toBe(others.tokenPrices);
+      expect(othersAfter.accounts).toBe(others.accounts);
+    });
+
     it('setAssetsMetadata merges new metadata', () => {
       useWalletStore.getState().setAssetsMetadata({ 'asset-1': { decimals: 6, symbol: 'A' } as any });
       expect(useWalletStore.getState().assetsMetadata['asset-1']).toBeDefined();
     });
 
-    it('fetchAssetMetadata persists base metadata when fetch succeeds', async () => {
+    it('fetchAssetMetadata persists metadata when fetch succeeds', async () => {
       const fetchTokenMetadata = require('lib/miden/metadata').fetchTokenMetadata;
-      fetchTokenMetadata.mockResolvedValueOnce({ base: { decimals: 8, symbol: 'X' } });
+      fetchTokenMetadata.mockResolvedValueOnce({ decimals: 8, symbol: 'X' });
       const result = await useWalletStore.getState().fetchAssetMetadata('asset-x');
       expect(result).toEqual({ decimals: 8, symbol: 'X' });
       expect(useWalletStore.getState().assetsMetadata['asset-x']).toEqual({ decimals: 8, symbol: 'X' });
@@ -1094,12 +2093,124 @@ describe('useWalletStore', () => {
     });
   });
 
+  // Price helpers read the switch outside React, so a memo keyed on tokenPrices recomputes only when
+  // the switch hands it a new object.
+  describe('nominal unquoted price switch', () => {
+    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } };
+
+    beforeEach(() => {
+      useWalletStore.getState().setTokenPrices(prices);
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(NOMINAL_UNQUOTED_PRICE_STORAGE_KEY);
+    });
+
+    it('republishes tokenPrices as a new object with the same entries when the switch is toggled', () => {
+      setNominalUnquotedPriceSetting(true);
+      expect(useWalletStore.getState().tokenPrices).not.toBe(prices);
+      expect(useWalletStore.getState().tokenPrices).toEqual(prices);
+    });
+
+    it('republishes tokenPrices when another window toggles the switch, and fetches no prices', () => {
+      const priceFetch = jest.spyOn(axios, 'get');
+      localStorage.setItem(NOMINAL_UNQUOTED_PRICE_STORAGE_KEY, 'on');
+      window.dispatchEvent(new StorageEvent('storage', { key: NOMINAL_UNQUOTED_PRICE_STORAGE_KEY, newValue: 'on' }));
+      expect(useWalletStore.getState().tokenPrices).not.toBe(prices);
+      expect(useWalletStore.getState().tokenPrices).toEqual(prices);
+      expect(priceFetch).not.toHaveBeenCalled();
+      expect(mockRequest).not.toHaveBeenCalled();
+      priceFetch.mockRestore();
+    });
+
+    it('keeps tokenPrices identity on a storage event for another key', () => {
+      window.dispatchEvent(new StorageEvent('storage', { key: CARD_COLOR_STORAGE_KEY, newValue: 'blue' }));
+      expect(useWalletStore.getState().tokenPrices).toBe(prices);
+    });
+  });
+
   describe('fetchBalances', () => {
-    it('skips if already loading for that address', async () => {
-      useWalletStore.setState({ balancesLoading: { 'addr-1': true } });
-      await useWalletStore.getState().fetchBalances('addr-1', {});
-      // Should not have changed anything (no-op)
-      expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(true);
+    it('skips while another reader has that address in flight', async () => {
+      useWalletStore.setState({ balances: {}, balancesLoading: {} });
+      fetchingAddresses.add('addr-1');
+      try {
+        await useWalletStore.getState().fetchBalances('addr-1', {});
+        // No read started, so nothing changed (no-op)
+        expect(useWalletStore.getState().balancesLoading['addr-1']).toBeUndefined();
+        expect(useWalletStore.getState().balances['addr-1']).toBeUndefined();
+      } finally {
+        fetchingAddresses.clear();
+      }
+    });
+
+    describe('a read that resolves after the effective network changed', () => {
+      const FAUCET = 'mtst1faucet';
+      const faucetMetadata = { name: 'Faucet Token', symbol: 'FCT', decimals: 8 };
+      const row = (balance: number) => ({
+        tokenId: FAUCET,
+        tokenSlug: 'FCT',
+        metadata: faucetMetadata,
+        balance,
+        fiatPrice: 0,
+        change24h: 0
+      });
+      const earlier = [row(1)];
+      let started: Promise<FetchBalancesModule.FetchBalancesOptions | undefined>;
+      let landRead: (rows: unknown[]) => void = () => {};
+
+      beforeEach(() => {
+        __resetFaucetAssetsMetadataForTest();
+        useWalletStore.setState({
+          balances: { 'addr-1': earlier },
+          balancesLoading: {},
+          balancesLastFetched: {},
+          assetsMetadata: {},
+          tokenMetadataOverrides: {}
+        });
+        let markStarted: (options?: FetchBalancesModule.FetchBalancesOptions) => void = () => {};
+        started = new Promise(resolve => {
+          markStarted = resolve;
+        });
+        mockHeldBalanceRead = options => {
+          markStarted(options);
+          return new Promise(resolve => {
+            landRead = resolve;
+          });
+        };
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockEffectiveNetwork = undefined;
+      });
+
+      it("leaves the address's balances as they were, and keeps the metadata the read wrote", async () => {
+        const read = useWalletStore.getState().fetchBalances('addr-1', {});
+        const options = await started;
+        if (!options?.setAssetsMetadata) throw new Error('the read never handed over its options');
+        options.setAssetsMetadata({ [FAUCET]: faucetMetadata });
+        mockEffectiveNetwork = { name: MIDEN_NETWORK_NAME.DEVNET, rpcUrl: 'https://rpc.devnet.miden.io' };
+        landRead([row(7)]);
+        await read;
+
+        const state = useWalletStore.getState();
+        expect(state.balances['addr-1']).toBe(earlier);
+        expect(state.balancesLoading['addr-1']).toBeUndefined();
+        expect(state.balancesLastFetched['addr-1']).toBeUndefined();
+        expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
+        expect(fetchingAddresses.has('addr-1')).toBe(false);
+      });
+
+      it('lands a read on an unchanged network', async () => {
+        const read = useWalletStore.getState().fetchBalances('addr-1', {});
+        await started;
+        landRead([row(7)]);
+        await read;
+
+        const state = useWalletStore.getState();
+        expect(state.balances['addr-1']).toEqual([row(7)]);
+        expect(state.balancesLoading['addr-1']).toBe(false);
+      });
     });
   });
 
@@ -1160,6 +2271,31 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
     });
 
+    it('checkForNewNotes records every new note as seen and toasts for a notifiable one', () => {
+      useWalletStore.getState().checkForNewNotes(['auto', 'manual'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(true);
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+      expect(state.seenNoteIds.has('manual')).toBe(true);
+    });
+
+    it('checkForNewNotes records a new note outside the notifiable set without a toast', () => {
+      useWalletStore.getState().checkForNewNotes(['auto'], []);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
+    it('checkForNewNotes does not toast when the only notifiable id was already seen', () => {
+      useWalletStore.setState({ seenNoteIds: new Set(['manual']) });
+      useWalletStore.getState().checkForNewNotes(['manual', 'auto'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
     it('dismissNoteToast hides the toast', () => {
       useWalletStore.setState({ isNoteToastVisible: true });
       useWalletStore.getState().dismissNoteToast();
@@ -1191,36 +2327,13 @@ describe('useWalletStore', () => {
   });
 
   describe('extension claimable notes', () => {
-    it('setExtensionClaimableNotes / addExtensionClaimingNoteId / clearExtensionClaimingNoteIds', () => {
+    it('setExtensionClaimableNotes replaces the cached note list', () => {
       useWalletStore
         .getState()
         .setExtensionClaimableNotes([
           { id: 'n1', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
         ]);
       expect(useWalletStore.getState().extensionClaimableNotes).toHaveLength(1);
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      expect(useWalletStore.getState().extensionClaimingNoteIds.has('n1')).toBe(true);
-      useWalletStore.getState().clearExtensionClaimingNoteIds();
-      expect(useWalletStore.getState().extensionClaimingNoteIds.size).toBe(0);
-    });
-
-    it('removeExtensionClaimingNoteIds removes only the specified ids', () => {
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      useWalletStore.getState().addExtensionClaimingNoteId('n2');
-      useWalletStore.getState().addExtensionClaimingNoteId('n3');
-      useWalletStore.getState().removeExtensionClaimingNoteIds(['n1', 'n3']);
-      const ids = useWalletStore.getState().extensionClaimingNoteIds;
-      expect(ids.has('n1')).toBe(false);
-      expect(ids.has('n2')).toBe(true);
-      expect(ids.has('n3')).toBe(false);
-    });
-
-    it('removeExtensionClaimingNoteIds is a no-op for empty input and unknown ids', () => {
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      const before = useWalletStore.getState().extensionClaimingNoteIds;
-      useWalletStore.getState().removeExtensionClaimingNoteIds([]);
-      useWalletStore.getState().removeExtensionClaimingNoteIds(['unknown']);
-      expect(useWalletStore.getState().extensionClaimingNoteIds).toBe(before);
     });
   });
 
@@ -1233,11 +2346,15 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('skips when balancesLoading[accountAddress] is already true', async () => {
-      useWalletStore.setState({ balancesLoading: { 'addr-1': true } });
-      const before = useWalletStore.getState().balances['addr-1'];
-      await useWalletStore.getState().fetchBalances('addr-1', {});
-      expect(useWalletStore.getState().balances['addr-1']).toBe(before);
+    it('skips when the address is already in flight', async () => {
+      fetchingAddresses.add('addr-1');
+      try {
+        const before = useWalletStore.getState().balances['addr-1'];
+        await useWalletStore.getState().fetchBalances('addr-1', {});
+        expect(useWalletStore.getState().balances['addr-1']).toBe(before);
+      } finally {
+        fetchingAddresses.clear();
+      }
     });
   });
 

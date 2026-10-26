@@ -10,10 +10,19 @@ import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
+import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
+
+import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
+import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
+
+const walletBuildIdentity = readWalletBuildIdentity(__dirname);
+
 const pkg = require('./package.json');
 
 export default defineConfig({
   plugins: [
+    walletCrashArtifactRegistry(),
     {
       name: 'miden-sdk-eager-to-lazy',
       enforce: 'pre',
@@ -46,30 +55,16 @@ export default defineConfig({
         return html.replace(/ crossorigin/g, '');
       },
       closeBundle() {
-        const { renameSync, existsSync, copyFileSync, readdirSync, mkdirSync } = require('fs');
+        const { renameSync, existsSync } = require('fs');
         const src = resolve(__dirname, 'dist/mobile/mobile.html');
         const dest = resolve(__dirname, 'dist/mobile/index.html');
         if (existsSync(src)) renameSync(src, dest);
-        // Copy WASM to paths the classic Worker expects.
-        // The Worker is at /assets/worker.js and resolves
-        // "assets/miden_client_web.wasm" relative to self.location.href,
-        // which gives /assets/assets/miden_client_web.wasm.
-        // WASM files live in static/ (per assetFileNames config).
-        const staticDir = resolve(__dirname, 'dist/mobile/static');
-        const assetsDir = resolve(__dirname, 'dist/mobile/assets');
-        if (existsSync(staticDir)) {
-          // Target: /assets/assets/miden_client_web.wasm (Worker relative resolution)
-          const nestedDir = resolve(assetsDir, 'assets');
-          mkdirSync(nestedDir, { recursive: true });
-          for (const f of readdirSync(staticDir)) {
-            if (f.startsWith('miden_client_web') && f.endsWith('.wasm')) {
-              copyFileSync(resolve(staticDir, f), resolve(nestedDir, 'miden_client_web.wasm'));
-              // Also copy unhashed to assets/ root for direct access
-              copyFileSync(resolve(staticDir, f), resolve(assetsDir, 'miden_client_web.wasm'));
-              break;
-            }
-          }
-        }
+        // Put the WASM where the SDK's CLASSIC worker looks for it — it resolves a
+        // hard-coded relative `assets/miden_client_web.wasm` against its own
+        // /assets/<name>.js URL, i.e. /assets/assets/miden_client_web.wasm, which no
+        // assetFileNames rule emits. Shared with vite.desktop.config.ts, whose
+        // WKWebView/WebKitGTK webviews pick the same classic worker.
+        copyClassicWorkerWasm(resolve(__dirname, 'dist/mobile'));
       }
     } satisfies Plugin,
     // SVG → React component transform.
@@ -150,6 +145,8 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
+    // midenVitePlugin's esnext build.target wins the merge, and an esnext CSS minify drops -webkit-backdrop-filter.
+    cssTarget: 'es2022',
     modulePreload: { polyfill: false },
     rollupOptions: {
       input: resolve(__dirname, 'mobile.html'),
@@ -197,13 +194,24 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'true'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: hardcoded OFF on mobile — Capacitor / WKWebView / Android
     // WebView have no chrome.offscreen document to rehost the client into.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify('false'),
+    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+      process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+    ),
+    // Bridge config E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
+    // Explore catalog E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
     // (The side-panel one is inert on mobile — no chrome.sidePanel — but it is
     // still defined so the read folds to a constant like every other flag here;
@@ -212,17 +220,15 @@ export default defineConfig({
     'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
       process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
     ),
-    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
-    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
-      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
-    ),
-    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
-      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
-    ),
-    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
-      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
-    ),
+    'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     // Mobile (Capacitor / WKWebView / Android WebView) cannot use the
@@ -232,11 +238,14 @@ export default defineConfig({
     // (isOffscreenAvailable) also catches it, but pinning the build-time
     // constant lets dead-code elimination drop the offscreen import entirely.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
-    // Speculative pre-prove also pinned false on mobile: speculation
-    // dispatches the prove to a chrome.offscreen document, which doesn't
-    // exist in WKWebView/Capacitor. Without offscreen, there's nothing
-    // to speculate against.
-    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify('false'),
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.WALLET_BUILD_TARGET': JSON.stringify('mobile'),
+    'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
+    'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

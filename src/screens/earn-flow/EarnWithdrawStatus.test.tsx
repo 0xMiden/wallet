@@ -1,22 +1,54 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
+const mockMutate = jest.fn().mockResolvedValue(undefined);
+jest.mock('swr', () => ({ useSWRConfig: () => ({ mutate: mockMutate }) }));
+
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
+let mockAssetsMetadata: Record<string, AssetMetadata> = {};
+let mockNativeMetadata: NativeAssetChainMetadata | null = null;
+
+// Foreign delivery uses the store; native delivery uses resolved chain metadata.
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, AssetMetadata> }) => T) =>
+    selector({ assetsMetadata: mockAssetsMetadata })
+}));
+
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => 'native-faucet'
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => 'native-faucet',
+  getNativeAssetMetadataSync: () => mockNativeMetadata
+}));
+
+// Real base-unit scaling: the shared `lib/i18n/numbers` manual mock has no `formatBigInt`.
+jest.mock('lib/shared/format', () => ({
+  formatAmount: (amount: bigint, decimals: number) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
+}));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
 jest.mock('lib/woozie', () => ({
+  HistoryAction: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').HistoryAction,
+  useLocation: () => ({ trigger: null, state: null }),
   navigate: jest.fn()
 }));
 
@@ -24,12 +56,12 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
 }));
 
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
     <header>
       {title}
       <button type="button" aria-label="close" onClick={onClose} />
@@ -41,13 +73,15 @@ jest.mock('components/Button', () => ({
   Button: ({
     children,
     onClick,
-    title
+    title,
+    accent
   }: {
     children?: React.ReactNode;
     onClick?: React.MouseEventHandler<HTMLButtonElement>;
     title?: string;
+    accent?: string;
   }) => (
-    <button type="button" onClick={onClick}>
+    <button type="button" data-accent={accent} onClick={onClick}>
       {children ?? title}
     </button>
   ),
@@ -59,8 +93,18 @@ jest.mock('screens/generating-transaction/components', () => ({
 }));
 
 jest.mock('screens/generating-transaction/TransactionSummaryBadge', () => ({
-  TransactionSummaryBadge: ({ lhs, rhs }: { lhs?: React.ReactNode; rhs?: React.ReactNode }) => (
-    <div data-testid="summary-badge">
+  // `fillForArrow` surfaced as an attribute: the real badge paints it into an SVG the stub does
+  // not draw, and an earn screen handing it the default (the Send blue) is the bug below.
+  TransactionSummaryBadge: ({
+    lhs,
+    rhs,
+    fillForArrow
+  }: {
+    lhs?: React.ReactNode;
+    rhs?: React.ReactNode;
+    fillForArrow?: string;
+  }) => (
+    <div data-testid="summary-badge" data-arrow-fill={fillForArrow}>
       {lhs} → {rhs}
     </div>
   )
@@ -97,7 +141,7 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
   )
 }));
 
-const makeRow = (extraInputs: IEarnWithdrawExtraInputs): ITransaction => ({
+const makeRow = (extraInputs: IEarnWithdrawExtraInputs, overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'withdraw-1',
   type: 'earn-withdraw',
   accountId: 'miden-account',
@@ -108,7 +152,8 @@ const makeRow = (extraInputs: IEarnWithdrawExtraInputs): ITransaction => ({
   completedAt: 1,
   displayMessage: 'Withdrawing from lending',
   displayIcon: 'DEFAULT',
-  extraInputs
+  extraInputs,
+  ...overrides
 });
 
 const makeInputs = (overrides: Partial<IEarnWithdrawExtraInputs> = {}): IEarnWithdrawExtraInputs => ({
@@ -126,6 +171,8 @@ describe('EarnWithdrawStatus', () => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
     mockSuccessProps = undefined;
+    mockAssetsMetadata = {};
+    mockNativeMetadata = null;
   });
 
   it('shows a spinner until a transaction row is available', () => {
@@ -145,7 +192,11 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('withdrawalProcessingDescription')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
     expect(screen.getByTestId('summary-badge')).toHaveTextContent('42.25 USDC → Miden');
+    // A withdraw is an earn row wherever it is drawn, so its arrow is the earn slate its icon
+    // takes in Activity — not the badge's default, which is the Send flow's blue.
+    expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', 'var(--tx-earn)');
 
+    expect(screen.getByRole('button', { name: 'hide' })).toHaveAttribute('data-accent', 'earn');
     fireEvent.click(screen.getByRole('button', { name: 'hide' }));
     expect(navigate).toHaveBeenCalledWith('/');
   });
@@ -161,8 +212,19 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('solver rejected the intent')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('failed');
 
+    expect(screen.getByRole('button', { name: 'done' })).toHaveAttribute('data-accent', 'earn');
     fireEvent.click(screen.getByRole('button', { name: 'done' }));
     expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  // #1469, as on the bridge screen this one mirrors: a raw error's unbreakable token must wrap inside
+  // the centred column instead of widening it past the page margin.
+  it('wraps a recorded error with an unbreakable token', () => {
+    const error = `execution reverted: 0x${'ab'.repeat(100)}`;
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error })), loaded: true };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByText(error)).toHaveClass('w-full', 'wrap-anywhere', 'select-text');
   });
 
   it('falls back to the generic transaction error for an unstamped failure', () => {
@@ -183,8 +245,13 @@ describe('EarnWithdrawStatus', () => {
 
     expect(screen.getByTestId('success-layout')).toBeInTheDocument();
     expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
-    expect(screen.getByText('status: earnWithdrawStatusRedeeming')).toBeInTheDocument();
+    // The status row is a StatusBadge now, so the word is its own element.
+    expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('earnWithdrawStatusRedeeming');
     expect(mockSuccessProps?.footerDescription).toBe('withdrawalStartedDescription');
+    // The receipt is the earn flow's own: its Done is earn (the layout colours its CTA from
+    // `accent`), and the arrow is the earn slate like the processing state's.
+    expect(mockSuccessProps?.accent).toBe('earn');
+    expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', 'var(--tx-earn)');
 
     fireEvent.click(screen.getByRole('button', { name: 'done' }));
     fireEvent.click(screen.getByRole('button', { name: 'viewInActivities' }));
@@ -195,17 +262,216 @@ describe('EarnWithdrawStatus', () => {
     expect(navigate).toHaveBeenNthCalledWith(3, '/');
   });
 
+  it("names the market's own chain in the route, never a fixed network", () => {
+    mockRowState = {
+      row: makeRow(
+        makeInputs({
+          withdrawIntentNonce: 'owner:1',
+          marketUid: 'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:8453:0xasset'
+        })
+      ),
+      loaded: true
+    };
+    const { unmount } = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('route: Base → Miden');
+    unmount();
+
+    mockRowState = { row: makeRow(makeInputs({ withdrawIntentNonce: 'owner:1' })), loaded: true };
+    render(<EarnWithdrawStatus txId="withdraw-2" />);
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('route: Sepolia → Miden');
+  });
+
+  it('keeps a saved but unaccepted withdrawal in processing until acceptance arrives', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ submissionState: 'prepared', withdrawIntentNonce: '22' })),
+      loaded: true
+    };
+    const { rerender } = render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.queryByTestId('success-layout')).toBeNull();
+    expect(screen.getByText('withdrawalCheckingDescription')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+
+    mockRowState = {
+      row: makeRow(makeInputs({ submissionState: 'accepted', withdrawIntentNonce: '22' })),
+      loaded: true
+    };
+    rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('success-layout')).toBeInTheDocument();
+  });
+
   it('shows the delivering status after Epoch settlement', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
-    expect(screen.getByText('status: earnWithdrawStatusDelivering')).toBeInTheDocument();
+    // The status row is a StatusBadge now, so the word is its own element.
+    expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('earnWithdrawStatusDelivering');
+    // Nothing is credited yet, so the arrow still points at the network.
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
 
   it('shows the received status after the Miden note is consumed', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'received' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
-    expect(screen.getByText('status: received')).toBeInTheDocument();
+    // The status row is a StatusBadge now, so the word is its own element.
+    expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('received');
   });
+
+  // The withdrawn source stays on the left; the arrow points at what the wallet credited, as
+  // Activity shows it, rounded down at the asset's precision. Both remainders sit above half, so
+  // half-up, round-up and the typed value would each read differently.
+  it('shows the credited amount beside the withdrawn source once received', () => {
+    mockNativeMetadata = { symbol: 'MIDEN', decimals: 6 };
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received', sourceAmount: '42.2599' }), {
+        amount: 250_127_456n,
+        faucetId: 'native-faucet'
+      }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 MIDEN');
+  });
+
+  it('keeps native delivery on the network until its scale is known', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'native-faucet' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
+  });
+
+  it('scales a credited native USDCX delivery with authoritative eight decimals', () => {
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'native-faucet' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 2.5 USDCX');
+  });
+
+  // A delivered faucet other than the native one resolves only from the store; without it the arrow stays on Miden.
+  it('reads a delivered non-native faucet from the store once received', () => {
+    mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'miden-usdc' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 USDC');
+  });
+
+  // The row's stored output symbol is the bridged source token, not what arrived, so it names nothing here.
+  it('keeps the arrow on Miden while the delivered faucet scale is unknown', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received', outputSymbol: 'USDC' }), {
+        amount: 250_123_456n,
+        faucetId: 'unresolved-faucet'
+      }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
+  });
+});
+
+it('invalidates only this account positions after the actual withdrawal receipt', () => {
+  jest.clearAllMocks();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
+  const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).not.toHaveBeenCalled();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'received' })), loaded: true };
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
+  const matches = mockMutate.mock.calls[0]?.[0];
+  expect(matches(['earn-positions', 'miden-account', 'owner'])).toBe(true);
+  expect(matches(['earn-positions', 'another-account', 'owner'])).toBe(false);
+  expect(matches(['balance', 'miden-account'])).toBe(false);
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible withdrawal failure reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it.each(['private solver reason 123.45', undefined])(
+    'reports a failure watched while mounted once without leaking %s',
+    error => {
+      mockRowState = { row: undefined, loaded: false };
+      const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+      mockRowState = { row: makeRow(makeInputs()), loaded: true };
+      view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+      expect(screen.getByText('withdrawalProcessing')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'failed', error })),
+        loaded: true
+      };
+      view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+      expect(screen.getByText(error ?? 'transactionErrorDescription')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_failed', 'status_screen']]);
+      view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not report a first loaded persisted failure after spinner or after reopening', () => {
+    mockRowState = { row: undefined, loaded: false };
+    const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: 'persisted failure' })), loaded: true };
+    view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('persisted failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    view.unmount();
+
+    mockRowState = { row: undefined, loaded: false };
+    const reopened = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: 'persisted failure' })), loaded: true };
+    reopened.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('persisted failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report a persisted failure when opened or reopened', () => {
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: 'old failure' })), loaded: true };
+    const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    act(() => jest.advanceTimersByTime(1000));
+    view.unmount();
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByText('old failure')).toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each<IEarnWithdrawExtraInputs['phase']>(['redeeming', 'delivering', 'received'])(
+    'does not report the %s progress state',
+    phase => {
+      mockRowState = { row: makeRow(makeInputs({ phase })), loaded: true };
+      render(<EarnWithdrawStatus txId="withdraw-1" />);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
 });

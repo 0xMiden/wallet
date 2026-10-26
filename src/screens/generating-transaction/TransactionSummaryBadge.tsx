@@ -4,12 +4,18 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
+import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily } from 'lib/epoch/pools';
 import { ITransaction } from 'lib/miden/db/types';
-import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
-import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getSwapTokenByFaucetId, normalizedFaucetId } from 'lib/miden/swap/tokens';
+import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectEarnVault, selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
@@ -27,36 +33,82 @@ export interface TransactionSummaryBadgeProps {
    * when opening an earn position.
    */
   separator?: ReactNode;
-  /** Tints the default horizontal arrow. Ignored when `separator` is provided. */
-  fillForArrow?: string;
+  /**
+   * Tints the default horizontal arrow with the transaction's own Activity colour (send by default, received green
+   * or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent. Ignored when
+   * `separator` is provided.
+   */
+  fillForArrow?: ArrowFill;
 }
 
 export interface TransactionSummaryBadgeContent {
   lhs: ReactNode;
   rhs: ReactNode;
   separator?: ReactNode;
-  fillForArrow?: string;
+  fillForArrow?: ArrowFill;
 }
 
-/** Default separator — the horizontal "→" arrow, tinted by `fill`. */
-const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill={fill ?? '#91ACC1'} />
-    <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
-    <path
-      d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
-      stroke="white"
-      stroke-width="2.20995"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-);
+export const ARROW_INK = {
+  'var(--action-send)': 'var(--accent-send-on)',
+  'var(--tx-sent)': 'var(--accent-send-on)',
+  'var(--accent-send)': 'var(--accent-send-on)',
+  'var(--action-receive)': 'var(--accent-receive-on)',
+  'var(--tx-received)': 'var(--accent-receive-on)',
+  'var(--accent-receive)': 'var(--accent-receive-on)',
+  'var(--action-swap)': 'var(--accent-swap-on)',
+  'var(--tx-swap)': 'var(--accent-swap-on)',
+  'var(--accent-swap)': 'var(--accent-swap-on)',
+  'var(--tx-faucet)': '#191919',
+  '#BA839F': '#191919',
+  '#ba839f': '#191919',
+  // Explicit, not merely the fallback: the bridge/guardian slate and the earn action colour all
+  // hold white at 4.5:1 or better, but a spelling this table has not seen must not read as "safe"
+  // by accident.
+  '#777487': '#ffffff',
+  'var(--tx-earn)': '#ffffff',
+  'var(--action-earn)': '#ffffff',
+  'var(--accent-earn)': '#ffffff'
+} as const satisfies Record<string, string>;
 
-/** Separator used when opening an earn position — an up "↑" arrow in a grey circle. */
+/** A fill the badge has an arrow ink for; any other fill is a compile error, not an unreadable arrow. */
+export type ArrowFill = keyof typeof ARROW_INK;
+
+/**
+ * The arrow's ink for a badge fill. Derived here rather than passed beside the fill so every caller,
+ * present and future, gets a readable arrow: every alias of send, receive and swap maps to that
+ * flow's on-colour, and the faucet rose and the slate fills map to their fixed ink. A fill this
+ * table has not seen does not compile.
+ */
+export const arrowInkFor = (fill: ArrowFill = 'var(--tx-sent)'): string => ARROW_INK[fill];
+
+/**
+ * Default separator - the horizontal arrow, tinted by `fill` and stroked in `arrowInkFor(fill)`. It
+ * defaults to the send activity token rather than a literal: this was a third copy of the send hue
+ * and it was left behind when the activity tokens moved, so the detail hero showed one transaction
+ * in two shades.
+ */
+const HorizontalArrowGlyph: FC<{ fill?: ArrowFill }> = ({ fill }) => {
+  const ink = arrowInkFor(fill);
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--tx-sent)' }} />
+      <path d="M6.22266 12.0889H16.5071" stroke={ink} stroke-width="2.20995" stroke-linecap="round" />
+      <path
+        d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+        stroke={ink}
+        stroke-width="2.20995"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+};
+
+/** Separator used when opening an earn position: an up "↑" arrow in the Earn action colour, whose slate
+ * holds white at 4.58:1 in both themes. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill="#6E6E73" />
+    <rect width="24" height="24" rx="12" style={{ fill: 'var(--tx-earn)' }} />
     <path d="M11.6523 17.5195L11.6523 7.23506" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M9.3418 9.08398L11.6529 6.65731L13.964 9.08398"
@@ -97,17 +149,17 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
     // reads as "this whole list → Consumed".
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-3xl bg-fill px-4 py-4 text-base',
         className
       )}
     >
-      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-heading-gray text-xl dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-ink text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
         {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+      <div className="flex min-w-0 items-center gap-2 font-bold text-ink text-xl font-heading dark:text-pure-white">
         {rhs}
       </div>
     </div>
@@ -134,7 +186,7 @@ interface ResolvedAsset {
 // without a quantity rather than shown at an invented one.
 const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbol }) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
-    {amount !== undefined && <span className="text-heading-gray">{amount}</span>}
+    {amount !== undefined && <span className="text-ink">{amount}</span>}
     <span className="text-gray">{symbol}</span>
   </span>
 );
@@ -166,17 +218,24 @@ export const resolveSwapAsset = (
   };
 };
 
-/** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
-const EARN_USDC_DECIMALS = 6;
+/** One faucet of a claim, with the asset and quantity that faucet contributed. */
+export interface ConsumeAssetPart {
+  /** The faucet that minted this asset — an account id, linkable on the explorer. */
+  faucetId: string;
+  /** `"20 A"`, or the symbol alone when the faucet has no trustworthy scale. */
+  label: string;
+}
 
 /**
- * Format a claim's assets as `["20 A", "10 B"]`, one entry per faucet swept up.
+ * A claim's assets, one entry per faucet swept up, each carrying the faucet that
+ * minted it and its formatted `"20 A"` label.
  *
- * Shared by the in-progress badge and the success receipt because they render
- * the SAME claim seconds apart on the SAME screen: the receipt replaces the
- * badge once the row completes. Deriving them separately is what let the receipt
- * silently drop every secondary asset and label an unresolved faucet MIDEN while
- * the badge called it Unknown.
+ * Shared by the in-progress badge, the success receipt and the transaction
+ * detail page because all three render the SAME claim: the receipt replaces the
+ * badge once the row completes, and the detail page is where the user opens it
+ * afterwards. Deriving them separately is what let the receipt silently drop
+ * every secondary asset and label an unresolved faucet MIDEN while the badge
+ * called it Unknown.
  *
  * A batch claim sums per faucet (`assetTotals`); legacy rows without it fall
  * back to the first faucet's `amount`/`faucetId`. Empty when the row carries no
@@ -190,11 +249,12 @@ const EARN_USDC_DECIMALS = 6;
  * which re-renders when the id arrives. `null` means "not yet known", so the
  * native branch simply does not match until it is.
  */
-export const formatConsumeAssetParts = (
+export const consumeAssetBreakdown = (
+  bridgeConfig: BridgeConfigSnapshot,
   transaction: ITransaction,
   assetsMetadata: Record<string, AssetMetadata> | undefined,
   nativeFaucetId: string | null
-): string[] => {
+): ConsumeAssetPart[] => {
   const totals =
     transaction.assetTotals && transaction.assetTotals.length > 0
       ? transaction.assetTotals
@@ -203,46 +263,76 @@ export const formatConsumeAssetParts = (
         : [];
 
   return totals.map(total => {
-    const tokenMetadata = assetsMetadata?.[total.faucetId];
     // Mirrors `getTokenMetadata`, which the activity row for this same claim
     // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
     // Labelling it MIDEN would name a foreign token after the native one —
     // and a batch claim's secondary faucets are exactly the ones the wallet
     // has no metadata for, since it has never held them.
-    const fallback =
-      nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
-    const resolved = tokenMetadata ?? fallback;
+    const resolved = resolveDisplayMetadata(total.faucetId, assetsMetadata, nativeFaucetId);
     // No trustworthy scale means no honest way to convert this faucet's base
     // units — the unknown-token placeholder's 6 is a guess, not a fact, and
     // using it renders an 18-decimal token 10^12 too large. Name the asset and
     // withhold the quantity until real metadata resolves. Checked on the
     // resolved record rather than the placeholder's identity because the
     // placeholder is cached, and a stored copy is never `===` the constant.
-    return hasKnownScale(resolved)
-      ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
-      : resolved.symbol;
+    const symbol = midenTokenLabel(bridgeConfig, total.faucetId, resolved.symbol);
+    const label = hasKnownScale(resolved) ? `${formatAmount(total.amount, resolved.decimals)} ${symbol}` : symbol;
+    return { faucetId: total.faucetId, label };
   });
 };
 
+/** The same claim as `["20 A", "10 B"]`, for the one-line badge and receipt summaries. */
+export const formatConsumeAssetParts = (
+  bridgeConfig: BridgeConfigSnapshot,
+  transaction: ITransaction,
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
+): string[] => consumeAssetBreakdown(bridgeConfig, transaction, assetsMetadata, nativeFaucetId).map(part => part.label);
+
+const MARKET_ID_HEX = /^[0-9a-f]{64}$/i;
+
 /**
- * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
- * the lender key itself, hyphenated (e.g. `DUMMY_LENDING` → "DUMMY-LENDING").
- * No hardcoded aliases: the badge shows the real market name.
+ * The label of an Epoch `marketUid` (`LENDER:chainId:token`): the name the bridge-config document lists the vault
+ * under (`earn.vaults`), shown as written. A market the document does not list (a row of a vault it has since
+ * dropped) is named from its lender key: the lender family's display name ("Morpho", "Compound V3"), followed by
+ * what the key adds to the family. A Morpho Blue key carries the market id, a 32-byte hex, which shows shortened
+ * ("Morpho d752…6e41d"); a Compound key its token ("Compound V3 USDC"). A key outside the known families shows
+ * itself, hyphenated (`DUMMY_LENDING` → "DUMMY-LENDING").
  */
-export const earnMarketLabel = (marketUid: string): string | undefined => {
+export const earnMarketLabel = (bridgeConfig: BridgeConfigSnapshot, marketUid: string): string | undefined => {
+  const listed = selectEarnVault(bridgeConfig, marketUid);
+  if (listed) return listed.name;
   const lenderKey = marketUid.split(':')[0];
   if (!lenderKey) return undefined;
-  return lenderKey.replaceAll('_', '-');
+  const family = earnLenderFamily(lenderKey);
+  if (!family) return lenderKey.replaceAll('_', '-');
+  const rest = lenderKey.slice(family.length).replace(/^_/, '');
+  if (!rest) return EARN_LENDER_FAMILY_NAMES[family];
+  const detail = MARKET_ID_HEX.test(rest)
+    ? `${rest.slice(0, 4).toLowerCase()}…${rest.slice(-5).toLowerCase()}`
+    : rest.replaceAll('_', ' ');
+  return `${EARN_LENDER_FAMILY_NAMES[family]} ${detail}`;
+};
+
+/**
+ * The symbol and decimals of the Earn collateral the config names, for a deposit row of that very faucet. A row of
+ * a faucet the config has moved off gets none: it is never scaled by another token's decimals.
+ */
+export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUsdc | undefined => {
+  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  if (!faucetId || !collateral) return undefined;
+  return normalizedFaucetId(faucetId) === normalizedFaucetId(collateral.faucetId) ? collateral : undefined;
 };
 
 /**
  * Implemented variants:
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   swap          →  (logo) {amount} {name}   ->  (logo) {amount} {name}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
- *   consume       →  {amount} {symbol}        ->  Consumed
+ *   consume       →  {amount} {symbol}        ->  Accepted
  *
+ * A swap side's {name} is its display name (`midenTokenLabel`); its logo keeps the registry symbol.
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
  * and where each type's data lives.
@@ -252,34 +342,51 @@ export const useTransactionSummaryBadgeContent = (
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const earnCollateral = useEarnCollateralFallback(
+    transaction?.type === 'earn-deposit' ? transaction.faucetId : undefined
+  );
   const { t } = useTranslation();
 
   return useMemo(() => {
     if (transaction?.type === 'consume') {
-      const parts = formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId);
+      const parts = formatConsumeAssetParts(bridgeConfig, transaction, assetsMetadata, nativeFaucetId);
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.
       if (parts.length === 0) return undefined;
 
       return {
         lhs: parts.join(', '),
-        rhs: t('consumed', { defaultValue: 'Consumed' })
+        rhs: t('accepted', { defaultValue: 'Accepted' }),
+        // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
+        // dusty rose on this very page (a bridge-in's the slate), and the arrow sat green under it.
+        fillForArrow: claimAccentColor(transaction, nativeFaucetId)
       };
     }
 
     if (transaction?.type === 'earn-deposit') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-      const decimals = tokenMetadata?.decimals ?? EARN_USDC_DECIMALS;
-      const symbol = tokenMetadata?.symbol ?? 'USDC';
-      const amount = transaction.amount !== undefined ? formatAmount(transaction.amount, decimals) : undefined;
+      // As the deposit receipt: the placeholder's guessed decimals are not this faucet's scale, so the
+      // collateral the config names stands in, and without either the quantity is withheld.
+      const known = hasKnownScale(tokenMetadata) ? tokenMetadata : undefined;
+      const scale = known ?? earnCollateral;
+      const symbol = scale?.symbol ?? tokenMetadata?.symbol;
+      const amount =
+        transaction.amount !== undefined && scale ? formatAmount(transaction.amount, scale.decimals) : undefined;
       const marketUid: unknown = transaction.extraInputs?.marketUid;
-      const rhs = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
+      const rhs = typeof marketUid === 'string' ? earnMarketLabel(bridgeConfig, marketUid) : undefined;
 
-      if (!amount || !rhs) return undefined;
+      if (transaction.amount === undefined || !rhs || !symbol) return undefined;
 
       return {
-        lhs: `${amount} ${symbol}`,
-        rhs,
+        lhs: amount ? `${amount} ${symbol}` : symbol,
+        // A market label is one line: a Morpho market id the label shortens still needs the pill to clip, never
+        // to spill out of its rounded frame.
+        rhs: (
+          <span className="min-w-0 truncate" title={rhs}>
+            {rhs}
+          </span>
+        ),
         separator: <EarnDepositArrowGlyph />
       };
     }
@@ -297,16 +404,28 @@ export const useTransactionSummaryBadgeContent = (
       const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
 
       return {
-        lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
-        rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
-        fillForArrow: '#BEACD2'
+        lhs: (
+          <SwapAmountText
+            amount={offeredAmount}
+            symbol={midenTokenLabel(bridgeConfig, transaction.faucetId, offered.symbol)}
+          />
+        ),
+        rhs: (
+          <SwapAmountText
+            amount={requestedAmount}
+            symbol={midenTokenLabel(bridgeConfig, requestedFaucetId, requested.symbol)}
+          />
+        ),
+        // The activity token, matching the swap row's icon above it, rather than the brand action
+        // colour; `arrowInkFor` gives either spelling a stroke that clears 3:1 in both themes.
+        fillForArrow: 'var(--tx-swap)'
       };
     }
 
     if (transaction?.type !== 'send') return undefined;
 
     const tokenMetadata = resolveDisplayMetadata(transaction.faucetId, assetsMetadata, nativeFaucetId);
-    const symbol = tokenMetadata.symbol;
+    const symbol = midenTokenLabel(bridgeConfig, transaction.faucetId, tokenMetadata.symbol);
     // A faucet the wallet has never resolved carries the placeholder's guessed
     // 6 decimals. Naming the token alone is honest; converting by a guess is
     // not, and this badge IS the hero of the transaction detail screen.
@@ -327,5 +446,5 @@ export const useTransactionSummaryBadgeContent = (
         </>
       )
     };
-  }, [assetsMetadata, nativeFaucetId, t, transaction]);
+  }, [assetsMetadata, bridgeConfig, earnCollateral, nativeFaucetId, t, transaction]);
 };

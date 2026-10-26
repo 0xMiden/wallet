@@ -22,8 +22,24 @@ import * as Repo from 'lib/miden/repo';
 interface LatestEarnDeposit {
   id: string;
   status: ITransactionStatus;
+  /**
+   * The pipeline stage last stamped on the row. `status` alone cannot say where a
+   * row that never leaves `GeneratingTransaction` actually stopped, and the write
+   * runs in the offscreen document — a realm with no console the harness can
+   * attach to. The stage stamps DO cross back (`OFFSCREEN_STAGE_EVENT`), so this
+   * is the one field that names the call a stalled deposit is still inside (#718).
+   */
+  stage?: ITransaction['stage'];
   epochStatus?: IEarnDepositExtraInputs['epochStatus'];
   displayMessage?: string;
+  /**
+   * Why the row failed. `epochStatus: 'failed'` is written from two very different places -- a
+   * genuinely failed Epoch leg, and `intent.error` on the submit path -- so without the reason
+   * the two are indistinguishable from the harness. That is what made an earn failure read as an
+   * allocator problem while the allocator was a fake programmed to succeed.
+   */
+  error?: string;
+  rawError?: string;
 }
 
 declare global {
@@ -45,8 +61,11 @@ function toDepositView(row: ITransaction): LatestEarnDeposit {
   return {
     id: row.id,
     status: row.status,
+    stage: row.stage,
     epochStatus: inputs?.epochStatus,
-    displayMessage: row.displayMessage
+    displayMessage: row.displayMessage,
+    error: row.error,
+    rawError: row.rawError
   };
 }
 
@@ -98,6 +117,23 @@ export function installEarnTestHooks(): void {
         return felts;
       }
     }
+    // Nothing matched. To the fake allocator `null` reads as "note not found on-chain", which
+    // points at the chain rather than at this lookup -- so say what was actually scanned.
+    const seen: string[] = [];
+    for (const row of rows) {
+      try {
+        const req = TransactionRequest.deserialize(row.requestBytes!);
+        for (const n of req.expectedOutputOwnNotes()) {
+          seen.push(`${row.type}:${normalizeNoteId(n.id().toString())}`);
+        }
+      } catch {
+        seen.push(`${row.type}:<undeserializable>`);
+      }
+    }
+    console.warn('[earn-hook] no persisted request carries note', wanted, {
+      rowsScanned: rows.length,
+      noteIdsSeen: seen
+    });
     return null;
   };
 }

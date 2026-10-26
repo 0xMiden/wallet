@@ -1,0 +1,527 @@
+name: dApp E2E
+# Runs the dApp journeys against the public network that matches the branch's protocol line, the split
+# e2e-blockchain.yml uses: main runs testnet, next runs devnet. Nothing runs it on push: Release E2E (release-e2e.yml)
+# dispatches it nightly and on each release with network=testnet (#1714 replaced the push trigger), every part and
+# surface by default. GitHub runs this file from the dispatched ref. Never per pull request and never on the local
+# stack (the 2026-10-09 ruling). Dispatch takes either network.
+# Pins the nodes accepted when this was written: main 0.17.3 on testnet, next 0.17.1 on devnet (probed 2026-10-10).
+# The Chrome legs run the whole cell matrix; the iOS and Android legs run the in-app browser's slim set (spec 3.6).
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Network to run against
+        type: choice
+        options: [testnet, devnet]
+        default: testnet
+      part:
+        description: Which half of the Chrome suite
+        type: choice
+        options: [all, core, writes]
+        default: all
+      surface:
+        description: Which surfaces run
+        type: choice
+        options: [all, extension, mobile]
+        default: all
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
+jobs:
+  # Two account kinds x two parts on the run's one network, every leg run to the end: a red leg must not cancel
+  # the others.
+  dapp-e2e:
+    name: dapp-e2e (${{ matrix.network }}, ${{ matrix.axis }}, ${{ matrix.part }})
+    # A push has no inputs, so every surface runs.
+    if: ${{ inputs.surface != 'mobile' }}
+    runs-on: warp-ubuntu-latest-x64-8x
+    # At most about 33 min of setup (a cold CLI compile, the E2E build, apt, Chromium and the stagger), then the
+    # 170-minute run step and the steps after it.
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 250 || 220 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One value, the run's network, carried in the matrix so every job name shows it. A push has no inputs, so
+        # the exclude below names no part and both parts run.
+        network:
+          - "${{ github.event_name == 'workflow_dispatch' && inputs.network || (github.ref == 'refs/heads/next' && 'devnet' || 'testnet') }}"
+        axis: [offchain, guardian]
+        part: [core, writes]
+        exclude:
+          - part: ${{ (inputs.part == 'core' && 'writes') || (inputs.part == 'writes' && 'core') || 'none' }}
+    env:
+      E2E_NETWORK: ${{ matrix.network }}
+      DAPP_E2E_PART: ${{ matrix.part }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache miden-client-cli
+        # Keyed on package.json, which holds the CLI pin, so a pin bump misses the cache.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+      - name: Install miden-client-cli
+        # A cold compile takes about 7 min; it happens here, not inside a journey's budget.
+        uses: ./.github/actions/install-miden-client-cli
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install xvfb
+        # The azure apt mirror intermittently blackholes (e2e-blockchain.yml): use the canonical one, bound and retry
+        # every fetch, and cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
+      - name: Install Playwright browser
+        # `--with-deps` shells out to apt and the download has wedged for hours; the cap fails a stall fast.
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
+      - name: Build extension
+        # test:e2e:blockchain:build bakes MIDEN_NETWORK from E2E_NETWORK, so the build matches the run's network.
+        run: yarn test:e2e:blockchain:build
+      - name: Select spec files
+        # The two parts of spec section 6. A spec file neither part names would never run, which
+        # playwright/e2e/harness/dapp-workflows.test.ts refuses.
+        id: specs
+        run: |
+          case "${{ matrix.part }}" in
+            core) files="session signing-and-refusals accounts-and-dapps react-adapter" ;;
+            writes) files="wallet-writes-and-notes custom-requests" ;;
+          esac
+          echo "files=$(for f in $files; do printf 'playwright/e2e/tests/dapp/%s.spec.ts ' "$f"; done)" >> "$GITHUB_OUTPUT"
+      - name: Stagger legs on the shared faucet cooldown
+        # The public faucet rate-limits one shared cooldown (public-faucet.ts:117-122); legs 2 minutes apart spread
+        # their first grants.
+        run: sleep $(( ${{ strategy.job-index }} * 120 ))
+      - name: Run dApp specs
+        # Known-red cells make Playwright exit 1 by design; the Judge step decides the job from the records.
+        # GUARDIAN_URL stays unset: config/environments.ts names the network's hosted operator.
+        id: run
+        continue-on-error: true
+        timeout-minutes: 170
+        run: xvfb-run -a yarn playwright test --config playwright.dapp.config.ts ${{ steps.specs.outputs.files }} --grep " - ${{ matrix.axis }} account" --retries=0
+      - name: Render matrix
+        if: always()
+        # The report adds each journey's duration against its timeout; without one the matrix still renders.
+        run: node scripts/render-dapp-matrix.mjs test-results/dapp-cells test-results/results.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload records
+        if: always()
+        # Every run: a post-merge run has no pull request to re-run it from, so its records are kept whatever the
+        # outcome.
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-e2e-${{ matrix.network }}-${{ matrix.axis }}-${{ matrix.part }}-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Judge
+        if: always()
+        # The leg's verdict. There is no gate job: nothing requires a post-merge check.
+        run: node scripts/render-dapp-matrix.mjs --gate test-results/dapp-cells test-results/results.json
+
+  # The in-app browser journey (spec section 3) on two iOS simulators, one account kind per leg on the run's one
+  # network, judged by the same records and judge as the Chrome legs. The simulator bring-up is the one
+  # e2e-dapp-browser.yml and e2e-blockchain.yml use; each step's reason is kept with it.
+  dapp-e2e-ios:
+    name: dapp-e2e-ios (${{ matrix.network }}, ${{ matrix.axis }})
+    # A push has no inputs, so every surface runs.
+    if: ${{ inputs.surface != 'extension' }}
+    runs-on: macos-26-xlarge
+    # At most about 50 min of setup (a cold CLI compile, idb, the iOS build on a cache miss and the stagger), the
+    # 95-minute run step, and 15 for the steps after it: a job cut here loses its records and its judge.
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 245 || 160 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One value, the run's network, carried in the matrix so every job name shows it.
+        network:
+          - "${{ github.event_name == 'workflow_dispatch' && inputs.network || (github.ref == 'refs/heads/next' && 'devnet' || 'testnet') }}"
+        # One account kind per leg: one test under JOURNEY_TIMEOUT_MS.PL (85 min) inside the 95-minute run step.
+        axis: [offchain, guardian]
+    env:
+      E2E_NETWORK: ${{ matrix.network }}
+      MIDEN_E2E_TEST: 'true'
+      # Names the records' files (dapp-mobile-journey.ts), so a mobile leg's never collide with a Chrome part's.
+      DAPP_E2E_PART: inapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache miden-client-cli
+        # Keyed on package.json, which holds the CLI pin, so a pin bump misses the cache.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+      # Builds bake the fixture's eligibility and config URLs, so it starts before them, as in the Chrome job.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+      - name: Install miden-client-cli
+        # A cold compile takes minutes; it happens here, not inside a journey's budget.
+        uses: ./.github/actions/install-miden-client-cli
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+      # idb taps Allow on the native notification-permission alert (system-alerts.ts), which lives outside the webview
+      # and otherwise covers the dApp. fb-idb needs Python 3.11 (it calls asyncio.get_event_loop, gone in the runner's
+      # 3.14). The journey's create step fails when the prompt is not answered, and its error names why.
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+      # Creating and booting custom simulators hangs for minutes and then errors on macos-26 runners, so the pair is
+      # the preinstalled iPhone 17 and iPhone 17 Pro, written to .device-pair.json before the global setup reads it.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+      # The first boot of an iOS 26 runtime on a cold runner takes minutes (the dyld shared cache), so it starts now
+      # and overlaps the build; the global setup's bootstatus gate confirms it later. A CoreSimulatorService that
+      # does not answer is retried with backoff and restarted once: wedged, it also hides every simulator from
+      # xcodebuild, so the job fails here, minutes in, rather than in the build 25 minutes later.
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            return 1
+          }
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
+      # The cache key hashes every top-level tree but the harness, docs and CI files, so any product change rebuilds
+      # and a harness-only change reuses the app, and it carries the Xcode version, so a runner image with a new
+      # toolchain rebuilds too. A run that injected a linked PR neither reads nor writes it: the same sources build
+      # against other packages there.
+      - name: Key the app build
+        id: app-key
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: |
+          tree=$(git ls-tree HEAD | awk -F '\t' '$2 !~ /^(playwright|docs|test|tasks|plans|skills|screenshots|store-listing|\.github|\.claude|\.agents)$/ && $2 !~ /\.md$/' | git hash-object --stdin)
+          xcode=$(xcodebuild -version | git hash-object --stdin)
+          echo "key=dapp-e2e-ios-app-v2-$E2E_NETWORK-${tree:0:16}-${xcode:0:12}" >> "$GITHUB_OUTPUT"
+      - name: Restore the app build
+        id: app-cache
+        if: steps.app-key.outputs.key != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          key: ${{ steps.app-key.outputs.key }}
+      # Built for the generic simulator destination (test:e2e:mobile:build), which needs no booted device and still
+      # resolves when xcodebuild goes blind to concrete simulators. On a failed build the SwiftPM cache and derived
+      # data are wiped and the build retried once, as e2e-blockchain.yml does for runner cache corruption.
+      - name: Build iOS app
+        if: steps.app-cache.outputs.cache-hit != 'true'
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
+      # Both legs miss a new key; the second save of it is refused with a warning, never a failure.
+      - name: Save the app build
+        if: steps.app-key.outputs.key != '' && steps.app-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          key: ${{ steps.app-key.outputs.key }}
+      - name: Stagger legs on the shared faucet cooldown
+        # The public faucet rate-limits one shared cooldown (public-faucet.ts); the two legs fund 2 minutes apart.
+        run: sleep $(( ${{ strategy.job-index }} * 120 ))
+      - name: Run dApp specs
+        # Known-red cells make Playwright exit 1 by design; the Judge step decides the job from the records.
+        # GUARDIAN_URL stays unset: config/environments.ts names the network's hosted operator.
+        id: run
+        continue-on-error: true
+        timeout-minutes: 95
+        run: yarn playwright test --config playwright.ios.dapp-e2e.config.ts --grep " - ${{ matrix.axis }} account" --retries=0
+      - name: Render matrix
+        if: always()
+        run: node scripts/render-dapp-matrix.mjs test-results/dapp-cells test-results/results.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload records
+        if: always()
+        # The records and the simulators' screens, logs and failure reports, whatever the outcome.
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-e2e-ios-${{ matrix.network }}-${{ matrix.axis }}-${{ github.run_id }}
+          path: |
+            test-results/
+            test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Judge
+        if: always()
+        # The leg's verdict; a mobile leg that recorded no presentation path fails it (C-R16).
+        run: node scripts/render-dapp-matrix.mjs --gate test-results/dapp-cells test-results/results.json
+
+  # The same journey on two Android emulators, with e2e-dapp-browser.yml's bring-up and system image.
+  dapp-e2e-android:
+    name: dapp-e2e-android (${{ matrix.network }}, ${{ matrix.axis }})
+    # A push has no inputs, so every surface runs.
+    if: ${{ inputs.surface != 'extension' }}
+    # The emulator needs KVM. GitHub's ubuntu runners have it; the WarpBuild hosts behind
+    # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15.
+    runs-on: ubuntu-latest
+    # About 35 min of setup (the SDK, a cold CLI compile, the APK on a cache miss and the stagger; a cold image takes
+    # longer), the 95-minute run step, and 15 for the steps after it: a job cut here loses its records and its judge.
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 190 || 145 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One value, the run's network, carried in the matrix so every job name shows it.
+        network:
+          - "${{ github.event_name == 'workflow_dispatch' && inputs.network || (github.ref == 'refs/heads/next' && 'devnet' || 'testnet') }}"
+        # One account kind per leg: one test under JOURNEY_TIMEOUT_MS.PL (85 min) inside the 95-minute run step.
+        axis: [offchain, guardian]
+    env:
+      E2E_NETWORK: ${{ matrix.network }}
+      MIDEN_E2E_TEST: 'true'
+      DAPP_E2E_PART: inapp
+      # One AVD directory for avdmanager, the emulator and the harness: each resolves its own home otherwise, and on
+      # the runner they disagreed, so a created AVD listed as nothing (e2e-android.yml).
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+      E2E_ANDROID_BASE_AVD: Pixel_API_37
+    steps:
+      - uses: actions/checkout@v4
+      # KVM is what makes the emulator usable rather than merely present.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '15859902'
+          packages: platform-tools
+      - name: Install SDK packages
+        # Native presentation needs NAVIGATION_LISTENER_V1 (WebView 143+). PL1 uses its own newer image;
+        # the presentation probe remains the live proof that this leg takes the gated path (C-P32).
+        run: |
+          sdkmanager --install "platform-tools" "emulator" \
+            "platforms;android-37.0" "system-images;android-37.0;google_apis;x86_64"
+          "$ANDROID_HOME/emulator/emulator" -accel-check || echo "emulator -accel-check unavailable (exit $?)"
+      # The harness derives its pair from E2E_ANDROID_BASE_AVD; other Android suites retain their own base. The list
+      # check fails here, not minutes later in the global setup, when the emulator cannot see what avdmanager wrote.
+      - name: Create base AVD
+        run: |
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd \
+            --name "$E2E_ANDROID_BASE_AVD" \
+            --package "system-images;android-37.0;google_apis;x86_64" \
+            --device pixel_6 \
+            --force
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx "$E2E_ANDROID_BASE_AVD" || {
+            echo "::error::avdmanager created $E2E_ANDROID_BASE_AVD but 'emulator -list-avds' does not list it" >&2
+            exit 1
+          }
+      # No ~/.cargo/bin cache step here: on Linux its key would be shared with the Chrome legs' other runner image.
+      - uses: dtolnay/rust-toolchain@stable
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+      # Builds bake the fixture's eligibility and config URLs, so it starts before them, as in the Chrome job.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+      - name: Install miden-client-cli
+        # The action keeps its own cache by runner OS and architecture; a cold compile happens here, not in a journey.
+        uses: ./.github/actions/install-miden-client-cli
+      # Keyed as the iOS app build is.
+      - name: Key the APK build
+        id: apk-key
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: |
+          tree=$(git ls-tree HEAD | awk -F '\t' '$2 !~ /^(playwright|docs|test|tasks|plans|skills|screenshots|store-listing|\.github|\.claude|\.agents)$/ && $2 !~ /\.md$/' | git hash-object --stdin)
+          echo "key=dapp-e2e-android-apk-v2-$E2E_NETWORK-${tree:0:16}" >> "$GITHUB_OUTPUT"
+      - name: Restore the APK build
+        id: apk-cache
+        if: steps.apk-key.outputs.key != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - name: Build debug APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        run: yarn test:e2e:android:build
+      # Both legs miss a new key; the second save of it is refused with a warning, never a failure.
+      - name: Save the APK build
+        if: steps.apk-key.outputs.key != '' && steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      # Reclaims the Gradle daemon's heap before two emulators compete for the runner's memory; a cache hit started none,
+      # and stopping it there would download Gradle to stop nothing.
+      - name: Stop the Gradle daemon
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: android
+        run: ./gradlew --stop || true
+      - name: Stagger legs on the shared faucet cooldown
+        # The public faucet rate-limits one shared cooldown (public-faucet.ts); the two legs fund 2 minutes apart.
+        run: sleep $(( ${{ strategy.job-index }} * 120 ))
+      - name: Run dApp specs
+        # Known-red cells make Playwright exit 1 by design; the Judge step decides the job from the records.
+        # GUARDIAN_URL stays unset: config/environments.ts names the network's hosted operator.
+        id: run
+        continue-on-error: true
+        timeout-minutes: 95
+        run: yarn playwright test --config playwright.android.dapp-e2e.config.ts --grep " - ${{ matrix.axis }} account" --retries=0
+      # Reads the whole log buffer, checks the app is alive and always prints a raw tail: after a long hang the last
+      # lines of the ring buffer are idle chatter, so a filtered tail alone left nothing (e2e-android.yml).
+      - name: Collect emulator logs
+        if: steps.run.outcome != 'success'
+        timeout-minutes: 10
+        run: |
+          nproc || echo "nproc unavailable (exit $?)"
+          free -m || echo "free -m unavailable (exit $?)"
+          vmstat 1 3 || echo "vmstat 1 3 unavailable (exit $?)"
+          timeout 15s adb devices || true
+          for serial in emulator-5554 emulator-5556; do
+            timeout 15s adb -s "$serial" shell getprop | grep -E '\[(sys.boot_completed|init.svc.bootanim|ro.boot.debug.sf.nobootanimation|debug.sf.nobootanimation)\]' || true
+            timeout 15s adb -s "$serial" shell pm path android || true
+            timeout 15s adb -s "$serial" shell dumpsys webviewupdate || true
+            echo "::group::$serial app process"
+            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            echo "::endgroup::"
+            echo "::group::$serial crash buffer"
+            timeout 15s adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
+            echo "::endgroup::"
+            echo "::group::$serial wallet, chromium and OOM lines (whole buffer)"
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
+              | grep -iE "miden|chromium|console|fatal|ANR|lowmemorykiller|Killed" | tail -300 || true
+            echo "::endgroup::"
+            echo "::group::$serial raw tail"
+            timeout 15s adb -s "$serial" logcat -d -t 150 2>/dev/null || true
+            echo "::endgroup::"
+          done
+      - name: Render matrix
+        if: always()
+        run: node scripts/render-dapp-matrix.mjs test-results/dapp-cells test-results/results.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload records
+        if: always()
+        # The records and the emulators' screens, logs and failure reports, whatever the outcome.
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-e2e-android-${{ matrix.network }}-${{ matrix.axis }}-${{ github.run_id }}
+          path: |
+            test-results/
+            test-results-android/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Judge
+        if: always()
+        # The leg's verdict; a mobile leg that recorded no presentation path fails it (C-R16).
+        run: node scripts/render-dapp-matrix.mjs --gate test-results/dapp-cells test-results/results.json

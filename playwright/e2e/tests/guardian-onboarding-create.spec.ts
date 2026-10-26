@@ -14,24 +14,35 @@
  * THE REAL STEP ORDER ON THE EXTENSION (verified in src, not assumed):
  *
  *   Welcome                      `onboarding-welcome`
- *     └ "Get started"            → onAction 'choose-protection' (Welcome.tsx:302-308)
+ *     └ "Get started"            → onAction 'choose-protection' → '/#network-notice'
+ *   Network notice (#875)        `onboarding-network-notice` (test networks only)
+ *     └ "I understand"           → onAction 'network-notice-acknowledge' →
+ *                                  startCreateFlow() → protectionStepRoute()
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
- *                                  '/#choose-guardian' (Welcome.tsx:389-404)
- *   Choose guardian              `onboarding-choose-guardian`
+ *                                  '/#guardian-intro' (onAction 'create-password-submit')
+ *   Meet your Guardian           `onboarding-guardian-intro`: what a Guardian is
+ *     └ Continue                 → '/#meet-guardian' (onAction 'guardian-intro-submit')
+ *   Choose your Guardian         `onboarding-meet-guardian`: the fastest operator,
+ *                                  from the first probe round
+ *     └ "Change provider"        → the provider sheet (`meet-guardian-provider-sheet`);
+ *                                  a card picks its operator and closes the sheet
  *     └ Continue                 → WalletType.Guardian + '/#confirmation'
- *                                  (Welcome.tsx:345-361)
+ *                                  (onAction 'choose-guardian-submit'), once the
+ *                                  picked operator has answered online
  *   Confirmation                 `onboarding-confirmation`
- *     └ "Open wallet"            → register() → Explore (`explore-page`)
+ *     └ "Open wallet"            → register() → the telemetry consent prompt
+ *                                  `onboarding-help-improve-wallet`
+ *     └ "Not now"                → Explore (`explore-page`)
  *
  * Three things about that order are worth stating out loud, because they differ
  * from what the flow LOOKS like it should be:
  *
  *  1. There is no "choose protection" screen here. `biometricProtectionSupported()`
- *     is `isMobile()` (Welcome.tsx:54-56), so on the extension `protectionStepRoute()`
- *     resolves straight to '/#create-password' and `onboarding-choose-protection`
- *     never renders. The spec asserts that skip rather than waiting for a screen
- *     that will never come.
+ *     is true only on mobile with the vault's hardware probe passing, so on the
+ *     extension `protectionStepRoute()` resolves straight to '/#create-password'
+ *     and `onboarding-choose-protection` never renders. The spec asserts that skip
+ *     rather than waiting for a screen that will never come.
  *
  *  2. There is no seed-backup and no seed-verify screen. `OnboardingStep.BackupSeedPhrase`
  *     / `VerifySeedPhrase` exist in `screens/onboarding/navigator.tsx`, but
@@ -39,26 +50,29 @@
  *     that navigates there — they are reachable only from `ForgotPassword.tsx`.
  *     The create flow generates the mnemonic silently and NEVER SHOWS IT; the
  *     user is instead nudged afterwards by the `VerifySeedPhrase` wallet prompt
- *     (`seedWalletPrompt`, Welcome.tsx:255) toward `/settings/verify-seed-phrase`.
+ *     (`seedWalletPrompt` in Welcome.tsx) toward `/settings/verify-seed-phrase`.
  *     So there are no `seed-word-N` chips on this journey to capture from.
  *
- *  3. Production can only create GUARDIAN wallets. `choose-guardian-submit`
- *     unconditionally sets `WalletType.Guardian` (Welcome.tsx:345-347), so this
- *     spec exercises the guardian create path and REQUIRES a reachable guardian
- *     at `envConfig.guardianUrl`. (The bypass every other spec uses defaults to
- *     OffChain instead — another reason this path was uncovered.)
+ *  3. The create flow makes GUARDIAN wallets. `choose-guardian-submit` sets
+ *     `WalletType.Guardian` for every guardian choice; its `NO_GUARDIAN_ID` arm
+ *     (OffChain) is offered only while the dev-only Developer Settings
+ *     allowNoGuardian override is on. So this spec exercises the guardian create
+ *     path and REQUIRES a reachable guardian at `envConfig.guardianUrl`. (The
+ *     bypass every other spec uses defaults to OffChain instead, another reason
+ *     this path was uncovered.)
  *
- * WHAT "IT WORKS" MEANS HERE. Screens advancing proves nothing about the wallet
- * that came out the other end, so the tail of the spec funds it for real: the
- * CLI deploys a faucet and mints to the address the wallet reports, and we assert
- * the EXACT minted amount arrives as an unconsumed-note total. A mint creates a
- * NOTE — it is not spendable until claimed — so the truthful reading is
- * `pendingNoteTotal`, not the vault. That single assertion covers the whole
- * chain: a real on-chain account exists, the address the UI hands out is the
- * address the chain credits, and the wallet's own sync discovers it.
+ * Public networks fund through the real Fund card and prove consumption into the
+ * native vault. Localhost retains the CLI faucet and pending-note check.
  */
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
+import { openGuardianPickerFromMeetGuardian } from '../helpers/meet-guardian';
+import { acknowledgeNetworkNotice } from '../helpers/network-notice';
+import { fundFreshGuardianThroughUi } from '../helpers/public-faucet';
+import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
+
+test.use({ injectFeeFaucet: getEnvironmentConfig().name === 'localhost' });
 
 /** The faucet the harness deploys (helpers/miden-cli.ts `createFaucet` defaults). */
 const TOKEN = 'TST';
@@ -100,11 +114,15 @@ test.describe('Onboarding — create', () => {
       await expect(page.getByTestId('onboarding-recover-account')).toBeVisible();
     });
 
-    await steps.step('get_started_leads_straight_to_the_password_step', async () => {
+    await steps.step('get_started_shows_the_network_notice_then_the_password_step', async () => {
       await page.getByTestId('onboarding-get-started').click();
+      // The network notice (#875) sits between Welcome and the first create
+      // step so a new user reads that this is a test network before funding.
+      await expect(page.getByTestId('onboarding-network-notice')).toBeVisible({ timeout: 30_000 });
+      await acknowledgeNetworkNotice(page);
       await expect(page.getByTestId('create-password-input')).toBeVisible({ timeout: 30_000 });
       // Biometric can't work on the extension, so the create flow skips the
-      // choose-protection screen entirely (Welcome.tsx:54-65). Pinned here
+      // choose-protection screen entirely (protectionStepRoute). Pinned here
       // because the alternative failure — that screen rendering with a single
       // dead option — looks fine in a screenshot and dead-ends the user.
       await expect(page.getByTestId('onboarding-choose-protection')).toHaveCount(0);
@@ -137,18 +155,21 @@ test.describe('Onboarding — create', () => {
     });
 
     await steps.step('guardian_choice_is_offered_and_accepted', async () => {
-      await expect(page.getByTestId('onboarding-choose-guardian')).toBeVisible({ timeout: 30_000 });
+      // Choose your Guardian picks the fastest operator on its own; the spec wants THE operator
+      // this run is configured for, so it goes past the intro and opens the provider sheet.
+      await openGuardianPickerFromMeetGuardian(page);
+      await expect(page.getByTestId('meet-guardian-provider-sheet')).toBeVisible({ timeout: 30_000 });
 
-      // The picker renders one card per operator that runs a guardian on this
+      // The sheet renders one card per operator that runs a guardian on this
       // network, each tagged with the endpoint it would bind to
-      // (`data-guardian-endpoint`, ChooseGuardian.tsx:142). Selecting by endpoint
+      // (`data-guardian-endpoint`, GuardianProviderSheet.tsx). Selecting by endpoint
       // rather than by position means the spec is asserting "the guardian this
       // run is configured for is offered", not "some card exists".
       const pickedGuardian = page.locator(`[data-guardian-endpoint="${envConfig.guardianUrl}"]`);
       await expect(pickedGuardian).toHaveCount(1);
       await pickedGuardian.click();
 
-      await page.getByTestId('choose-guardian-continue').click();
+      await page.getByTestId('meet-guardian-continue').click();
     });
 
     await steps.step('confirmation_creates_the_wallet_and_lands_on_home', async () => {
@@ -158,6 +179,13 @@ test.describe('Onboarding — create', () => {
       // registerWallet(Guardian, password, seed, isImport=false, guardianEndpoint).
       // Everything before this point was in-memory React state.
       await page.getByTestId('onboarding-confirmation-submit').click();
+
+      // A first-run wallet has never answered the telemetry prompt, so
+      // `postCreationRoute` puts it between creation and Explore. Declined here
+      // rather than accepted — see `dismissTelemetryConsent`. Raced against
+      // `explore-page` with the same 120s budget as the wait below, because this
+      // click only STARTS guardian creation and nothing yet proves it finished.
+      await dismissTelemetryConsent(page, { nextSurface: '[data-testid="explore-page"]', timeoutMs: 120_000 });
 
       // The E2E build sets MIDEN_E2E_DISABLE_SIDEPANEL, so `postOnboardingRoute()`
       // is '/' and onboarding finishes in-tab on Explore. 120s is the same budget
@@ -198,6 +226,20 @@ test.describe('Onboarding — create', () => {
         data: { address, guardianEndpoint: envConfig.guardianUrl }
       });
     });
+
+    if (envConfig.name !== 'localhost') {
+      await steps.step('fund_through_real_public_faucet_and_consume', async () => {
+        const evidence = await fundFreshGuardianThroughUi(page, envConfig.name, steps.outputDir);
+        timeline.emit({
+          category: 'blockchain_state',
+          severity: 'info',
+          wallet: 'A',
+          message: 'Public faucet grant consumed into the native vault',
+          data: evidence
+        });
+      });
+      return;
+    }
 
     await steps.step('init_miden_client', async () => {
       await midenCli.init();

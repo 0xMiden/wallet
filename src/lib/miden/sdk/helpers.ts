@@ -2,17 +2,24 @@ import {
   Account,
   AccountId,
   Address,
+  Felt,
   FungibleAsset,
+  MidenClient,
   Note,
+  NoteAndArgs,
+  NoteAndArgsArray,
   NoteArray,
   NoteAssets,
   NoteAttachment,
   NoteType,
   TransactionRequest,
-  TransactionRequestBuilder
+  TransactionRequestBuilder,
+  Word
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { getNetworkId } from 'lib/miden-chain/constants';
+
+import { selectFungibleAssetSlot } from './fungible-asset-slot';
 
 export function getBech32AddressFromAccountId(accountId: AccountId): string {
   const accountAddress = Address.fromAccountId(accountId, 'BasicWallet');
@@ -172,12 +179,7 @@ export function resolveHeldFungibleAsset(
   // faucet both could, this decides which CALLBACK FLAG the outgoing asset
   // carries — the largest-slot fallback below would otherwise pick by size and
   // could hand back the wrong variant.
-  const held =
-    heldForFaucet.find(asset => asset.amount() >= amount) ??
-    heldForFaucet.reduce<FungibleAsset | undefined>(
-      (largest, asset) => (largest && largest.amount() >= asset.amount() ? largest : asset),
-      undefined
-    );
+  const held = selectFungibleAssetSlot(heldForFaucet, amount);
   if (!held) {
     // The local vault shows nothing from this faucet. Usually stale local state
     // rather than a real shortfall, so this still builds the request and lets
@@ -198,6 +200,52 @@ export function resolveHeldFungibleAsset(
     console.warn('[send] no single vault slot can fund this amount; the balance may be split across callback flags');
   }
   return FungibleAsset.fromVaultKey(held.vaultKey(), amount);
+}
+
+/**
+ * A fresh salt for a fee-conversion commitment.
+ *
+ * Four field elements from the CSPRNG, each masked to 63 bits so it is always below the
+ * field modulus (2^64 - 2^32 + 1) without rejection sampling -- the commitment only needs
+ * the salt to be unpredictable and non-repeating.
+ */
+export function randomFeeSalt(): Word {
+  const raw = new BigUint64Array(4);
+  crypto.getRandomValues(raw);
+  return Word.newFromFelts(Array.from(raw, v => new Felt(v & 0x7fff_ffff_ffff_ffffn)));
+}
+
+/**
+ * Starts a request that `account` will execute, carrying the fee auth args it needs.
+ *
+ * Since protocol 0.17 a multisig, which every guardian account is, resolves THREE words of auth
+ * args (`[bound_block, approval_expiration, 0, 0] || SALT || CONVERSION_INFO`) at any base fee.
+ * For a bare `withFeeConversionSalt` request miden-client (0.17.4) derives them at execution, bound
+ * to that execution's reference block, so the approvers' signatures stop authorizing it once it
+ * executes at a later tip (`transaction is unauthorized`). The SDK's fee-aware builder binds the
+ * store's sync height once, when the request is built, and declares that block, so a tip execution
+ * matches what the approvers signed; for any other account it returns an untouched builder, which
+ * miden-client then settles by itself. The salt and the bound block are serialized with the
+ * request, so persisted bytes reproduce the co-signed summary.
+ *
+ * `approvalExpirationDelta` (multisig only) expires the approvers' signatures that many blocks after the bound
+ * block, so the transaction must be included by `bound_block + delta` wherever it executes (#1081). It is bound by the
+ * summary, so it is the one expiration a tip execution cannot move past the proposal's own block.
+ *
+ * `feeSalt` is consumed (moved into WASM). Call inside the WASM client lock.
+ */
+export function feeAwareRequestBuilder(
+  client: MidenClient,
+  account: string,
+  feeSalt: Word,
+  approvalExpirationDelta?: number
+): Promise<TransactionRequestBuilder> {
+  return client.feeAwareTransactionRequestBuilder(
+    account,
+    approvalExpirationDelta === undefined
+      ? { feeConversionSalt: feeSalt }
+      : { feeConversionSalt: feeSalt, approvalExpirationDelta }
+  );
 }
 
 /**
@@ -232,7 +280,9 @@ export function buildSendTransactionRequest(
   faucetRef: string,
   amount: bigint,
   noteType: NoteType,
-  reclaimAfter?: number
+  expirationDelta: number,
+  reclaimAfter?: number,
+  baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
   const assets = new NoteAssets([asset]);
@@ -240,7 +290,27 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+  // `baseBuilder` is where a request that has to declare its fee auth starts: a guarded
+  // (multisig) sender's comes from `feeAwareRequestBuilder`. Without one, miden-client
+  // commits the native conversion info itself, which is all an ordinary account needs.
+  // The delta is relative to each execution's reference block, so bytes cached and replayed on Retry stay valid per
+  // attempt; the reconciler reads the resulting expiration off the proof, never from this number (#1081).
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta)
+    .build();
+}
+
+/**
+ * The consume request the wallet executes, with an expiration delta (#1081). `newConsumeTransactionRequest` returns a
+ * finished request, which has no expiration setter, so this builds the same request: the multisig client's own
+ * consume shape (input notes as `(note, null)` pairs) without a salt. Its account argument only decides whether fee
+ * conversion info is committed, and for a single-sig account miden-client commits it under its fixed default salt.
+ * `scripts/consume-request-equivalence.mjs` is the proof the two serialize identically apart from the delta.
+ */
+export function buildConsumeTransactionRequest(notes: Note[], expirationDelta: number): TransactionRequest {
+  const pairs = new NoteAndArgsArray(notes.map(note => new NoteAndArgs(note, null)));
+  return new TransactionRequestBuilder().withInputNotes(pairs).withExpirationDelta(expirationDelta).build();
 }
 
 /**
@@ -283,7 +353,9 @@ export function buildPswapCreateRequest(
   creatorAccount: Account | undefined,
   reference: TransactionRequest,
   offeredFaucetRef: string,
-  offeredAmount: bigint
+  offeredAmount: bigint,
+  expirationDelta: number,
+  baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
   if (!referenceNote) {
@@ -298,5 +370,10 @@ export function buildPswapCreateRequest(
     referenceNote.recipient(),
     referenceNote.attachments()
   );
-  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+  // Fee auth rides on the builder the request starts from (see `buildSendTransactionRequest`):
+  // the SDK exposes no auth-arg setter on a finished `TransactionRequest`.
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta)
+    .build();
 }

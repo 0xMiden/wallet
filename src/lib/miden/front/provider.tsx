@@ -1,30 +1,60 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
-import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
-
+import { markReloadToRecover } from 'app/reload-to-recover';
 import { NoteToastProvider } from 'components/NoteToastProvider';
-import { FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BadgeIssuanceManager } from 'lib/badges/BadgeIssuanceManager';
+import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
+import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
+import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import {
-  getEffectiveNoteTransportUrl,
-  getEffectiveProverUrl,
-  getEffectiveRpcUrl,
-  loadEndpointOverrides
-} from 'lib/miden-chain/effective-endpoints';
+import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { isExtension, isMobile } from 'lib/platform';
+import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
+import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
+import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
-import { TokensMetadataProvider } from './assets';
+import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
+import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
+import { preloadStorage } from './storage';
+import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
+
+/**
+ * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
+ * bridge call that never answers must not keep the wallet on a blank screen.
+ */
+export const STORAGE_PRELOAD_BUDGET_MS = 1_000;
+
+/**
+ * Keys warmed before the first render: the ready-only providers and the network id pushed pages read sit above any
+ * local Suspense boundary, so an uncached read suspends the whole app behind WalletStoreProvider's null fallback; the
+ * changelog overlay has its own boundary, and is warmed so it does not pop in late. A function, not a module constant:
+ * this module is in an import cycle with lib/fiat-currency, so reading its constants at load time could hit them
+ * before they are initialized.
+ */
+const preloadedStorageKeys = () => [
+  ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
+  FIAT_CURRENCY_STORAGE_KEY,
+  MidenSharedStorageKey.LastShownChangelogVersion,
+  NETWORK_STORAGE_ID,
+  BADGE_STORAGE_KEY,
+  BADGE_SEEN_STORAGE_KEY,
+  // SeedBackupGate's SEED_BACKUP_REQUIRED_KEY and WALLET_PROMPTS_STORAGE_KEY, read above every local Suspense
+  // boundary. Spelled out: the gate's module imports this one through the front barrel.
+  'seed_backup_required_v1',
+  'wallet_prompts_v1'
+];
 
 /**
  * MidenProvider
@@ -41,34 +71,72 @@ import { getMidenClient } from '../sdk/miden-client';
  */
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // Combined readiness gate: apply any developer endpoint override BEFORE
-  // the SDK's WASM module (and its prover config) resolves, so both this
-  // provider's sdkConfig and the getMidenClient() effect below always see
-  // the effective (possibly overridden) endpoints rather than build
-  // defaults. The /lazy entries perform no top-level await, and the SDK's
-  // MidenProvider resolves its prover config through WASM constructors
-  // during setup — mounting it before the module has initialized crashes
-  // the whole tree with `__wbindgen_malloc` undefined. Children that don't
-  // touch the SDK render immediately; SDK-dependent subtrees already wait
-  // on the provider's own ready state.
+  // the SDK's WASM module resolves, so the getMidenClient() effect below
+  // always sees the effective (possibly overridden) endpoints rather than
+  // build defaults. The /lazy entries perform no top-level await, so a WASM
+  // constructor reached before the module has initialized crashes the whole
+  // tree with `__wbindgen_malloc` undefined.
   const [ready, setReady] = useState(false);
+  // A failed start is thrown to the root error boundary, whose screen reports it once and offers Try Again; left
+  // unhandled, it kept the page blank.
+  const [startFailure, setStartFailure] = useState<Error | null>(null);
   useEffect(() => {
     let cancelled = false;
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
+      // The preload runs alongside the WASM init, and `ready` waits for it for at most the budget, so the keys are
+      // cached before anything reads them (a warm-WASM page with the wallet already unlocked included). A key still
+      // uncached after the budget suspends as it did before the preload existed.
+      const keys = preloadedStorageKeys();
+      const pending = new Set(keys);
+      const preloaded = Promise.race([
+        preloadStorage(keys, { onSettled: key => pending.delete(key) }).catch(err =>
+          console.warn('[MidenProvider] storage preload failed:', err)
+        ),
+        new Promise<void>(resolve => {
+          // Cleared when the race settles and on unmount, so it only ever fires for a mounted, still-waiting provider.
+          budgetTimer = setTimeout(() => {
+            console.warn(
+              `[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms: ${[...pending].join(', ')}`
+            );
+            resolve();
+          }, STORAGE_PRELOAD_BUDGET_MS);
+        })
+      ]).finally(() => clearTimeout(budgetTimer));
       await loadEndpointOverrides();
+      // Prime native-asset-id discovery on every page mount. On extension this
+      // also happens on the SW side, but the SW can be killed before the popup
+      // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
+      // Cache-hit on repeat opens; one RPC call on first install per network.
+      //
+      // MUST run AFTER loadEndpointOverrides() so discovery targets the
+      // configured (possibly overridden) node, not the build-default endpoint —
+      // mirrors the service worker's load-then-prime order (back/main.ts). When
+      // it primed in a separate effect, a warm-WASM page (e.g. the handed-off
+      // side panel, where ensureSdkWasmReady resolves instantly) captured the
+      // build-default RPC before the override loaded and cached the wrong
+      // network's native faucet id, so balances showed a mismatched token.
+      if (!cancelled) {
+        primeNativeAssetId();
+        // The override can change the effective network, so the bridge config readers follow it.
+        followEffectiveNetwork();
+      }
       await ensureSdkWasmReady();
+      await preloaded;
       if (!cancelled) setReady(true);
-    })();
+    })().catch((reason: unknown) => {
+      // An Error stays itself, so the crash report keeps the SDK's own object; any other value is named by an Error
+      // the boundary and the reload marker can take.
+      const failure = reason instanceof Error ? reason : new Error(String(reason), { cause: reason });
+      // The SDK keeps a failed start for the page's lifetime, and wasm-bindgen its half-started instance, so the
+      // boundary's re-render would fail the same way: only a fresh page starts it again.
+      markReloadToRecover(failure);
+      if (!cancelled) setStartFailure(failure);
+    });
     return () => {
       cancelled = true;
+      clearTimeout(budgetTimer);
     };
-  }, []);
-
-  // Prime native-asset-id discovery on every page mount. On extension this
-  // also happens on the SW side, but the SW can be killed before the popup
-  // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
-  // Cache-hit on repeat opens; one RPC call on first install per network.
-  useEffect(() => {
-    primeNativeAssetId();
   }, []);
 
   // Mirror the settings the extension service worker needs (auto-consume + delegated
@@ -96,36 +164,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     initializeClient();
   }, [ready]);
 
-  // Build the SDK MidenProvider config from the same effective-endpoint
-  // resolver (lib/miden-chain/effective-endpoints) used by
-  // MidenClientInterface.create(), so the React SDK's client and the
-  // wallet's own backend client always agree on which network/endpoints
-  // they're talking to — including any developer override. Depends on
-  // `ready` so it recomputes once loadEndpointOverrides() has resolved
-  // (otherwise it would capture stale build defaults from the first
-  // render). autoSyncInterval is disabled here because the wallet drives
-  // sync itself (extension SW + useSyncTrigger on mobile) — we only need
-  // the SDK's MidenContext populated so hooks like useImportStore /
-  // useConsume can resolve, not a second auto-sync loop.
-  const sdkConfig = useMemo(
-    () => ({
-      rpcUrl: getEffectiveRpcUrl(),
-      noteTransportUrl: getEffectiveNoteTransportUrl(),
-      prover: getEffectiveProverUrl(),
-      autoSyncInterval: 0,
-      // Mirror the backend MidenClientInterface decision: on mobile we hand
-      // the SDK a CallbackProver routed through the native Rust prover via
-      // Capacitor, and the worker boundary would silently strip the callback.
-      // The SDK's MidenProvider spins up its own WebClient — opt it out too,
-      // or every hook-driven prove (useConsume, useSend) goes through the
-      // worker path and falls back to in-worker WASM ST proving.
-      useWorker: !isMobile()
-    }),
-    // `ready` intentionally gates recomputation: sdkConfig reads the effective
-    // endpoint getters, which only reflect a loaded override once `ready` flips.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ready]
-  );
+  if (startFailure) throw startFailure;
 
   if (!ready) {
     return null;
@@ -134,9 +173,10 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   return (
     <WalletStoreProvider>
       <MidenContextProvider>
-        <SdkMidenProvider config={sdkConfig}>
-          <ConditionalProviders>{children}</ConditionalProviders>
-        </SdkMidenProvider>
+        {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
+            landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
+        <PriceProvider />
+        <ConditionalProviders>{children}</ConditionalProviders>
       </MidenContextProvider>
     </WalletStoreProvider>
   );
@@ -162,10 +202,17 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
       ready ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
-            <PriceProvider />
             {children}
             <SwapSettlementManager />
+            <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
+            <EarnIntentWatcher />
+            <BridgeIntentWatcher />
+            <BadgeIssuanceManager />
+            {/* Startup recovery for transactions orphaned by an app kill. No-op on
+                the extension, where the service worker's `setupTransactionProcessor`
+                already does this. */}
+            <OrphanedTransactionRecovery />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

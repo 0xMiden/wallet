@@ -1,28 +1,44 @@
 import { format } from 'date-fns';
+import fs from 'fs';
+import path from 'path';
 
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_USDC,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeBadgeStatusOf,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  claimAccentColor,
+  creditedAmount,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
-  earnWithdrawToneOf,
   fontColorForType,
-  formatBridgeOutputAmount,
   formatDate,
-  formatEarnWithdrawAmount,
+  formatMoneyAmount,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
+  isFaucetMintTransaction,
   isFaucetRequest,
+  networkHasFaucetClaims,
+  isReceiveEntry,
+  labelHistoryEntry,
+  MoneyKind,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
@@ -50,11 +66,21 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokenByFaucetId: jest.fn()
+  getSwapTokenByFaucetId: jest.fn(),
+  normalizedFaucetId: (faucetId: string) => faucetId
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
 // sync accessor with a steerable jest.fn.
+// The effective network: Testnet unless a case puts the wallet on Mainnet, which has no faucet.
+let mockWalletNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = 'testnet';
+});
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn()
 }));
@@ -65,6 +91,29 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 jest.mock('lib/shared/format', () => ({
   formatAmount: jest.fn((amount: bigint, decimals: number | undefined) => `fmt(${amount},${decimals})`)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
+// The placeholder a bridge row shows for a token it cannot name (U+2014), built so no dash is typed here.
+const NO_TOKEN = String.fromCharCode(0x2014);
+
+// The bridge config as a page holds it before the document loads: nothing is labelled.
+const UNLOADED: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
 
 const mockGetTokenMetadata = getTokenMetadata as jest.MockedFunction<typeof getTokenMetadata>;
 const mockGetSwapTokenByFaucetId = getSwapTokenByFaucetId as jest.MockedFunction<typeof getSwapTokenByFaucetId>;
@@ -94,6 +143,21 @@ describe('resolveConsumeExtraAmounts', () => {
 
   it('returns nothing for a legacy consume row without assetTotals', async () => {
     await expect(resolveConsumeExtraAmounts(consumeTx(undefined))).resolves.toEqual([]);
+  });
+
+  // The row names it at render (`labelHistoryEntry`), so a stored line never holds a label the config may move off.
+  it('keeps the chain symbol of a claimed line of the testnet bridge faucet', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', name: 'USDC', decimals: 6 });
+
+    await expect(
+      resolveConsumeExtraAmounts(
+        consumeTx([
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: MIDEN_USDC_FAUCET, amount: 5n }
+        ])
+      )
+    ).resolves.toEqual([{ faucetId: MIDEN_USDC_FAUCET, amount: 'fmt(5,6)', token: 'USDC' }]);
   });
 
   it('excludes the primary faucet and formats each secondary with its own decimals', async () => {
@@ -208,30 +272,21 @@ describe('resolveSwapHistoryFields', () => {
     expect(result.requestedToken).toBe('Unknown');
   });
 
-  it('falls back to wallet metadata, defaults missing faucet ids to null, and omits absent amounts', async () => {
-    // Registry misses on both sides => the `?? await getTokenMetadata(...)` path.
+  it('does not label missing swap assets as the native token', async () => {
     mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
-    mockGetTokenMetadata.mockImplementation(async (tokenId: string | null) => {
-      if (tokenId === null) return swapToken('NATIVE', 5) as any;
-      return swapToken('WALLET', 3) as any;
-    });
-
-    // No extraInputs (=> {}), no faucetId (=> null), no amount, no requestedAmount.
-    const tx: any = { amount: undefined };
-
+    const tx: ITransaction = {
+      id: 'recovered-swap',
+      accountId: 'account',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SWAP'
+    };
     const result = await resolveSwapHistoryFields(tx);
-
-    expect(result).toEqual({
-      amount: undefined,
-      token: 'NATIVE',
-      requestedAmount: undefined,
-      requestedToken: 'NATIVE',
-      requestedFaucetId: undefined
-    });
-    // Both faucet ids were undefined => coalesced to null for the metadata lookup.
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(1, null);
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(2, null);
-    expect(mockFormatAmount).not.toHaveBeenCalled();
+    expect(result.token).toBeUndefined();
+    expect(result.requestedToken).toBeUndefined();
+    expect(result.requestedAmount).toBeUndefined();
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('mixes a registry-resolved offered side with a wallet-metadata requested side', async () => {
@@ -295,6 +350,98 @@ describe('isFaucetRequest', () => {
     const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'other' };
     expect(isFaucetRequest(entry)).toBe(false);
   });
+
+  it('returns true for a claim in flight whose entry has no icon yet', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = {
+      transactionIcon: undefined,
+      txType: 'consume',
+      faucetId: 'native-id',
+      secondaryAddress: 'native-id'
+    };
+    expect(isFaucetRequest(entry)).toBe(true);
+  });
+
+  // On Mainnet the native faucet is the USDCx minter, so a note it sent is a bridge-in: an
+  // ordinary receive, never a faucet claim.
+  it('is never a faucet claim on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'native-id' };
+    expect(isFaucetRequest(entry)).toBe(false);
+  });
+});
+
+describe('networkHasFaucetClaims', () => {
+  it('is false on Mainnet only', () => {
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.MAINNET)).toBe(false);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.TESTNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.DEVNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.LOCALNET)).toBe(true);
+  });
+});
+
+describe('isReceiveEntry', () => {
+  it('counts a settled receive by its icon', () => {
+    expect(isReceiveEntry({ transactionIcon: 'RECEIVE', txType: 'consume' })).toBe(true);
+  });
+
+  it('counts a claim still in flight, whose entry has no icon yet', () => {
+    expect(isReceiveEntry({ transactionIcon: undefined, txType: 'consume' })).toBe(true);
+  });
+
+  it('does not count a send in flight', () => {
+    expect(isReceiveEntry({ transactionIcon: undefined, txType: 'send' })).toBe(false);
+  });
+
+  it('does not count a failed claim', () => {
+    expect(isReceiveEntry({ transactionIcon: 'FAILED', txType: 'consume' })).toBe(false);
+  });
+
+  it('does not count a settled send', () => {
+    expect(isReceiveEntry({ transactionIcon: 'SEND', txType: 'send' })).toBe(false);
+  });
+});
+
+describe('isFaucetMintTransaction', () => {
+  // A stored row's ids can read back null; while the native faucet is still unknown (null too),
+  // only the guard stops null === null from calling an ordinary claim a faucet mint.
+  it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
+    const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
+    expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+
+  it('is a faucet mint off Mainnet and an ordinary claim on Mainnet', () => {
+    const transaction: any = { type: 'consume', faucetId: 'native', secondaryAccountId: 'native' };
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(true);
+    mockWalletNetwork = 'mainnet';
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(false);
+  });
+});
+
+describe('claimAccentColor', () => {
+  const bridgeIn = { bridgeIn: { provider: 'agglayer' } };
+
+  // Activity and the detail page slate every bridge-in row, so its claim arrow does too.
+  it('gives a bridge-in claim the bridge slate', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'bridged',
+      secondaryAccountId: 'bridge',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
+
+  it('puts the bridge slate ahead of the faucet rose', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'native',
+      secondaryAccountId: 'native',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
 });
 
 describe('fontColorForType', () => {
@@ -308,17 +455,52 @@ describe('fontColorForType', () => {
 
   it('falls back to the faucet color for any other type', () => {
     expect(fontColorForType('faucet' as any)).toBe(TRANSACTION_COLORS.faucet);
-    expect(fontColorForType('anything-else' as any)).toBe('#891DB1');
+    expect(fontColorForType('anything-else' as any)).toBe('#BA839F');
   });
 });
 
 describe('TRANSACTION_COLORS', () => {
   it('exposes the fixed palette', () => {
     expect(TRANSACTION_COLORS).toEqual({
-      send: '#91ACC1',
-      receive: '#99AC94',
-      faucet: '#891DB1'
+      send: 'var(--tx-sent)',
+      receive: 'var(--tx-received)',
+      faucet: '#BA839F',
+      bridge: '#777487'
     });
+  });
+
+  // Regression guard for the mismatched-purple bug: TransactionIcon draws the
+  // send, receive and faucet circles from these JS constants (not from the CSS
+  // vars), so each must stay byte-for-byte in sync with main.css or the Activity
+  // row and the detail hero drift apart again. This covered the faucet alone
+  // while send and receive had the same exposure and no guard at all.
+  //
+  // What it does NOT cover: any OTHER file that copies one of these hues. It reads
+  // main.css and this module and nothing else, so a third copy elsewhere stays
+  // invisible here - which is exactly how TransactionSummaryBadge kept painting the
+  // retired send and swap colours. That file carries its own guard.
+  // Send and receive REFERENCE the token rather than copying its value, so they cannot drift by
+  // construction; what this pins is that they reference the right one and that it exists. The
+  // colour itself is pinned, resolved through the alias and in both themes, by
+  // `lib/ui/design-tokens.test.ts`'s "keeps the white activity glyph at 3:1" cases.
+  it.each([
+    ['send', '--tx-sent'],
+    ['receive', '--tx-received']
+  ] as const)('points %s at the %s token rather than copying it', (key, token) => {
+    const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
+    expect(TRANSACTION_COLORS[key]).toBe(`var(${token})`);
+    expect(css).toMatch(new RegExp(`${token}:`));
+  });
+
+  // The faucet has no action colour to alias (it is not one of Home's five), so it stays a literal
+  // and keeps the byte-for-byte guard: declared once for `:root` and once for `.dark`, both
+  // agreeing with the constant TransactionIcon draws from.
+  it('keeps faucet in sync with the --tx-faucet token in main.css', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
+    const matches = [...css.matchAll(/--tx-faucet:\s*(#[0-9a-fA-F]{6});/g)].map(m => m[1]!.toUpperCase());
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toBe(TRANSACTION_COLORS.faucet);
+    expect(matches[1]).toBe(TRANSACTION_COLORS.faucet);
   });
 });
 
@@ -370,6 +552,11 @@ const bridgeEntry = (overrides: Partial<IHistoryEntry>): IHistoryEntry => ({
   ...overrides
 });
 
+// A restore keeps a row's extraInputs as the dump recorded them, so a hand-edited backup can put a
+// number, or a BigInt from a `$bigint` tag, in an amount field every reader types as a string.
+const restoredEntry = (overrides: Partial<IHistoryEntry>, stored: Record<string, unknown>): IHistoryEntry =>
+  Object.assign(bridgeEntry(overrides), stored);
+
 describe('isCompletedTransaction', () => {
   it.each(['Sent', 'Received', 'Reclaimed', 'Executed'])('treats %s as completed', message => {
     expect(isCompletedTransaction(message)).toBe(true);
@@ -380,28 +567,251 @@ describe('isCompletedTransaction', () => {
   });
 });
 
-describe('formatBridgeOutputAmount', () => {
-  it('passes undefined through', () => {
-    expect(formatBridgeOutputAmount(undefined)).toBeUndefined();
+// One rule for every Bridge and Earn amount. 10.6555 separates the three kinds: down reads
+// 10.65, up reads 10.66 and half-up would read 10.66 too, so only an exact 10.6555 is typed.
+describe('formatMoneyAmount', () => {
+  const kinds: MoneyKind[] = ['receives', 'pays', 'typed'];
+  const rounded: MoneyKind[] = ['receives', 'pays'];
+  const separating: [MoneyKind, string][] = [
+    ['receives', '10.65'],
+    ['pays', '10.66'],
+    ['typed', '10.6555']
+  ];
+
+  it.each(separating)('reads 10.6555 %s as %s', (kind, expected) => {
+    expect(formatMoneyAmount('10.6555', kind)).toBe(expected);
   });
 
-  // Rounds DOWN, so the hero can never claim the user sent or received more than
-  // they did. Half-up would render 1.239999… as "1.24".
-  it('truncates a full-precision value to 2 decimals rather than rounding up', () => {
-    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.23');
-    expect(formatBridgeOutputAmount('0')).toBe('0.00');
+  // Parsed from its text, never through Number(): as a double, 1.239999999999999999 is 1.24.
+  it('rounds an eighteen-digit received amount down from its exact text', () => {
+    expect(formatMoneyAmount('1.239999999999999999', 'receives')).toBe('1.23');
   });
 
-  it('pads a whole number to 2 decimals', () => {
-    expect(formatBridgeOutputAmount('12')).toBe('12.00');
+  it.each(kinds)('trims zeros and never pads (%s)', kind => {
+    expect(formatMoneyAmount('12.5000', kind)).toBe('12.5');
+    expect(formatMoneyAmount('12.00', kind)).toBe('12');
+    expect(formatMoneyAmount('0', kind)).toBe('0');
   });
 
-  it('expands precision for a small non-zero output', () => {
-    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0012');
+  it('expands a tiny amount to two significant places, down or up by kind', () => {
+    expect(formatMoneyAmount('0.000001234', 'receives')).toBe('0.0000012');
+    expect(formatMoneyAmount('0.000001234', 'pays')).toBe('0.0000013');
+    expect(formatMoneyAmount('0.000001234', 'typed')).toBe('0.000001234');
   });
 
-  it('passes non-numeric input through unchanged', () => {
-    expect(formatBridgeOutputAmount('not-a-number')).toBe('not-a-number');
+  it('keeps six decimals for ETH and WETH, the typed-amount cap', () => {
+    expect(formatMoneyAmount('0.015', 'receives', 'ETH')).toBe('0.015');
+    expect(formatMoneyAmount('0.015', 'receives', 'USDC')).toBe('0.01');
+    expect(formatMoneyAmount('0.123456789', 'receives', 'ETH')).toBe('0.123456');
+    expect(formatMoneyAmount('0.123456789', 'pays', 'ETH')).toBe('0.123457');
+    expect(formatMoneyAmount('0.123456789', 'receives', 'WETH')).toBe('0.123456');
+  });
+
+  it('shows a typed amount as typed, without grouping, a trailing separator or trailing zeros', () => {
+    expect(formatMoneyAmount('1,234.50', 'typed')).toBe('1234.5');
+    expect(formatMoneyAmount('1.', 'typed')).toBe('1');
+    expect(formatMoneyAmount('10.65555555', 'typed', 'ETH')).toBe('10.65555555');
+  });
+
+  it('reads an empty or non-numeric typed amount as 0', () => {
+    expect(formatMoneyAmount('', 'typed')).toBe('0');
+    expect(formatMoneyAmount('not-a-number', 'typed')).toBe('0');
+  });
+
+  it.each(rounded)('passes a non-numeric %s amount through unchanged', kind => {
+    expect(formatMoneyAmount('not-a-number', kind)).toBe('not-a-number');
+  });
+
+  it.each(kinds)('passes undefined through (%s)', kind => {
+    expect(formatMoneyAmount(undefined, kind)).toBeUndefined();
+  });
+
+  // Expanding 9e9999999 would build ten million digits during render.
+  it.each(['1e41', '1e-41', '9e9999999', '1e-9999999'])(
+    'reads %s, outside the display window, as non-numeric without expanding it',
+    value => {
+      expect(formatMoneyAmount(value, 'typed')).toBe('0');
+      expect(formatMoneyAmount(value, 'receives')).toBe(value);
+      expect(formatMoneyAmount(value, 'pays')).toBe(value);
+    }
+  );
+
+  it('still expands a value at the edge of the display window', () => {
+    expect(formatMoneyAmount('1e40', 'typed')).toBe(`1${'0'.repeat(40)}`);
+    expect(formatMoneyAmount('1e-40', 'typed')).toBe(`0.${'0'.repeat(39)}1`);
+    expect(formatMoneyAmount('1e40', 'receives')).toBe(`1${'0'.repeat(40)}`);
+  });
+
+  // The Slow detail hero formats a stored source amount; a throw here takes the page down.
+  describe('a stored amount a restored backup left as a number or a BigInt', () => {
+    const stored = (value: unknown) => restoredEntry({}, { bridgeInSourceAmount: value }).bridgeInSourceAmount;
+
+    it.each(separating)('reads the number 10.6555 %s as %s', (kind, expected) => {
+      expect(formatMoneyAmount(stored(10.6555), kind)).toBe(expected);
+    });
+
+    it('reads a typed number exactly', () => {
+      expect(formatMoneyAmount(stored(0.015), 'typed', 'ETH')).toBe('0.015');
+      expect(formatMoneyAmount(stored(1e21), 'typed')).toBe('1000000000000000000000');
+    });
+
+    it.each(kinds)('reads a BigInt as its value (%s)', kind => {
+      expect(formatMoneyAmount(stored(12n), kind)).toBe('12');
+    });
+
+    // A one-element array stringifies to its element, so only the type check keeps ['12'] from reading 12.
+    it('reads any other shape as 0 when typed and passes it through when rounded', () => {
+      const shape = { amount: '12' };
+      const list = ['12'];
+      expect(formatMoneyAmount(stored(shape), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(list), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(null), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(shape), 'receives')).toBe(shape);
+      expect(formatMoneyAmount(stored(shape), 'pays')).toBe(shape);
+      expect(formatMoneyAmount(stored(list), 'receives')).toBe(list);
+      expect(formatMoneyAmount(stored(list), 'pays')).toBe(list);
+    });
+  });
+});
+
+// What a received row credited: its base-unit amount scaled by the delivered faucet, rounded down.
+describe('creditedAmount', () => {
+  it('scales the amount by the faucet and rounds it down at the asset precision', () => {
+    mockFormatAmount.mockReturnValueOnce('150.126456');
+
+    expect(creditedAmount(150_126_456n, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBe('150.12');
+    expect(mockFormatAmount).toHaveBeenCalledWith(150_126_456n, 6);
+  });
+
+  it('keeps six decimals for a credited ETH amount', () => {
+    mockFormatAmount.mockReturnValueOnce('0.015123456789');
+
+    expect(creditedAmount(15_123_456_789_000_000n, { symbol: 'ETH', name: 'Ether', decimals: 18 })).toBe('0.015123');
+  });
+
+  it('withholds the amount when the faucet scale is a guess or the row has no amount', () => {
+    expect(creditedAmount(100n, UNKNOWN_METADATA)).toBeUndefined();
+    expect(creditedAmount(100n, undefined)).toBeUndefined();
+    expect(creditedAmount(undefined, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBeUndefined();
+    expect(mockFormatAmount).not.toHaveBeenCalled();
+  });
+});
+
+describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
+  const deposit = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'usdcx', ...overrides });
+
+  it('reads Pending until Circle attests, Confirmed once it does and Completed once the note is received', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'delivering' }))).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'received' }))).toBe('completed');
+  });
+
+  it('reads Completed on the consume of the minted note', () => {
+    expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
+  });
+
+  it('reads Failed for a failed deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
+  });
+
+  it('keeps Confirmed for a received deposit of another route', () => {
+    expect(
+      bridgeBadgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
+      )
+    ).toBe('confirmed');
+  });
+});
+
+describe('USDCx withdrawal stages', () => {
+  it('keeps Burn confirmed until the destination balance check confirms arrival', () => {
+    const entry = bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      usdcxBurn: { noteId: 'note', destinationDomain: 26, phase: 'confirmed' }
+    });
+    expect(bridgeBadgeStatusOf(entry)).toBe('burnConfirmed');
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    const arrived: IHistoryEntry = {
+      ...entry,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+      }
+    };
+    expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
+    expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
+describe('USDCx payout badge', () => {
+  const HOUR = 3_600_000;
+  const NOW = 1_800_000_000_000;
+  const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+  const burn = (extra: Partial<NonNullable<IHistoryEntry['usdcxBurn']>> = {}): IHistoryEntry =>
+    bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      bridgeSettledAt: NOW - 3 * HOUR,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+        ...extra
+      }
+    });
+
+  it('reads Confirmed on a recorded payout', () => {
+    const paid = burn({ payout });
+    expect(bridgeBadgeStatusOf(paid, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(paid)).toBe('confirmed');
+  });
+
+  it('reads Confirmed on a legacy balance confirmation', () => {
+    const legacy = burn({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(legacy)).toBe('confirmed');
+  });
+
+  it('reads Payout delayed 2 hours after the burn confirmed without a payout', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).toBe('payoutDelayed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).not.toBe('burnConfirmed');
+    // A row confirmed before confirmedAt existed counts from when it settled.
+    expect(bridgeBadgeStatusOf(burn(), NOW)).toBe('payoutDelayed');
+  });
+
+  it('reads Burn confirmed before 2 hours', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR + 1 }), NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: NOW - HOUR }, NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: undefined }, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed on a balance-confirmed row', () => {
+    const legacy = burn({
+      confirmedAt: NOW - 30 * HOUR,
+      destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+    });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 30 * HOUR, payout }), NOW)).toBe('confirmed');
+  });
+
+  it('a restored row never reads Payout delayed', () => {
+    const restored = { ...burn({ confirmedAt: NOW - 30 * HOUR }), restoredFromBackup: true };
+    expect(bridgeBadgeStatusOf(restored, NOW)).toBe('burnConfirmed');
+  });
+
+  it('a row without a saved snapshot never reads Payout delayed', () => {
+    const old = burn({ confirmedAt: NOW - 30 * HOUR, destinationBalanceBefore: undefined });
+    expect(bridgeBadgeStatusOf(old, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed before the burn confirmed', () => {
+    expect(bridgeBadgeStatusOf(burn({ phase: 'consuming' }), NOW)).toBe('burnConsuming');
+    expect(bridgeBadgeStatusOf(burn({ phase: 'pending' }), NOW)).toBe('burnPending');
   });
 });
 
@@ -451,6 +861,7 @@ describe('bridgeRowDisplay', () => {
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(
+        UNLOADED,
         bridgeEntry({
           token: 'MIDEN',
           amount: '5',
@@ -463,6 +874,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       // Truncated, not rounded up: a quote must not promise more than it pays.
       outAmount: '4.98',
       providerLabel: 'Epoch',
@@ -471,14 +884,29 @@ describe('bridgeRowDisplay', () => {
     });
   });
 
+  it('rounds a stored quote down and drops the padding of a legacy display string', () => {
+    const quoted = (bridgeOutputAmount: string) =>
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount })
+      ).outAmount;
+
+    expect(quoted('10.655599')).toBe('10.65');
+    expect(quoted('12.00')).toBe('12');
+    expect(quoted('0.00')).toBe('0');
+  });
+
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
+        UNLOADED,
         bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'ETH',
+      inLabel: 'MIDEN',
+      outLabel: 'ETH',
       outAmount: '7',
       providerLabel: 'Agglayer',
       network: 'Sepolia',
@@ -487,14 +915,26 @@ describe('bridgeRowDisplay', () => {
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
-    expect(bridgeRowDisplay(bridgeEntry({}))).toEqual({
+    expect(bridgeRowDisplay(UNLOADED, bridgeEntry({}))).toEqual({
       inSymbol: '—',
       outSymbol: 'USDC',
+      inLabel: NO_TOKEN,
+      outLabel: 'USDC',
       outAmount: undefined,
       providerLabel: 'Bridge',
       network: 'Sepolia',
       status: 'pending'
     });
+  });
+
+  // Proves the value HistoryItem/HistoryView render for a bridge-out list row: neither
+  // reformats `outAmount` themselves, so this function's return is the list row's amount.
+  // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
+  // typed Miden-side send amount and must show as entered, not cut to two decimals.
+  it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount
+    ).toBe('0.015');
   });
 });
 
@@ -516,6 +956,7 @@ describe('bridgeInRowDisplay', () => {
   it('flips the direction: EVM source token in, Miden token out', () => {
     expect(
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'consume',
           token: 'MIDEN',
@@ -527,6 +968,8 @@ describe('bridgeInRowDisplay', () => {
     ).toEqual({
       inSymbol: 'ETH',
       outSymbol: 'MIDEN',
+      inLabel: 'ETH',
+      outLabel: 'MIDEN',
       outAmount: '3',
       providerLabel: 'Agglayer',
       network: 'Miden',
@@ -539,6 +982,7 @@ describe('bridgeInRowDisplay', () => {
   it('prefers the row amount over the quoted output once the phase is received', () => {
     expect(
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
@@ -550,15 +994,320 @@ describe('bridgeInRowDisplay', () => {
     ).toBe('7');
   });
 
+  // The list row and the detail hero both read this, so a received amount is rounded here, once.
+  it("rounds a received bridge-in's credited amount down at the asset precision", () => {
+    const received = (amount: string, symbol: string) =>
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'received',
+          amount,
+          bridgeInOutputAmount: '99',
+          bridgeInOutputSymbol: symbol,
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount;
+
+    expect(received('150.126456', 'USDC')).toBe('150.12');
+    expect(received('0.0151236567', 'ETH')).toBe('0.015123');
+  });
+
+  it('shows an in-flight "you receive" amount as typed, without padding', () => {
+    const inFlight = (bridgeInOutputAmount: string) =>
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount: '10',
+          bridgeInOutputAmount,
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount;
+
+    expect(inFlight('10.6555')).toBe('10.6555');
+    // A row written before the stored value went exact holds a padded display string.
+    expect(inFlight('12.00')).toBe('12');
+  });
+
+  // Activity and Token Detail build this row during render, so a throw here takes the list down.
+  it('shows an in-flight "you receive" a restored backup left as a number or a BigInt', () => {
+    const inFlight = (bridgeInOutputAmount: unknown) =>
+      bridgeInRowDisplay(
+        UNLOADED,
+        restoredEntry(
+          { txType: 'bridged-receive', bridgeInPhase: 'delivering', amount: '10', bridgeInProvider: 'epoch' },
+          { bridgeInOutputAmount }
+        )
+      ).outAmount;
+
+    expect(inFlight(10.6555)).toBe('10.6555');
+    expect(inFlight(12n)).toBe('12');
+  });
+
+  // With no stored "you receive" the row's own amount shows: a Slow row's is the typed amount, any other row's
+  // (a row with no provider reads as Epoch) is the quote's tokenOut, which rounds down.
+  describe('an in-flight bridge-in with no stored "you receive"', () => {
+    const fallback = (bridgeInProvider: IHistoryEntry['bridgeInProvider'], amount: string) =>
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount,
+          bridgeInOutputSymbol: 'USDC',
+          bridgeInProvider
+        })
+      ).outAmount;
+
+    it('rounds a Fast row down', () => {
+      expect(fallback('epoch', '9.987654')).toBe('9.98');
+    });
+
+    it('rounds a row with no provider down, as Fast', () => {
+      expect(fallback(undefined, '9.987654')).toBe('9.98');
+    });
+
+    it('shows a Slow row as typed', () => {
+      expect(fallback('agglayer', '1.234567')).toBe('1.234567');
+    });
+  });
+
+  // Rows written before the fix carry the allocator's token `name` as a symbol,
+  // which for Sepolia USDC is the contract address.
+  it('ignores a stored symbol that is an EVM contract address', () => {
+    const address = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
+    const display = bridgeInRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        txType: 'bridged-receive',
+        bridgeInPhase: 'received',
+        token: 'USDC',
+        bridgeInProvider: 'epoch',
+        bridgeInSourceSymbol: address,
+        bridgeInOutputSymbol: address
+      })
+    );
+    expect(display.inSymbol).toBe('USDC');
+    expect(display.outSymbol).toBe('USDC');
+  });
+
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
-    expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
+    expect(bridgeInRowDisplay(UNLOADED, bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',
       outSymbol: '—',
+      inLabel: 'USDC',
+      outLabel: NO_TOKEN,
       outAmount: undefined,
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
     });
+  });
+
+  it('labels a Circle xReserve deposit and keeps USDC in, USDCx out', () => {
+    expect(
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'usdcx',
+          bridgeInSourceSymbol: 'USDC',
+          bridgeInOutputSymbol: 'USDCx',
+          bridgeInOutputAmount: '5'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'USDC',
+      outLabel: 'USDCx',
+      outAmount: '5',
+      providerLabel: 'Circle xReserve',
+      network: 'Miden',
+      status: 'pending'
+    });
+  });
+});
+
+describe('bridge rows testnet bridge USDC label', () => {
+  beforeEach(() => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  });
+
+  // The document names the EVM USDC before its Sepolia read succeeds; the Miden side is named from the document too.
+  it('labels the EVM USDC side from the document alone while its token read has not succeeded', () => {
+    const documentOnly: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+    mockBridgeSnapshot = documentOnly;
+
+    const out = bridgeRowDisplay(
+      documentOnly,
+      bridgeEntry({ token: 'USDC', faucetId: MIDEN_USDC_FAUCET, amount: '5', bridgeProvider: 'epoch' })
+    );
+    const usdcIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'USDC', faucetId: MIDEN_USDC_FAUCET, bridgeInProvider: 'epoch' })
+    );
+    const ethIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'ETH', bridgeInProvider: 'agglayer', bridgeInSourceSymbol: 'ETH' })
+    );
+
+    expect([out.outLabel, usdcIn.inLabel, ethIn.inLabel]).toEqual(['Test Epoch USDC', 'Test Epoch USDC', 'ETH']);
+  });
+
+  it('labels both sides of an Epoch bridge-out of the bridge faucet', () => {
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '5',
+          bridgeProvider: 'epoch',
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.987654'
+        })
+      )
+    ).toMatchObject({
+      inSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outSymbol: 'USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98'
+    });
+  });
+
+  // An AggLayer row saves the ERC-20 it deposited: only the bridge's own USDC takes the testnet label.
+  it('names an AggLayer ERC-20 bridge-in by its own symbol unless it is the bridge USDC', () => {
+    const agglayerIn = (symbol: string, token: string) =>
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: symbol,
+          bridgeInSourceToken: token
+        })
+      ).inLabel;
+    expect(agglayerIn('WBTC', '0x00000000000000000000000000000000000000d1')).toBe('WBTC');
+    expect(agglayerIn('USDC', TEST_EVM_USDC.address.toLowerCase())).toBe('Test Epoch USDC');
+  });
+
+  it.each(['USDC', TEST_EVM_USDC.address])(
+    'labels an old Epoch bridge-in row saved with USDC or with the token address (%s)',
+    saved => {
+      expect(
+        bridgeInRowDisplay(
+          TEST_BRIDGE_CONFIG_SNAPSHOT,
+          bridgeEntry({
+            txType: 'consume',
+            token: 'USDC',
+            faucetId: MIDEN_USDC_FAUCET,
+            amount: '3',
+            bridgeInProvider: 'epoch',
+            bridgeInSourceSymbol: saved
+          })
+        )
+      ).toMatchObject({ inSymbol: 'USDC', inLabel: 'Test Epoch USDC', outSymbol: 'USDC', outLabel: 'Test Epoch USDC' });
+    }
+  );
+
+  it('labels a Slow-route bridge-in of the configured USDC like the review does', () => {
+    expect(
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'consume',
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '3',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'USDC'
+        })
+      )
+    ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('leaves an Agglayer ETH row on ETH', () => {
+    expect(
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'consume',
+          token: 'ETH',
+          faucetId: TEST_NATIVE_ETH_FAUCET,
+          amount: '0.015',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'ETH'
+        })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ token: 'ETH', faucetId: TEST_NATIVE_ETH_FAUCET, amount: '0.015', bridgeProvider: 'agglayer' })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+  });
+});
+
+describe('labelHistoryEntry', () => {
+  const claim = bridgeEntry({
+    txType: 'consume',
+    faucetId: MIDEN_USDC_FAUCET,
+    token: 'USDC',
+    amount: '5',
+    extraAmounts: [
+      { faucetId: MIDEN_USDC_FAUCET, amount: '2', token: 'USDC' },
+      { faucetId: TEST_NATIVE_ETH_FAUCET, amount: '1', token: 'ETH' }
+    ]
+  });
+
+  it("labels a row's token and each extra amount by its own faucet", () => {
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, claim)).toEqual({
+      ...claim,
+      token: 'Test Epoch USDC',
+      extraAmounts: [
+        { faucetId: MIDEN_USDC_FAUCET, amount: '2', token: 'Test Epoch USDC' },
+        { faucetId: TEST_NATIVE_ETH_FAUCET, amount: '1', token: 'ETH' }
+      ]
+    });
+  });
+
+  it('keeps every symbol before the bridge config loads', () => {
+    expect(labelHistoryEntry(UNLOADED, claim)).toEqual(claim);
+  });
+
+  it('labels each side of a swap row by its own faucet, so iETH reads "Test iETH" on either side (#477)', () => {
+    const swapRow = bridgeEntry({
+      txType: 'swap',
+      faucetId: TEST_TOKEN_IMIDEN.faucetId,
+      token: 'MIDEN',
+      requestedFaucetId: TEST_TOKEN_IETH.faucetId,
+      requestedToken: 'IETH'
+    });
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, swapRow)).toMatchObject({
+      token: 'MIDEN',
+      requestedToken: 'Test iETH'
+    });
+    expect(
+      labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, {
+        ...swapRow,
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        token: 'IETH',
+        requestedFaucetId: TEST_TOKEN_IMIDEN.faucetId,
+        requestedToken: 'MIDEN'
+      })
+    ).toMatchObject({ token: 'Test iETH', requestedToken: 'MIDEN' });
+  });
+
+  it.each(['earn-withdraw', 'earn-deposit'] as const)('leaves a %s row on the token its own fields chose', txType => {
+    const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
   });
 });
 
@@ -568,6 +1317,21 @@ describe('swap settlement state', () => {
   // order that settled, which is the confusion this shared helper exists to end.
   // Same minimal-shape casting as the helpers above; only these fields are read.
   const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
+
+  it('reports the queued return instead of continuing to advertise matching', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 }))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101, reclaimedAt: 110 }))).toBe(
+      'reclaimed'
+    );
+  });
+
+  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
+  it('reports the return only for an order the settlement acts on', () => {
+    const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
+  });
 
   it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
@@ -603,6 +1367,88 @@ describe('swap settlement state', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
     expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
   });
+
+  describe('a Guardian-recovered order', () => {
+    // Recovery records every order with Auto accept off and no expiry, so the rule above read each one Confirmed
+    // while the placing device read it Pending (#1487).
+    const recovered = (
+      extraInputs: Record<string, unknown> = {},
+      overrides: Partial<ITransaction> = {}
+    ): ITransaction => ({
+      id: 'guardian-history:testnet:account:0xcommitment',
+      type: 'swap',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      displayIcon: 'DEFAULT',
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, ...extraInputs },
+      ...overrides
+    });
+
+    it('reads open while no fill or reclaim was found', () => {
+      expect(swapSettlementOf(recovered())).toBe('pending');
+    });
+
+    it('reads open while a fill has left a remainder on offer', () => {
+      expect(
+        swapSettlementOf(recovered({ recoveredTip: { noteId: 'remainder', depth: 1, remainingOffered: 20n } }))
+      ).toBe('pending');
+    });
+
+    it('reads Returning funds once this wallet asked for its return', () => {
+      expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
+    });
+
+    it('reads the settlement or reclaim its lineage closed it with, as any order does', () => {
+      expect(swapSettlementOf(recovered({ settledAt: 160, lineageClosedAt: 160 }))).toBeUndefined();
+      expect(swapSettlementOf(recovered({ reclaimedAt: 160, lineageClosedAt: 160 }))).toBe('reclaimed');
+      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160, lineageClosedAt: 160 }))).toBe(
+        'reclaimed'
+      );
+    });
+
+    // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim with no lineage read, so a
+    // partial fill's payout read Confirmed while the remainder was still on offer (#1487).
+    it.each([
+      ['settledAt', { settledAt: 160 }, undefined],
+      ['reclaimedAt', { reclaimedAt: 160 }, 'reclaimed']
+    ])('reads open over a %s no lineage read recorded, until a read decides', (_label, stamp, closed) => {
+      expect(swapSettlementOf(recovered(stamp))).toBe('pending');
+      // An open read cleared it.
+      expect(swapSettlementOf(recovered())).toBe('pending');
+      // A finished read recorded it.
+      expect(swapSettlementOf(recovered({ ...stamp, lineageClosedAt: 170 }))).toBe(closed);
+    });
+
+    it('reads Confirmed once the node showed its order note spent with nothing of this wallet behind it', () => {
+      expect(swapSettlementOf(recovered({ orderNoteSpentAt: 170 }))).toBeUndefined();
+    });
+
+    it('reads Confirmed for a recovered order whose order note it cannot name, which it cannot track', () => {
+      expect(swapSettlementOf(recovered({}, { outputNoteIds: [] }))).toBeUndefined();
+    });
+  });
 });
 
 describe('earn withdraw helpers', () => {
@@ -611,37 +1457,6 @@ describe('earn withdraw helpers', () => {
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-deposit' }))).toBe(false);
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'send' }))).toBe(false);
   });
-
-  it('trims a human decimal amount to two places, rounding down', () => {
-    expect(formatEarnWithdrawAmount('2.50000000')).toBe('2.5');
-    expect(formatEarnWithdrawAmount('1.239')).toBe('1.23');
-    expect(formatEarnWithdrawAmount('7')).toBe('7');
-  });
-
-  it('expands precision for a small non-zero withdrawal amount', () => {
-    expect(formatEarnWithdrawAmount('0.001239')).toBe('0.0012');
-  });
-
-  it('passes a non-numeric amount through unchanged', () => {
-    expect(formatEarnWithdrawAmount('not-a-number')).toBe('not-a-number');
-  });
-
-  it('maps each phase to a bridge status tone', () => {
-    expect(earnWithdrawToneOf('redeeming')).toBe('pending');
-    expect(earnWithdrawToneOf('delivering')).toBe('pending');
-    expect(earnWithdrawToneOf('received')).toBe('confirmed');
-    expect(earnWithdrawToneOf('failed')).toBe('failed');
-    expect(earnWithdrawToneOf(undefined)).toBe('pending');
-  });
-
-  it('has a label key for every phase', () => {
-    expect(EARN_WITHDRAW_STATUS_LABEL_KEY).toEqual({
-      redeeming: 'earnWithdrawStatusRedeeming',
-      delivering: 'earnWithdrawStatusDelivering',
-      received: 'received',
-      failed: 'failed'
-    });
-  });
 });
 
 describe('earnWithdrawAmountFields', () => {
@@ -649,7 +1464,8 @@ describe('earnWithdrawAmountFields', () => {
     phase: 'redeeming' as const,
     evmOwner: '0x1111111111111111111111111111111111111111',
     marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
-    sourceAmount: '10.500000',
+    // A remainder above half: rounded down it reads 10.5, typed 10.509 and rounded up 10.51.
+    sourceAmount: '10.509000',
     sourceSymbol: 'USDC',
     destinationFaucetId: 'native-id'
   };
@@ -667,24 +1483,27 @@ describe('earnWithdrawAmountFields', () => {
     }
   );
 
-  it('switches to the delivered destination amount once the note is received', () => {
+  it('switches to the delivered destination amount, rounded down, once the note is received', () => {
+    mockFormatAmount.mockReturnValueOnce('2.599999');
+
     // The consume path patches the row with what actually landed; the consume
     // row itself is suppressed, so this row must not keep claiming the USDC side.
     expect(earnWithdrawAmountFields({ ...extra, phase: 'received' }, 250_000_000n, destinationMetadata)).toEqual({
-      amount: formatAmount(250_000_000n, 8),
+      amount: '2.59',
       token: 'MIDEN'
     });
+    expect(mockFormatAmount).toHaveBeenCalledWith(250_000_000n, 8);
   });
 
   // This branch exists BECAUSE the received leg is denominated in the
   // destination faucet's asset, so its decimals are the whole point. Without
-  // them there is no scale to apply — `formatAmount`'s own default is a
-  // statement about a different token. The asset is still named from the
-  // recorded output symbol, so the row says what landed, just not how much.
+  // them there is no scale to apply: `formatAmount`'s own default is a
+  // statement about a different token. Nor is there a name: the stored output
+  // symbol is the bridged note's source token, not the asset that arrived.
   it('withholds the amount when the destination faucet never resolved', () => {
-    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, undefined)).toEqual({
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'USDC' }, 100n, undefined)).toEqual({
       amount: undefined,
-      token: 'MDN'
+      token: undefined
     });
   });
 
@@ -719,13 +1538,5 @@ describe('earn deposit settlement helpers', () => {
     expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))).toBe(
       'failed'
     );
-  });
-
-  it('reuses the shared status label keys (no new i18n keys)', () => {
-    expect(EARN_DEPOSIT_STATUS_LABEL_KEY).toEqual({
-      pending: 'pending',
-      confirmed: 'confirmed',
-      failed: 'failed'
-    });
   });
 });

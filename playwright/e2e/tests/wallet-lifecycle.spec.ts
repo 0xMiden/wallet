@@ -11,14 +11,14 @@ test.describe('Wallet Lifecycle', () => {
       const result = await walletA.createNewWallet();
       addressA = result.address;
       expect(addressA).toBeTruthy();
-      expect(addressA).toMatch(/^m(tst|dev)/); // bech32 testnet/devnet prefix
+      expect(addressA).toMatch(/^m(tst|dev|lcl)/); // bech32 testnet/devnet/localnet prefix
     });
 
     await steps.step('create_wallet_b', async () => {
       const result = await walletB.createNewWallet();
       addressB = result.address;
       expect(addressB).toBeTruthy();
-      expect(addressB).toMatch(/^m(tst|dev)/);
+      expect(addressB).toMatch(/^m(tst|dev|lcl)/);
     });
 
     await steps.step('verify_different_addresses', async () => {

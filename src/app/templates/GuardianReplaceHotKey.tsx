@@ -2,26 +2,35 @@ import React, { FC, useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
+import { Button, ButtonVariant } from 'components/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { SubPageSection } from 'components/ui/SubPageLayout';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 
 /**
  * Proactive hot-key rotation. Cold-signed (recovery key); the on-chain proposal
- * swaps the hot signer commitment in-place via update_signers. The seed phrase
- * is NOT required — the cold key derived at create time is already in the vault.
+ * swaps the hot signer commitment in-place via update_signers.
+ *
+ * A section of the Keys page rather than its footer: Keys is a list of places to
+ * go, and this is one maintenance action among them (Guardian accounts only), so
+ * it takes a compact `secondary` button under its own explanation instead of the
+ * page's one primary CTA.
  */
 const GuardianReplaceHotKey: FC = () => {
   const { t } = useTranslation();
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
 
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
 
   const onClick = useCallback(async () => {
     if (!currentAccount) return;
@@ -41,36 +50,47 @@ const GuardianReplaceHotKey: FC = () => {
       navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setErrorId('raw_guardian_replace_hot_key_failed');
     } finally {
       setSubmitting(false);
     }
   }, [confirming, currentAccount]);
 
   return (
-    <div className="w-full pb-10">
-      <p className="text-sm text-heading-gray font-medium mb-1">{t('replaceHotKey')}</p>
-      <p className="text-xs text-heading-gray mb-3 select-text">{t('replaceHotKeyDescription')}</p>
-
-      {confirming && <div className="text-xs text-heading-gray mb-3 select-text">{t('replaceHotKeyConfirmation')}</div>}
-
-      <FormSubmitButton
+    <SubPageSection
+      title={t('replaceHotKey')}
+      titleSize="md"
+      data-testid="replace-hot-key-section"
+      description={
+        <>
+          <p className="select-text">{t('replaceHotKeyDescription')}</p>
+          {/* Ink, not muted: it is the question the second tap answers. */}
+          {/* Same test as Vault.prepareRecoveryTransaction: anything but a stored phrase is prompted for. */}
+          {confirming && (
+            <p className="mt-2 select-text text-ink">
+              {t(seedPhraseStatus === 'stored' ? 'replaceHotKeyConfirmation' : 'replaceHotKeyConfirmationSeedRequired')}
+            </p>
+          )}
+        </>
+      }
+    >
+      <Button
         type="button"
+        variant={ButtonVariant.Ghost}
+        size="sm"
         onClick={onClick}
-        loading={submitting}
+        isLoading={submitting}
         disabled={!currentAccount || submitting}
-        className="capitalize w-full justify-center"
-        style={{
-          fontSize: '16px',
-          lineHeight: '20px',
-          paddingTop: '10px',
-          paddingBottom: '10px'
-        }}
+        className="self-start"
+        data-testid="replace-hot-key"
       >
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
-      </FormSubmitButton>
+      </Button>
 
-      {error && <div className="mt-3 text-red-600 text-sm font-medium select-text wrap-break-word">{error}</div>}
-    </div>
+      <ErrorLine errorId={errorId} className="mt-3">
+        {error}
+      </ErrorLine>
+    </SubPageSection>
   );
 };
 

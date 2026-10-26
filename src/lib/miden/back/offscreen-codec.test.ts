@@ -5,10 +5,15 @@
  * both the SW-side proxy and the offscreen dispatch table depend on.
  */
 
+import type { EndpointState } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_STAGE_EVENT,
   OFFSCREEN_TARGET,
   OperationAbortedError,
+  SW_TARGET,
   b64ToBytes,
   bytesToB64,
   decodeArg,
@@ -77,19 +82,48 @@ describe('offscreen-codec — envelope + error', () => {
   it('exposes the stable discriminators', () => {
     expect(OFFSCREEN_TARGET).toBe('offscreen');
     expect(OFFSCREEN_CALL).toBe('OFFSCREEN_CALL');
+    expect(SW_TARGET).toBe('sw');
+    expect(OFFSCREEN_STAGE_EVENT).toBe('OFFSCREEN_STAGE_EVENT');
   });
 
-  it('an OffscreenCallRequest carries its op_id, method, args and deadline', () => {
+  // NOTE: there is deliberately no `OffscreenStageEvent` envelope test here. The
+  // envelope has no encoder — the producer builds the object literal directly — so a
+  // test that builds one itself and reads its own fields back can only fail if the
+  // discriminators change, which the test above already covers. Its runtime shape is
+  // pinned where it is actually produced and consumed: `offscreen/main.test.ts`
+  // asserts the posted `{target, type, op_id, stage}` for both the send and the
+  // guardian leaf, and `miden-client-proxy.test.ts` asserts the SW replays it.
+
+  it('an OffscreenCallRequest carries its op_id, method, args, deadline and endpoint state', () => {
+    // The offscreen realm has no extension storage, so the network it runs on is this state (#1482).
+    const endpoints: EndpointState = {
+      override: {
+        rpcUrl: 'https://rpc.example',
+        proverUrl: '',
+        noteTransportUrl: '',
+        faucetUrl: '',
+        faucetApiUrl: '',
+        explorerUrl: '',
+        guardianUrl: '',
+        allowNoGuardian: false,
+        networkName: MIDEN_NETWORK_NAME.MAINNET,
+        presetName: 'custom'
+      },
+      feeFaucetId: '0xfee'
+    };
     const req: OffscreenCallRequest = {
       target: OFFSCREEN_TARGET,
       type: OFFSCREEN_CALL,
       op_id: 'op-1',
       method: 'getAccount',
       argsB64: [encodeArg('acc')],
-      deadline_ms: 15_000
+      deadline_ms: 15_000,
+      endpoints
     };
     expect(decodeArg(req.argsB64[0]!)).toBe('acc');
     expect(req.deadline_ms).toBe(15_000);
+    // chrome.runtime messages cross as JSON.
+    expect(JSON.parse(JSON.stringify(req)).endpoints).toEqual(endpoints);
   });
 
   it('OperationAbortedError carries op_id + reason and is an Error', () => {

@@ -3,14 +3,25 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import RevealSecret from './RevealSecret';
 
-// Keep the REAL AccountBanner so we exercise the integration between
-// RevealSecret and AccountBanner — the original bug was RevealSecret
-// rendering AccountBanner without an `account` prop, which AccountBanner
-// then dereferenced (`account!.name`) and crashed on for standard accounts.
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+// The private-key reveal names its account in a real ListRow. It used to be an
+// AccountBanner rendered without an `account` prop, which crashed on
+// `account!.name` for standard accounts; the regression test below still reads
+// the account name off the page.
 
 const mockAccount = { name: 'My Test Account', publicKey: 'mtst1qtestaddress0000' };
+const mockWalletState: { seedPhraseStatus: SeedPhraseStatus } = { seedPhraseStatus: 'stored' };
+
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: typeof mockWalletState) => T) => selector(mockWalletState)
+}));
 
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 let mockSecret: string | null = null;
@@ -18,10 +29,17 @@ const mockSetSecret = jest.fn((v: string | null) => {
   mockSecret = v;
 });
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockRevealPrivateKey = jest.fn();
 const mockRevealMnemonic = jest.fn();
 const mockRevealHotKey = jest.fn();
-const mockRevealGuardianKeys = jest.fn();
+jest.mock(
+  'qr-code-styling',
+  () =>
+    class {
+      append() {}
+    }
+);
 const mockGetAccount = jest.fn();
 const mockResolveCommitments = jest.fn();
 let mockIsMobile = false;
@@ -29,36 +47,6 @@ let mockIsMobile = false;
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
-
-jest.mock('app/atoms/Alert', () => () => null);
-
-// A functional input mock so react-hook-form can register the password
-// field and we can drive the software-unlock path. Only forwards the props
-// that matter for the form (name/type/onChange/onBlur/ref/id/placeholder).
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        type,
-        id,
-        placeholder,
-        onChange,
-        onBlur
-      }: {
-        name?: string;
-        type?: string;
-        id?: string;
-        placeholder?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <input ref={ref} name={name} type={type} id={id} placeholder={placeholder} onChange={onChange} onBlur={onBlur} />
-    )
-  )
-);
 
 jest.mock('components/Button', () => ({
   Button: ({ onClick, title, disabled }: { onClick: () => void; title: string; disabled?: boolean }) => (
@@ -76,29 +64,49 @@ jest.mock('app/icons/v2', () => ({
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock it so we can drive its onChange/onSubmit callbacks.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    disabled
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    disabled?: boolean;
-  }) => (
-    <div>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      disabled
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      disabled?: boolean;
+    }) => (
+      <div>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -107,8 +115,7 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     revealMnemonic: mockRevealMnemonic,
     revealPrivateKey: mockRevealPrivateKey,
-    revealHotKey: mockRevealHotKey,
-    revealGuardianKeys: mockRevealGuardianKeys
+    revealHotKey: mockRevealHotKey
   })
 }));
 
@@ -125,16 +132,23 @@ jest.mock('lib/mobile/useHideDappBubblesWhileOpen', () => ({
   useHideDappBubblesWhileOpen: jest.fn()
 }));
 
+// Screenshot / screen-recording guard (#417). `mockGuardReady` stands in for the
+// native plugin having actually enabled protection; the real hook returns `true`
+// unconditionally off-mobile.
+const mockUseScreenshotGuard = jest.fn();
+let mockGuardReady = true;
+jest.mock('lib/mobile/screenshot-guard', () => ({
+  useScreenshotGuard: (active: boolean) => {
+    mockUseScreenshotGuard(active);
+    return mockGuardReady;
+  }
+}));
+
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
 }));
 
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null } })
-}));
-
-type Reveal = 'private-key' | 'seed-phrase' | 'hot-key' | 'guardian-keys';
+type Reveal = 'private-key' | 'seed-phrase' | 'hot-key';
 
 describe('RevealSecret', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
@@ -149,10 +163,15 @@ describe('RevealSecret', () => {
   });
 
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
+    mockWalletState.seedPhraseStatus = 'stored';
     mockSecret = null;
+    mockAccount.publicKey = 'mtst1qtestaddress0000';
     mockIsMobile = false;
+    mockGuardReady = true;
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockGetAccount.mockResolvedValue({});
     mockResolveCommitments.mockReturnValue([{ toHex: () => '0xdeadbeef' }]);
     mockRevealPrivateKey.mockResolvedValue('PRIVATE_KEY_HEX');
@@ -184,7 +203,7 @@ describe('RevealSecret', () => {
       testRoot!.render(<RevealSecret reveal={reveal} />);
     });
     // Flush the Vault.hasHardwareProtector() promise so the body mounts
-    // (the component renders null until hasHardwareProtector resolves).
+    // (until hasHardwareProtector resolves, the component renders its header over an empty body).
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -195,10 +214,27 @@ describe('RevealSecret', () => {
   const buttonWithText = (container: HTMLElement, text: string) =>
     Array.from(container.querySelectorAll('button')).find(b => b.textContent === text);
 
-  // Private-key + guardian-keys reveals gate the action button behind an
-  // "I understand" checkbox; tick it so the button enables.
+  it.each<Reveal>(['private-key', 'seed-phrase'])('hides %s after seed removal', async reveal => {
+    mockWalletState.seedPhraseStatus = 'removed';
+    const container = await renderReveal(reveal);
+
+    expect(container.childElementCount).toBe(0);
+    expect(mockRevealPrivateKey).not.toHaveBeenCalled();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('keeps everyday key reveal available after seed removal', async () => {
+    mockWalletState.seedPhraseStatus = 'removed';
+    const container = await renderReveal('hot-key');
+
+    expect(container.childElementCount).toBeGreaterThan(0);
+  });
+
+  // The private-key reveal gates the action button behind an
+  // "I understand" checkbox; tick it so the button enables. It is the shared
+  // selection mark on a `role="checkbox"` button, not a native input.
   const acknowledge = async (container: HTMLElement) => {
-    const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const checkbox = container.querySelector('[role="checkbox"]') as HTMLElement;
     await act(async () => {
       checkbox.click();
     });
@@ -220,13 +256,160 @@ describe('RevealSecret', () => {
   };
 
   // Regression: a standard (non-Guardian) account reaches reveal='private-key',
-  // the only branch that renders <AccountBanner>. Before the fix the banner was
-  // rendered without an `account` prop and threw
-  // "Cannot read properties of undefined (reading 'name')" on mount.
-  it('renders the current account in the private-key reveal banner without crashing', async () => {
+  // the only branch that names the account. The old banner was rendered without
+  // an `account` prop and threw "Cannot read properties of undefined (reading
+  // 'name')" on mount.
+  it('names the current account in a list row on the private-key reveal', async () => {
     const container = await renderReveal('private-key');
-    expect(container.textContent).toContain('My Test Account');
+    const row = container.querySelector('[data-testid="reveal-secret-account"]')!;
+    expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('My Test Account');
+    // `fill`: one identification block embedded in a form page, not a page-wide list.
+    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     expect(buttonWithText(container, 'continue')).toBeTruthy();
+  });
+
+  it('renders through SubPageLayout with Continue pinned in its footer', async () => {
+    const container = await renderReveal('private-key');
+
+    const page = container.querySelector('[data-testid="reveal-secret"]')!;
+    const body = page.querySelector('[data-slot="body"]')!;
+    const footer = page.querySelector('[data-slot="footer"]')!;
+    expect(body).toHaveClass('px-4', 'gap-5', 'overflow-y-auto');
+    // The page action sits in the footer, outside the scrolling body.
+    expect(footer).toContainElement(buttonWithText(container, 'continue')!);
+    expect(body).not.toContainElement(buttonWithText(container, 'continue')!);
+    // The password is the shared TextField: its 13px muted label names the field.
+    const password = container.querySelector<HTMLInputElement>('#reveal-secret-password')!;
+    expect(password.closest('div.bg-fill')).not.toBeNull();
+    expect(container.querySelector('label[for="reveal-secret-password"]')).toHaveTextContent('password');
+  });
+
+  it('gates the private-key reveal behind a shared warning notice and selection mark', async () => {
+    const container = await renderReveal('private-key');
+
+    const notice = container.querySelector('[data-tone="warning"]')!;
+    expect(notice.querySelector('[data-slot="title"]')).toHaveTextContent('privateKeyRevealWarningTitle');
+    expect(notice.querySelector('[data-slot="body"]')).toHaveTextContent('privateKeyRevealWarningBody');
+
+    const check = container.querySelector('[role="checkbox"]')!;
+    expect(check).toHaveAttribute('aria-checked', 'false');
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeDisabled();
+    await acknowledge(container);
+    expect(check).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('covers a revealed secret in the shared field until it is looked at', async () => {
+    const container = await renderReveal('seed-phrase');
+    await typePassword(container, 'pass');
+    await act(async () => {
+      buttonWithText(container, 'continue')!.click();
+    });
+    await flush();
+
+    const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
+    // The shared multi-line field on `fill`. Off mobile the page focuses it on reveal, so the
+    // words are readable; they go back behind the design system's cover the moment focus leaves.
+    expect(field.tagName).toBe('TEXTAREA');
+    expect(field.closest('div.bg-fill')).not.toBeNull();
+    expect(document.activeElement).toBe(field);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, field.value.length]);
+    expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+    await act(async () => {
+      field.blur();
+    });
+    expect(container.querySelector('[data-slot="secret-cover"]')).toBeInTheDocument();
+  });
+
+  it('keeps the header frame while the protector check is pending, with no body or footer yet', async () => {
+    mockHasHardwareProtector.mockReturnValue(new Promise(() => undefined));
+    const container = await renderReveal('private-key');
+
+    const page = container.querySelector('[data-testid="reveal-secret"]')!;
+    expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+  });
+
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  // A macrotask lets that second read and the hook's state update land.
+  const settleProbe = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+
+  it('takes the password step-up when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    expect(container.querySelector('input[name="password"]')).not.toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeTruthy();
+    expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
+  it('unlocks through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    expect(container.querySelector('input[name="password"]')).toBeNull();
+    await act(async () => {
+      buttonWithText(container, 'unlock')!.click();
+    });
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+  });
+
+  it('shows an error and offers no credential step when both protector reads fail', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    const notice = container.querySelector('[data-testid="protector-probe-error"]')!;
+    expect(notice.querySelector('[data-slot="body"]')!.textContent).toBe('couldNotCheckUnlockMethod');
+    expect(container.querySelector('input[name="password"]')).toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeFalsy();
+    expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    const notice = container.querySelector('[data-testid="protector-probe-error"]')!;
+    expect(notice.querySelector('[data-slot="body"]')!.textContent).toBe('couldNotCheckUnlockMethod');
+    expect(container.querySelector('[data-testid="passcode-submit"]')).toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeFalsy();
+    expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      const container = await renderReveal('seed-phrase');
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      const notice = container.querySelector('[data-testid="protector-probe-error"]')!;
+      expect(notice.querySelector('[data-slot="body"]')!.textContent).toBe('couldNotCheckUnlockMethod');
+      expect(container.querySelector('input[name="password"]')).toBeNull();
+
+      const retryButton = container.querySelector<HTMLButtonElement>('[data-testid="protector-probe-retry"]')!;
+      await act(async () => {
+        retryButton.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(container.querySelector('input[name="password"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the seed-phrase reveal (no account banner) without crashing', async () => {
@@ -237,12 +420,6 @@ describe('RevealSecret', () => {
 
   it('renders the hot-key reveal with its warning and no acknowledge gate', async () => {
     const container = await renderReveal('hot-key');
-    expect(container.textContent).not.toContain('My Test Account');
-    expect(buttonWithText(container, 'continue')).toBeTruthy();
-  });
-
-  it('renders the guardian-keys reveal without an account banner', async () => {
-    const container = await renderReveal('guardian-keys');
     expect(container.textContent).not.toContain('My Test Account');
     expect(buttonWithText(container, 'continue')).toBeTruthy();
   });
@@ -271,9 +448,9 @@ describe('RevealSecret', () => {
   });
 
   it('puts the caret in the password field on desktop', async () => {
-    // The effect depends on `hasHardwareProtector` because this component renders
-    // `null` until that resolves. Without it in the deps it ran once against the
-    // empty first commit, when the form ref was still null, and never again — so
+    // The effect depends on `hasHardwareProtector` because this component's body
+    // waits for that to resolve. Without it in the deps it ran once against the
+    // empty first commit, when the form ref was still null, and never again - so
     // the field was never focused, while Settings suppressed its own title focus
     // on the strength of this effect and left focus on <body> with the page
     // unannounced. On the two screens that hand out recovery material.
@@ -346,25 +523,35 @@ describe('RevealSecret', () => {
     expect(mockSetSecret).toHaveBeenCalledWith('word1 word2 word3');
   });
 
-  it('reveals guardian keys into the bundle view on unlock', async () => {
-    mockHasHardwareProtector.mockResolvedValue(true);
-    mockRevealGuardianKeys.mockResolvedValue({
-      coldPrivateKey: 'COLD_PRIVATE',
-      coldPublicKey: 'COLD_PUBLIC',
-      hotPublicKey: 'HOT_PUBLIC'
+  // #417 parity: RevealSeedPhrase blocks screenshots/recordings while the phrase
+  // is on screen. The private key and the hot key
+  // are material of equal sensitivity (both confer spending authority) and used to
+  // render into a plain DOM textarea with no guard at all — screenshot-able,
+  // visible in the Android task-switcher thumbnail, and captured by any live
+  // screen recording or screen-share.
+  describe('screenshot guard (#417)', () => {
+    it('leaves the guard off while only the unlock form is on screen', async () => {
+      await renderReveal('private-key');
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(false);
+      expect(mockUseScreenshotGuard).not.toHaveBeenCalledWith(true);
     });
-    const container = await renderReveal('guardian-keys');
-    await acknowledge(container);
 
-    const unlock = buttonWithText(container, 'unlock') as HTMLButtonElement;
-    await act(async () => {
-      unlock.click();
+    it('arms the guard once a secret is revealed', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
+      expect(container.querySelector('#reveal-secret-secret')).toBeTruthy();
     });
-    await flush();
 
-    expect(mockRevealGuardianKeys).toHaveBeenCalledWith(mockAccount.publicKey, undefined);
-    // Once the bundle is set the action button disappears (guardianBundle view).
-    expect(buttonWithText(container, 'unlock')).toBeFalsy();
+    it('withholds the secret field until the native guard reports it is enabled', async () => {
+      mockGuardReady = false;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
+      expect(container.querySelector('#reveal-secret-secret')).toBeFalsy();
+    });
   });
 
   it('surfaces an error (no secret set) when the account has no key commitment', async () => {
@@ -418,6 +605,10 @@ describe('RevealSecret', () => {
       await new Promise(res => setTimeout(res, 350));
     });
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_secret_reveal_failed', 'field');
     expect(mockRevealPrivateKey).toHaveBeenCalled();
     expect(mockSetSecret).not.toHaveBeenCalled();
   });
@@ -442,6 +633,29 @@ describe('RevealSecret', () => {
     expect(mockSetSecret).toHaveBeenCalledWith('PRIVATE_KEY_HEX');
   });
 
+  it.each(['hardware', 'passcode'])('reports the %s secret-reveal error on its visible surface', async mode => {
+    mockRenderActualPasscode = mode === 'passcode';
+    mockIsMobile = mode === 'passcode';
+    mockHasHardwareProtector.mockResolvedValue(mode === 'hardware');
+    mockRevealPrivateKey.mockRejectedValue(new Error('private reveal failure'));
+    const container = await renderReveal('private-key');
+    await acknowledge(container);
+    await act(async () => {
+      if (mode === 'hardware') buttonWithText(container, 'unlock')!.click();
+      else (container.querySelector('[data-testid="passcode-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 350));
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith(
+      'raw_secret_reveal_failed',
+      mode === 'hardware' ? 'notice' : 'passcode'
+    );
+  });
+
   it('clears any revealed secret on unmount', async () => {
     await renderReveal('private-key');
     mockSetSecret.mockClear();
@@ -450,5 +664,55 @@ describe('RevealSecret', () => {
       testRoot = null;
     });
     expect(mockSetSecret).toHaveBeenCalledWith(null);
+  });
+
+  it('discards a late authenticated reveal when the selected account changes', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finish = (value: string) => {
+      expect(value).toBe('late-secret');
+    };
+    mockRevealHotKey.mockReturnValue(
+      new Promise<string>(resolve => {
+        finish = resolve;
+      })
+    );
+    const container = await renderReveal('hot-key');
+    await act(async () => {
+      buttonWithText(container, 'unlock')?.click();
+    });
+    mockAccount.publicKey = 'different-account';
+    await act(async () => {
+      testRoot?.render(<RevealSecret reveal="hot-key" />);
+    });
+    mockSetSecret.mockClear();
+    await act(async () => {
+      finish('late-secret');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('late-secret');
+  });
+
+  it('discards a late reveal after unmount', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finish = (value: string) => {
+      expect(value).toBe('late-secret');
+    };
+    mockRevealHotKey.mockReturnValue(
+      new Promise<string>(resolve => {
+        finish = resolve;
+      })
+    );
+    const container = await renderReveal('hot-key');
+    await act(async () => {
+      buttonWithText(container, 'unlock')?.click();
+    });
+    await act(async () => {
+      testRoot?.unmount();
+      testRoot = null;
+    });
+    mockSetSecret.mockClear();
+    await act(async () => {
+      finish('late-secret');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('late-secret');
   });
 });

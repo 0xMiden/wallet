@@ -33,6 +33,17 @@ const mockResetStorage = jest.fn();
 // or heavy child providers run.
 jest.mock('./main.css', () => ({}));
 jest.mock('lib/lock-up/run-checks', () => ({}));
+jest.mock('./i18n', () => ({}));
+jest.mock('app/a11y/AwaitI18N', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: async () => undefined }));
+jest.mock('lib/remote-config/runtime', () => ({
+  initFeatureEligibility: async () => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn: true, swap: true }
+  })
+}));
 
 jest.mock('app/a11y/DisableOutlinesForClick', () => ({
   __esModule: true,
@@ -64,6 +75,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// False on an options page an extension reload or update orphaned.
+const mockHasExtensionRuntime = { value: true };
+const mockReloadInPlace = jest.fn();
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  hasExtensionRuntime: () => mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace()
+}));
+
 const reloadMock = browser.runtime.reload as jest.Mock;
 
 /**
@@ -84,7 +104,14 @@ beforeEach(() => {
   mockConfirm.mockReset();
   mockAlert.mockReset();
   mockResetStorage.mockReset();
-  reloadMock.mockClear();
+  reloadMock.mockReset();
+  mockReloadInPlace.mockReset();
+  mockHasExtensionRuntime.value = true;
+});
+
+// Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 const getResetButton = () => screen.getByRole('button', { name: 'resetExtension' });
@@ -105,7 +132,9 @@ describe('src/options.tsx', () => {
       fireEvent.click(getResetButton());
     });
 
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'actionConfirmation' }));
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'actionConfirmation', confirmLabel: 'resetExtension', destructive: true })
+    );
     // Give any (non-)scheduled follow-up work a chance to run.
     await Promise.resolve();
     expect(mockResetStorage).not.toHaveBeenCalled();
@@ -123,20 +152,256 @@ describe('src/options.tsx', () => {
 
     await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockReloadInPlace).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  it('surfaces an alert with the error message when reset throws', async () => {
+  it('tells the user the reset did not finish, then reloads once, when the wipe rejects', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    const wipeError = new Error('boom');
+    mockResetStorage.mockRejectedValue(wipeError);
+    const closeAlerts: Array<() => void> = [];
+    mockAlert.mockImplementation(() => new Promise<void>(resolve => closeAlerts.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+
+      await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+      expect(mockAlert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
+      // While the alert is open nothing reloads, and a second Reset is ignored.
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(reloadMock).not.toHaveBeenCalled();
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        closeAlerts.forEach(close => close());
+      });
+    }
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockAlert.mock.invocationCallOrder[0]!).toBeLessThan(reloadMock.mock.invocationCallOrder[0]!);
+    expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
+  });
+
+  it('reloads the page in place when an extension reload or update has taken its runtime away', async () => {
+    mockHasExtensionRuntime.value = false;
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockImplementation(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    const addListener = jest.spyOn(window, 'addEventListener');
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+    await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(reloadMock).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    expect(mockAlert).not.toHaveBeenCalled();
+    // No runtime to reload, so no pagehide reload is armed either.
+    expect(addListener.mock.calls.map(([type]) => type)).not.toContain('pagehide');
+  });
+
+  // Closing the Options tab runs nothing after the await it is in, the wipe's or the alert's, and the service
+  // worker would keep its unlocked vault over the storage the wipe cleared, so the page's pagehide reloads instead.
+  it('reloads once when the page closes while the wipe runs', async () => {
+    mockConfirm.mockResolvedValue(true);
+    const releaseWipes: Array<() => void> = [];
+    mockResetStorage.mockImplementation(() => new Promise<void>(resolve => releaseWipes.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        releaseWipes.forEach(release => release());
+        // A macrotask, so every step the finished wipe resumes has run before the count below.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+    }
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads once when the page closes while the did-not-finish alert is open', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
     mockResetStorage.mockRejectedValue(new Error('boom'));
+    const closeAlerts: Array<() => void> = [];
+    mockAlert.mockImplementation(() => new Promise<void>(resolve => closeAlerts.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        closeAlerts.forEach(close => close());
+        // A macrotask, so every step the closed alert resumes has run before the count below.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+    }
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads once when the page closes after the did-not-finish alert', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockRejectedValue(new Error('boom'));
+    mockAlert.mockResolvedValue(undefined);
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the reload when the one the page close started throws', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockRejectedValue(new Error('boom'));
+    reloadMock.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
+    const closeAlerts: Array<() => void> = [];
+    // Only the did-not-finish alert is held, so a report after it cannot leave the module guard set.
+    mockAlert.mockResolvedValue(undefined);
+    mockAlert.mockImplementationOnce(() => new Promise<void>(resolve => closeAlerts.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+
+      // jsdom treats an exception thrown by an event listener as uncaught unless the page handles 'error'.
+      const handleError = (event: ErrorEvent) => event.preventDefault();
+      window.addEventListener('error', handleError);
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      window.removeEventListener('error', handleError);
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        closeAlerts.forEach(close => close());
+      });
+    }
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(2));
+    expect(mockAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the error in the alert when the reload cannot start', async () => {
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockResolvedValue(undefined);
+    reloadMock.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
 
     await act(async () => {
       fireEvent.click(getResetButton());
     });
 
     await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
-    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'boom' });
-    expect(reloadMock).not.toHaveBeenCalled();
+    expect(mockAlert).toHaveBeenCalledWith({
+      title: 'error',
+      children: 'reload failed',
+      errorId: 'raw_options_reload_failed'
+    });
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards resetDidNotFinish from the actual options wipe catch', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockRejectedValue(new Error('private wipe detail'));
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
+  });
+
+  it.each([
+    ['Error', new Error('private reload detail'), 'private reload detail'],
+    ['non-Error', { message: 'not an Error', toString: (): string => 'raw reload detail' }, 'raw reload detail']
+  ])('forwards raw_options_reload_failed while preserving the %s reload display', async (_kind, failure, display) => {
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockResolvedValue(undefined);
+    reloadMock.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: display, errorId: 'raw_options_reload_failed' }]
+    ]);
+  });
+
+  it('ignores a second Reset pressed while the wipe is still running', async () => {
+    mockConfirm.mockResolvedValue(true);
+    const releaseWipes: Array<() => void> = [];
+    mockResetStorage.mockImplementation(() => new Promise<void>(resolve => releaseWipes.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(mockResetStorage).toHaveBeenCalledTimes(1);
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        releaseWipes.forEach(release => release());
+      });
+    }
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
   });
 
   it('is re-entrancy guarded: a second click while confirm is pending is ignored', async () => {

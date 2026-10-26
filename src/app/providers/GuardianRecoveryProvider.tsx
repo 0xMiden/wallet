@@ -16,10 +16,10 @@ const RETRY_INTERVAL_MS = 5_000;
  * a `vault.fetchAccounts()` — a storage read plus an AES-GCM decrypt — per
  * eligible account, per realm (popup and full page both mount this). A refusal
  * that persists means either a long recovery already running or a failed pass
- * the backend will only retry on its next start, and neither is worth paying
- * that every 5s for minutes. Backing off rather than stopping keeps the offer
- * alive for the case that matters: the service worker dying mid-recovery and
- * restarting with an empty started-set.
+ * the backend will only retry after the next unlock or on its next start, and
+ * neither is worth paying that every 5s for minutes. Backing off rather than
+ * stopping keeps the offer alive for the case that matters: the service worker
+ * dying mid-recovery and restarting with an empty started-set.
  */
 const MAX_RETRY_INTERVAL_MS = 60_000;
 
@@ -31,25 +31,26 @@ const MAX_RETRY_INTERVAL_MS = 60_000;
  * `registerNewWallet`: the recovery holds the (offscreen) WASM client for
  * long stretches, and firing it while the mandatory hot-key rotation runs
  * deadline-kills the rotation's short reads queued behind it. This
- * component only offers accounts whose rotation has landed; the backend
- * additionally refuses while any transaction is queued or generating.
+ * component offers every flagged account. The backend refuses an account
+ * whose rotation has not landed, except to run the notes pass while that
+ * rotation waits for funds, and it refuses while any transaction is queued
+ * or generating.
  */
 export const GuardianRecoveryProvider: FC = () => {
   const accounts = useWalletStore(s => s.accounts);
 
-  const eligiblePublicKeys = useMemo(
-    () =>
-      accounts
-        .filter(account => account.guardianNoteRecoveryPending && !account.requiresHotKeyRotation)
-        .map(account => account.publicKey),
-    [accounts]
-  );
-  if (eligiblePublicKeys.length === 0) return null;
+  const pendingAccounts = useMemo(() => accounts.filter(account => account.guardianNoteRecoveryPending), [accounts]);
+  if (pendingAccounts.length === 0) return null;
 
-  // Keyed by the eligible set so a change in it remounts the worker with a
-  // fresh retry loop instead of leaking the old interval.
-  const eligibleKey = eligiblePublicKeys.join(',');
-  return <GuardianRecoveryWorker key={eligibleKey} eligibleKey={eligibleKey} />;
+  const eligibleKey = pendingAccounts.map(account => account.publicKey).join(',');
+  // Keyed by the flagged set and each account's rotation state, so a change in
+  // either remounts the worker with a fresh retry loop instead of leaking the
+  // old interval. A landed rotation then offers the account at once, without
+  // the backoff the refusals before it built up.
+  const workerKey = pendingAccounts
+    .map(account => `${account.publicKey}:${account.requiresHotKeyRotation === true ? 'rotating' : 'ready'}`)
+    .join(',');
+  return <GuardianRecoveryWorker key={workerKey} eligibleKey={eligibleKey} />;
 };
 
 const GuardianRecoveryWorker: FC<{ eligibleKey: string }> = ({ eligibleKey }) => {

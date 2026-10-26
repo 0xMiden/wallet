@@ -42,6 +42,22 @@ describe('useContacts', () => {
     });
   });
 
+  it('addContact rejects a duplicate whose letter case differs, and does not write', async () => {
+    // Both existing cases compare identically-cased strings, so they pass under plain `===` too.
+    // A checksummed `0x` address and its lowercase form are the same account, and this guard is
+    // the only duplicate check on the send-flow add-contact sheet.
+    const stored = { name: 'Alice', address: '0xabcdef0123456789abcdef0123456789abcdef01' };
+    mockUseFilteredContacts.mockReturnValue({ contacts: [stored], allContacts: [stored] });
+    const { result } = renderHook(() => useContacts());
+
+    await act(async () => {
+      await expect(
+        result.current.addContact({ name: 'Bob', address: '0xABCDEF0123456789ABCDEF0123456789ABCDEF01' } as any)
+      ).rejects.toThrow('contactWithTheSameAddressAlreadyExists');
+    });
+    expect(mockUpdateSettings).not.toHaveBeenCalled();
+  });
+
   it('addContact rejects when the address already exists', async () => {
     mockUseFilteredContacts.mockReturnValue({
       contacts: [{ name: 'Alice', address: 'addr-a' }],
@@ -69,6 +85,26 @@ describe('useContacts', () => {
     });
     expect(mockUpdateSettings).toHaveBeenCalledWith({
       contacts: [{ name: 'B', address: 'b' }]
+    });
+  });
+
+  it('updateContact renames one contact and keeps the rest of it', async () => {
+    mockUseFilteredContacts.mockReturnValue({
+      contacts: [
+        { name: 'A', address: 'a', addedAt: 1 },
+        { name: 'B', address: '0xb', network: 'sepolia' }
+      ],
+      allContacts: []
+    });
+    const { result } = renderHook(() => useContacts());
+    await act(async () => {
+      await result.current.updateContact('0xb', { name: 'Bea', network: 'sepolia' });
+    });
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      contacts: [
+        { name: 'A', address: 'a', addedAt: 1 },
+        { name: 'Bea', address: '0xb', network: 'sepolia' }
+      ]
     });
   });
 

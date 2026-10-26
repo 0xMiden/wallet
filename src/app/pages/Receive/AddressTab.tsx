@@ -2,18 +2,29 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import CopyButton from 'app/atoms/CopyButton';
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
-import EvmConnectModal from 'app/templates/EvmConnectModal';
-import { QRCode, type QRCodeHandle } from 'components/QRCode';
-import { isBridgeDepositEnabled } from 'lib/feature-flags';
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
+import { usePageActive } from 'app/layouts/page-active';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
+import { ACCENT_CLASSES } from 'components/flow/accent';
+import { NetworkChip } from 'components/NetworkChip';
+import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
+import { Card } from 'components/ui/Card';
+import { CopyButton } from 'components/ui/CopyButton';
+import { IconCircle } from 'components/ui/FactRow';
+import { Notice } from 'components/ui/Notice';
+import { resolveTransition, tabBarMotion } from 'lib/animation';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isExtension, isMobile } from 'lib/platform';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
+import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
+import { cn } from 'lib/ui/util';
+import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
@@ -22,6 +33,16 @@ interface AddressTabProps {
 }
 
 const QR_FILE_NAME = 'miden-address.png';
+
+/**
+ * Tapping the Bread logo in the middle of the QR walks this cycle. It opens on the brand orange,
+ * the wallet's own colour, and then runs the other four account card colours. Every one is a
+ * palette colour, so the modules never lighten past a scannable QR.
+ */
+const QR_PALETTE_CYCLE: readonly QRPalette[] = ['orange', 'green', 'slate', 'blue', 'purple'];
+
+/** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
+const QR_EXPORT_SIZE = 300;
 
 /** Reads a Blob as raw base64 (without the `data:*;base64,` prefix) for Capacitor Filesystem. */
 const blobToBase64 = (blob: Blob): Promise<string> =>
@@ -39,35 +60,111 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob);
   });
 
+interface ReceiveActionTileProps {
+  icon: IconName;
+  title: string;
+  /** A second line under the title; a tile with none draws only its title. */
+  caption?: string;
+  onClick: () => void;
+  /** Greyed out, and takes no tap, while what it opens cannot start. */
+  disabled?: boolean;
+  'data-testid'?: string;
+}
+
+/** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
+const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
+  icon,
+  title,
+  caption,
+  onClick,
+  disabled,
+  'data-testid': dataTestId
+}) => {
+  const tone = ACCENT_CLASSES.receive;
+  return (
+    <Card
+      asChild
+      surface="outline"
+      pressable
+      className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center disabled:cursor-default disabled:opacity-50"
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          hapticLight();
+          onClick();
+        }}
+        data-testid={dataTestId}
+      >
+        <IconCircle size="lg" className={cn(tone.tint, tone.text)}>
+          <Icon name={icon} size="xs" />
+        </IconCircle>
+        <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
+          <span data-slot="title" className="truncate text-row-title text-ink">
+            {title}
+          </span>
+          {caption !== undefined && (
+            <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
+              {caption}
+            </span>
+          )}
+        </span>
+      </button>
+    </Card>
+  );
+};
+
 export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
-  const { fieldRef, copy } = useCopyToClipboard();
-  const [evmOpen, setEvmOpen] = useState(false);
-  const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
+  const networkKey = getTestNetworkNameKey();
+  const network = networkKey ? t(networkKey) : null;
+  // The share fallback copies through the same hook as the page's copy control: one clipboard
+  // path, and it catches a rejected write.
+  const { copy: copyAddress } = useClipboardCopy(address);
   const qrRef = useRef<QRCodeHandle>(null);
 
-  const openBridgeDeposit = useCallback(() => {
-    onBridgeDeposit();
-  }, [onBridgeDeposit]);
-
-  const handleOpenEvm = useCallback(() => {
-    hapticLight();
-    if (evmConnected && evmAddress) {
-      openBridgeDeposit();
-      return;
-    }
-    setEvmOpen(true);
-  }, [evmAddress, evmConnected, openBridgeDeposit]);
+  // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
+  // so leaving it is a change of `usePageActive`, not an unmount: reset the cycle there or the QR
+  // keeps a stray colour.
+  const pageActive = usePageActive();
+  const [paletteStep, setPaletteStep] = useState(0);
+  // Bumped on every tap, including a retry of the same step: a failed draw never changes
+  // `paletteStep`'s target, and QRCode's own redraw effect keys on its prop values, so asking for
+  // the same colour twice needs this to tell it a fresh attempt is wanted.
+  const [paletteAttempt, setPaletteAttempt] = useState(0);
+  // Mirrors the step QRCode last actually painted (via onPaletteCommitted), read when a tap asks
+  // for the next colour: a request whose draw fails never lands here, so the next tap asks for the
+  // same one again instead of skipping past a colour nobody saw.
+  const committedPaletteStepRef = useRef(0);
+  // The logo's press dips the code; only the primary pointer starts or ends it.
+  const { pressed: logoPressed, release: releaseLogo, handlers: logoPressHandlers } = usePrimaryPress();
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (!evmOpen || !evmConnected || !evmAddress) return;
-    setEvmOpen(false);
-    openBridgeDeposit();
-  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
+    if (pageActive) return;
+    setPaletteStep(0);
+    committedPaletteStepRef.current = 0;
+    releaseLogo();
+  }, [pageActive, releaseLogo]);
+
+  const cyclePalette = useCallback(() => {
+    hapticLight();
+    setPaletteStep((committedPaletteStepRef.current + 1) % QR_PALETTE_CYCLE.length);
+    setPaletteAttempt(attempt => attempt + 1);
+  }, []);
+
+  const handlePaletteCommitted = useCallback((committedPalette: QRPalette) => {
+    const index = QR_PALETTE_CYCLE.indexOf(committedPalette);
+    if (index !== -1) committedPaletteStepRef.current = index;
+  }, []);
+
+  // The shared text names the network (#875) so a pasted address never loses
+  // its context. The QR image carries the same caption (see `caption` below).
+  // Mainnet has no test network to name, so it shares the bare address.
+  const shareText = network ? t('shareAddressText', { network, address }) : address;
 
   const handleShare = useCallback(async () => {
-    hapticLight();
-
     let qrBlob: Blob | null = null;
     try {
       qrBlob = (await qrRef.current?.getImageBlob()) ?? null;
@@ -83,9 +180,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             data: await blobToBase64(qrBlob),
             directory: Directory.Cache
           });
-          await Share.share({ text: address, files: [uri], dialogTitle: t('receive') });
+          await Share.share({ text: shareText, files: [uri], dialogTitle: t('receive') });
         } else {
-          await Share.share({ text: address, dialogTitle: t('receive') });
+          await Share.share({ text: shareText, dialogTitle: t('receive') });
         }
         return;
       }
@@ -93,73 +190,154 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         if (qrBlob && typeof navigator.canShare === 'function') {
           const file = new File([qrBlob], QR_FILE_NAME, { type: 'image/png' });
           if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], text: address });
+            await navigator.share({ files: [file], text: shareText });
             return;
           }
         }
-        await navigator.share({ text: address });
+        await navigator.share({ text: shareText });
         return;
       }
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
-    copy();
-  }, [address, copy, t]);
+    // Stays OUTSIDE the try above, and the primary path here is NOT an error: wherever the Web
+    // Share API is absent the guard above is falsy - typically extension and desktop builds - so
+    // the try runs out, nothing throws, no branch returns, and control reaches this line having
+    // entered no catch. A share rejection also lands here via the catch; every success branch
+    // returns first. Moved into the catch, the Share button would do nothing at all on those builds;
+    // Receive.test.tsx's 'the web has no navigator.share' row is what fails if anyone does.
+    await copyAddress();
+  }, [copyAddress, shareText, t]);
+
+  // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
+  // A network whose document configures no bridge-in route (mainnet's) has no Cross Chain, and no outage to report
+  // either. With no accepted document nothing says what the network configures, so the tile stays, greyed, over its
+  // notice. The same predicate is the fast-poll hold, so a hidden entry does not hold.
+  const hasDocument = useBridgeConfigSnapshot().config !== null;
+  const crossChain = useBridgeInAvailability({
+    hold: availability => isBridgeInOfferedOnNetwork(hasDocument, availability)
+  });
+  const crossChainOnNetwork = isBridgeInOfferedOnNetwork(hasDocument, crossChain);
 
   return (
-    <div
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-      style={{ touchAction: 'pan-y' }}
-      data-testid="receive-page"
-    >
-      <div className="min-h-full flex flex-col">
-        <div className="flex flex-col items-center px-6 pt-6 pb-32">
-          <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-          {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
-          <span data-testid="receive-address-full" className="sr-only">
-            {address}
-          </span>
-          <div className="w-full flex flex-col items-center justify-center gap-6">
-            <QRCode ref={qrRef} address={address} size={300} />
+    // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
+    // the code opens the pane 20px down, above a titled pane's first line), the scroll and gesture
+    // contract and the clearance over the tab bar, the same as Send, Earn and Swap. Last-resort
+    // scroll only: the column is laid out to fit between the top action bar and the tab bar on
+    // every supported height, and scrolls only when even that does not fit.
+    // The page keeps the app's own surface: the Receive green is carried by the affordances, not
+    // by a wash, and the code needs a plain light field around it to scan off.
+    <HomeGroupPaneBody testId="receive-page" top="visual">
+      {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
+          captions, the warning) resolve to the heading face here. `contents` adds no box, so the
+          pane's layout is untouched. */}
+      <div className="contents face-heading">
+        {/* No visible title: the action bar already says Receive and the code leads the page. The
+          heading stays for assistive tech. */}
+        <h1 data-testid="receive-title" className="sr-only">
+          {t('receiveAt')}
+        </h1>
+        {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+        <span data-testid="receive-address-full" className="sr-only">
+          {address}
+        </span>
+
+        {/* The code, its network and the address: one centred block on the page itself, no card
+            around it — the card only added an edge between the code and the actions below. */}
+        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
+          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
+            {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
+                across a table, small enough to leave the page room to breathe. */}
+            <div data-testid="receive-qr-slot" className="relative w-full max-w-68">
+              <motion.div
+                data-testid="receive-qr-frame"
+                className="aspect-square w-full"
+                // The dip of the logo press. The card is what moves: the logo is drawn inside the
+                // QR's own SVG, so it cannot be scaled on its own.
+                animate={{ scale: logoPressed && !reduceMotion ? tabBarMotion.pressScale : 1 }}
+                transition={resolveTransition(reduceMotion, tabBarMotion.press)}
+              >
+                <QRCode
+                  ref={qrRef}
+                  address={address}
+                  size={QR_EXPORT_SIZE}
+                  palette={QR_PALETTE_CYCLE[paletteStep] ?? 'green'}
+                  recolourAttempt={paletteAttempt}
+                  onPaletteCommitted={handlePaletteCommitted}
+                  // The page names the network in the chip below; the shared image still carries it.
+                  caption={network ? t('qrNetworkCaption', { network }) : undefined}
+                />
+              </motion.div>
+              {/* The Bread logo in the middle of the code, as a target: each tap repaints the
+                  modules in the next colour of the cycle. The logo itself is left alone. */}
+              <button
+                type="button"
+                onClick={cyclePalette}
+                {...logoPressHandlers}
+                onBlur={releaseLogo}
+                aria-label={t('receiveQrColorAction')}
+                data-testid="receive-qr-logo"
+                data-qr-palette={QR_PALETTE_CYCLE[paletteStep]}
+                className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+              />
+            </div>
+            {network && (
+              <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
+            )}
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
-              className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
-            >
-              <span className="text-base font-heading font-bold text-heading-gray">
-                {truncateAddress(address, false, 16, 8)}
-              </span>
-            </CopyButton>
-          </div>
-          <div className="w-full flex flex-col items-center gap-8 pt-6">
-            <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
-              <Icon name={IconName.Share} size="lg" className="shrink-0" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">{t('share')}</span>
-            </button>
-            {/* <div className="flex items-center gap-4 text-accent-primary">
-              <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
-            </div> */}
-            {/* WalletConnect is not supported on the extension: the Reown relay
-                rejects the extension bundle's auth JWT (WebSocket close 3000), so
-                the AppKit connect flow can never complete there. */}
-            {!isExtension() && isBridgeDepositEnabled() && (
-              <button
-                type="button"
-                data-testid="receive-cross-chain"
-                onClick={handleOpenEvm}
-                className="flex items-center gap-4 text-accent-primary"
-              >
-                <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-                <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
-                  {t('crossChain')}
-                </span>
-              </button>
-            )}
+              label={truncateAddress(address, false, 16, 8)}
+              icon="leading"
+              iconClassName="text-accent-receive"
+              checkClassName="text-positive-ink"
+              className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+              contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+            />
           </div>
         </div>
+
+        <div className="mt-2 flex shrink-0 flex-col gap-2">
+          {/* Two equal choices, side by side: each its own outlined tile, the Receive green on its
+              glyph, the label over a one-line caption. */}
+          <div className="flex gap-2.5" data-testid="receive-actions">
+            <ReceiveActionTile
+              icon={IconName.Share}
+              title={t('share')}
+              caption={t('receiveShareCaption')}
+              onClick={() => void handleShare()}
+              data-testid="receive-share"
+            />
+            {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
+                socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
+                bytes. public/globals.js no longer installs one. */}
+            {crossChainOnNetwork && (
+              <ReceiveActionTile
+                icon={IconName.CrossChain}
+                title={t('crossChain')}
+                // No source named here: the bridge screen lists the chains the remote config offers.
+                onClick={onBridgeDeposit}
+                disabled={isFeatureBlocked(crossChain)}
+                data-testid="receive-cross-chain"
+              />
+            )}
+          </div>
+          {crossChainOnNetwork && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
+          {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
+              this qualifies all of it. A caption with the warning glyph, not a tinted block —
+              between the address and the actions it split the page in two. */}
+          {network && (
+            <Notice
+              tone="warning"
+              variant="inline"
+              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+              data-testid="receive-test-funds-warning"
+            >
+              {t('receiveTestFundsBody', { network })}
+            </Notice>
+          )}
+        </div>
       </div>
-      {!isExtension() && isBridgeDepositEnabled() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
-    </div>
+    </HomeGroupPaneBody>
   );
 };

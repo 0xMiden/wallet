@@ -2,9 +2,9 @@ import React, { forwardRef, InputHTMLAttributes, useCallback, useEffect, useStat
 
 import classNames from 'clsx';
 
-import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { checkedHandler } from 'lib/ui/inputHandlers';
+import { TestIDProps } from 'lib/ui/test-id.props';
 import { ACCENT_HEX } from 'utils/brand-colors';
 
 type ToggleSwitchProps = InputHTMLAttributes<HTMLInputElement> &
@@ -19,7 +19,7 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
       containerClassName,
       errored = false,
       testID,
-      testIDProperties,
+      testIDProperties: _testIDProperties,
       className,
       checked,
       onChange,
@@ -30,7 +30,6 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
     ref
   ) => {
     const [localChecked, setLocalChecked] = useState(() => checked ?? false);
-    const { trackEvent } = useAnalytics();
 
     useEffect(() => {
       setLocalChecked(prevChecked => checked ?? prevChecked);
@@ -39,10 +38,9 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
     const handleChange = useCallback(
       (e: React.ChangeEvent<HTMLInputElement>) => {
         hapticMedium();
-        testID !== undefined && trackEvent(testID, AnalyticsEventCategory.Toggle, testIDProperties);
         checkedHandler(e, onChange!, setLocalChecked);
       },
-      [onChange, setLocalChecked, trackEvent, testID, testIDProperties]
+      [onChange, setLocalChecked]
     );
 
     return (
@@ -81,10 +79,6 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
           style={{ width: '40px', height: '22px', top: 0, left: 0, zIndex: 10 }}
           checked={localChecked}
           onChange={handleChange}
-          // `testID` was analytics-only until now: every `General Settings/*Toggle`
-          // string existed as a trackEvent label with no DOM counterpart, so no E2E
-          // could reach a toggle. Emit it as a data-testid too (attribute only — the
-          // analytics call above is unchanged).
           data-testid={testID}
           {...rest}
         />

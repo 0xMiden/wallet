@@ -128,10 +128,16 @@ test.describe('Public Note Send', () => {
         // Waited, not read once: B's pending total moving proves the note is on-chain,
         // but A's own balances projection settles independently, so a bare read here
         // samples a vault that has not moved yet and reports `debited 0`.
+        // Pinned EXACTLY, not just "at least": a Miden fee is charged in the native
+        // asset, never in TST, so the transfer is the only thing that can move this
+        // balance. The `>=` this used to rely on passed for a send that debited 700
+        // TST for a 500 TST transfer. It says nothing about the fee itself -- see
+        // fee-accounting.spec.ts for that.
         const debited = await waitForVaultDebit(walletA.page, TOKEN, beforeSend.fromVault, SEND_BASE_UNITS, {
           timeoutMs: 120_000,
           decimals: TOKEN_DECIMALS
         });
+        expect(debited, 'the transfer debit must be exactly the amount sent').toBe(SEND_BASE_UNITS);
         const fromAfter = beforeSend.fromVault - debited;
 
         timeline.emit({

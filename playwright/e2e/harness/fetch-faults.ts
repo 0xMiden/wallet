@@ -1,6 +1,7 @@
-import type { Page, Worker } from '@playwright/test';
+import type { BrowserContext, Page, Worker } from '@playwright/test';
 
 import type { FetchFaultWire, NetworkFaultPolicy, NetworkFaultTarget, NetworkOrigins } from './network-faults';
+import { installOffscreenFaultRealm } from './offscreen-realm';
 
 /**
  * Fetch-layer fault injection for the gRPC-web targets (node RPC / remote
@@ -96,7 +97,15 @@ async function applyToRealm(realm: Worker, wire: FetchFaultWire[]): Promise<void
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const g = globalThis as any;
             g.__E2E_NET_FAULTS = cfg;
-            g.__E2E_NET_FAULT_HITS = {};
+            // PRESERVED across a re-arm, zeroed only by `clear()`. The wrapper
+            // captures this object and increments it before it hangs, so
+            // replacing it here orphaned exactly the hits a `hang` spec needs:
+            // those specs re-arm defensively (MV3 can restart the SW and lose the
+            // config) and, by the very coalescing they are testing, no NEW fetch
+            // follows the re-arm — so `hits()` read a fresh empty map and the
+            // "did the fault actually land" check failed for the case it exists
+            // to prove. Cumulative-per-arm was never what any caller wanted.
+            g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return { wrapped: !!(globalThis as any).__e2e_fetch_wrapped, url: (globalThis as any).location?.href };
           }, wire)
@@ -122,7 +131,24 @@ async function applyToRealm(realm: Worker, wire: FetchFaultWire[]): Promise<void
 export interface FetchFaultControls {
   /** Push a wire config to the SW + every current and future page-worker. */
   arm(wire: FetchFaultWire[]): Promise<void>;
-  /** Clear faults in every realm. */
+  /**
+   * Total injections recorded across every armed realm since `arm`, read from
+   * the in-realm `__E2E_NET_FAULT_HITS` counter the fetch wrapper maintains.
+   *
+   * The point is falsifiability, and it matters most for `hang`. Arming is
+   * BEST EFFORT by design (`applyToRealm` gives up after four bounded attempts
+   * so a busy or torn-down realm cannot hang the suite), and the SDK spawns its
+   * network worker lazily — so "the fault never landed" is a real outcome, not a
+   * hypothetical. A spec that arms a hang and then asserts something did NOT
+   * happen passes identically in that case, which makes its strongest-looking
+   * assertion the one most able to go green for the wrong reason. Asserting a
+   * non-zero count first turns that into a failure.
+   *
+   * Best effort in the same way arming is: a realm that cannot be evaluated
+   * contributes 0 rather than throwing.
+   */
+  hits(): Promise<number>;
+  /** Clear faults in every realm, and zero the hit counters. */
   clear(): Promise<void>;
 }
 
@@ -130,8 +156,17 @@ export interface FetchFaultControls {
  * Install the Node-side fetch-fault controls. `getServiceWorker` is a thunk
  * because the fixture reassigns the SW handle across a crash-relaunch.
  */
-export function installFetchFaultControls(getServiceWorker: () => Worker | undefined, page: Page): FetchFaultControls {
+export function installFetchFaultControls(
+  getServiceWorker: () => Worker | undefined,
+  page: Page,
+  getContext: () => BrowserContext
+): FetchFaultControls {
   let current: FetchFaultWire[] = [];
+
+  // The third realm. Reached over CDP rather than by `evaluate`, created lazily and
+  // destroyed/recreated by the wallet itself, so it keeps its own bounded round trips
+  // and its own cross-generation hit accounting.
+  const offscreen = installOffscreenFaultRealm(getContext, getServiceWorker);
 
   // The SDK spawns its web-client worker lazily — often after a fault is armed.
   // Re-apply the current config to any worker that appears.
@@ -155,11 +190,63 @@ export function installFetchFaultControls(getServiceWorker: () => Worker | undef
         `[fetch-fault-debug] applyAll: ${realms.length} network realm(s) (of ${page.workers().length} workers + sw=${!!sw}), wire=${JSON.stringify(wire)}`
       );
     }
-    await Promise.all(realms.map(r => applyToRealm(r, wire)));
+    await Promise.all([...realms.map(r => applyToRealm(r, wire)), offscreen.arm(wire)]);
+  };
+
+  const readHits = async (): Promise<number> => {
+    const realms: Worker[] = page.workers().filter(w => NETWORK_WORKER_RE.test(w.url()));
+    const sw = getServiceWorker();
+    if (sw) realms.push(sw);
+    const perRealm = await Promise.all(
+      realms.map(async realm => {
+        try {
+          return await Promise.race([
+            realm.evaluate(() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const hits = (globalThis as any).__E2E_NET_FAULT_HITS as Record<string, number> | undefined;
+              return Object.values(hits ?? {}).reduce((total: number, n: number) => total + n, 0);
+            }),
+            new Promise<number>((_, reject) => setTimeout(() => reject(new Error('evaluate timeout')), 3_000))
+          ]);
+        } catch {
+          return 0;
+        }
+      })
+    );
+    return perRealm.reduce((total, n) => total + n, 0) + (await offscreen.hits());
+  };
+
+  const clearAll = async (): Promise<void> => {
+    await applyAll([]);
+    // Zero the hit map here, since `arm` deliberately preserves it. Best effort
+    // in the same way arming is: a realm that cannot be evaluated keeps its
+    // count, which at worst makes a later `hits()` assertion pass on stale
+    // evidence — so a spec that cares should read `hits()` for a delta, or clear
+    // before it arms.
+    const realms: Worker[] = page.workers().filter(w => NETWORK_WORKER_RE.test(w.url()));
+    const sw = getServiceWorker();
+    if (sw) realms.push(sw);
+    await Promise.all(
+      realms.map(async realm => {
+        try {
+          await Promise.race([
+            realm.evaluate(() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (globalThis as any).__E2E_NET_FAULT_HITS = {};
+            }),
+            new Promise<void>((_, reject) => setTimeout(() => reject(new Error('evaluate timeout')), 3_000))
+          ]);
+        } catch {
+          // busy or gone — leave the stale count rather than hang the suite
+        }
+      })
+    );
+    await offscreen.clear();
   };
 
   return {
     arm: (wire: FetchFaultWire[]) => applyAll(wire),
-    clear: () => applyAll([])
+    hits: readHits,
+    clear: clearAll
   };
 }

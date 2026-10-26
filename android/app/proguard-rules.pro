@@ -28,10 +28,6 @@
     *;
 }
 -keep class uniffi.** { *; }
--keepclassmembers class ** {
-    public *;
-    protected *;
-}
 -dontwarn uniffi.**
 -dontwarn com.sun.jna.**
 
@@ -40,9 +36,9 @@
     static ** CREATOR;
 }
 
-# Keep R8 from stripping interface methods
--keep interface * {
-    <methods>;
+# Preserve names used by the browser's reflective missing-icon diagnostics.
+-keepclassmembers class ee.forgr.capacitor_inappbrowser.R$drawable {
+    public static int *;
 }
 
 # Preserve the line number information for debugging stack traces.
@@ -79,6 +75,9 @@
 
 # App plugin
 -keep class com.capacitorjs.plugins.app.** { *; }
+
+# Clipboard plugin
+-keep class com.capacitorjs.plugins.clipboard.** { *; }
 
 # Barcode scanning plugin
 -keep class com.niceforyou.barcodescanner.** { *; }

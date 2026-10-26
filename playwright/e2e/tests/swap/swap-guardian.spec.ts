@@ -1,3 +1,4 @@
+import { getEnvironmentConfig } from '../../config/environments';
 import { expect, test } from '../../fixtures/two-wallets';
 import {
   createSwapOrder,
@@ -8,9 +9,16 @@ import {
   triggerSwapAutoConsume
 } from '../../helpers/swap';
 
-// Endpoint of the guardian spawned by the CI job / local stack (--profile
-// guardian). Matches guardian-send-consume.spec.ts.
-const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
+// The guardian this spec co-signs with, taken from the run's own environment
+// record - the same source guardian-seed-backup-verify.spec.ts uses, so a
+// testnet run reaches that network's hosted operator instead of the container
+// the local stack spawns (`--profile guardian`). An explicit GUARDIAN_URL still
+// wins, which is what lets a local run point at the second operator on :3001.
+//
+// It used to default to `http://localhost:3000` outright, which is right on a
+// local run and silently wrong anywhere else: off localhost the spec dialled a
+// container that was never started.
+const GUARDIAN_URL = process.env.GUARDIAN_URL ?? getEnvironmentConfig().guardianUrl;
 
 /**
  * Scenario 3.9 — swap from a Guardian (multisig) maker account.
@@ -38,9 +46,9 @@ test.describe('swap: guardian maker full fill', () => {
   test.describe.configure({ mode: 'serial' });
 
   const OFFER_BASE = '1000000000'; // 10 SWPA
-  const REQUEST_BASE = '900000000'; // 9 SWPB
+  const REQUEST_BASE = '999500000'; // floor(10 SWPA * price 1 * 0.9995) at 8dp
 
-  test('guardian A offers 10 SWPA for 9 SWPB, B fills fully; both sides settle', async ({
+  test('guardian A offers 10 SWPA for 9.995 SWPB, B fills fully; both sides settle', async ({
     walletA,
     walletB,
     midenCli,
@@ -64,8 +72,9 @@ test.describe('swap: guardian maker full fill', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
+      amountAnchor: 'pay',
       payAmount: '10',
-      receiveAmount: '9'
+      receiveAmount: '9.995'
     });
     expect(orderId, 'guardian maker order id').not.toBe('');
 

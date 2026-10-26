@@ -1,5 +1,6 @@
 import { getEnvironmentConfig } from '../../config/environments';
 import { test, expect } from '../../fixtures/two-wallets';
+import { ensureFeeFunded } from '../../helpers/fee-funding';
 
 /**
  * Gap 15 (design plan Task 3.2): a guardian STRUCTURAL op must survive a
@@ -38,12 +39,20 @@ test.describe('infra resilience — transient guardian 5xx during a structural o
   test.describe.configure({ mode: 'serial' });
   test.skip(() => !GUARDIAN_B_URL, NO_SECOND_GUARDIAN);
 
-  test('switch-guardian survives a transient 5xx on the register call and completes', async ({ walletA, steps }) => {
+  test('switch-guardian survives a transient 5xx on the register call and completes', async ({
+    walletA,
+    midenCli,
+    steps
+  }) => {
     test.setTimeout(600_000);
 
     await steps.step('create_guardian_wallet', async () => {
       const a = await walletA.createGuardianWallet(GUARDIAN_A_URL);
       expect(a.address).toMatch(/^m[a-z]{1,4}1[a-z0-9]+(_[a-z0-9]+)?$/i);
+      // This spec never mints, so on a fee-charging chain the account has nothing to pay
+      // the switch with: `switch-guardian` is a real transaction and `fee::pay_fee` takes
+      // the native asset from this account's own vault. No-op on a zero-fee chain.
+      await ensureFeeFunded(midenCli, walletA, a.address);
     });
 
     await steps.step(

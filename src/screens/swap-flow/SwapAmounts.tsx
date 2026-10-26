@@ -1,19 +1,35 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import clsx from 'clsx';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
-import { SwapToken } from 'lib/miden/swap/tokens';
+import { WaveDots } from 'components/ui';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
+import { amountExceedsTokenDecimals, typedAmountExceedsBalance } from 'lib/i18n/numbers';
+import { SwapToken, tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
+import { swapPayEstimate } from './amount-display';
+import { OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
 
 export interface SwapAmountsProps {
+  /** True when the account holds none of the native asset the fee is paid in. */
+  feeAssetMissing?: boolean;
   offerToken: SwapToken;
   offerBalance: number;
+  /** Base-unit comparison from the manager, including amounts beyond JS float precision. */
+  offerExceedsBalance?: boolean;
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
@@ -23,12 +39,21 @@ export interface SwapAmountsProps {
   onSelectRequestToken: () => void;
   /** Show a skeleton on the receive field while its quote is being computed. */
   requestLoading?: boolean;
+  offerLoading?: boolean;
+  quoteLoading?: boolean;
+  requestEdited?: boolean;
   onSwapDirection: () => void;
   onConfirm: () => void;
   canProceed: boolean;
   /** Helper line under the fields (fetching price / pick two tokens / unavailable). */
   statusMessage?: string;
   statusIsError?: boolean;
+  statusErrorId?: UserErrorId | null;
+  oneClickNetworks?: readonly OneClickNetworkOption[];
+  offerNetwork?: OneClickNetworkOption;
+  requestNetwork?: OneClickNetworkOption;
+  onOfferNetworkChange?: (network: OneClickNetworkOption) => void;
+  onRequestNetworkChange?: (network: OneClickNetworkOption) => void;
 }
 
 /** SwapToken → the UIToken shape SelectAmount expects. `balance` feeds the
@@ -51,6 +76,7 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
 export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   offerToken,
   offerBalance,
+  offerExceedsBalance,
   offerAmount,
   onOfferAmountChange,
   onSelectOfferToken,
@@ -59,31 +85,128 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   onRequestAmountChange,
   onSelectRequestToken,
   requestLoading,
+  offerLoading,
+  quoteLoading,
+  requestEdited,
   onSwapDirection,
   onConfirm,
   canProceed,
   statusMessage,
-  statusIsError
+  statusIsError,
+  statusErrorId,
+  feeAssetMissing = false,
+  oneClickNetworks,
+  offerNetwork,
+  requestNetwork,
+  onOfferNetworkChange,
+  onRequestNetworkChange
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
+  useUserVisibleError(statusMessage && statusIsError ? (statusErrorId ?? null) : null, 'inline');
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const reduceMotion = useReducedMotion();
+  const motionTokens = useTabBarMotion();
+  // Each press turns the arrow another half turn and lifts the two sides past each other, so the
+  // switch reads as the two fields trading places. Same springs as the tab bars, so a press here
+  // feels like a press there.
+  const [flips, setFlips] = useState(0);
+  const flipTransition = resolveTransition(reduceMotion, tabBarMotion.highlight);
+  // Each side's key names the side (0 pay, 1 receive) as well as the flip: the two are siblings,
+  // and a key they shared left every earlier pair mounted on a flip, stacking the forms down the page.
+  const sideMotion = (side: 0 | 1, from: number) => ({
+    key: `${side}-${flips}`,
+    initial: flips === 0 ? false : { y: from, opacity: 0 },
+    animate: { y: 0, opacity: 1 },
+    transition: flipTransition
+  });
+  // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
-  const offerAmountError = offerAmountExceedsBalance ? 'amountMustBeLessThanBalance' : undefined;
+  const awaitingAmount = !(Number(requestEdited ? requestAmount : offerAmount) > 0);
+  const offerExceedsPrecision = amountExceedsTokenDecimals(offerAmount, offerToken.decimals);
+  const requestExceedsPrecision = amountExceedsTokenDecimals(requestAmount, requestToken.decimals);
+  const offerAmountExceedsBalance =
+    offerExceedsBalance ?? typedAmountExceedsBalance(offerAmount, offerBalance, offerToken.decimals);
+  // Missing the fee asset outranks an over-balance amount: no amount at all is
+  // sendable, so telling the user to lower it would send them in a loop.
+  const offerAmountError = feeAssetMissing
+    ? 'insufficientFeeAsset'
+    : offerExceedsPrecision
+      ? 'amountExceedsTokenDecimals'
+      : offerAmountExceedsBalance
+        ? 'amountMustBeLessThanBalance'
+        : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
-      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto no-scrollbar pt-10">
-        <SelectAmount
-          embedded
-          label={t('youPay')}
-          token={swapTokenToUIToken(offerToken, offerBalance)}
-          logoSymbol={offerToken.logoSymbol}
-          amount={offerAmount}
-          isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
-          error={offerAmountError}
-          onAmountChange={onOfferAmountChange}
-          onSelectToken={onSelectOfferToken}
-        />
+    // The shared home-group pane body: the page margin, the offset to the first line ("You Pay",
+    // which SelectAmount draws as its label), the scroll and gesture contract, and the pinned CTA
+    // - the same frame Send's recipient step, Receive and Earn are drawn in.
+    <HomeGroupPaneBody
+      footer={
+        <Button
+          title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          // The dots below replace the label while the quote loads, so the button is named by its action.
+          aria-label={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          variant={ButtonVariant.Primary}
+          // The whole flow is the swap colour, CTA included (design-system.md, "Action colours").
+          accent="swap"
+          onClick={onConfirm}
+          disabled={!canProceed}
+          data-testid="swap-review-submit"
+          className="w-full max-w-none"
+        >
+          {(quoteLoading ?? requestLoading) ? <WaveDots label={t('calculatingQuote')} /> : undefined}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
+          {oneClickNetworks && offerNetwork && onOfferNetworkChange && (
+            <div className="mb-3">
+              <OneClickNetworkPicker
+                side="pay"
+                network={offerNetwork}
+                networks={oneClickNetworks}
+                onSelect={onOfferNetworkChange}
+              />
+            </div>
+          )}
+          <SelectAmount
+            embedded
+            // The amount field's own caption, as on Earn's "Deposit Amount", and no rule under a typed
+            // amount.
+            label={t('youPay')}
+            showAmountDivider={false}
+            accent="swap"
+            token={{
+              ...swapTokenToUIToken(offerToken, offerBalance),
+              fiatPrice: tokenQuote(prices, offerToken.faucetId, offerToken.symbol)?.price ?? 0
+            }}
+            tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
+            logoSymbol={offerToken.logoSymbol}
+            amount={offerAmount}
+            amountDisplayValue={
+              requestEdited && offerAmount
+                ? t('swapApproxAmount', { amount: swapPayEstimate(offerAmount) })
+                : offerAmount
+            }
+            isValidAmount={offerAmountValue > 0 && !offerExceedsPrecision && !offerAmountExceedsBalance}
+            error={offerAmountError}
+            errorId={feeAssetMissing ? null : offerAmountError}
+            // The fee shortfall keeps the amount red but says so under the token.
+            hideErrorText={feeAssetMissing}
+            loading={offerLoading}
+            amountDecimalsLimit={offerToken.decimals}
+            amountMaxLength={80}
+            onAmountChange={onOfferAmountChange}
+            onSelectToken={onSelectOfferToken}
+          />
+          {feeAssetMissing && (
+            <ErrorLine errorId="insufficientFeeAssetShort" role="note" data-testid="swap-fee-notice" className="mt-3">
+              {t('insufficientFeeAssetShort')}
+            </ErrorLine>
+          )}
+        </motion.div>
 
         <div className="flex items-center gap-3">
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
@@ -91,10 +214,13 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             type="button"
             onClick={() => {
               hapticLight();
+              setFlips(count => count + 1);
               onSwapDirection();
             }}
-            whileTap={{ scale: 0.9 }}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white"
+            {...motionTokens.press}
+            animate={{ rotate: reduceMotion ? 0 : flips * 180 }}
+            transition={flipTransition}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-accent-swap-on"
             aria-label={t('swapDirection')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -110,38 +236,57 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
-        <SelectAmount
-          embedded
-          // "You Receive" is the swap output — the user's balance of that token
-          // isn't the spendable amount here, so no available-balance helper.
-          showBalanceHelper={false}
-          label={t('youReceive')}
-          token={swapTokenToUIToken(requestToken)}
-          logoSymbol={requestToken.logoSymbol}
-          amount={requestAmount}
-          isValidAmount={Number(requestAmount) > 0}
-          loading={requestLoading}
-          onAmountChange={onRequestAmountChange}
-          onSelectToken={onSelectRequestToken}
-        />
+        <motion.div {...sideMotion(1, 24)} data-testid="swap-receive-side">
+          {oneClickNetworks && requestNetwork && onRequestNetworkChange && (
+            <div className="mb-3">
+              <OneClickNetworkPicker
+                side="receive"
+                network={requestNetwork}
+                networks={oneClickNetworks}
+                onSelect={onRequestNetworkChange}
+              />
+            </div>
+          )}
+          <SelectAmount
+            embedded
+            // "You Receive" is the swap output — the user's balance of that token
+            // isn't the spendable amount here, so no available-balance helper.
+            showBalanceHelper={false}
+            label={t('youReceive')}
+            showAmountDivider={false}
+            accent="swap"
+            token={{
+              ...swapTokenToUIToken(requestToken),
+              fiatPrice: tokenQuote(prices, requestToken.faucetId, requestToken.symbol)?.price ?? 0
+            }}
+            tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
+            logoSymbol={requestToken.logoSymbol}
+            amount={requestAmount}
+            isValidAmount={Number(requestAmount) > 0 && !requestExceedsPrecision}
+            error={requestExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined}
+            loading={requestLoading}
+            amountDecimalsLimit={requestToken.decimals}
+            amountMaxLength={80}
+            onAmountChange={onRequestAmountChange}
+            onSelectToken={onSelectRequestToken}
+          />
+        </motion.div>
+
+        {requestEdited && (
+          <span className="text-body-sm text-muted" data-testid="swap-receive-target-note">
+            {t('swapReceiveTargetNote')}
+          </span>
+        )}
 
         {statusMessage && (
-          <span className={clsx('text-sm font-medium', statusIsError ? 'text-status-negative' : 'text-[#808080]')}>
+          <span
+            className={clsx('text-body-sm', statusIsError ? 'text-negative-tint-ink' : 'text-muted')}
+            data-testid="swap-status-message"
+          >
             {statusMessage}
           </span>
         )}
       </div>
-
-      <div className="shrink-0 pt-4 pb-24" data-navbar-cushion="true">
-        <Button
-          title={t('reviewSwap')}
-          variant={ButtonVariant.Primary}
-          onClick={onConfirm}
-          disabled={!canProceed}
-          data-testid="swap-review-submit"
-          className="w-full max-w-none rounded-full text-base font-semibold"
-        />
-      </div>
-    </div>
+    </HomeGroupPaneBody>
   );
 };

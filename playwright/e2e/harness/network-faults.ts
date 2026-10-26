@@ -1,5 +1,6 @@
-import type { BrowserContext, Route } from '@playwright/test';
+import type { APIResponse, BrowserContext, Route } from '@playwright/test';
 
+import { guardianCommitmentReadOf, observeGuardianRead, type GuardianCommitmentLedger } from './guardian-commitments';
 import {
   applyGuardianFaultAction,
   decideGuardianFault,
@@ -22,7 +23,9 @@ import {
  * (`decideGuardianFault`/`applyGuardianFaultAction`, imported unchanged) so the
  * guardian lifecycle suite keeps its exact behavior. A single handler is
  * required: two catch-all handlers that both `route.continue()` on non-match
- * throw Playwright's "Route is already handled!".
+ * throw Playwright's "Route is already handled!". For a spec that asked
+ * (`trackGuardianCommitments`), the guardian path also records settlement
+ * traffic on its way through (harness/guardian-commitments.ts).
  *
  * MUST be installed on a context that allows service workers (the two-wallets
  * fixture default): node/prover/transport/guardian traffic is issued from the
@@ -151,12 +154,39 @@ export interface NetworkFaultControls {
    */
   armGuardian(policy: GuardianFaultPolicy): void;
   /**
-   * How many guardian requests the armed guardian policy has faulted since it
-   * was armed. Lets a spec assert the fault ACTUALLY FIRED (a guardian op that
-   * completed with zero hits proves the fault never reached it — a false green),
-   * without reaching into the container. Reset by `armGuardian`/`clear`.
+   * How many requests the armed guardian policy has faulted since it was
+   * armed - only those matching its target, path and, when set, method (see
+   * `decideGuardianFault`). Lets a spec assert the fault actually reached a
+   * matching request (a guardian op that completed with zero hits proves the
+   * fault never reached one, not that the op behaved as hoped), without
+   * reaching into the container. Reset by `armGuardian`/`clear`.
    */
   guardianFaultHits(): number;
+  /**
+   * When each of those guardian hits arrived (`Date.now()`, in hit order), so a
+   * spec can assert the wallet's wait between faulted retries, not just their
+   * count. Reset with `guardianFaultHits`.
+   */
+  guardianFaultHitTimes(): number[];
+  /**
+   * How many requests the armed NETWORK policies have faulted since they were
+   * armed, summed across the set. Same purpose as `guardianFaultHits`, and it
+   * matters most for the `hang` mode: a spec that arms a hang and then asserts
+   * something did NOT happen passes identically when the fault never matched a
+   * single request, so without this the strongest-looking assertion in the suite
+   * is also the one most able to go green for the wrong reason. Reset by
+   * `armNetwork`/`clear`.
+   * Only counts route-seam targets; fetch-layer targets (node/prover/transport)
+   * are counted in their own realms (see fetch-faults.ts).
+   */
+  networkFaultHits(): number;
+  /**
+   * Record this context's guardian pushes and state reads into `ledger`. Off until
+   * called, so no other spec pays for the fetch-through; a request the armed
+   * guardian fault answers or aborts is never recorded, and `clear` leaves
+   * tracking on.
+   */
+  trackGuardianCommitments(ledger: GuardianCommitmentLedger): void;
   /** Disarm everything — all subsequent requests pass through untouched. */
   clear(): void;
 }
@@ -290,8 +320,10 @@ export async function applyNetworkFaultAction(route: NetworkRouteLike, action: N
 /**
  * Installs the single combined context-wide route handler. Tries the armed
  * network policies first; on `passthrough` (no network match) defers to the
- * guardian decision path (unchanged). `armNetwork`/`armGuardian` set independent
- * slots; `clear` disarms both.
+ * same guardian decision path as `installGuardianFaults` (`decideGuardianFault`,
+ * given this request's method too, so a method-scoped guardian policy behaves
+ * identically through either installer). `armNetwork`/`armGuardian` set
+ * independent slots; `clear` disarms both.
  */
 export function installNetworkFaults(
   context: BrowserContext,
@@ -301,6 +333,8 @@ export function installNetworkFaults(
   let networkHits: number[] = [];
   let guardianPolicy: GuardianFaultPolicy | null = null;
   let guardianHits = 0;
+  let guardianHitTimes: number[] = [];
+  let guardianLedger: GuardianCommitmentLedger | null = null;
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
@@ -312,9 +346,17 @@ export function installNetworkFaults(
       return;
     }
 
-    const guardian = decideGuardianFault(url, guardianPolicy, guardianHits, origins.guardian);
+    const method = route.request().method();
+    const guardian = decideGuardianFault(url, method, guardianPolicy, guardianHits, origins.guardian);
+    if (guardian.hits > guardianHits) guardianHitTimes.push(Date.now());
     guardianHits = guardian.hits;
-    await applyGuardianFaultAction(route, guardian.action);
+    const ledger = guardianLedger;
+    const read = ledger ? guardianCommitmentReadOf(method, url, origins.guardian) : null;
+    await applyGuardianFaultAction(
+      route,
+      guardian.action,
+      ledger && read ? () => observeGuardianRead<APIResponse>(route, read, ledger) : undefined
+    );
   });
 
   return {
@@ -325,15 +367,26 @@ export function installNetworkFaults(
     armGuardian(policy) {
       guardianPolicy = policy;
       guardianHits = 0;
+      guardianHitTimes = [];
     },
     guardianFaultHits() {
       return guardianHits;
+    },
+    guardianFaultHitTimes() {
+      return [...guardianHitTimes];
+    },
+    networkFaultHits() {
+      return networkHits.reduce((total, hits) => total + hits, 0);
+    },
+    trackGuardianCommitments(ledger) {
+      guardianLedger = ledger;
     },
     clear() {
       networkPolicies = [];
       networkHits = [];
       guardianPolicy = null;
       guardianHits = 0;
+      guardianHitTimes = [];
     }
   };
 }

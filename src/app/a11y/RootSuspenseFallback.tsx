@@ -2,7 +2,7 @@ import React, { FC, useEffect } from 'react';
 
 import useForceUpdate from 'use-force-update';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
+import { Spinner } from 'components/ui/Spinner';
 
 const DELAY = 5_000;
 

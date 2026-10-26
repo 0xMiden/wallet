@@ -1,0 +1,27 @@
+name: Dump local node logs
+description: >
+  Print the local stack's NATIVE service logs (validator, sequencer, ntx-builder,
+  remote prover, note-transport). `run-local-node` only dumps these when bring-up
+  itself fails, so a suite whose specs fail against a running stack never showed
+  them — which is how #718 stayed open on "is the prover even being asked to
+  prove?". The remote prover is the one service a claim depends on and the one
+  nothing else reports on: the docker dump next to this covers the guardians and
+  their postgres only, because the node services run natively on the runner.
+
+runs:
+  using: composite
+  steps:
+    - name: Local node service logs
+      shell: bash
+      run: |
+        logs="${RUNNER_TEMP}/miden-client/target/test-node/data/logs"
+        if [ ! -d "$logs" ]; then
+          echo "No log directory at $logs — the node never started."
+          exit 0
+        fi
+        for f in "$logs"/*; do
+          [ -f "$f" ] || continue
+          echo "::group::$(basename "$f") (last 300 lines)"
+          tail -300 "$f"
+          echo "::endgroup::"
+        done

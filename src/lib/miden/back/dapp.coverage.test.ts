@@ -17,6 +17,9 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -79,6 +82,20 @@ const mockGetTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args)
 }));
+
+// The build's network unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+let mockEffectiveRpcUrl: string | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return {
+    ...actual,
+    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName(),
+    getEffectiveRpcUrl: () => mockEffectiveRpcUrl ?? actual.getEffectiveRpcUrl()
+  };
+});
 
 const mockRequestConfirmation = jest.fn();
 const mockResolveConfirmation = jest.fn();
@@ -145,6 +162,8 @@ const SESSION = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockWalletNetwork = undefined;
+  mockEffectiveRpcUrl = undefined;
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
   // Pre-seed the dApp sessions map under the origin we use in every test.
@@ -170,6 +189,13 @@ describe('getCurrentPermission', () => {
     mockGetCurrentAccountPublicKey.mockResolvedValue(undefined);
     const res = await dapp.getCurrentPermission('https://miden.xyz');
     expect(res.permission).toBeNull();
+  });
+
+  it("carries the account's public key from its session (#174)", async () => {
+    storageState[STORAGE_KEY] = { 'https://miden.xyz': [{ ...SESSION, publicKey: 'AQID' }] };
+    const res = await dapp.getCurrentPermission('https://miden.xyz');
+    expect(res.permission?.publicKey).toBe('AQID');
+    expect(res.permission?.address).toBe('miden-account-1');
   });
 });
 
@@ -233,14 +259,57 @@ describe('requestPermission', () => {
       )
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
+
+  const mainnetConnect = () =>
+    dapp.requestPermission(
+      'https://mainnet-dapp.xyz',
+      {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'Mainnet Dapp', url: 'https://mainnet-dapp.xyz' },
+        force: false,
+        network: 'mainnet',
+        privateDataPermission: 'None',
+        allowedPrivateData: {}
+      } as never,
+      'session-1'
+    );
+
+  it('refuses a mainnet claim on a testnet wallet before any prompt', async () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.TESTNET;
+    await expect(mainnetConnect()).rejects.toThrow(MidenDAppErrorType.NetworkNotGranted);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("puts a mainnet claim on a mainnet wallet to the user as the wallet's own network", async () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    mockRequestConfirmation.mockResolvedValueOnce({ confirmed: false });
+    await expect(mainnetConnect()).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // The sheet warns only on a claim that is not the wallet's network (DappNetworkMismatchNotice).
+    expect(mockRequestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'connect', network: MIDEN_NETWORK_NAME.MAINNET })
+    );
+  });
 });
 
 // ── waitForTransaction ─────────────────────────────────────────────
 
 describe('waitForTransaction', () => {
-  it('forwards the txId to waitForTransactionCompletion', async () => {
+  afterEach(async () => {
+    await Repo.transactions.clear();
+  });
+
+  it('forwards the txId of a row the origin created to waitForTransactionCompletion', async () => {
+    await Repo.transactions.put({
+      id: 'tx-abc',
+      type: 'send',
+      accountId: 'miden-account-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      dappOrigins: ['https://miden.xyz']
+    });
     mockWaitForTransactionCompletion.mockResolvedValue({ status: 'success' });
-    const res = await dapp.waitForTransaction({ txId: 'tx-abc' } as never);
+    const res = await dapp.waitForTransaction('https://miden.xyz', { txId: 'tx-abc' } as never);
     expect(mockWaitForTransactionCompletion).toHaveBeenCalledWith('tx-abc');
     expect(res.type).toBe(MidenDAppMessageType.WaitForTransactionResponse);
   });
@@ -468,6 +537,36 @@ describe('getNetworkRPC', () => {
     const rpc = await dapp.getNetworkRPC(undefined);
     expect(typeof rpc).toBe('string');
     expect(rpc).toMatch(/^https?:\/\//);
+  });
+
+  // Regression #1655: Mainnet invitation onboarding writes only an endpoint
+  // override, not the legacy stored network id. A dApp that names no network
+  // must get the RPC of the effective network.
+  it('falls back to the effective RPC URL when net is undefined', async () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    mockEffectiveRpcUrl = 'https://rpc.override.example';
+    await expect(dapp.getNetworkRPC(undefined)).resolves.toBe('https://rpc.override.example');
+  });
+
+  // No test network may be told its requests run on mainnet; the adapter cannot name mainnet yet, so a
+  // test-network claim still reaches a mainnet wallet's connect sheet, which warns.
+  it.each<[MIDEN_NETWORK_NAME]>([
+    [MIDEN_NETWORK_NAME.TESTNET],
+    [MIDEN_NETWORK_NAME.DEVNET],
+    [MIDEN_NETWORK_NAME.LOCALNET]
+  ])('refuses a mainnet claim on a %s wallet with NetworkNotGranted', async walletNetwork => {
+    mockWalletNetwork = walletNetwork;
+    await expect(dapp.getNetworkRPC('mainnet')).rejects.toThrow(MidenDAppErrorType.NetworkNotGranted);
+  });
+
+  it('resolves a mainnet claim to the mainnet RPC on a mainnet wallet', async () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    await expect(dapp.getNetworkRPC('mainnet')).resolves.toBe('https://rpc.cedar.miden.io');
+  });
+
+  it('still resolves a testnet claim on a mainnet wallet', async () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    await expect(dapp.getNetworkRPC('testnet')).resolves.toBe('https://rpc.testnet.miden.io');
   });
 
   it('throws NetworkNotGranted for an unknown network id', async () => {

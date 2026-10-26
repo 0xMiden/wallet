@@ -1,24 +1,38 @@
-import React, { FC, useLayoutEffect, useMemo } from 'react';
+import React, { FC, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
-import FullScreenPage from 'app/layouts/FullScreenPage';
+import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
+import { useDappApprovalTelemetry } from 'app/hooks/useDappApprovalTelemetry';
+import FullScreenPage, { defaultPageEntrance, FullScreenPageProps } from 'app/layouts/FullScreenPage';
+import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
+import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
+import Me from 'app/pages/Me';
+import MyBadges from 'app/pages/MyBadges';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
-import Unlock from 'app/pages/Unlock';
+import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
+import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
+import { ARCADE_COINS_PATH } from 'lib/arcade';
+import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
+import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
+import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
+import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
+import { NewContactPage } from 'screens/contacts/NewContactPage';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
 import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
 import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
 import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
+import EarnWithdrawAmount from 'screens/earn-flow/EarnWithdrawAmount';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
@@ -26,12 +40,15 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { armHeldOnboardingMark, useOnboardingFinishing } from './onboarding-finish';
+import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
+import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
+import { ArcadePage } from './pages/ArcadePage';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
-import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -45,17 +62,42 @@ interface RouteContext {
   ready: boolean;
   locked: boolean;
   hydrated: boolean;
+  finishingOnboarding: boolean;
+  settingsScrollTop: React.MutableRefObject<number>;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
 
+// A hand-typed or truncated link can carry a stray `%`, and a URIError thrown here would take down the
+// whole route rather than send the user somewhere sensible.
+function decodeParam(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
-  // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
-  // catch-all so it renders regardless of Ready: creating the wallet flips the
-  // app to the wallet home, and this screen must survive that to let the user
-  // open the panel. Still defers to Unlock when locked (e.g. the wallet
+  // Onboarding → side panel handoff (Chrome). Placed before the `*`
+  // catch-all so it renders regardless of Ready: creating the wallet turns it
+  // Ready (the root holds the loading view until the holder navigates here, then
+  // Home), and this screen must survive that to let the user open the panel. Still defers to Unlock when locked (e.g. the wallet
   // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
   ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
+  // Telemetry consent prompt. Before the `*` catch-all for the same reason
+  // as the handoff screen above — it is reached the moment the wallet is created,
+  // either side of the Ready flip, so an `onlyReady` guard would make it
+  // unreachable and the catch-all would replace it mid-read. Locked SKIPs to
+  // Unlock exactly as `/finish-side-panel` does. It also SKIPs once a choice
+  // exists: putting "never re-ask" on the route rather than only on the flows
+  // that navigate here means a bookmark or hand-typed URL cannot re-open a
+  // question the user has already settled.
+  [
+    '/help-improve-wallet',
+    (_p, ctx) => (ctx.locked || hasTelemetryChoice() ? Woozie.Router.SKIP : <HelpImproveWalletPrompt />)
+  ],
   ['/reset-required', () => <ResetRequired />],
   [
     '/reset-wallet',
@@ -87,13 +129,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Developer endpoint override screen. Reachable during onboarding (before the wallet is
   // ready) via the 7-tap logo unlock on the Welcome screen, so this must be placed ahead of the
-  // `!ready` catch-all below — an onlyReady-wrapped route would never resolve while ctx.ready is
+  // `*` catch-all below - an onlyReady-wrapped route would never resolve while ctx.ready is
   // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
   // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
+  // It also waits for the backend state: until then the status reads Idle even for an existing
+  // wallet, and the screen would open its no-wallet edit mode.
   [
     '/developer-settings',
     (_p, ctx) =>
-      ctx.locked ? (
+      ctx.locked || !ctx.hydrated ? (
         Woozie.Router.SKIP
       ) : (
         <FullScreenPage>
@@ -108,8 +152,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         case 'unlock':
           return <Unlock />;
 
-        // Backend not yet heard from (MV3 SW cold-start): show the loading
-        // spinner, NOT onboarding — status is still the initial Idle here.
+        // Backend not yet heard from (MV3 SW cold-start, status still the initial
+        // Idle), or a just-created wallet held by the onboarding finishing mark
+        // (app/onboarding-finish): show the loading spinner, NOT onboarding or Home.
         case 'loading':
           return <RootSuspenseFallback />;
 
@@ -152,6 +197,25 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
+  // Arcade destinations are native Explore subpages, with the same wallet-ready guard.
+  [
+    ARCADE_COINS_PATH,
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <ArcadePage />
+      </FullScreenPage>
+    ))
+  ],
+  // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
+  // the counterparty's address and is absent for a category group (`/activity/group/swap`).
+  [
+    '/activity/group/:kind/:id?',
+    onlyReady(({ kind, id }) => (
+      <FullScreenPage key={`activity-group-${kind}-${id ?? ''}`} entrance="slide">
+        <ActivityGroupPage kind={kind ?? undefined} id={decodeParam(id)} />
+      </FullScreenPage>
+    ))
+  ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
   // shown while a developer endpoint override is active. Placed ahead of the
   // generic `/settings/:tabSlug?` route below so it matches first (that route's
@@ -159,15 +223,45 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/network-endpoints',
     onlyReady(() => (
-      <FullScreenPage>
+      <FullScreenPage entrance="slide">
         <DeveloperSettings readOnly />
+      </FullScreenPage>
+    ))
+  ],
+  // Me is the personal tab. Its badge collection is a pushed page so the profile
+  // remains mounted underneath and the tab bar cannot cover the catalog.
+  [
+    '/me/badges',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <MyBadges />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/me',
+    onlyReady(() => (
+      <TabLayout>
+        <Me />
+      </TabLayout>
+    ))
+  ],
+  // Me embeds the settings groups; this standalone root is a pushed page for the
+  // links that still open it (the accounts drawer, a sub-page's fallback back).
+  // Exact-matched and placed ahead of the generic route below, which keeps every
+  // `/settings/<slug>` flow unchanged.
+  [
+    '/settings',
+    onlyReady((_p, ctx) => (
+      <FullScreenPage entrance="slide">
+        <Settings rootScrollTop={ctx.settingsScrollTop} />
       </FullScreenPage>
     ))
   ],
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
-      <FullScreenPage>
+      <FullScreenPage key="settings" entrance="slide">
         <Settings tabSlug={tabSlug} />
       </FullScreenPage>
     ))
@@ -190,14 +284,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/pending-notes',
-    onlyReady(() => (
-      <FullScreenPage>
-        <PendingNotes />
-      </FullScreenPage>
-    ))
-  ],
-  [
     '/rotate-guardian',
     onlyReady(() => (
       <FullScreenPage>
@@ -215,15 +301,11 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/bridge/deposit',
-    onlyReady(() =>
-      isBridgeDepositEnabled() ? (
-        <FullScreenPage>
-          <BridgeDeposit />
-        </FullScreenPage>
-      ) : (
-        <Woozie.Redirect to="/receive" />
-      )
-    )
+    onlyReady(() => (
+      <FullScreenPage>
+        <BridgeDeposit />
+      </FullScreenPage>
+    ))
   ],
   [
     '/history-details/:transactionId',
@@ -232,10 +314,31 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     // route change that reconciles in place would therefore keep showing — and
     // keep polling for — the previous transaction indefinitely.
     onlyReady(({ transactionId }) => (
-      <FullScreenPage>
+      <FullScreenPage key={`history-details-${transactionId}`} entrance="slide">
         <HistoryDetails key={transactionId} transactionId={transactionId!} />
       </FullScreenPage>
     ))
+  ],
+  // `/contacts/new` first: the `:address` route below would otherwise match it.
+  [
+    '/contacts/new',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <NewContactPage />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/contacts/:address',
+    onlyReady(({ address }) => {
+      const decoded = decodeParam(address);
+      if (decoded === undefined) return <Woozie.Redirect to={ADDRESS_BOOK_PATH} />;
+      return (
+        <FullScreenPage key={`contact-${address}`} entrance="slide">
+          <ContactDetailPage address={decoded} />
+        </FullScreenPage>
+      );
+    })
   ],
   [
     '/token-detail/:tokenId',
@@ -312,6 +415,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    '/earn/positions/:positionId/withdraw',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnWithdrawAmount positionId={positionId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
     '/earn/positions/:positionId/withdraw/review',
     onlyReady(({ positionId }) => (
       <FullScreenPage>
@@ -346,7 +457,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/generating-transaction/:txId',
     onlyReady(({ txId }) => (
-      <FullScreenPage>
+      <FullScreenPage entrance="fade">
         <GeneratingTransactionPage txId={txId!} />
       </FullScreenPage>
     ))
@@ -354,16 +465,19 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/generating-transaction-full/:txId',
     onlyReady(({ txId }) => (
-      <FullScreenPage>
+      <FullScreenPage entrance="fade">
         <GeneratingTransactionPage txId={txId!} keepOpen={true} />
       </FullScreenPage>
     ))
   ],
+  // The retired Pending notes page: an old link or a restored URL still lands where it went.
+  ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
   ['*', () => <Woozie.Redirect to="/" />]
 ]);
 
 const PageRouter: FC = () => {
-  const { trigger, pathname } = Woozie.useLocation();
+  const location = Woozie.useLocation();
+  const { trigger, pathname } = location;
 
   // Scroll to top after new location pushed.
   useLayoutEffect(() => {
@@ -378,6 +492,8 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
+  const settingsScrollTop = useRef(0);
+  const finishingOnboarding = useOnboardingFinishing();
 
   const ctx = useMemo<RouteContext>(
     () => ({
@@ -385,12 +501,62 @@ const PageRouter: FC = () => {
       fullPage: appEnv.fullPage,
       ready: miden.ready,
       locked: miden.locked,
-      hydrated: miden.hydrated
+      hydrated: miden.hydrated,
+      finishingOnboarding,
+      settingsScrollTop
     }),
-    [appEnv.popup, appEnv.fullPage, miden]
+    [appEnv.popup, appEnv.fullPage, miden, finishingOnboarding]
+  );
+  // Once the hold is on screen its safety clock must run, however long the holder's registration still takes.
+  useEffect(() => {
+    if (miden.ready && finishingOnboarding) armHeldOnboardingMark();
+  }, [miden.ready, finishingOnboarding]);
+  // Telemetry reports the wallet's own state, not the frame onboarding holds back.
+  const lifecycleCtx = useMemo(
+    () => ({ ready: miden.ready, locked: miden.locked, hydrated: miden.hydrated }),
+    [miden.ready, miden.locked, miden.hydrated]
   );
 
-  return useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+  // The `open` / `return` telemetry flows live here rather than in `app/App`
+  // because this is the first component that can read wallet readiness — `App`
+  // is what mounts `MidenProvider`.
+  useAppLifecycleTelemetry(lifecycleCtx);
+  // dApp approvals report from the confirmation store, which cannot import
+  // telemetry itself — see the hook.
+  useDappApprovalTelemetry();
+  useRetireLockoutOnReady(miden.ready);
+
+  const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+
+  // Locking must remove all wallet pages without waiting for an animation, so
+  // the layer stack is skipped until the wallet is ready, unlocked and hydrated.
+  const tabPage = React.isValidElement(page) && page.type === TabLayout;
+  const slide =
+    React.isValidElement<FullScreenPageProps>(page) &&
+    page.type === FullScreenPage &&
+    (page.props.entrance ?? defaultPageEntrance()) === 'slide';
+  const walletOpen = ctx.ready && !ctx.locked && ctx.hydrated;
+  // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
+  // onboarding to finish) and stays off the onboarding and recovery routes.
+  const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
+  const layered = !walletOpen ? (
+    page
+  ) : (
+    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+      {page}
+    </MobilePageLayers>
+  );
+
+  // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
+  // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height
+  // left under it. The test network itself is named on the screens that commit value
+  // (NetworkModeBanner), not here.
+  return (
+    <div className="relative flex h-full min-h-0 w-full flex-col">
+      {showCountdown && <MainnetCountdownBanner />}
+      <div className="relative min-h-0 flex-1">{layered}</div>
+    </div>
+  );
 };
 
 export default PageRouter;

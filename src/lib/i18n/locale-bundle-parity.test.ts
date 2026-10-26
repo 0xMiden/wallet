@@ -1,0 +1,360 @@
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Guards on the SHIPPED locale artefacts. Two files exist per locale and they are
+ * not interchangeable:
+ *
+ *   - `public/_locales/<loc>/messages.json` — Chrome-extension format, produced by
+ *     the CI DeepL job (`utility/generateLanguageFiles.ts`).
+ *   - `public/_locales/<loc>/<loc>.json` — the FLAT map `src/i18n.ts` imports and
+ *     hands to i18next as `resources`. Every `t('…')` in the app resolves against
+ *     this one, so it is the file the user actually sees.
+ *
+ * The flat bundle is derived from `messages.json` by `format-locales.js`. That
+ * step used to have no caller at all (not a package script, not a workflow), so
+ * the runtime bundles were frozen at whenever someone last ran it by hand while
+ * the DeepL job kept refreshing `messages.json` — es/es.json had 469 of en's 924
+ * keys, 172 keys that no longer existed in English, and `close` = "Cerca"
+ * (= "nearby"), the exact #469 defect the parity test below pins. The parity test
+ * passed throughout, because it read `messages.json` on both sides.
+ *
+ * So this file asserts BOTH halves: the translation parity (on messages.json) AND
+ * the derivation (flat bundle === flatten(messages.json)), which is what makes the
+ * first half say anything about what ships.
+ */
+
+const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
+const I18N_SOURCE = path.join(__dirname, '../../i18n.ts');
+
+type Entry = { message: string; englishSource?: string; placeholders?: Record<string, unknown> };
+
+const loadMessages = (locale: string): Record<string, Entry> =>
+  JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, 'messages.json'), 'utf8'));
+
+const loadFlat = (locale: string): Record<string, string> =>
+  JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8'));
+
+const enSource: Record<string, string> = JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, 'en/en.json'), 'utf8'));
+const en = loadMessages('en');
+const es = loadMessages('es');
+
+/**
+ * Keys whose stored `englishSource` differs from en.json: superseded copy or a
+ * rejected translation. `format-locales.js` omits both from the flat bundle for English
+ * fallback. `translateWithDiff` sends a rejected key again only when its English changes
+ * or its entry is deleted; other stale entries are queued on the next DeepL run.
+ */
+const staleKeys = (locale: string): string[] =>
+  Object.entries(loadMessages(locale))
+    .filter(([key, entry]) => entry.englishSource !== enSource[key])
+    .map(([key]) => key);
+
+/**
+ * The non-English locale directories `src/i18n.ts` imports a flat bundle from.
+ * Kept as a literal so a bundle silently dropped from `resources` shows up as a
+ * failing assertion rather than as one fewer thing being checked; the first test
+ * pins it against the real import list.
+ */
+const RUNTIME_LOCALES = ['de', 'es', 'fr', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'uk', 'zh_CN', 'zh_TW'];
+
+/** Every locale dir carrying both artefacts, minus `en` (whose en.json is the SOURCE). */
+const DERIVED_LOCALES = fs
+  .readdirSync(LOCALES_DIR)
+  .filter(
+    dir =>
+      dir !== 'en' &&
+      fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')) &&
+      fs.existsSync(path.join(LOCALES_DIR, dir, `${dir}.json`))
+  );
+
+/** Every locale dir Chrome ships a messages.json from, `en` included. */
+const ALL_LOCALES = fs
+  .readdirSync(LOCALES_DIR)
+  .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
+
+// Read a required entry's message; throws (failing the test with a clear reason)
+// if the key is absent. Keeps indexed access type-safe under
+// `noUncheckedIndexedAccess`, which treats `Record` lookups as possibly-undefined.
+const msg = (bundle: Record<string, Entry>, key: string): string => {
+  const entry = bundle[key];
+  if (!entry) throw new Error(`locale is missing key: ${key}`);
+  return entry.message;
+};
+
+describe('runtime locale bundles (the files src/i18n.ts actually renders from)', () => {
+  it('keeps the ordinary Japanese amount label translated', () => {
+    expect(loadFlat('ja').amount).toBe('金額');
+  });
+
+  it('names the Earn catalog Available Vaults (#1322)', () => {
+    expect(enSource['earnVaultsTitle']).toBe('Available Vaults');
+  });
+
+  it('checks every non-English bundle src/i18n.ts imports', () => {
+    // `import es from '../public/_locales/es/es.json';` — one line per locale.
+    const source = fs.readFileSync(I18N_SOURCE, 'utf8');
+    const imported = [...source.matchAll(/_locales\/([A-Za-z_]+)\/\1\.json/g)].map(m => m[1]!);
+    expect(imported.filter(loc => loc !== 'en').sort()).toEqual([...RUNTIME_LOCALES].sort());
+  });
+
+  it.each(DERIVED_LOCALES)('%s.json is the current-translation flatten of messages.json', locale => {
+    // The invariant `format-locales.js` establishes. Without it the DeepL job
+    // refreshes messages.json while the rendered bundle keeps whatever it had.
+    const expected = Object.fromEntries(
+      Object.entries(loadMessages(locale))
+        .filter(([key, entry]) => entry.englishSource === enSource[key])
+        .map(([key, entry]) => [key, entry.message])
+    );
+    expect(loadFlat(locale)).toEqual(expected);
+  });
+
+  it('every en.json SOURCE value is a flat string, not a Chrome message object', () => {
+    // en.json is the FLAT source map i18n.ts installs directly as resources.en.translation. The
+    // Chrome `{ "message": ... }` wrapper belongs only to the GENERATED _locales/<loc>/messages.json.
+    // An object value here does not throw: i18next resolves it through its handle-as-object path and
+    // the screen renders "key '<name> (en)' returned an object instead of string" as its user-facing
+    // copy. A suite that stubs react-i18next with its own map cannot see that, which is exactly how
+    // one shipped. Generation would also double-wrap it as {"message":{"message":...}} and hand the
+    // translator an object for every other locale.
+    const nonString = Object.entries(enSource)
+      .filter(([, value]) => typeof value !== 'string')
+      .map(([key]) => key);
+    expect(nonString).toEqual([]);
+  });
+
+  it('every key in the en.json SOURCE reaches en/messages.json', () => {
+    // The comparison set for every other test in this file is
+    // `Object.keys(en/messages.json)`. So a key added to the hand-authored
+    // `en.json` source and never propagated is not merely untested — it is
+    // absent from the thing the tests compare against, and the whole suite
+    // reads green while the UI renders the raw key name.
+    //
+    // That is not hypothetical: six guardian strings shipped in exactly this
+    // state for two rounds. `format-locales.js` cannot catch it either, since
+    // it skips `en` by design (en.json is its source, not its output).
+    const unpropagated = Object.keys(enSource).filter(key => !(key in en));
+    expect(unpropagated).toEqual([]);
+  });
+
+  it.each(ALL_LOCALES)('%s keeps no key that outlived its English source', locale => {
+    // The missing direction, and the one a removal needs. Deleting a key from en.json makes its
+    // stored `englishSource` unmatchable, so the flatten test above filters it out of messages.json as
+    // stale, and the completeness test below (`staleKeys`) treats its absence from the flat bundle as a
+    // permitted gap: `receiveTestFundsTitle` survived in all 14 bundles that way, with
+    // every gate green, queued for re-translation against English text that no longer exists.
+    const orphans = Object.keys(loadMessages(locale)).filter(key => !(key in enSource));
+    expect(orphans).toEqual([]);
+  });
+
+  it.each(RUNTIME_LOCALES)('%s translates every shipped English key it has a current translation for', locale => {
+    const bundle = loadFlat(locale);
+    const missing = Object.keys(en).filter(key => !(key in bundle));
+    // Stale and rejected keys stay out of the flat bundle for English fallback. Rejected keys wait
+    // for their English to change or their entry to be deleted; other stale entries are queued.
+    expect(missing.sort()).toEqual(staleKeys(locale).sort());
+  });
+
+  it.each(RUNTIME_LOCALES)('%s keeps the bridge source hint aligned with the disconnected-wallet label', locale => {
+    const flat = loadFlat(locale);
+    const messages = loadMessages(locale);
+    expect(flat.bridgeConnectSourceHint).toBe(flat.guardianNotConnectedLabel);
+    expect(msg(messages, 'bridgeConnectSourceHint')).toBe(msg(messages, 'guardianNotConnectedLabel'));
+  });
+
+  it.each([
+    ['de', 'Nach Miden'],
+    ['fr', 'Vers Miden'],
+    ['ja', 'ミデンへ'],
+    ['pl', 'Do Miden'],
+    ['pt', 'Para Miden'],
+    ['zh_CN', '转入 Miden'],
+    ['zh_TW', '轉入 Miden']
+  ])('%s translates the home deposit hint', (locale, expected) => {
+    expect(loadFlat(locale).homeDepositHint).toBe(expected);
+    expect(msg(loadMessages(locale), 'homeDepositHint')).toBe(expected);
+  });
+
+  it.each(['en', ...DERIVED_LOCALES])('%s uses $-delimited placeholders, never {{…}}', locale => {
+    // `src/i18n.ts` configures `interpolation.prefix/suffix = '$'`, so a stale
+    // `{{origin}}` renders literally — e.g. the "reset permissions for X?" prompt
+    // asking the user to confirm without naming the site.
+    const offenders = Object.entries(loadFlat(locale))
+      .filter(([, value]) => value.includes('{{'))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
+  it.each(ALL_LOCALES)('%s messages.json uses $-delimited placeholders, never {{…}}', locale => {
+    // Chrome i18n and `getMessage` (core.ts) render messages.json whole, stale entries included, so a
+    // `{{x}}` translation the flat bundle already dropped still reaches the screen until the next DeepL run.
+    const offenders = Object.entries(loadMessages(locale))
+      .filter(([, entry]) => entry.message.includes('{{'))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
+  it('renders the Spanish "Close" action as Cerrar in the bundle the UI reads (#469)', () => {
+    expect(loadFlat('es').close).toBe('Cerrar');
+  });
+
+  it('renders the Turkish "Open" action of the open-link prompt as Aç in the bundle the UI reads', () => {
+    expect(loadFlat('tr').openLinkAction).toBe('Aç');
+  });
+
+  it('renders the Japanese "Continue" action as 続ける, not 続きを読む (read more), in the bundle the UI reads', () => {
+    expect(loadFlat('ja').continue).toBe('続ける');
+  });
+
+  it('calls the 12-word backup the recovery phrase in every English source value', () => {
+    // The product term is "recovery phrase": it restores the keys, while the
+    // Guardian backs up the account state recovery needs.
+    const seedPhraseKeys = Object.entries(enSource)
+      .filter(([, value]) => /seed phrase/i.test(value))
+      .map(([key]) => key);
+    expect(seedPhraseKeys).toEqual([]);
+  });
+
+  it('regenerates the bundles as part of the translation pipeline', () => {
+    // `format-locales.js` had no caller anywhere in the tree — not a package
+    // script, not a workflow step — which is how the runtime bundles drifted
+    // ~450 keys behind messages.json while every gate stayed green. The CI job
+    // (.github/workflows/pr.yml) runs `createTranslationFile` and then commits
+    // whatever changed under public/_locales/, so the flatten has to be part of
+    // that script for the drift to be visible.
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf8'));
+    expect(pkg.scripts.createTranslationFile).toContain('format-locales.js');
+  });
+});
+
+// #469 — the Spanish locale shipped an incomplete/incorrect translation set:
+// keys missing entirely (falling back to English) and at least one wrong
+// action translation ("Close" rendered as "Cerca"/"Acerca" = near/about). These
+// guards keep es structurally complete and pin the known-wrong fixes so the
+// translation bot (which only re-translates when the English source changes)
+// can't silently drift them back.
+describe('es locale parity with en (#469)', () => {
+  it('has a Spanish entry for every shipped English key (no English fallback)', () => {
+    const missing = Object.keys(en).filter(key => !(key in es));
+    expect(missing).toEqual([]);
+  });
+
+  it("preserves each key's placeholder set so $x$ substitutions still resolve", () => {
+    const mismatches: string[] = [];
+    for (const [key, enEntry] of Object.entries(en)) {
+      const esEntry = es[key];
+      if (!esEntry) continue;
+      const enPlaceholders = Object.keys(enEntry.placeholders ?? {}).sort();
+      const esPlaceholders = Object.keys(esEntry.placeholders ?? {}).sort();
+      if (JSON.stringify(enPlaceholders) !== JSON.stringify(esPlaceholders)) {
+        mismatches.push(`${key}: en[${enPlaceholders}] vs es[${esPlaceholders}]`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  it('translates "Close" as the action Cerrar, not the wrong "Cerca"/"Acerca" (#469)', () => {
+    expect(msg(es, 'close')).toBe('Cerrar');
+  });
+
+  it('does not leave the fixed common UI terms in English', () => {
+    // A curated subset of the entries this PR translated — guards against a
+    // regression back to the English source. Excludes the repo's protected
+    // TECHNICAL_TERMS (Note(s) / Faucet), which generateLanguageFiles
+    // intentionally keeps in English across every locale. (The broader
+    // Spanish-quality audit is a native-speaker follow-up per the issue.)
+    for (const key of ['withdrawalFailed', 'totalPaid', 'transactionComplete', 'depositIntentLabel']) {
+      expect(msg(es, key)).not.toBe(msg(en, key));
+    }
+  });
+});
+
+// Chrome parses `public/_locales/<loc>/messages.json` itself, before a line of the
+// extension runs, and REJECTS THE WHOLE EXTENSION when a `$name$` in `message` has
+// no matching `placeholders` entry:
+//
+//   Failed to load extension from: <dist>. Variable $tvl$ used but not defined.
+//
+// The unpacked extension then never loads, so Playwright's `--load-extension`
+// persistent context never comes up and every blockchain spec dies at
+// `browserType.launchPersistentContext: Timeout 180000ms exceeded` before any
+// assertion runs — on every PR stacked above the one that added the key, reading
+// like CI infrastructure flake rather than a one-line locale defect. `tsc`, jest and
+// `yarn lint:i18n` (which lints `src`, not `public/_locales`) are all blind to it;
+// this is the only gate that sees it.
+describe('Chrome i18n placeholder declarations', () => {
+  it.each(ALL_LOCALES)('%s declares every $placeholder$ its messages use', locale => {
+    const undeclared: string[] = [];
+    for (const [key, entry] of Object.entries(loadMessages(locale))) {
+      // Chrome matches placeholder names case-insensitively.
+      const declared = new Set(Object.keys(entry.placeholders ?? {}).map(name => name.toLowerCase()));
+      for (const [, name] of entry.message.matchAll(/\$([A-Za-z0-9_]+)\$/g)) {
+        if (!declared.has(name!.toLowerCase())) undeclared.push(`${key}: $${name}$`);
+      }
+    }
+    expect(undeclared).toEqual([]);
+  });
+});
+
+describe('hand-copied English is queued for translation', () => {
+  // A non-English entry whose message is English must carry the sentinel so the flat bundle omits it.
+  // `translateWithDiff` sends a rejected key again only when its English changes or its entry is deleted;
+  // other sentinel entries are queued on the next run. Every derived bundle, en_GB included, must
+  // carry the keys: en_GB is outside the runtime parity check, so a key could otherwise vanish from it
+  // unnoticed. The queued check skips English variants (en_*), whose translation can equal English.
+  const COPIED_KEYS = [
+    'earnNoActivePositionsTitle',
+    'earnNoActivePositionsBody',
+    'tokenActivityEmptyTitle',
+    'tokenActivityEmptyBody',
+    'tokenActivityLoadError',
+    'earnVaultLoadError'
+  ];
+
+  it('covers en_GB, which the runtime list leaves out', () => {
+    expect(DERIVED_LOCALES).toContain('en_GB');
+  });
+
+  it.each(DERIVED_LOCALES)('%s carries each copied key, translated or explicitly queued', locale => {
+    const messages = loadMessages(locale);
+    const missing = COPIED_KEYS.filter(key => messages[key] === undefined);
+    expect(missing).toEqual([]);
+    if (locale.startsWith('en')) return;
+    const neither = COPIED_KEYS.filter(
+      key => messages[key]!.message === en[key]?.message && messages[key]!.englishSource !== '(untranslated)'
+    );
+    expect(neither).toEqual([]);
+  });
+});
+
+describe('retired keys', () => {
+  // The vault row's TVL line was dropped because the earn API has no TVL; its string goes with it.
+  it('no locale bundle carries earnVaultTvl', () => {
+    const carriers = fs.readdirSync(LOCALES_DIR).flatMap(dir =>
+      ['messages.json', `${dir}.json`]
+        .map(file => path.join(LOCALES_DIR, dir, file))
+        .filter(file => fs.existsSync(file) && 'earnVaultTvl' in JSON.parse(fs.readFileSync(file, 'utf8')))
+        .map(file => path.relative(LOCALES_DIR, file))
+    );
+    expect(carriers).toEqual([]);
+  });
+});
+
+describe('locale files declare each key once', () => {
+  // JSON.parse keeps the last of two equal keys, so a duplicate is invisible to every parsed check here
+  // and an edit to the first copy is silently lost. Count top-level key lines in the raw text instead.
+  it('no public/_locales file repeats a top-level key', () => {
+    const repeats = fs.readdirSync(LOCALES_DIR).flatMap(dir =>
+      fs
+        .readdirSync(path.join(LOCALES_DIR, dir))
+        .filter(file => file.endsWith('.json'))
+        .flatMap(file => {
+          const keys = [
+            ...fs.readFileSync(path.join(LOCALES_DIR, dir, file), 'utf8').matchAll(/^ {2}"([^"]+)":/gm)
+          ].map(match => match[1]);
+          return keys.filter((key, index) => keys.indexOf(key) !== index).map(key => `${dir}/${file}: ${key}`);
+        })
+    );
+    expect(repeats).toEqual([]);
+  });
+});

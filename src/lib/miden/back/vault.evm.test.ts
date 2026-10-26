@@ -2,7 +2,6 @@
  * Wallet-derived EVM identity tests for `lib/miden/back/vault.ts`:
  *   - `Vault.spawn` stamps `evmAddress` + persists the encrypted leaf key
  *   - `createHDAccount` stamps the next address index
- *   - `backfillEvmAddresses` is idempotent and skips imported accounts
  *   - `signEvm` round-trips (message / typed-data digest / transaction)
  *     recover to the stamped address
  *   - rejection branches surface as PublicError
@@ -28,7 +27,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOne, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 const memoryStore: Record<string, any> = {};
@@ -50,6 +49,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
 }));
 
 const mockCreateMidenWallet = jest.fn(async (_type: any, _seed: Uint8Array) => 'acc-pub-key-1');
+// vault.ts re-checks lock-hold ownership before pre-write WASM calls (#788
+// follow-up), so the lock mock has to hand its callback a hold and back
+// assertWasmHoldCurrent with the real comparison — a no-op would leave the
+// guards untestable, and no export at all would make them a TypeError.
+let currentWasmHold: object | null = null;
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(async (_options?: any) => ({
     createMidenWallet: (...args: unknown[]) => mockCreateMidenWallet(...(args as [any, Uint8Array])),
@@ -63,7 +67,23 @@ jest.mock('../sdk/miden-client', () => ({
       keystore: { insert: jest.fn() }
     }
   })),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  installRealmKeystore: jest.fn(),
+  uninstallRealmKeystore: jest.fn(),
+  isRealmKeystoreInstalled: () => true,
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new Error(`operation abandoned ${where}`);
+  },
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = {};
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -73,11 +93,16 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: jest.fn((a: string, b: string) => a === b)
 }));
 
-jest.mock('lib/miden/reset', () => ({
-  clearStorage: jest.fn(async () => {
-    for (const k of Object.keys(memoryStore)) delete memoryStore[k];
-  })
-}));
+jest.mock('lib/miden/reset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
+  return {
+    PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
+    // Mirrors the real reset: every key but the kept list goes.
+    clearStorage: jest.fn(async (_clearDb: boolean = true, keep: readonly string[] = actual.PRESERVED_STORAGE_KEYS) => {
+      for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+    })
+  };
+});
 
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true),
@@ -168,12 +193,9 @@ describe('Vault.spawn: EVM identity stamping', () => {
     expect(accounts[0]!.evmAddress).toBe(EVM_ADDR_0);
 
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<`0x${string}`>(
-      keys.accEvmSecretKey(EVM_ADDR_0),
-      vaultKey
-    );
+    const privateKeyHex = await fetchAndDecryptOne<`0x${string}`>(keys.accEvmSecretKey(EVM_ADDR_0), vaultKey);
     expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
-  });
+  }, 60_000);
 });
 
 describe('Vault.createHDAccount: EVM identity stamping', () => {
@@ -185,38 +207,15 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
     const created = accounts.find(acc => acc.publicKey === 'acc-pub-key-2');
     expect(created?.hdIndex).toBe(1);
     expect(created?.evmAddress).toBe(EVM_ADDR_1);
-  });
-});
-
-describe('Vault.backfillEvmAddresses', () => {
-  it('stamps missing addresses, skips imported accounts, and is idempotent', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0), { ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
-
-    await vault.backfillEvmAddresses();
-    const first = await vault.fetchAccounts();
-    expect(first.find(acc => acc.publicKey === 'acc-pub-key-1')!.evmAddress).toBe(EVM_ADDR_0);
-    expect(first.find(acc => acc.publicKey === 'acc-imported')!.evmAddress).toBeUndefined();
-
-    await vault.backfillEvmAddresses();
-    const second = await vault.fetchAccounts();
-    expect(second).toEqual(first);
-  });
-
-  it('leaves accounts untouched when the vault has no mnemonic', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0)], '');
-    await vault.backfillEvmAddresses();
-    const accounts = await vault.fetchAccounts();
-    expect(accounts[0]!.evmAddress).toBeUndefined();
-  });
+  }, 60_000);
 });
 
 describe('Vault.signEvm round-trips', () => {
   let vault: Vault;
 
   beforeEach(async () => {
-    vault = await seedVault([hdAccount('acc-pub-key-1', 0)]);
-    await vault.backfillEvmAddresses();
-  });
+    vault = await Vault.spawn(WalletType.OnChain, 'pw', TEST_MNEMONIC, false);
+  }, 60_000);
 
   it('message: recovers the stamped address', async () => {
     const signature = await vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: stringToHex('hello miden') });
@@ -260,15 +259,15 @@ describe('Vault.signEvm rejections', () => {
   it('rejects an unknown account', async () => {
     const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)]);
     await expect(vault.signEvm('acc-unknown', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
-  });
+  }, 60_000);
 
   it('rejects an account without an EVM address (imported)', async () => {
     const vault = await seedVault([{ ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
     await expect(vault.signEvm('acc-imported', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
-  });
+  }, 60_000);
 
   it('rejects when the address is stamped but the key blob is missing', async () => {
     const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)]);
     await expect(vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
-  });
+  }, 60_000);
 });

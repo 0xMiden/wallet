@@ -1,11 +1,10 @@
 import { useEffect } from 'react';
 
 import { MidenState } from 'lib/miden/types';
-import { isExtension } from 'lib/platform';
-import { NoteClaimStarted, SyncData, WalletMessageType, WalletNotification } from 'lib/shared/types';
+import { hasExtensionRuntime, isExtension } from 'lib/platform';
+import { SyncData, WalletMessageType, WalletNotification } from 'lib/shared/types';
 
 import { getIntercom, useWalletStore } from '../index';
-import { selectStaleClaimingIds } from './claiming-reconcile';
 import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
 
 /**
@@ -57,7 +56,8 @@ async function retryFetchState(isCancelled: () => boolean): Promise<MidenState |
 function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = globalThis as any;
-  if (!g.chrome?.storage?.local) return;
+  // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+  if (!g.chrome?.storage?.local || !hasExtensionRuntime()) return;
   g.chrome.storage.local.get('miden_sync_data', (result: any) => {
     const syncData: SyncData | undefined = result?.miden_sync_data;
     if (!syncData) return;
@@ -75,7 +75,7 @@ function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): 
 async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<void> {
   await new Promise<void>(resolve => {
     readSyncData(accountPublicKey, syncData => {
-      updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets)
+      updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot)
         .catch(err => console.warn('[useIntercomSync] Initial balance rehydrate failed:', err))
         .finally(() => resolve());
     });
@@ -128,8 +128,6 @@ export function useIntercomSync() {
 
     const setSyncStatus = useWalletStore.getState().setSyncStatus;
 
-    const store = useWalletStore.getState;
-
     // Each StateUpdated broadcast launches a retry-wrapped refetch. A slow
     // retry from an earlier broadcast must not clobber the newer state, so we
     // cancel the previous loop's token on every new broadcast (and on unmount).
@@ -146,10 +144,6 @@ export function useIntercomSync() {
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status
         setSyncStatus(false);
-      } else if (msg?.type === WalletMessageType.NoteClaimStarted) {
-        if (isExtension()) {
-          store().addExtensionClaimingNoteId((msg as NoteClaimStarted).noteId);
-        }
       }
     });
 
@@ -173,37 +167,12 @@ export function useIntercomSync() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
+    // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+    if (!hasExtensionRuntime()) return;
 
     const accountPublicKey = currentAccount.publicKey;
-    const store = useWalletStore.getState;
-    // Tracks when each claiming id was first observed, so a stalled consume can
-    // be expired by age. Closure-scoped (resets per account), persists across
-    // the 3s poll ticks below. See selectStaleClaimingIds.
-    const claimingFirstSeen = new Map<string, number>();
-
     const poll = () => {
       readSyncData(accountPublicKey, syncData => {
-        const noteIds = syncData.notes.map(n => n.id);
-
-        // Reconcile the isBeingClaimed gate: drop claiming IDs for notes whose
-        // consume committed (no longer consumable) OR whose claim has stalled
-        // past the safety timeout. The timeout matters because a consume that
-        // never commits (slow/flaky networks like testnet, or an outright
-        // failure) would otherwise hide the note's Claim button forever. This
-        // is NOT a blanket reset — it preserves the gate used by Explore's
-        // auto-consume for in-flight claims, since NoteClaimStarted broadcasts
-        // fire once while this poll ticks every 3s.
-        const consumableIds = new Set(noteIds);
-        const staleClaimingIds = selectStaleClaimingIds(
-          store().extensionClaimingNoteIds,
-          consumableIds,
-          claimingFirstSeen,
-          Date.now()
-        );
-        if (staleClaimingIds.length > 0) {
-          store().removeExtensionClaimingNoteIds(staleClaimingIds);
-        }
-
         // Note: we used to call `store().checkForNewNotes(noteIds)` here too.
         // `useNoteToastMonitor` (driven by `useClaimableNotes`) is now the single
         // authoritative source for new-note detection — having two racing paths
@@ -211,14 +180,20 @@ export function useIntercomSync() {
         // async `seenNoteIds` hydration resolved; missing toasts when custom-faucet
         // metadata arrived after Path A's notes had already been marked seen).
         // Convert vault assets → balances, update Zustand
-        updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
-          console.warn('[useIntercomSync] Balance update failed:', err)
+        updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot).catch(
+          err => console.warn('[useIntercomSync] Balance update failed:', err)
         );
       });
     };
 
     poll();
-    const timer = setInterval(poll, 3_000);
+    const timer = setInterval(() => {
+      if (!hasExtensionRuntime()) {
+        clearInterval(timer);
+        return;
+      }
+      poll();
+    }, 3_000);
     return () => clearInterval(timer);
   }, [currentAccount]);
   /* c8 ignore stop */

@@ -1,5 +1,5 @@
 import { IBridgeProvider } from 'lib/miden/db/types';
-import { truncateAddress, truncateHash } from 'utils/string';
+import { truncateHash } from 'utils/string';
 
 import { ReceiptRow } from './TransactionSuccessLayout';
 
@@ -13,14 +13,16 @@ interface BuildReceiptRowsArgs {
   destinationLabel?: string;
   /** Formatted "amount symbol" shown in the amount row. */
   amountText?: string;
-  /** Label for the amount row; defaults to "Total Paid" (consume receipts pass "Total Consumed"). */
+  /** Label for the amount row; defaults to "Total Paid" (consume receipts pass "Total Accepted"). */
   amountLabel?: string;
-  /** Ids of the notes a consume claimed; rendered as a "Notes Consumed" row. */
+  /** Ids of the notes a consume accepted; rendered as a "Transfer IDs" row. */
   noteIds?: string[];
   /** On-chain hash shown in the "Transaction ID" row. */
   txHash?: string | null;
   /** When provided, the transaction-id value becomes a button. */
   onViewExplorer?: () => void;
+  /** Formatted "amount symbol" for the network fee this transaction paid. */
+  feeText?: string;
   /** Optional "Route" row value (e.g. "Slow"); bridge sends only. */
   route?: string;
   /** Optional sub-line under the "Route" value (e.g. "Via Epoch"). */
@@ -31,7 +33,7 @@ interface BuildReceiptRowsArgs {
  * Builds the shared key/value receipt rows for the amount-led success views.
  * Rows are appended only when their data exists, so the same builder serves a
  * minimal plain send, a fully-populated bridged send, and a consume/claim.
- * Order matches the design: To/From → Route → Total → Notes Consumed → Transaction ID.
+ * Order matches the design: To/From → Route → Total → Transfer IDs → Transaction ID.
  */
 export const buildReceiptRows = (
   t: TFn,
@@ -41,6 +43,7 @@ export const buildReceiptRows = (
     amountText,
     amountLabel,
     noteIds,
+    feeText,
     txHash,
     onViewExplorer,
     route,
@@ -52,7 +55,9 @@ export const buildReceiptRows = (
   if (destinationAddress) {
     rows.push({
       label: destinationLabel ?? t('to'),
-      value: truncateAddress(destinationAddress, true, 6, 4, 4)
+      // In full: the receipt is where the user confirms where the funds went.
+      value: destinationAddress,
+      stacked: true
     });
   }
 
@@ -71,9 +76,19 @@ export const buildReceiptRows = (
     });
   }
 
+  // After the amount, before the transaction id: the fee is part of what the
+  // transfer cost, not metadata about it. Omitted entirely on a zero-fee chain,
+  // where an empty row would look like a failed read.
+  if (feeText) {
+    rows.push({
+      label: t('networkFee'),
+      value: feeText
+    });
+  }
+
   if (noteIds && noteIds.length > 0) {
     rows.push({
-      label: t('notesConsumed', { defaultValue: 'Notes Consumed' }),
+      label: t('notesConsumed', { defaultValue: 'Transfer IDs' }),
       value: noteIds.map(id => truncateHash(id, 6, 4)).join(', ')
     });
   }

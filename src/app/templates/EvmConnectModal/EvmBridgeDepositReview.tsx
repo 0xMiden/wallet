@@ -2,22 +2,42 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { BridgeRoute } from 'screens/send-flow/types';
+import { NetworkLogo } from 'components/NetworkChip';
+import { ReviewLayout } from 'components/review';
+import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue, UsdValue } from 'components/TokenUsdValue';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
+import { Pill } from 'components/ui/Pill';
+import { Skeleton } from 'components/ui/Skeleton';
+import { IBridgeProvider } from 'lib/miden/db/types';
+import type { TokenPriceInfo } from 'lib/prices/binance';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
 
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
   amount: string;
-  /** Token symbol shown in the hero / rows (e.g. USDC or ETH). */
+  /** Token symbol: keys the logo, and names the token unless `label` is given (e.g. USDC or ETH). */
   symbol: string;
+  /** The token's name in the hero and rows, such as the testnet label (`evmUsdcLabel`). */
+  label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
+  sourceQuote?: TokenPriceInfo;
+  outputFaucetId?: string;
   /** Selected bridge route — drives the route label + arrival ETA. */
-  route: BridgeRoute;
-  /** Forward-quoted output the recipient receives on Miden (Fast route). undefined while quoting. */
+  route: IBridgeProvider;
+  /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
   outputAmount?: string;
+  /** Circle's quoted fee for an executor-route burn (human string), paid in the source token on top of the amount. */
+  fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
+  networkId?: string;
+  destinationName?: string;
+  /** Source chain id; on the USDCx route it picks the arrival estimate (`usdcxArrivalKey`). */
+  sourceChainId?: number;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
   youReceiveLoading?: boolean;
   /** Drives the confirm-button spinner while the bridge submit is in flight. */
@@ -28,41 +48,98 @@ export interface EvmBridgeDepositReviewProps {
   confirmLabel?: string;
   /** Bridge submit error, shown above the CTAs. */
   error?: string;
+  errorId?: UserErrorId | null;
   onConfirm: () => void;
   onBack: () => void;
 }
 
 /**
+ * What a deposit arrives on Miden as: only the Epoch route mints the bridge's Miden faucet the label names, so the Slow
+ * route delivers the plain symbol and Circle xReserve mints USDCx. The amount step and the Review both name the
+ * arriving token through it.
+ */
+export function arrivingTokenName(route: IBridgeProvider, symbol: string, label: string): string {
+  switch (route) {
+    case 'agglayer':
+      return symbol;
+    case 'usdcx':
+      return USDCX_SYMBOL;
+    case 'epoch':
+    default:
+      return label;
+  }
+}
+
+/**
  * Review step for the Receive-from-EVM bridge deposit, shown after the route is
- * chosen. Reuses the shared `ReviewLayout`/`ReviewRow`/`ReviewAmount` shell (same
- * design as the Send review) and defers the actual submit to `onConfirm`, which
- * the manager wires to `executeEVMToMiden` (Fast) or the Agglayer bridge (Slow).
+ * chosen. Reuses the shared `ReviewLayout` shell (same shell as the Send review)
+ * with a `Hero` amount and `DetailCard` rows, and defers the actual submit to
+ * `onConfirm`, which the manager wires to `executeEVMToMiden` (Fast) or the
+ * Agglayer bridge (Slow).
  */
 export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
   symbol,
-  fiat,
+  label,
+  sourceQuote,
+  outputFaucetId,
   route,
   outputAmount,
+  fee,
   networkName,
+  networkId,
+  destinationName,
+  sourceChainId,
   youReceiveLoading = false,
   isSubmitting = false,
   canConfirm = false,
   confirmLabel,
   error,
+  errorId = 'raw_bridge_deposit_submit_failed',
   onConfirm,
   onBack
 }) => {
   const { t } = useTranslation();
 
-  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${symbol}`.trim() : symbol;
+  const { routeLabel, arrivalLabel } = (() => {
+    switch (route) {
+      case 'agglayer':
+        return { routeLabel: t('slow'), arrivalLabel: t('slowArrival') };
+      case 'usdcx':
+        return {
+          routeLabel: t('usdcxRouteName'),
+          arrivalLabel: t(sourceChainId === undefined ? 'usdcxArrival' : usdcxArrivalKey(sourceChainId))
+        };
+      case 'epoch':
+      default:
+        return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };
+    }
+  })();
+  const name = label ?? symbol;
+  const receiveName = arrivingTokenName(route, symbol, name);
+  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
 
   return (
     <ReviewLayout
-      hero={<ReviewAmount symbol={symbol} amount={amount} fiat={fiat} label={t('youAreDepositing')} />}
+      accent="receive"
+      hero={
+        // The caption identifies what the hero amount is for — same shape as ReviewSwap's
+        // You Send / You Receive pills, since Hero itself has no slot above its value.
+        <div className="mt-3 flex w-full flex-col items-center">
+          <Pill tone="neutral">{t('youAreDepositing')}</Pill>
+          <Hero
+            className="mt-2"
+            visual={<TokenLogo symbol={symbol} size="2xl" />}
+            value={`${amount} ${name}`}
+            subtitle={<UsdValue amount={amount} quote={sourceQuote} />}
+          />
+        </div>
+      }
+      // The rows now live inside one DetailCard (their own hairlines), so ReviewLayout's outer
+      // divide-y around a single child would be a no-op — turned off for clarity.
+      dividers={false}
       error={error}
+      errorId={errorId}
       primary={{
         label: confirmLabel ?? t('confirmDeposit'),
         onPress: onConfirm,
@@ -72,20 +149,48 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       }}
       secondary={{ label: t('back'), onPress: onBack, disabled: isSubmitting }}
     >
-      <ReviewRow label={t('amount')} value={`${amount} ${symbol}`} />
+      <DetailCard>
+        <DetailRow label={t('amount')}>{`${amount} ${name}`}</DetailRow>
 
-      <ReviewRow label={t('from')}>
-        <span className="inline-flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
-          {networkName}
-        </span>
-      </ReviewRow>
+        <DetailRow label={t('from')}>
+          <span className="inline-flex items-center gap-2">
+            <NetworkLogo kind="ethereum" network={networkId} />
+            {networkName}
+          </span>
+        </DetailRow>
 
-      <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
+        <DetailRow label={t('to')} sub={destinationName}>
+          {t('miden')}
+        </DetailRow>
 
-      <ReviewRow label={t('youReceive')}>
-        {youReceiveLoading ? <div className="h-7 w-32 animate-pulse rounded bg-heading-gray/10" /> : youReceiveLabel}
-      </ReviewRow>
+        <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+
+        {fee !== undefined && (
+          <DetailRow label={t('usdcxCircleFee')}>
+            <div>
+              {`${fee} ${name}`}
+              <div>
+                <UsdValue amount={fee} quote={sourceQuote} />
+              </div>
+            </div>
+          </DetailRow>
+        )}
+
+        <DetailRow label={t('youReceive')}>
+          {youReceiveLoading ? (
+            <Skeleton className="h-6 w-28" />
+          ) : (
+            <div>
+              {youReceiveLabel}
+              {outputAmount !== undefined && (
+                <div>
+                  <TokenUsdValue amount={outputAmount} faucetId={outputFaucetId} symbol={receiveName} />
+                </div>
+              )}
+            </div>
+          )}
+        </DetailRow>
+      </DetailCard>
     </ReviewLayout>
   );
 };

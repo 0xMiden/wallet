@@ -10,7 +10,7 @@
  * faithfully enough because the code under test only ever asks two questions:
  * "is an ancestor still translated" and "what rect does the slot report".
  *
- * The bug this keeps dead: measurements taken during the tab slide-in are
+ * The bug this keeps dead: measurements taken during a page-layer slide are
  * discarded, and nothing guaranteed a later one. A ResizeObserver does not fire
  * on transform changes, so once the three fixed timers were spent `slotRect`
  * stayed null for the lifetime of the screen — leaving the dApp foreground in
@@ -21,14 +21,25 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 const mockSetSlotRect = jest.fn();
 const mockSession = { id: 'session-1', url: 'https://dapp.example', origin: 'https://dapp.example' };
+const mockSessionStates: Array<{
+  session: typeof mockSession;
+  error: string;
+  policyResolved: boolean;
+  presentation: 'fullscreen' | 'embedded';
+}> = [];
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k })
 }));
 
 jest.mock('app/providers/DappBrowserProvider', () => ({
+  useHideForegroundDappWhileOpen: jest.fn(),
   useDappBrowser: () => ({
     session: mockSession,
     isLoading: false,
@@ -37,7 +48,7 @@ jest.mock('app/providers/DappBrowserProvider', () => ({
     park: jest.fn(),
     setSlotRect: mockSetSlotRect,
     openSwitcher: jest.fn(),
-    sessionStates: []
+    sessionStates: mockSessionStates
   })
 }));
 
@@ -75,6 +86,8 @@ let originalGetBoundingClientRect: typeof Element.prototype.getBoundingClientRec
 
 beforeEach(() => {
   jest.useFakeTimers();
+  mockSessionStates.length = 0;
+  jest.mocked(reportUserVisibleError).mockClear();
   mockSetSlotRect.mockClear();
   ancestorTransform = 'none';
 
@@ -187,4 +200,28 @@ describe('DappActive slot measurement', () => {
 
     expect(mockSetSlotRect.mock.calls.length).toBe(callsAtUnmount);
   });
+});
+
+it('reports a dApp load failure only while its host error is visible', async () => {
+  mockSessionStates.push({
+    session: mockSession,
+    error: 'private WebView failure',
+    policyResolved: true,
+    presentation: 'fullscreen'
+  });
+  const view = render(<DappActive />);
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1000);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  mockSessionStates[0]!.presentation = 'embedded';
+  view.rerender(<DappActive />);
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1);
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('dappLoadFailed', 'inline');
 });

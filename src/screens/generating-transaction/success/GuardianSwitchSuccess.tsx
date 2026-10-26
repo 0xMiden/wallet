@@ -5,11 +5,17 @@ import { useTranslation } from 'react-i18next';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-success.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
+import { Pill } from 'components/ui/Pill';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
 
-import { SuccessDivider, TransactionSuccessLayout, TransactionSuccessProps } from './TransactionSuccessLayout';
+import { TransactionSuccessLayout, TransactionSuccessProps } from './TransactionSuccessLayout';
 
 const isSwitchGuardianExtraInputs = (value: unknown): value is ISwitchGuardianExtraInputs =>
   !!value &&
@@ -35,18 +41,68 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     : undefined;
   const newName = extra ? guardianEndpointDisplayName(extra.newGuardianEndpoint, unknown) : undefined;
 
-  const infoKeys = [
-    'guardianSwitchSuccessInfo1',
-    'guardianSwitchSuccessInfo2',
-    'guardianSwitchSuccessInfo3',
-    'guardianSwitchSuccessInfo4'
-  ] as const;
+  // Every claim below derives from the row's verdict - the single reader of
+  // the outcome flags (`rotation-verdict.ts`). The distinctions it carries:
+  // `submitted-unconfirmed` outranks the degraded flags because their bodies
+  // open by asserting the commit - the one fact that state lacks; a degraded
+  // commit still shows which post-commit step is undone, since the
+  // unsaved-address case needs the user and the pending-registration case
+  // self-heals from the sync loop.
+  const verdict = rotationVerdict(transaction);
+  const commitUnconfirmed = verdict?.kind === 'submitted-unconfirmed';
+  const degraded = verdict?.kind === 'submitted-unconfirmed' || verdict?.kind === 'completed-degraded';
+  const endpointNotSaved = degraded && !verdict.endpointPersisted;
+  const registrationPending = degraded && !verdict.registered;
+  // Sharper still (#1233): the switch reached the network, but its local apply failed and this device
+  // could not save the account's new state yet. It outranks the other three, whose bodies assert a
+  // confirmation or advise running the switch again, which cannot help a device holding the
+  // pre-switch account. The background self-heal clears it.
+  const localStateNotSaved = extra?.localStateNotSaved === true;
+  // Sharpest (#1233): the same failure on a direct switch, which nothing repairs. It outranks the
+  // background-repair promise above, and running the switch again would build on the stale copy.
+  const localStateUnrecoverable = extra?.localStateUnrecoverable === true;
+
+  // Rows 1 and 3 assert the rotation took effect and are INVERTED when it may not have landed (the old
+  // Guardian would still need to co-sign, and it is the one this path found unreachable), so they swap to
+  // "once the switch is confirmed" wording. Row 2 holds either way; row 4 contradicts the unrecoverable
+  // state's "do not run the switch again".
+  const infoRows = [
+    {
+      id: 'cosign',
+      icon: IconName.ShieldCheck,
+      titleKey: commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1Title' : 'guardianSwitchSuccessInfo1Title',
+      bodyKey: commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1'
+    },
+    {
+      id: 'unchanged',
+      icon: IconName.Coins,
+      titleKey: 'guardianSwitchSuccessInfo2Title',
+      bodyKey: 'guardianSwitchSuccessInfo2'
+    },
+    {
+      id: 'reachable',
+      icon: IconName.Globe,
+      titleKey: 'guardianSwitchSuccessInfo3Title',
+      bodyKey: commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo3' : 'guardianSwitchSuccessInfo3'
+    },
+    ...(localStateUnrecoverable
+      ? []
+      : [
+          {
+            id: 'again',
+            icon: IconName.Refresh,
+            titleKey: 'guardianSwitchSuccessInfo4Title',
+            bodyKey: 'guardianSwitchSuccessInfo4'
+          }
+        ])
+  ];
 
   return (
     <TransactionSuccessLayout
       headerTitle=""
-      hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
-      title={t('guardianSwitchSuccessTitle')}
+      accent={accentForTransactionType(transaction?.type)}
+      hero={<GuardianSwitchArt className="-mt-4 h-40 w-auto" aria-hidden="true" />}
+      title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
         label: t('viewInActivities'),
@@ -59,7 +115,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       {/* A custom endpoint is shown as its raw host, which can be long enough to
           push the pair off screen; break it rather than overflow. */}
       {newName && (
-        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-heading-gray">
+        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-ink">
           {previousName && (
             <>
               {/* The arrow is the only thing carrying direction, and an untitled
@@ -81,18 +137,75 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
         </div>
       )}
 
-      <SuccessDivider />
+      {(localStateUnrecoverable ||
+        localStateNotSaved ||
+        commitUnconfirmed ||
+        endpointNotSaved ||
+        registrationPending) && (
+        <Alert
+          className="mt-3 w-full text-left"
+          variant={AlertVariant.Warning}
+          title={
+            <>
+              <span className="font-semibold">
+                {t(
+                  localStateUnrecoverable
+                    ? 'guardianSwitchLocalStateUnrecoverableTitle'
+                    : localStateNotSaved
+                      ? 'guardianSwitchLocalStateNotSavedTitle'
+                      : commitUnconfirmed
+                        ? 'guardianSwitchUnconfirmedTitle'
+                        : 'guardianSwitchSetupIncompleteTitle'
+                )}
+              </span>{' '}
+              {localStateUnrecoverable
+                ? t('guardianSwitchLocalStateUnrecoverableBody')
+                : localStateNotSaved
+                  ? t('guardianSwitchLocalStateNotSavedBody')
+                  : commitUnconfirmed
+                    ? t('guardianSwitchUnconfirmedBody')
+                    : t(
+                        endpointNotSaved
+                          ? 'guardianSwitchEndpointNotSavedBody'
+                          : 'guardianSwitchRegistrationPendingBody'
+                      )}
+              {/* `commitUnconfirmed` outranks the other two because their bodies
+                  open by asserting the commit. But outranking them dropped the
+                  one INSTRUCTION on this screen: the unsaved-address case needs
+                  the user to re-enter the address, and needs them to know that
+                  prompt is not a second rotation. Without it, a user reading
+                  "run the switch again" above and then seeing the OLD operator
+                  in Settings has been walked into starting one. Appended rather
+                  than substituted, so the unconfirmed framing still leads.
+                  `registerFailed` has no equivalent line: it self-heals from the
+                  sync loop and asks nothing of the user. */}
+              {(localStateUnrecoverable || localStateNotSaved || commitUnconfirmed) && endpointNotSaved && (
+                <> {t('guardianSwitchUnconfirmedEndpointNotSaved')}</>
+              )}
+            </>
+          }
+        />
+      )}
 
-      <div className="mt-4 w-full text-left">
-        <p className="text-base font-semibold text-heading-gray">{t('guardianSwitchSuccessInfoTitle')}</p>
-        <ul className="mt-2 flex flex-col gap-2">
-          {infoKeys.map(key => (
-            <li key={key} className="flex gap-2 text-sm leading-5 text-heading-gray">
-              <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full bg-heading-gray" />
-              <span>{t(key)}</span>
-            </li>
+      <div className="mt-6 w-full text-left">
+        <h2>
+          <Pill>{t('guardianSwitchSuccessInfoTitle')}</Pill>
+        </h2>
+        <ListGroup as="ul" surface="plain" insetHairlines className="mt-2">
+          {infoRows.map(row => (
+            <FactRow
+              key={row.id}
+              as="li"
+              leading={
+                <IconCircle>
+                  <Icon name={row.icon} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t(row.titleKey)}
+              description={t(row.bodyKey)}
+            />
           ))}
-        </ul>
+        </ListGroup>
       </div>
     </TransactionSuccessLayout>
   );

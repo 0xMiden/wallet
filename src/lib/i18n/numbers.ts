@@ -6,7 +6,12 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { getAdaptiveDecimalPlaces } from './adaptive-precision';
 import { getCurrentLocale, getNumberSymbols } from './core';
 
-export { getAdaptiveDecimalPlaces, toAdaptiveFixed, MAX_DISPLAY_DECIMAL_PLACES } from './adaptive-precision';
+export {
+  getAdaptiveDecimalPlaces,
+  toAdaptiveFixed,
+  adaptiveFormatterFor,
+  MAX_DISPLAY_DECIMAL_PLACES
+} from './adaptive-precision';
 
 /**
  * Tiny single-argument memoizer — was `micro-memoize` until we removed
@@ -78,11 +83,21 @@ export function getPluralKey(keyPrefix: string, amount: number) {
 }
 
 export function formatUsd(value: number): string {
-  const decimalPlaces = getAdaptiveDecimalPlaces(value);
-  return `$${value.toLocaleString('en-US', {
-    minimumFractionDigits: decimalPlaces,
-    maximumFractionDigits: decimalPlaces
-  })}`;
+  return usdFormatterFor(value)(value);
+}
+
+/**
+ * `formatUsd` with its decimal places pinned to the ones `target` earns, for a USD figure animated
+ * towards `target` (`components/ui/AnimatedNumber`). Per value, a frame like 13.0071 on the way to
+ * 15.67 would widen to four decimals; pinned, every frame keeps the destination's shape.
+ */
+export function usdFormatterFor(target: number): (value: number) => string {
+  const decimalPlaces = getAdaptiveDecimalPlaces(target);
+  return value =>
+    `$${value.toLocaleString('en-US', {
+      minimumFractionDigits: decimalPlaces,
+      maximumFractionDigits: decimalPlaces
+    })}`;
 }
 
 export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.decimals): string {
@@ -145,6 +160,68 @@ export function stringToBigInt(str: string, decimals: number): bigint {
   const magnitude = shift >= 0 ? BigInt(digits) * 10n ** BigInt(shift) : BigInt(digits) / 10n ** BigInt(-shift);
 
   return match[1] === '-' ? -magnitude : magnitude;
+}
+
+/**
+ * True only when `amount`'s base units are strictly greater than `balance`'s.
+ *
+ * The typed string is scaled by `stringToBigInt`, so digits past `decimals` are
+ * dropped and a value past 2^53 stays exact. `balance` is already a JavaScript
+ * number; multiplying it by `10 ** decimals` repeats the float error this module
+ * left behind, so it is read back through its own decimal string first, shaved
+ * by `balanceLowerBound` once it is too large to keep every base unit. An
+ * unparsable amount is not over the cap; callers reject it on their own path.
+ * Equal base units stay allowed.
+ */
+export function typedAmountExceedsBalance(amount: string, balance: number, decimals: number): boolean {
+  let typed: bigint;
+  try {
+    typed = stringToBigInt(amount, decimals);
+  } catch {
+    return false;
+  }
+  if (!Number.isFinite(balance)) return false;
+  return typed > stringToBigInt(balanceLowerBound(balance, decimals).toString(), decimals);
+}
+
+// Relative margin of four double ulps: wider than the rounding between a stored balance and the chain's.
+const BALANCE_MARGIN = 2 ** -50;
+// A double spaces its values at most one base unit apart only while the balance is within 2^52 base units.
+const EXACT_BASE_UNITS = 2n ** 52n;
+
+/**
+ * The most of `balance` that can be relied on, as a number.
+ *
+ * Balances are stored as doubles, which keep every base unit only while they fit 2^52. Past that the
+ * stored figure can sit a few units above the real balance, so Max or a cap check built from it could
+ * accept an amount the account does not hold. Those balances (past 2^52 base units, where one double
+ * can stand for several) are shaved by a few ulps; the rest are returned unchanged.
+ */
+export function balanceLowerBound(balance: number, decimals: number): number {
+  if (!(balance > 0) || !Number.isFinite(balance)) return balance;
+  if (stringToBigInt(balance.toString(), decimals) <= EXACT_BASE_UNITS) return balance;
+  return balance * (1 - BALANCE_MARGIN);
+}
+
+/**
+ * True when `amount` has a non-zero digit past `decimals`.
+ *
+ * Trailing zeros past the scale are the same base-unit value `stringToBigInt`
+ * already keeps, so they are not a refusal. An unparsable amount is not finer
+ * than the scale; callers reject it on their own path. The shift is the same
+ * power of ten as `stringToBigInt`, exponent included, so the digits it would
+ * truncate are exactly the ones checked here.
+ */
+export function amountExceedsTokenDecimals(amount: string, decimals: number): boolean {
+  const match = /^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?\s*$/.exec(amount ?? '');
+  const intDigits = match?.[2] ?? '';
+  const fracDigits = match?.[3] ?? '';
+  if (!match || (intDigits === '' && fracDigits === '')) return false;
+
+  const exponent = match[4] ? parseInt(match[4], 10) : 0;
+  const shift = decimals + exponent - fracDigits.length;
+  if (shift >= 0) return false;
+  return /[1-9]/.test((intDigits + fracDigits).slice(shift));
 }
 
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {

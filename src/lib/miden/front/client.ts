@@ -6,6 +6,7 @@ import constate from 'constate';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SignEvmOperation,
   WalletAccount,
   WalletRequest,
@@ -50,15 +51,19 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
   // Get actions from Zustand store
   const storeRegisterWallet = useWalletStore(s => s.registerWallet);
+  const storeRegisterWalletFromHotKey = useWalletStore(s => s.registerWalletFromHotKey);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
+  const removeSeedPhrase = useWalletStore(s => s.removeSeedPhrase);
+  const provideRecoverySeed = useWalletStore(s => s.provideRecoverySeed);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
+  const storeExportWalletBackupMaterial = useWalletStore(s => s.exportWalletBackupMaterial);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
+  const storeExportAccountFile = useWalletStore(s => s.exportAccountFile);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
-  const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
   const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
   const storeSetGuardianSyncStatus = useWalletStore(s => s.setGuardianSyncStatus);
   const storeCheckGuardianDrift = useWalletStore(s => s.checkGuardianDrift);
@@ -72,12 +77,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
+  const estimateUsdcxBurnFee = useWalletStore(s => s.estimateUsdcxBurnFee);
   const storeConfirmDAppPermission = useWalletStore(s => s.confirmDAppPermission);
   const storeConfirmDAppSign = useWalletStore(s => s.confirmDAppSign);
   const storeConfirmDAppPrivateNotes = useWalletStore(s => s.confirmDAppPrivateNotes);
   const storeConfirmDAppAssets = useWalletStore(s => s.confirmDAppAssets);
   const storeConfirmDAppImportPrivateNote = useWalletStore(s => s.confirmDAppImportPrivateNote);
   const storeConfirmDAppConsumableNotes = useWalletStore(s => s.confirmDAppConsumableNotes);
+  const storeConfirmDAppUnlock = useWalletStore(s => s.confirmDAppUnlock);
   const storeConfirmDAppTransaction = useWalletStore(s => s.confirmDAppTransaction);
   const storeGetAllDAppSessions = useWalletStore(s => s.getAllDAppSessions);
   const storeRemoveDAppSession = useWalletStore(s => s.removeDAppSession);
@@ -96,8 +103,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // AutoSync is now handled by the React SDK's MidenProvider — no manual state push needed.
-
   // Derive convenience booleans
   const idle = status === WalletStatus.Idle;
   const locked = status === WalletStatus.Locked;
@@ -114,16 +119,29 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       ownMnemonic: boolean,
-      guardianEndpoint?: string
+      guardianEndpoint?: string,
+      accessCode?: string
     ) => {
-      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
+      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode);
     },
     [storeRegisterWallet]
   );
 
+  const registerWalletFromHotKey = useCallback(
+    async (password: string | undefined, keyPairPayload: string, guardianEndpoint?: string) => {
+      await storeRegisterWalletFromHotKey(password, keyPairPayload, guardianEndpoint);
+    },
+    [storeRegisterWalletFromHotKey]
+  );
+
   const importWalletFromClient = useCallback(
-    async (password: string | undefined, mnemonic: string, walletAccounts: WalletAccount[]) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts);
+    async (
+      password: string | undefined,
+      mnemonic: string,
+      walletAccounts: WalletAccount[],
+      importedAccounts: ImportedAccountBackup[]
+    ) => {
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts);
     },
     [storeImportWalletFromClient]
   );
@@ -163,6 +181,11 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeRevealMnemonic]
   );
 
+  const exportWalletBackupMaterial = useCallback(
+    async (password?: string) => storeExportWalletBackupMaterial(password),
+    [storeExportWalletBackupMaterial]
+  );
+
   const revealPrivateKey = useCallback(
     async (accountPublicKey: string, password?: string) => {
       return storeRevealPrivateKey(accountPublicKey, password);
@@ -170,18 +193,18 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeRevealPrivateKey]
   );
 
+  const exportAccountFile = useCallback(
+    async (accountPublicKey: string, password?: string) => {
+      return storeExportAccountFile(accountPublicKey, password);
+    },
+    [storeExportAccountFile]
+  );
+
   const revealHotKey = useCallback(
     async (accountPublicKey: string, password?: string) => {
       return storeRevealHotKey(accountPublicKey, password);
     },
     [storeRevealHotKey]
-  );
-
-  const revealGuardianKeys = useCallback(
-    async (accountPublicKey: string, password?: string) => {
-      return storeRevealGuardianKeys(accountPublicKey, password);
-    },
-    [storeRevealGuardianKeys]
   );
 
   const importAccount = useCallback(
@@ -323,9 +346,16 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeConfirmDAppConsumableNotes]
   );
 
+  const confirmDAppUnlock = useCallback(
+    async (id: string) => {
+      await storeConfirmDAppUnlock(id);
+    },
+    [storeConfirmDAppUnlock]
+  );
+
   const confirmDAppTransaction = useCallback(
-    async (id: string, confirmed: boolean, delegate: boolean) => {
-      await storeConfirmDAppTransaction(id, confirmed, delegate);
+    async (id: string, confirmed: boolean, delegate: boolean, spendingLimitAuthenticated?: true) => {
+      await storeConfirmDAppTransaction(id, confirmed, delegate, spendingLimitAuthenticated);
     },
     [storeConfirmDAppTransaction]
   );
@@ -386,20 +416,24 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
     // Actions
     registerWallet,
+    registerWalletFromHotKey,
     unlock,
 
     createAccount,
     updateCurrentAccount,
     revealViewKey,
     revealPrivateKey,
+    exportAccountFile,
     revealHotKey,
-    revealGuardianKeys,
     setGuardianOperatorCommitment,
     setGuardianSyncStatus,
     checkGuardianDrift,
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,
+    exportWalletBackupMaterial,
+    removeSeedPhrase,
+    provideRecoverySeed,
     removeAccount,
     editAccountName,
     importAccount,
@@ -412,6 +446,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,
+    estimateUsdcxBurnFee,
     confirmDAppPermission,
     confirmDAppSign,
     confirmDAppDecrypt,
@@ -419,6 +454,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
     confirmDAppConsumableNotes,
+    confirmDAppUnlock,
     confirmDAppTransaction,
     confirmDAppBulkTransactions,
     confirmDAppDeploy,

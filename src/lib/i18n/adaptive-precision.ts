@@ -20,6 +20,16 @@ const SMALL_AMOUNT_SIGNIFICANT_PLACES = 2;
 export const MAX_DISPLAY_DECIMAL_PLACES = 20;
 
 /**
+ * How far either side of the point a displayed amount's leading digit may sit. No amount a person holds comes near
+ * it, and expanding a value past it writes out every digit: 9e9999999 is ten million characters.
+ */
+export const DISPLAY_EXPONENT_LIMIT = 40;
+
+/** A finite amount of display size; `e`, the decimal exponent, is null for NaN and the infinities. */
+export const isDisplayable = (amount: BigNumber): boolean =>
+  amount.e !== null && Math.abs(amount.e) <= DISPLAY_EXPONENT_LIMIT;
+
+/**
  * Keep the normal display precision unless it would hide a small non-zero
  * value. In that case, include the first non-zero fractional digit and one
  * more significant place (for example, 0.001234 at 2dp uses 4dp).
@@ -49,4 +59,23 @@ export function toAdaptiveFixed(
   const bn = new BigNumber(value);
   const decimalPlaces = getAdaptiveDecimalPlaces(bn, minimumDecimalPlaces);
   return bn.toFixed(decimalPlaces, roundingMode);
+}
+
+/**
+ * `toAdaptiveFixed` with the decimal places pinned to the ones `target` itself earns, for a figure
+ * that is being animated towards `target` (`components/ui/AnimatedNumber`).
+ *
+ * The adaptive rule picks its precision from each value's own magnitude, which is right for a
+ * figure that is simply shown and wrong for one that is travelling: every frame on the way to 1.00
+ * is a smaller number, so the frames near zero expand to four decimals and the text changes width
+ * on its way to a two-decimal destination. Pinning the target's precision keeps the shape the
+ * destination's for the whole trip. Rounding is still BigNumber's, unchanged.
+ */
+export function adaptiveFormatterFor(
+  target: BigNumber.Value,
+  minimumDecimalPlaces: number = 2,
+  roundingMode?: BigNumber.RoundingMode
+): (value: BigNumber.Value) => string {
+  const decimalPlaces = getAdaptiveDecimalPlaces(target, minimumDecimalPlaces);
+  return value => new BigNumber(value).toFixed(decimalPlaces, roundingMode);
 }

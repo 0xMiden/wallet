@@ -10,3 +10,7 @@ permalink: pretty
 exclude:
   - README.md
   - ios-cdp-bridge.md
+  - telemetry-limitations.md
+  - telemetry-store-declarations.md
+  # Implementation plans quote GitHub Actions ${{ }} expressions, which Liquid cannot parse.
+  - superpowers

@@ -7,8 +7,8 @@ import { popOverlay, pushOverlay } from './screen-key';
  * `open` is true, and removes it again on close or unmount. Gated on
  * `MIDEN_E2E_TEST` so it's a complete no-op in production.
  *
- * Shared by every overlay primitive (`Drawer`, `CustomModal`, the
- * alert/confirm dialogs) so the guard + push/pop lifecycle is written and
+ * Shared by every overlay primitive (`Drawer`, and through it the
+ * alert/confirm sheets) so the guard + push/pop lifecycle is written and
  * unit-tested exactly once instead of duplicated per call site.
  */
 export function useOverlayScreenKey(open: boolean, overlayId: string): void {

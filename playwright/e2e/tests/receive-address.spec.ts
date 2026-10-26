@@ -89,9 +89,9 @@ test.describe('Receive address surface', () => {
     await steps.step('copy_button_writes_the_address', async () => {
       const writes = await copyReceiveAddress(walletA);
 
-      // The FIRST write, and only one: useCopyToClipboard latches `copied` for 2s
-      // and makes a second click inside that window a no-op, so a spec that
-      // re-clicked would assert against a write that never happened.
+      // One write because the helper clicks ONCE. This button is a `CopyButton`, which copies
+      // through `useClipboardCopy`: a click while its write is still in flight is ignored, and a
+      // click after the write settles writes again and restarts its COPY_FEEDBACK_MS feedback.
       expect(writes).toHaveLength(1);
       // The bare address — NOT the miden: URI (that is the QR's format) and NOT
       // the truncated string the button displays.

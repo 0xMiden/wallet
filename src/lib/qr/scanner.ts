@@ -53,7 +53,7 @@ export function isScanAvailable(): boolean {
  *
  * @returns A ScanResult with either the address or an error
  */
-export async function scanQRCode(): Promise<ScanResult> {
+export async function scanQRCode(rawPayload = false): Promise<ScanResult> {
   if (!isMobile()) {
     return { success: false, errorKey: 'noQrCodeFound' };
   }
@@ -75,6 +75,9 @@ export async function scanQRCode(): Promise<ScanResult> {
     if (!barcode) {
       return { success: false, errorKey: 'noQrCodeFound' };
     }
+
+    // Secret import consumes the exact payload through its shared validator.
+    if (rawPayload) return { success: true, address: barcode };
 
     // Decode the address (strips miden: prefix if present)
     const address = decodeAddress(barcode);

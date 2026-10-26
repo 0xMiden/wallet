@@ -4,8 +4,10 @@ import * as Repo from 'lib/miden/repo';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
+import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
 import type { PswapLineageDto } from '../sdk/pswap-lineage';
 import type { SwapOrderNoteMetadata } from '../types';
+import { isRecoveredReturnOrder } from './recovered-order';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
 
@@ -43,7 +45,9 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
         // restored row is not evidence of that — it says whatever the backup's
         // author wrote. Downstream this drives reclaim, which initiates a real
         // consume against the order's own `expiresAt` and asset data.
-        !tx.restoredFromBackup &&
+        // A Guardian-recovered order joins once this wallet's Cancel stamped it,
+        // and only to have its order note, as the node holds it, taken back (#1487).
+        (!tx.restoredFromBackup || isRecoveredReturnOrder(tx)) &&
         compareAccountIds(tx.accountId, accountId) &&
         isSwapTransaction(tx)
     )
@@ -52,44 +56,47 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
 }
 
 /**
- * Classify only notes belonging to swap orders created by this wallet.
- * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
- * tick — it is an unindexed full scan of the transactions table.
- *
- * Since slice 4 (issue #260) the notes arrive as plain {@link ConsumableNoteDto}s
- * rather than live `InputNoteRecord`s: the per-note swap-order id/depth is
- * precomputed into `dto.swapAttachment` by the reducer (which holds the live
- * record), so this classifier no longer reaches through to `note.attachments()`.
- * Since slice 7a the per-order PSWAP lineage lookup routes through
- * `midenClientProxy.getPswapLineage` (a plain {@link PswapLineageDto}), so flag-ON
- * it reads the OFFSCREEN client's canonical synced lineage (the SW client is
- * dormant then and would classify against stale tip/depth/state); flag-OFF is the
- * byte-identical inline `client.client.pswap.lineage` reduction under the caller
- * lock. No live client is threaded through here any more.
+ * Classify notes belonging to this wallet's orders using one synced lineage snapshot.
+ * Reuse preloadedOrders to avoid another transactions-table scan in the same tick.
  */
 export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
-  preloadedOrders?: SwapOrder[]
+  preloadedOrders: SwapOrder[] | undefined,
+  hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
+  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold)).notes;
+}
+
+export interface SwapOrderSnapshot {
+  notes: Map<string, SwapOrderNoteMetadata>;
+  lineages: Map<string, PswapLineageDto>;
+}
+
+/**
+ * Classify consumable notes and retain the same bulk lineage snapshot. Settlement
+ * also needs the lineage entry when a zero-fill order has no input note at all:
+ * its depth-0 tip still lives in output-notes, so it cannot be represented in the
+ * note map above.
+ */
+export async function classifySwapOrderSnapshot(
+  notes: ConsumableNoteDto[],
+  accountId: string,
+  preloadedOrders: SwapOrder[] | undefined,
+  hold: WasmLockHold
+): Promise<SwapOrderSnapshot> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
 
-  // Sequential on purpose: the WASM client is single-threaded, and the outer
-  // withWasmClientLock held by callers does not serialize sibling promises
-  // launched by the same holder — concurrent lineage() calls throw
-  // "recursive use of an object ... unsafe aliasing". Flag-ON each getPswapLineage
-  // is a separate offscreen op serialized by the offscreen doc's own mutex, so the
-  // sequential await preserves the one-at-a-time invariant either way.
+  if (orders.length === 0) return { notes: result, lineages: new Map() };
+  const assertLive = () => assertWasmHoldCurrent(hold, 'during swap lineage classification');
+  assertLive();
+  const snapshot = await midenClientProxy.getPswapLineages(assertLive);
+  assertLive();
+  const lineages = new Map(snapshot.map(lineage => [lineage.orderId, lineage]));
   for (const order of orders) {
     const orderId = orderIdString(order.extraInputs.orderId);
-    let lineage: PswapLineageDto | null = null;
-    try {
-      lineage = await midenClientProxy.getPswapLineage(orderId);
-    } catch (err) {
-      console.warn('[swap-settlement] lineage lookup failed', orderId, err);
-      continue;
-    }
+    const lineage = lineages.get(orderId);
     if (!lineage) continue;
 
     const currentTipNoteId = lineage.currentTipNoteId;
@@ -124,5 +131,5 @@ export async function classifySwapOrderNotes(
       });
     }
   }
-  return result;
+  return { notes: result, lineages };
 }

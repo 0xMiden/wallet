@@ -5,7 +5,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { InputAmount } from './InputAmount';
 
 // Mock the Icon barrel used for the toggle-currency arrow, mirroring how
-// sibling component tests (e.g. CardItem.test.tsx) stub it so we don't pull in
+// sibling component tests (e.g. AmountInput.test.tsx) stub it so we don't pull in
 // the SVG re-export barrel.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, fill, size, className }: any) => (
@@ -56,16 +56,16 @@ describe('InputAmount', () => {
   });
 
   describe('textColor (useMemo)', () => {
-    it('is text-black when there is no error', () => {
+    it('is text-ink when there is no error', () => {
       const { container } = render(<InputAmount />);
-      expect(getInput(container)).toHaveClass('text-black');
+      expect(getInput(container)).toHaveClass('text-ink');
     });
 
     it('is text-red-500 when error is true', () => {
       const { container } = render(<InputAmount error />);
       const input = getInput(container);
       expect(input).toHaveClass('text-red-500');
-      expect(input).not.toHaveClass('text-black');
+      expect(input).not.toHaveClass('text-ink');
     });
   });
 
@@ -94,8 +94,13 @@ describe('InputAmount', () => {
       expect(screen.getByText('USDC')).toBeInTheDocument();
     });
 
-    it('defaults the currency label to MIDEN when no label is provided', () => {
+    it('defaults the currency label to USDCX when no label is provided', () => {
       render(<InputAmount />);
+      expect(screen.getByText('USDCX')).toBeInTheDocument();
+    });
+
+    it('preserves an explicit genuine MIDEN label', () => {
+      render(<InputAmount label="MIDEN" />);
       expect(screen.getByText('MIDEN')).toBeInTheDocument();
     });
 
@@ -161,14 +166,14 @@ describe('InputAmount', () => {
         expect(screen.getByRole('button').textContent).toBe('5 USDC');
       });
 
-      it('falls back to value then the default MIDEN label', () => {
+      it('falls back to value then the default USDCX label', () => {
         render(<InputAmount displayToggleCurrency displayFiat value="8" />);
-        expect(screen.getByRole('button').textContent).toBe('8 MIDEN');
+        expect(screen.getByRole('button').textContent).toBe('8 USDCX');
       });
 
       it('falls back to 0 when neither fiatValue nor value is set', () => {
         render(<InputAmount displayToggleCurrency displayFiat />);
-        expect(screen.getByRole('button').textContent).toBe('0 MIDEN');
+        expect(screen.getByRole('button').textContent).toBe('0 USDCX');
       });
     });
 

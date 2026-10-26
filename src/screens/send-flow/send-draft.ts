@@ -36,10 +36,6 @@ export function consumeSendDraft(): SendDraft | null {
   return current;
 }
 
-export function hasSendDraft(): boolean {
-  return draft !== null;
-}
-
 export function clearSendDraft(): void {
   draft = null;
 }

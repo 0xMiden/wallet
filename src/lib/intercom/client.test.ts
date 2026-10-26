@@ -1,4 +1,7 @@
+import { MidenMessageType } from 'lib/miden/types';
 import { isDesktop, isMobile } from 'lib/platform';
+import { WalletMessageType } from 'lib/shared/types';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import { createIntercomClient, IntercomClient } from './client';
 import { MessageType } from './types';
@@ -18,21 +21,56 @@ const mockRemoveListener = jest.fn();
 const mockPostMessage = jest.fn();
 let disconnectCallback: (() => void) | null = null;
 
-const mockPort = {
-  onMessage: {
-    addListener: mockAddListener,
-    removeListener: mockRemoveListener
-  },
-  onDisconnect: {
-    addListener: jest.fn((cb: () => void) => {
-      disconnectCallback = cb;
-    })
-  },
-  postMessage: mockPostMessage
+type FakePort = {
+  listeners: Array<(msg: any) => void>;
+  onMessage: { addListener: (cb: (msg: any) => void) => void; removeListener: (cb: (msg: any) => void) => void };
+  onDisconnect: { addListener: (cb: () => void) => void };
+  postMessage: typeof mockPostMessage;
+};
+
+// Every `runtime.connect()` returns a DISTINCT port with its OWN listener list —
+// which is what a real reconnect gives you, and what makes the "subscription
+// survives a reconnect" test meaningful (a listener bound to the dead port is
+// genuinely unreachable from the new one). Registrations are still mirrored onto
+// the shared `mockAddListener` / `mockRemoveListener` spies the other tests read.
+const ports: FakePort[] = [];
+
+const makePort = (): FakePort => {
+  const listeners: Array<(msg: any) => void> = [];
+  const port: FakePort = {
+    listeners,
+    onMessage: {
+      addListener: (cb: (msg: any) => void) => {
+        listeners.push(cb);
+        mockAddListener(cb);
+      },
+      removeListener: (cb: (msg: any) => void) => {
+        const idx = listeners.indexOf(cb);
+        if (idx !== -1) listeners.splice(idx, 1);
+        mockRemoveListener(cb);
+      }
+    },
+    onDisconnect: {
+      addListener: (cb: () => void) => {
+        disconnectCallback = cb;
+      }
+    },
+    postMessage: mockPostMessage
+  };
+  ports.push(port);
+  return port;
 };
 
 const mockRuntime = {
-  connect: jest.fn(() => mockPort)
+  connect: jest.fn(() => makePort())
+};
+
+/** The most recently registered `onMessage` listener (the one `request()` just added). */
+const lastListener = (): ((msg: any) => void) => mockAddListener.mock.calls.at(-1)![0];
+
+/** Deliver a message to every listener bound to the port at `index`. */
+const deliverToPort = (index: number, msg: any) => {
+  for (const listener of [...ports[index]!.listeners]) listener(msg);
 };
 
 jest.mock('webextension-polyfill', () => ({
@@ -58,6 +96,7 @@ describe('IntercomClient', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     disconnectCallback = null;
+    ports.length = 0;
     client = new IntercomClient();
   });
 
@@ -80,8 +119,9 @@ describe('IntercomClient', () => {
     // Wait for the listener to be added
     await flushPromises();
 
-    // Get the message listener
-    const messageListener = mockAddListener.mock.calls[0][0];
+    // Get the message listener (`buildPort` already added the broadcast
+    // dispatcher, so the request's own listener is the most recent one).
+    const messageListener = lastListener();
 
     // Simulate response
     messageListener({
@@ -108,8 +148,9 @@ describe('IntercomClient', () => {
     // Wait for the listener to be added
     await flushPromises();
 
-    // Get the message listener
-    const messageListener = mockAddListener.mock.calls[0][0];
+    // Get the message listener (`buildPort` already added the broadcast
+    // dispatcher, so the request's own listener is the most recent one).
+    const messageListener = lastListener();
 
     // Simulate error response
     messageListener({
@@ -130,8 +171,9 @@ describe('IntercomClient', () => {
     const requestPromise = client.request({ action: 'x' }, { signal: controller.signal });
     await flushPromises();
 
-    expect(mockAddListener).toHaveBeenCalledTimes(1);
-    const listener = mockAddListener.mock.calls[0][0];
+    // 1 = the port's broadcast dispatcher, 2 = this request's own listener.
+    expect(mockAddListener).toHaveBeenCalledTimes(2);
+    const listener = lastListener();
 
     controller.abort();
 
@@ -170,8 +212,9 @@ describe('IntercomClient', () => {
     // Wait for the listener to be added
     await flushPromises();
 
-    // Get the message listener
-    const messageListener = mockAddListener.mock.calls[0][0];
+    // Get the message listener (`buildPort` already added the broadcast
+    // dispatcher, so the request's own listener is the most recent one).
+    const messageListener = lastListener();
 
     // Simulate response with different reqId - should be ignored
     messageListener({
@@ -191,6 +234,102 @@ describe('IntercomClient', () => {
     expect(result).toEqual({ result: 'correct' });
   });
 
+  it('annotates concurrent failed requests with their own authoritative type only', async () => {
+    await flushPromises();
+    const first = client.request({ type: WalletMessageType.UnlockRequest, password: 'secret' });
+    const second = client.request({ type: WalletMessageType.GetStateRequest, payload: 'secret' });
+    const firstError = first.catch(error => error);
+    const secondError = second.catch(error => error);
+    await flushPromises();
+    deliverToPort(0, { type: MessageType.Err, reqId: 1, data: { message: 'second failure' } });
+    deliverToPort(0, { type: MessageType.Err, reqId: 0, data: { message: 'first failure' } });
+    expect(snapshotCrashDiagnostics(await firstError)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.UnlockRequest,
+      portReconnected: false
+    });
+    expect(snapshotCrashDiagnostics(await secondError)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.GetStateRequest,
+      portReconnected: false
+    });
+    expect(mockPostMessage.mock.calls.map(call => Object.keys(call[0]).sort())).toEqual([
+      ['data', 'reqId', 'type'],
+      ['data', 'reqId', 'type']
+    ]);
+  });
+
+  it("names the background's confirmation state, and whether the port was rebuilt, on a Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    const notFound = (code: string) => ['Not Found', undefined, 'Error', undefined, { code }];
+
+    const beforeRebuild = client.request(payloadRequest).catch(error => error);
+    await flushPromises();
+    deliverToPort(0, { type: MessageType.Err, reqId: 0, data: notFound('confirmation_expired') });
+    const expired = await beforeRebuild;
+    expect(expired.message).toBe('Not Found');
+    expect(snapshotCrashDiagnostics(expired)).toEqual({
+      operation: 'intercom_request',
+      requestType: MidenMessageType.DAppGetPayloadRequest,
+      confirmationHandler: 'expired',
+      pageNavigation: 'unknown',
+      portReconnected: false
+    });
+
+    disconnectCallback!();
+    jest.advanceTimersByTime(1000);
+    await flushPromises();
+    expect(ports).toHaveLength(2);
+
+    const afterRebuild = client.request(payloadRequest).catch(error => error);
+    await flushPromises();
+    deliverToPort(1, { type: MessageType.Err, reqId: 1, data: notFound('confirmation_unknown') });
+    expect(snapshotCrashDiagnostics(await afterRebuild)).toEqual({
+      operation: 'intercom_request',
+      requestType: MidenMessageType.DAppGetPayloadRequest,
+      confirmationHandler: 'unknown',
+      pageNavigation: 'unknown',
+      portReconnected: true
+    });
+  });
+
+  it("adds the background's labels and how this page was loaded to an approval's Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    Object.defineProperty(performance, 'getEntriesByType', {
+      configurable: true,
+      value: (type: string) => (type === 'navigation' ? [{ type: 'reload' }] : [])
+    });
+    try {
+      const failed = client.request(payloadRequest).catch(error => error);
+      await flushPromises();
+      deliverToPort(0, {
+        type: MessageType.Err,
+        reqId: 0,
+        data: [
+          'Not Found',
+          undefined,
+          'Error',
+          undefined,
+          { code: 'confirmation_unknown:array_with_string:empty:under_10s' }
+        ]
+      });
+      expect(snapshotCrashDiagnostics(await failed)).toEqual({
+        operation: 'intercom_request',
+        requestType: MidenMessageType.DAppGetPayloadRequest,
+        confirmationHandler: 'unknown',
+        confirmationRequestShape: 'array_with_string',
+        confirmationRegistry: 'empty',
+        backgroundAge: 'under_10s',
+        pageNavigation: 'reload',
+        portReconnected: false
+      });
+    } finally {
+      Reflect.deleteProperty(performance, 'getEntriesByType');
+    }
+  });
+
   it('increments reqId for each request', async () => {
     // Wait for port initialization
     await flushPromises();
@@ -198,14 +337,14 @@ describe('IntercomClient', () => {
     // First request
     const promise1 = client.request({ action: 'first' });
     await flushPromises();
-    const messageListener1 = mockAddListener.mock.calls[0][0];
+    const messageListener1 = lastListener();
     messageListener1({ type: MessageType.Res, reqId: 0, data: {} });
     await promise1;
 
     // Second request
     const promise2 = client.request({ action: 'second' });
     await flushPromises();
-    const messageListener2 = mockAddListener.mock.calls[1][0];
+    const messageListener2 = lastListener();
     messageListener2({ type: MessageType.Res, reqId: 1, data: {} });
     await promise2;
 
@@ -220,17 +359,9 @@ describe('IntercomClient', () => {
     const callback = jest.fn();
     client.subscribe(callback);
 
-    // Wait for the subscription listener to be added
     await flushPromises();
 
-    // Get the subscription listener
-    const subListener = mockAddListener.mock.calls[0][0];
-
-    // Simulate subscription message
-    subListener({
-      type: MessageType.Sub,
-      data: { event: 'update' }
-    });
+    deliverToPort(0, { type: MessageType.Sub, data: { event: 'update' } });
 
     expect(callback).toHaveBeenCalledWith({ event: 'update' });
   });
@@ -241,10 +372,31 @@ describe('IntercomClient', () => {
 
     const callback = jest.fn();
     const unsubscribe = client.subscribe(callback);
+    await flushPromises();
 
     unsubscribe();
+    deliverToPort(0, { type: MessageType.Sub, data: { event: 'update' } });
 
-    expect(mockRemoveListener).toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('keeps notifying the other subscribers when one of them throws', async () => {
+    await flushPromises();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const bad = jest.fn(() => {
+      throw new Error('boom');
+    });
+    const good = jest.fn();
+    client.subscribe(bad);
+    client.subscribe(good);
+    await flushPromises();
+
+    deliverToPort(0, { type: MessageType.Sub, data: { event: 'update' } });
+
+    expect(bad).toHaveBeenCalled();
+    expect(good).toHaveBeenCalledWith({ event: 'update' });
+    errorSpy.mockRestore();
   });
 
   it('subscribe ignores non-Sub messages', async () => {
@@ -254,17 +406,9 @@ describe('IntercomClient', () => {
     const callback = jest.fn();
     client.subscribe(callback);
 
-    // Wait for the subscription listener to be added
     await flushPromises();
 
-    // Get the subscription listener
-    const subListener = mockAddListener.mock.calls[0][0];
-
-    // Simulate non-Sub message
-    subListener({
-      type: MessageType.Req,
-      data: { event: 'update' }
-    });
+    deliverToPort(0, { type: MessageType.Req, data: { event: 'update' } });
 
     expect(callback).not.toHaveBeenCalled();
   });
@@ -284,6 +428,43 @@ describe('IntercomClient', () => {
 
     // Should have reconnected
     expect(mockRuntime.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('still delivers broadcasts to an existing subscriber after a port reconnect', async () => {
+    // The MV3 service worker is evicted/restarted (or `runtime.reload()` fires on
+    // an update): the port dies and `onDisconnect` builds a brand-new one. A
+    // listener bound to the DEAD port is unreachable from the new port, and
+    // nothing re-registers it — while `request()` keeps working because it
+    // re-reads `this.port`, so the page looks healthy while every backend
+    // broadcast (lock/StateUpdated, SyncCompleted, NoteClaimStarted) is dropped.
+    await flushPromises();
+
+    const callback = jest.fn();
+    client.subscribe(callback);
+    await flushPromises();
+
+    disconnectCallback!();
+    jest.advanceTimersByTime(1000);
+    await flushPromises();
+
+    expect(ports).toHaveLength(2);
+    // Deliver ONLY on the new port — the old one is gone in reality.
+    deliverToPort(1, { type: MessageType.Sub, data: { event: 'after-reconnect' } });
+
+    expect(callback).toHaveBeenCalledWith({ event: 'after-reconnect' });
+  });
+
+  it('delivers to a subscriber registered BEFORE the first port exists', async () => {
+    // `subscribe()` no longer waits on `portReady`; the instance-level set is the
+    // registry, and every port built later inherits the dispatcher.
+    const freshClient = new IntercomClient();
+    const callback = jest.fn();
+    freshClient.subscribe(callback);
+    await flushPromises();
+
+    deliverToPort(ports.length - 1, { type: MessageType.Sub, data: { event: 'early' } });
+
+    expect(callback).toHaveBeenCalledWith({ event: 'early' });
   });
 });
 
@@ -395,6 +576,30 @@ describe('MobileIntercomClientWrapper', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('keeps the native request failure identity and safe request type', async () => {
+    const failure = new Error('native request failed');
+    mockMobileAdapter.request.mockRejectedValueOnce(failure);
+    const client = createIntercomClient();
+    await expect(client.request({ type: WalletMessageType.UnlockRequest, password: 'secret' })).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.UnlockRequest
+    });
+  });
+
+  it('ignores a hostile diagnostic type getter while preserving the native failure', async () => {
+    const failure = new Error('native request failed');
+    mockMobileAdapter.request.mockRejectedValueOnce(failure);
+    const payload = {
+      get type() {
+        throw new Error('hostile type accessor');
+      }
+    };
+    const client = createIntercomClient();
+    await expect(client.request(payload)).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'intercom_request' });
+  });
+
   it('subscribe wires the callback through after the adapter resolves', async () => {
     const innerUnsub = jest.fn();
     mockMobileAdapter.subscribe.mockReturnValue(innerUnsub);
@@ -440,6 +645,30 @@ describe('DesktopIntercomClientWrapper', () => {
     const result = await client.request({ x: 1 });
     expect(mockDesktopAdapter.request).toHaveBeenCalledWith({ x: 1 }, undefined);
     expect(result).toEqual({ from: 'desktop' });
+  });
+
+  it('keeps the native request failure identity and safe request type', async () => {
+    const failure = new Error('native request failed');
+    mockDesktopAdapter.request.mockRejectedValueOnce(failure);
+    const client = createIntercomClient();
+    await expect(client.request({ type: WalletMessageType.UnlockRequest, password: 'secret' })).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({
+      operation: 'intercom_request',
+      requestType: WalletMessageType.UnlockRequest
+    });
+  });
+
+  it('ignores a hostile diagnostic type getter while preserving the native failure', async () => {
+    const failure = new Error('native request failed');
+    mockDesktopAdapter.request.mockRejectedValueOnce(failure);
+    const payload = {
+      get type() {
+        throw new Error('hostile type accessor');
+      }
+    };
+    const client = createIntercomClient();
+    await expect(client.request(payload)).rejects.toBe(failure);
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'intercom_request' });
   });
 
   it('subscribe wires the callback through after the adapter resolves', async () => {

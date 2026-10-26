@@ -1,19 +1,46 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { App } from '@capacitor/app';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { initMobileBackHandler } from 'lib/mobile/back-handler';
+import type { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
 const mockRevealMnemonic = jest.fn();
+const mockRemoveSeedPhrase = jest.fn();
+const mockSeedState: { seedPhraseStatus?: SeedPhraseStatus } = {};
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: typeof mockSeedState) => SeedPhraseStatus | undefined) => selector(mockSeedState)
+}));
+// Hardware back runs through the real hook and registry; only the native listener is stubbed, so a
+// test presses the handler the page registered under its deps (#1042).
+let mockBackButton: (() => void) | undefined;
+jest.mock('@capacitor/app', () => ({
+  App: {
+    addListener: jest.fn((event: string, callback: () => void) => {
+      if (event === 'backButton') mockBackButton = callback;
+      return Promise.resolve({ remove: jest.fn() });
+    }),
+    minimizeApp: jest.fn()
+  }
+}));
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockCompleteWalletPrompt = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHapticLight = jest.fn();
 const mockHapticMedium = jest.fn();
+const mockClipboardWrite = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -32,76 +59,30 @@ jest.mock('lib/mobile/screenshot-guard', () => ({
   useScreenshotGuard: () => true
 }));
 
-// Alert surfaces the hardware-unlock `authError`; render its description so we
-// can assert the error text made it to the screen.
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description }: { description?: string }) => <div role="alert">{description}</div>
-}));
-
-// A functional input mock so react-hook-form can register the password field
-// and drive `watch('password')`. Forwards ref/name/type/onChange plus the
-// error caption so the submit-error path is observable.
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        type,
-        id,
-        placeholder,
-        onChange,
-        onBlur,
-        errorCaption
-      }: {
-        name?: string;
-        type?: string;
-        id?: string;
-        placeholder?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-        errorCaption?: string;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <div>
-        <input
-          ref={ref}
-          name={name}
-          type={type}
-          id={id}
-          placeholder={placeholder}
-          onChange={onChange}
-          onBlur={onBlur}
-        />
-        {errorCaption ? <span data-testid="error-caption">{errorCaption}</span> : null}
-      </div>
-    )
-  )
-);
-
 jest.mock('components/Button', () => ({
   Button: ({
     onClick,
     title,
     disabled,
-    isLoading
+    isLoading,
+    variant
   }: {
     onClick?: () => void;
     title: string;
     disabled?: boolean;
     isLoading?: boolean;
+    variant?: string;
   }) => (
-    <button onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)}>
+    <button onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)} data-variant={variant}>
       {title}
     </button>
   ),
-  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
+  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary', Destructive: 'Destructive' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
-    <div>
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack, className }: { title: string; onBack?: () => void; className?: string }) => (
+    <div data-testid="nav-header" className={className}>
       <span data-testid="nav-title">{title}</span>
       {onBack ? (
         <button data-testid="nav-back" onClick={onBack}>
@@ -114,29 +95,50 @@ jest.mock('components/NavigationHeader', () => ({
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock it so we can drive its onChange/onSubmit callbacks.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div>
-      <span data-testid="passcode-error">{error ?? ''}</span>
-      <span data-testid="passcode-submitting">{String(!!isSubmitting)}</span>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-    </div>
-  )
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div>
+        <span data-testid="passcode-error">{error ?? ''}</span>
+        <span data-testid="passcode-submitting">{String(!!isSubmitting)}</span>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
+
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -145,20 +147,25 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic })
+  useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic, removeSeedPhrase: mockRemoveSeedPhrase })
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
+  hapticError: jest.fn(),
   hapticLight: () => mockHapticLight(),
   hapticMedium: () => mockHapticMedium()
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isAndroid: () => true
 }));
 
 jest.mock('lib/wallet-prompts', () => ({
@@ -205,12 +212,165 @@ const clickText = (text: string) => {
 };
 
 describe('VerifySeedPhraseFlow', () => {
+  beforeAll(async () => {
+    mockIsMobile = true;
+    await initMobileBackHandler();
+  });
+
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
+    mockClipboardWrite.mockResolvedValue(undefined);
+  });
+
+  it('keeps the required backup flow open on hardware back and has no close action', async () => {
+    mockIsMobile = true;
+    render(<VerifySeedPhraseFlow required />);
+    await flush();
+    expect(within(screen.getByTestId('verify-seed-warning')).getByRole('status')).toHaveClass('mb-3');
+    expect(screen.getByText('seedBackupRequiredBody')).toBeInTheDocument();
+    expect(screen.queryByText('close')).not.toBeInTheDocument();
+    hardwareBack();
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(screen.getByTestId('verify-seed-warning')).toBeInTheDocument();
+  });
+
+  it('keeps the quiz open and shows an error if saving fails', async () => {
+    mockCompleteWalletPrompt.mockRejectedValueOnce(new Error('storage failed'));
+    await reachReview();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('seedBackupSaveFailed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('seedBackupSaveFailed', 'inline');
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('quiz-screen')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+  });
+
+  const presentCopyLabel = () =>
+    screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
+
+  // Presses the Android back button; the app minimizes only when no handler consumed the press.
+  const hardwareBack = () => {
+    expect(mockBackButton).toBeDefined();
+    act(() => {
+      mockBackButton!();
+    });
+    expect(App.minimizeApp).not.toHaveBeenCalled();
+  };
+
+  const reachReviewOnMobile = async () => {
+    await renderFlow();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('passcode-submit'));
+    await screen.findByText('w1');
+  };
+
+  // #1042: hardware back does what the header back does on the step showing.
+  it('hardware back on the warning leaves the flow', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    hardwareBack();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back on the auth step returns to the warning, as the header back does', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    hardwareBack();
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('hardware back on the quiz step returns to the review, as the header back does', async () => {
+    mockIsMobile = true;
+    await reachReviewOnMobile();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-quiz')).toBeTruthy();
+    hardwareBack();
+    expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('hardware back leaves once the phrase is removed while the auth step shows', async () => {
+    mockIsMobile = true;
+    const { rerender } = await renderFlow();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    mockSeedState.seedPhraseStatus = 'removed';
+    try {
+      rerender(<VerifySeedPhraseFlow />);
+      hardwareBack();
+      expect(mockGoBack).toHaveBeenCalledTimes(1);
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
+  });
+
+  it('hardware back while the reveal is pending returns to the warning, and the phrase it returns is dropped', async () => {
+    mockIsMobile = true;
+    let resolveReveal: (v: string) => void = () => {};
+    mockRevealMnemonic.mockImplementation(
+      () =>
+        new Promise<string>(res => {
+          resolveReveal = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('passcode-submit'));
+    await flush();
+    expect(mockRevealMnemonic).toHaveBeenCalledTimes(1);
+    hardwareBack();
+    await act(async () => {
+      resolveReveal(TWELVE);
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(screen.queryByTestId('verify-seed-review')).toBeNull();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  const reachReview = async () => {
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('w1');
+  };
+
+  it('copies the phrase through the shared clipboard and confirms only once the write lands', async () => {
+    await reachReview();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('verify-seed-copy'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TWELVE });
+    expect(presentCopyLabel()).toBe('copied');
+  });
+
+  it('keeps the copy label when the clipboard write is refused', async () => {
+    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    await reachReview();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('verify-seed-copy'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(presentCopyLabel()).toBe('copyToClipboard');
   });
 
   it('disables the continue button while the hardware-protector probe is pending', async () => {
@@ -223,14 +383,113 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('falls back to hasHardwareProtector=false when the probe rejects', async () => {
-    mockHasHardwareProtector.mockRejectedValue(new Error('probe failed'));
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  it('takes the password step when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
     await renderFlow();
 
-    // With the probe rejected, continue is enabled and leads to the auth step.
-    expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
     clickText('continue');
-    expect(screen.getByText('enterPassword')).toBeTruthy();
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('reveals through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    await renderFlow();
+
+    await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
+    clickText('continue');
+    await flush();
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+  });
+
+  it.each([false, true])(
+    'shows an error and offers no credential step when both protector reads fail (remove: %s)',
+    async remove => {
+      mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+      mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+      render(<VerifySeedPhraseFlow remove={remove} />);
+
+      const notice = await screen.findByTestId('protector-probe-error');
+      expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.getByText('continue')).toBeDisabled();
+      expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+      expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    }
+  );
+
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<VerifySeedPhraseFlow />);
+
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.getByText('continue')).toBeDisabled();
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      render(<VerifySeedPhraseFlow />);
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.getByText('continue')).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId('protector-probe-retry'));
+      await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
+      expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('renders each step through SubPageLayout, its actions in the footer', async () => {
+    await renderFlow();
+
+    const warning = screen.getByTestId('verify-seed-warning');
+    expect(warning.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'gap-5');
+    const footer = warning.querySelector('[data-slot="footer"]')!;
+    expect(footer).toContainElement(screen.getByText('close'));
+    expect(footer).toContainElement(screen.getByText('continue'));
+    // The privacy note is the shared Hero, not a hand-styled heading.
+    expect(screen.getByRole('heading', { level: 2, name: 'viewThisInPrivatePlace' })).toHaveClass('text-hero-name');
+    expect(screen.getByText('anyoneWithRecoveryPhrase')).toHaveClass('text-muted');
+
+    clickText('continue');
+    const auth = screen.getByTestId('verify-seed-auth');
+    expect(auth.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+    expect(screen.getByRole('heading', { name: 'enterPassword' })).toHaveClass('text-row-title');
+    expect(screen.getByLabelText('password')).toHaveAttribute('id', 'verify-seed-phrase-password');
+
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('w1');
+    const review = screen.getByTestId('verify-seed-review');
+    // The words sit on the shared fill; the copy action is a Pill.
+    expect(screen.getByTestId('seed-word-0').closest('.bg-fill')).not.toBeNull();
+    expect(screen.getByTestId('verify-seed-copy')).toHaveClass('rounded-full');
+    expect(review.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+  });
+
+  it('labels the mobile passcode step with the 16px section title (#1279)', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    clickText('continue');
+
+    expect(screen.getByRole('heading', { name: 'enterYourPasscode' })).toHaveClass('text-row-title');
   });
 
   it('exits from the warning header back button', async () => {
@@ -238,6 +497,13 @@ describe('VerifySeedPhraseFlow', () => {
     fireEvent.click(screen.getByTestId('nav-back'));
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the warning header its own horizontal padding', async () => {
+    // PageHeader has no horizontal padding of its own — the page supplies it,
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
+    await renderFlow();
+    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });
 
   it('exits from the warning close button', async () => {
@@ -306,7 +572,13 @@ describe('VerifySeedPhraseFlow', () => {
     fireEvent.click(screen.getByText('continue'));
 
     // The catch waits 300ms before setError; waitFor polls until it lands.
-    await waitFor(() => expect(screen.getByTestId('error-caption')).toHaveTextContent('bad password'));
+    await waitFor(() => expect(screen.getByTestId('verify-seed-password-error')).toHaveTextContent('bad password'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_verification_reveal_failed', 'field');
+    // The shared TextField marks the field itself invalid, not just the caption.
+    expect(input).toHaveAttribute('aria-invalid', 'true');
     // Still on the auth step; no review words rendered.
     expect(screen.queryByText('w1')).toBeNull();
   });
@@ -367,6 +639,198 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByText('viewThisInPrivatePlace')).toBeTruthy();
   });
 
+  it('starts the next auth entry clean after a reveal is abandoned mid-submit', async () => {
+    let resolveStale: (v: string) => void = () => undefined;
+    mockRevealMnemonic.mockImplementationOnce(
+      () =>
+        new Promise<string>(res => {
+          resolveStale = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'pw1' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+    await act(async () => {
+      resolveStale(TWELVE);
+      await Promise.resolve();
+    });
+    await flush();
+
+    clickText('continue');
+    const input = screen.getByPlaceholderText('********') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'x' } });
+    await flush();
+    fireEvent.change(input, { target: { value: '' } });
+    await flush();
+
+    expect(screen.queryByTestId('verify-seed-password-error')).toBeNull();
+  });
+
+  // Backing out abandons the reveal: a reveal that settles afterwards must not move the
+  // flow on, or leave its error behind for the next attempt.
+  it.each([false, true])(
+    'stays on the warning when the reveal resolves after the auth back arrow (mobile: %s)',
+    async mobile => {
+      mockIsMobile = mobile;
+      let resolveReveal: (v: string) => void = () => undefined;
+      mockRevealMnemonic.mockImplementation(
+        () =>
+          new Promise<string>(res => {
+            resolveReveal = res;
+          })
+      );
+      await renderFlow();
+      clickText('continue');
+      if (mobile) {
+        fireEvent.click(screen.getByTestId('passcode-submit'));
+      } else {
+        fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'my-password' } });
+        fireEvent.click(screen.getByText('continue'));
+      }
+      await flush();
+
+      fireEvent.click(screen.getByTestId('nav-back'));
+      await act(async () => {
+        resolveReveal(TWELVE);
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+      expect(screen.queryByTestId('verify-seed-review')).toBeNull();
+    }
+  );
+
+  // The generation bump only drops the reveal it was raised against; a fresh
+  // attempt started after it must still succeed normally.
+  it('reveals with a fresh password after a reveal abandoned by the back arrow resolves late', async () => {
+    let resolveStale: (v: string) => void = () => undefined;
+    mockRevealMnemonic.mockImplementationOnce(
+      () =>
+        new Promise<string>(res => {
+          resolveStale = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'pw1' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+    await act(async () => {
+      resolveStale(TWELVE);
+      await Promise.resolve();
+    });
+    await flush();
+
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'pw2' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    expect(mockRevealMnemonic).toHaveBeenCalledWith('pw2');
+    expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
+  });
+
+  // Pins the unguarded finally: a rejected reveal abandoned by the back arrow still releases
+  // isSubmitting, so the warning's Continue re-opens a clean auth step.
+  it('releases the flow after a rejected reveal abandoned by the back arrow', async () => {
+    mockRevealMnemonic.mockRejectedValueOnce(new Error('bad password'));
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'wrong' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    // The catch is now inside its 300ms delay.
+    fireEvent.click(screen.getByTestId('nav-back'));
+    await act(async () => {
+      await new Promise(res => setTimeout(res, 350));
+    });
+
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    // Before typing: the field's onChange clears errors, which would hide a stale one.
+    expect(screen.queryByTestId('verify-seed-password-error')).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'again' } });
+    expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // Helpers, not inline branches: eslint's no-conditional-expect flags an `expect` that is
+  // a syntactic descendant of an `if` inside the test body, even when only one arm ever runs.
+  const submitWrongCredential = (mobile: boolean) => {
+    if (mobile) {
+      fireEvent.click(screen.getByTestId('passcode-submit'));
+    } else {
+      fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'wrong' } });
+      fireEvent.click(screen.getByText('continue'));
+    }
+  };
+
+  const expectCredentialErrorShown = (mobile: boolean) =>
+    waitFor(() =>
+      expect(screen.getByTestId(mobile ? 'passcode-error' : 'verify-seed-password-error')).toHaveTextContent(
+        'bad password'
+      )
+    );
+
+  const expectAuthStartsClean = (mobile: boolean) => {
+    if (mobile) {
+      expect(screen.getByTestId('passcode-error')).toHaveTextContent('');
+    } else {
+      expect(screen.queryByTestId('verify-seed-password-error')).toBeNull();
+      expect((screen.getByPlaceholderText('********') as HTMLInputElement).value).toBe('');
+      expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(true);
+    }
+  };
+
+  // eslint-disable-next-line jest/expect-expect -- assertions live in expectCredentialErrorShown/expectAuthStartsClean
+  it.each([false, true])(
+    'starts the next attempt clean after an error that landed before the auth back arrow (mobile: %s)',
+    async mobile => {
+      mockIsMobile = mobile;
+      mockRevealMnemonic.mockRejectedValueOnce(new Error('bad password'));
+      await renderFlow();
+      clickText('continue');
+      submitWrongCredential(mobile);
+      await expectCredentialErrorShown(mobile);
+
+      fireEvent.click(screen.getByTestId('nav-back'));
+      clickText('continue');
+
+      expectAuthStartsClean(mobile);
+    }
+  );
+
+  it('drops a hardware unlock failure that settles after the flow is closed', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let rejectReveal: (err: Error) => void = () => undefined;
+    mockRevealMnemonic.mockImplementation(
+      () =>
+        new Promise<string>((_res, rej) => {
+          rejectReveal = rej;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    await flush();
+
+    clickText('close');
+    await act(async () => {
+      rejectReveal(new Error('device locked'));
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('reveals immediately via the hardware protector, skipping the auth step', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     await renderFlow();
@@ -389,6 +853,10 @@ describe('VerifySeedPhraseFlow', () => {
 
     // Stays on warning with the error alert populated.
     expect(screen.getByRole('alert')).toHaveTextContent('device locked');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_verification_reveal_failed', 'notice');
     expect(screen.getByText('viewThisInPrivatePlace')).toBeTruthy();
   });
 
@@ -459,6 +927,7 @@ describe('VerifySeedPhraseFlow', () => {
   });
 
   it('clears the passcode error via the numpad onChange', async () => {
+    mockRenderActualPasscode = true;
     mockIsMobile = true;
     mockRevealMnemonic.mockRejectedValue(new Error('nope'));
     await renderFlow();
@@ -467,9 +936,89 @@ describe('VerifySeedPhraseFlow', () => {
     // Trigger a failed submit so a form error is registered, then clear it.
     fireEvent.click(screen.getByTestId('passcode-submit'));
     await waitFor(() => expect(screen.getByTestId('passcode-error')).toHaveTextContent('nope'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_verification_reveal_failed', 'passcode');
 
     fireEvent.click(screen.getByTestId('passcode-change'));
     await flush();
     expect(screen.getByTestId('passcode-error')).toHaveTextContent('');
+  });
+});
+
+describe('seed removal', () => {
+  it('requires backup verification and final confirmation', async () => {
+    mockSeedState.seedPhraseStatus = 'stored';
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    mockRemoveSeedPhrase.mockResolvedValue(undefined);
+    render(<VerifySeedPhraseFlow remove />);
+    await waitFor(() => expect(screen.getByText('continue')).not.toBeDisabled());
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('removeSeedPhraseWriteDown');
+    expect(screen.queryByText('copyToClipboard')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('continue'));
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('removeSeedPhraseConfirmation');
+    expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    // The confirm step is the shared layout with Cancel and a destructive Remove side by side
+    // in its footer.
+    const confirmFooter = screen.getByTestId('remove-seed-confirm').querySelector('[data-slot="footer"]')!;
+    expect(confirmFooter).toContainElement(screen.getByText('removeSeedPhraseConfirm'));
+    expect(confirmFooter).toContainElement(screen.getByText('cancel'));
+    expect(screen.getByText('removeSeedPhraseConfirm')).toHaveAttribute('data-variant', 'Destructive');
+    fireEvent.click(screen.getByText('removeSeedPhraseConfirm'));
+    await waitFor(() => expect(mockRemoveSeedPhrase).toHaveBeenCalledWith(undefined));
+    mockSeedState.seedPhraseStatus = undefined;
+  });
+
+  // The sibling of RevealSeedPhrase's notice, carrying the identical mapping and
+  // previously untested here. Spelled out as a literal table rather than read
+  // from the production map, which would make the assertion tautological.
+  it('reports a seed removal failure after its inline error is shown', async () => {
+    mockSeedState.seedPhraseStatus = 'stored';
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    mockRemoveSeedPhrase.mockRejectedValueOnce(new Error('private removal failure'));
+    render(<VerifySeedPhraseFlow remove />);
+    await waitFor(() => expect(screen.getByText('continue')).not.toBeDisabled());
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('removeSeedPhraseWriteDown');
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByTestId('quiz-submit');
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('removeSeedPhraseConfirmation');
+    fireEvent.click(screen.getByText('removeSeedPhraseConfirm'));
+    await screen.findByText('private removal failure');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_remove_failed', 'inline');
+  });
+
+  it.each<[Exclude<SeedPhraseStatus, 'stored'>, string]>([
+    ['removing', 'seedRemovalIncomplete'],
+    ['removed', 'seedPhraseRemoved'],
+    ['unavailable', 'seedPhraseUnavailable']
+  ])('names the seed state %s rather than assuming a removal', async (status, expected) => {
+    mockSeedState.seedPhraseStatus = status;
+    // Mocks are not auto-cleared in this suite and the sibling test above calls
+    // it, so this has to be about THIS render.
+    mockRemoveSeedPhrase.mockClear();
+    try {
+      render(<VerifySeedPhraseFlow remove />);
+
+      expect(screen.getByRole('status').textContent).toBe(expected);
+      // The flow itself must not start: there is nothing here to verify.
+      expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
   });
 });

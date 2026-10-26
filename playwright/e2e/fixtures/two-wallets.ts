@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { browserLaunchOptions } from './browser-launch-options';
 import { getEnvironmentConfig } from '../config/environments';
 import { testArtifactDirName } from '../harness/artifact-path';
 import { attachConsoleCapture } from '../harness/browser-capture';
@@ -14,6 +15,11 @@ import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
+import {
+  createGuardianCommitmentLedger,
+  waitForGuardianLedgerSettled,
+  type GuardianCommitmentLedger
+} from '../harness/guardian-commitments';
 import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
@@ -27,6 +33,7 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
+import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import {
   BLANK_FRAME_WAIT_MS,
   SCREEN_CHANGE_BINDING,
@@ -58,6 +65,7 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
  * installed by `installNetworkFaults`.
  */
 export interface GuardianFaultTestApi {
+  readonly ownsProfile: boolean;
   armGuardianFault(policy: GuardianFaultPolicy): void;
   /**
    * Arm one or more whole-infra faults (node/prover/transport/positions/…).
@@ -68,12 +76,38 @@ export interface GuardianFaultTestApi {
    */
   armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): Promise<void>;
   /**
-   * How many guardian requests the currently-armed guardian fault has faulted.
-   * Lets a spec prove the fault actually fired (0 hits ⇒ the fault never reached
-   * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
+   * How many requests the currently-armed guardian fault has faulted - only
+   * those matching its target, path and, when set, method. Lets a spec prove
+   * the fault actually reached a matching request (0 hits means it never did,
+   * not that the op behaved as hoped). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
+  /** When each of those hits arrived. See `NetworkFaultControls.guardianFaultHitTimes`. */
+  guardianFaultHitTimes(): number[];
+  /**
+   * How many requests the currently-armed NETWORK faults have injected into,
+   * across both seams (context.route and the in-realm fetch wrapper). Arming is
+   * best effort, so a spec that asserts an ABSENCE under a fault should assert a
+   * non-zero count first — otherwise a fault that never landed reads as a pass.
+   * The false-green guard for `armNetworkFault`, mirroring `guardianFaultHits`.
+   */
+  networkFaultHits(): Promise<number>;
   clearFaults(): Promise<void>;
+  /**
+   * Start recording this wallet's guardian pushes and state reads, for
+   * `waitForGuardianSettled`. Call it before the wallet's first guardian
+   * transaction; it survives a relaunch.
+   */
+  trackGuardianCommitments(): void;
+  /**
+   * Resolve once nothing is left settling on this wallet's guardian: the
+   * transaction queue has drained and the guardian's canonical state has caught
+   * up with the last delta the wallet pushed. A spec that hands the account to
+   * another wallet waits on this, since the guardian refuses a new proposal
+   * (a recovered wallet's hot-key rotation among them) while a candidate is
+   * pending.
+   */
+  waitForGuardianSettled(timeoutMs?: number): Promise<void>;
 }
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
@@ -90,7 +124,12 @@ type FailureSnapshots = {
   walletB?: WalletSnapshot;
 };
 
+type ProfileDebugSession = DebugSession & {
+  ownedProfiles: { A: boolean; B: boolean };
+};
+
 type TwoWalletFixtures = {
+  injectFeeFaucet: boolean;
   walletA: GuardianAwareWalletPage;
   walletB: GuardianAwareWalletPage;
   midenCli: MidenCli;
@@ -102,6 +141,11 @@ type TwoWalletFixtures = {
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+// Budget for `waitForGuardianSettled`'s queue drain and then its canonicalization
+// wait. The guardian promotes a candidate within seconds once the chain has it, so
+// two minutes runs out only on a discarded candidate or a stalled guardian.
+const GUARDIAN_SETTLE_TIMEOUT_MS = 120_000;
 
 // The guardian operator origins fault injection keys on, for the active
 // E2E_NETWORK: local containers on localhost, the real operators on
@@ -252,25 +296,6 @@ export async function installScreenCapture(page: Page, label: string, outputDir:
 
 // Chromium launch args, shared by the initial wallet launch and reopen()'s
 // crash-recovery relaunch so the two can never drift.
-function chromeLaunchArgs(extensionPath: string): string[] {
-  return [
-    `--disable-extensions-except=${extensionPath}`,
-    `--load-extension=${extensionPath}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    // CI hardening for the guardian recovery specs. Peak RAM on the runner is
-    // high: two persistent contexts (A + B) plus the full docker stack
-    // (node/sequencer/prover/2 guardians/2 postgres). `--disable-dev-shm-usage`
-    // moves Chromium's shared memory off the small /dev/shm tmpfs onto disk (the
-    // standard CI fix for `Target.createTarget: Failed to open a new tab`);
-    // `--disable-gpu` drops the unused GPU process under xvfb. Both are inert to
-    // extension/SW behaviour. (They alone did NOT stop the intermittent browser
-    // crash the recovery specs hit -- that is now recovered from in reopen() by
-    // relaunching the context; see relaunchContext.)
-    '--disable-dev-shm-usage',
-    '--disable-gpu'
-  ];
-}
 
 // Poll for the extension's service worker to register (extension loading under
 // Playwright is flaky). Shared by the initial launch and the relaunch.
@@ -314,11 +339,7 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
       fs.rmSync(path.join(userDataDir, lock), { force: true });
     } catch {}
   }
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
-    args: chromeLaunchArgs(extensionPath),
-    ignoreDefaultArgs: ['--disable-extensions']
-  });
+  const context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
   const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;
   const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
@@ -338,21 +359,40 @@ async function launchWalletInstance(
   label: 'A' | 'B',
   extensionPath: string,
   timeline: TimelineRecorder,
-  outputDir: string
+  outputDir: string,
+  feeFaucetId?: string
 ) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
+  const suppliedProfile = process.env[`E2E_WALLET_${label}_PROFILE`];
+  const ownsProfile = suppliedProfile === undefined;
+  const userDataDir = suppliedProfile ?? fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
   // browser crash so teardown closes the LIVE context and the fault methods
   // target it.
-  let context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
-    args: chromeLaunchArgs(extensionPath),
-    ignoreDefaultArgs: ['--disable-extensions']
-  });
+  let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
 
   const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;
+
+  if (feeFaucetId) {
+    const deadline = Date.now() + 30_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      ready = await serviceWorker
+        .evaluate(() => typeof (self as { __TEST_SET_FEE_FAUCET__?: unknown }).__TEST_SET_FEE_FAUCET__ === 'function')
+        .catch(() => false);
+      if (ready) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (!ready) {
+      throw new Error(`__TEST_SET_FEE_FAUCET__ was not installed on wallet ${label} within 30s`);
+    }
+    await serviceWorker.evaluate(async id => {
+      const setFee = (self as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__;
+      if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+      await setFee(id);
+    }, feeFaucetId);
+  }
 
   // Attach observability
   attachConsoleCapture(context, label, timeline);
@@ -507,8 +547,19 @@ async function launchWalletInstance(
       await page
         .locator('[data-testid="onboarding-welcome"]')
         .or(page.locator('[data-testid="explore-page"]'))
+        .or(page.locator('[data-testid="unlock-password"]'))
+        .or(page.locator('[data-testid="onboarding-help-improve-wallet"]'))
         .first()
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
+
+      if (feeFaucetId) {
+        await page.evaluate(async id => {
+          const setFee = (window as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> })
+            .__TEST_SET_FEE_FAUCET__;
+          if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+          await setFee(id);
+        }, feeFaucetId);
+      }
 
       timeline.emit({
         category: 'test_lifecycle',
@@ -574,12 +625,18 @@ async function launchWalletInstance(
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
   let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
+  // Outlives `faults`: a relaunch re-attaches it to the new context's handler.
+  let guardianLedger: GuardianCommitmentLedger | undefined;
 
   // Fetch-layer faults for node/prover/transport (gRPC-web inside the SW / SDK
   // worker — context.route can't reach it). Live SW via the context thunk so it
   // follows a relaunch; the worker hook re-applies to the SDK's lazily-spawned
   // worker. See harness/fetch-faults.ts.
-  const fetchFaults = installFetchFaultControls(() => context.serviceWorkers()[0], page);
+  const fetchFaults = installFetchFaultControls(
+    () => context.serviceWorkers()[0],
+    page,
+    () => context
+  );
 
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap
@@ -598,6 +655,7 @@ async function launchWalletInstance(
     context = next.context;
     page = next.page;
     faults = next.faults;
+    if (guardianLedger) faults.trackGuardianCommitments(guardianLedger);
     // Fresh Page instance -- re-install the screen-change capture binding.
     await installScreenCapture(page, label, outputDir);
     return page;
@@ -606,8 +664,11 @@ async function launchWalletInstance(
   const walletPage: GuardianAwareWalletPage = Object.assign(
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
+      ownsProfile,
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
+      guardianFaultHitTimes: () => faults.guardianFaultHitTimes(),
+      networkFaultHits: async () => faults.networkFaultHits() + (await fetchFaults.hits()),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
         // context.route serves guardian + HTTP services; the fetch layer serves
@@ -618,6 +679,23 @@ async function launchWalletInstance(
       clearFaults: async () => {
         faults.clear();
         await fetchFaults.clear();
+      },
+      trackGuardianCommitments: () => {
+        guardianLedger ??= createGuardianCommitmentLedger();
+        faults.trackGuardianCommitments(guardianLedger);
+      },
+      waitForGuardianSettled: async (timeoutMs: number = GUARDIAN_SETTLE_TIMEOUT_MS) => {
+        if (!guardianLedger) {
+          throw new Error('waitForGuardianSettled: call trackGuardianCommitments() before the wallet transacts');
+        }
+        await walletPage.waitForQueueDrained(timeoutMs);
+        const waitedMs = await waitForGuardianLedgerSettled(guardianLedger, { timeoutMs });
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'info',
+          wallet: label,
+          message: `Wallet ${label}: guardian canonicalized its last pushed delta ${waitedMs}ms after the queue drained`
+        });
       }
     }
   );
@@ -631,6 +709,7 @@ async function launchWalletInstance(
     },
     extensionId,
     userDataDir,
+    ownsProfile,
     get page() {
       return page;
     }
@@ -684,14 +763,15 @@ async function closeContextQuietly(context: BrowserContext, page: Page): Promise
 function writeDebugSession(
   testName: string,
   reportPath: string,
-  instanceA: { extensionId: string; userDataDir: string },
-  instanceB: { extensionId: string; userDataDir: string },
+  instanceA: { extensionId: string; userDataDir: string; ownsProfile: boolean },
+  instanceB: { extensionId: string; userDataDir: string; ownsProfile: boolean },
   midenCliWorkDir: string
 ): void {
-  const session: DebugSession = {
+  const session: ProfileDebugSession = {
     createdAt: new Date().toISOString(),
     testName,
     reportPath,
+    ownedProfiles: { A: instanceA.ownsProfile, B: instanceB.ownsProfile },
     wallets: {
       A: {
         extensionId: instanceA.extensionId,
@@ -727,12 +807,16 @@ function cleanupStaleSessions(): void {
   if (!fs.existsSync(sessionPath)) return;
 
   try {
-    const session: DebugSession = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    const session: Partial<ProfileDebugSession> = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    if (!session.expiresAt || !session.wallets) return;
     if (new Date(session.expiresAt) < new Date()) {
       // Session expired -- clean up
       fs.unlinkSync(sessionPath);
       // Try to clean up user data dirs
-      for (const wallet of [session.wallets.A, session.wallets.B]) {
+      for (const label of ['A', 'B'] as const) {
+        // Older sessions do not prove the harness owns their profiles.
+        if (session.ownedProfiles?.[label] !== true) continue;
+        const wallet = session.wallets[label];
         try {
           fs.rmSync(wallet.userDataDir, { recursive: true, force: true });
         } catch {
@@ -753,6 +837,7 @@ function cleanupStaleSessions(): void {
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 export const test = base.extend<TwoWalletFixtures>({
+  injectFeeFaucet: [true, { option: true }],
   envConfig: async ({}, use) => {
     const config = getEnvironmentConfig();
     await use(config);
@@ -849,9 +934,10 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletA: async ({ timeline, steps, failureSnapshots }, use, testInfo) => {
+  walletA: async ({ timeline, steps, failureSnapshots, midenCli, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir);
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
+    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'A', steps.outputDir);
 
@@ -864,6 +950,10 @@ export const test = base.extend<TwoWalletFixtures>({
     // `failureReport` fixture writes it out after this teardown returns.
     if (failed) {
       failureSnapshots.walletA = await captureFailureSnapshot(steps, timeline, 'A');
+      // Must run while the context is still open: the trail lives in
+      // chrome.storage.local and is read through the service worker. On a write
+      // that never returned this is the only record of where it stopped (#718).
+      await dumpProveTelemetry(instance.walletPage.page, 'wallet A at failure');
     }
 
     if (isAgentic && failed) {
@@ -886,13 +976,16 @@ export const test = base.extend<TwoWalletFixtures>({
       });
     } else {
       await closeContextQuietly(instance.context, instance.walletPage.page);
-      fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      if (instance.ownsProfile && process.env.E2E_RETAIN_PROFILE !== 'true') {
+        fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      }
     }
   },
 
-  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
+  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir);
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
+    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'B', steps.outputDir);
 
@@ -916,11 +1009,13 @@ export const test = base.extend<TwoWalletFixtures>({
         path.join(timeline.getOutputDir(), 'report.json'),
         {
           extensionId: walletA.extensionId,
-          userDataDir: walletA.userDataDir
+          userDataDir: walletA.userDataDir,
+          ownsProfile: walletA.ownsProfile
         },
         {
           extensionId: instance.extensionId,
-          userDataDir: instance.userDataDir
+          userDataDir: instance.userDataDir,
+          ownsProfile: instance.ownsProfile
         },
         midenCli.getWorkDir()
       );
@@ -943,7 +1038,9 @@ export const test = base.extend<TwoWalletFixtures>({
       });
     } else {
       await closeContextQuietly(instance.context, instance.walletPage.page);
-      fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      if (instance.ownsProfile && process.env.E2E_RETAIN_PROFILE !== 'true') {
+        fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      }
     }
   }
 });

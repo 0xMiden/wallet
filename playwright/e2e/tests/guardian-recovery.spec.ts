@@ -2,6 +2,7 @@ import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { assertClaimed } from '../helpers/assertions';
 import { pendingNoteTotal, vaultBalance, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // Primary guardian operator for the selected network (E2E_NETWORK): the local
 // container on localhost, the real OpenZeppelin operator on testnet/devnet.
@@ -19,6 +20,10 @@ const RECOVERY_MINT_BASE_UNITS = 25_000_000_000n;
 // Left unconsumed on the original profile, then rediscovered by the detached
 // pending-note recovery after the account is restored on a clean profile.
 const PENDING_RECOVERY_BASE_UNITS = 10_000_000_000n;
+// Minted to the account AFTER it has been imported on walletB with only its
+// hot key, and claimed there with the ORIGINAL [hot, cold] signer set — the
+// proof the pasted key actually signs.
+const HOT_IMPORT_MINT_BASE_UNITS = 15_000_000_000n;
 // Both claims land in the same account's vault, so this is what the recovered
 // wallet must still hold after a service-worker respawn.
 const RECOVERED_VAULT_BASE_UNITS = FUND_BASE_UNITS + RECOVERY_MINT_BASE_UNITS;
@@ -196,7 +201,7 @@ test.describe('Guardian recovery - real UI journey', () => {
         };
 
         await walletB.claimAllNotes(120_000);
-        await walletB.refreshBalances();
+        await walletB.refreshBalancesLanded(120_000);
 
         // The consume must move the note's value into the VAULT and out of the
         // pending list: the rotated [new-hot, cold] signer set actually co-signed
@@ -231,6 +236,171 @@ test.describe('Guardian recovery - real UI journey', () => {
     });
   });
 
+  /**
+   * The seed-less import path, minimal form: walletA's account is imported on
+   * a clean profile with ONLY its hot (everyday) private key — revealed
+   * through the real Settings screen, pasted through the real "Import with
+   * key instead" onboarding fork. The guardian is auto-detected by the HOT
+   * key's commitment (the seed path probes by cold-derived commitments), and
+   * no hot-key rotation runs: the pasted key IS the device key. No funding,
+   * no CLI, no claims — the money-movement proof lives in the funded test
+   * below; this one exists to fail fast on the flow itself.
+   */
+  test('imports the account with its hot and EVM keys via real UI — no seed, no rotation', async ({
+    walletA,
+    walletB,
+    steps
+  }) => {
+    test.setTimeout(480_000);
+
+    const commitmentA = await guardianCommitment(A);
+
+    let addressA: string;
+    let keyPairPayload = '';
+
+    await steps.step('create_on_a_and_reveal_key_pair', async () => {
+      const created = await walletA.createGuardianWallet(A);
+      addressA = created.address;
+
+      // Transfer the separate hot and EVM keys from the real authenticated
+      // QR-first reveal screen through the two manual import fields.
+      keyPairPayload = await walletA.revealHotKey();
+      await walletA.assertGuardianAuth(addressA, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
+    });
+
+    await steps.step(
+      'import_on_clean_wallet_with_key_pair',
+      async () => {
+        await walletB.recoverGuardianFromHotKey(keyPairPayload);
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+
+    await steps.step('same_account_unchanged_auth_shape', async () => {
+      const addressB = await walletB.getAccountAddress();
+      expect(addressB, 'importing the hot key on a clean profile must land on the SAME account id as A').toBe(
+        addressA!
+      );
+      // No rotation ran, so the signer set and guardian binding are exactly
+      // A's — a changed shape here means the import mutated the account.
+      await walletB.assertGuardianAuth(addressB, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
+    });
+  });
+
+  /**
+   * The funded follow-up to the basic hot-key import test above: same journey,
+   * but the account holds real funds before the import and the imported
+   * profile must (a) see them, (b) co-sign a fresh consume with the pasted
+   * key — the money movement this feature ultimately exists for — and (c)
+   * keep both across a reopen.
+   */
+  test('imported hot-key wallet sees existing funds and claims with the pasted key', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    test.setTimeout(600_000);
+
+    const commitmentA = await guardianCommitment(A);
+
+    let addressA: string;
+    let keyPairPayload = '';
+    let faucetId: string;
+
+    await steps.step('create_and_fund_on_a_reveal_key_pair', async () => {
+      const created = await walletA.createGuardianWallet(A);
+      addressA = created.address;
+
+      // Both this profile's claim and walletB's post-import claim act as the
+      // SAME account, and on a fee-charging chain every consume pays its fee
+      // from that account's own native vault — fund it once, up front.
+      await ensureFeeFunded(midenCli, walletA, addressA);
+
+      await midenCli.init();
+      faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA, FUND_BASE_UNITS, 'public');
+      await midenCli.sync();
+
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
+      await walletA.claimAllNotes(180_000);
+      await waitForVaultBalance(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+
+      keyPairPayload = await walletA.revealHotKey();
+      await walletA.assertGuardianAuth(addressA, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
+    });
+
+    await steps.step(
+      'import_on_clean_wallet_with_key_pair',
+      async () => {
+        await walletB.recoverGuardianFromHotKey(keyPairPayload);
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+
+    let addressB: string;
+    await steps.step('same_account_unchanged_auth_shape', async () => {
+      addressB = await walletB.getAccountAddress();
+      expect(addressB, 'importing the hot key on a clean profile must land on the SAME account id as A').toBe(
+        addressA!
+      );
+      // No rotation ran, so the signer set and guardian binding are exactly
+      // A's — a changed shape here means the import mutated the account.
+      await walletB.assertGuardianAuth(addressB, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
+    });
+
+    await steps.step(
+      'imported_wallet_signs_with_the_pasted_key',
+      async () => {
+        // The imported profile must see the account's existing spendable funds…
+        await waitForVaultBalance(walletB.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+
+        // …and co-sign a fresh consume with the pasted hot key.
+        await midenCli.mint(faucetId!, addressB!, HOT_IMPORT_MINT_BASE_UNITS, 'public');
+        await midenCli.sync();
+        await waitForPendingNoteTotal(walletB.page, TOKEN, HOT_IMPORT_MINT_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+        const beforeClaim = {
+          vault: await vaultBalance(walletB.page, TOKEN),
+          pending: await pendingNoteTotal(walletB.page, TOKEN)
+        };
+
+        await walletB.claimAllNotes(120_000);
+        await walletB.refreshBalancesLanded(120_000);
+
+        await assertClaimed(
+          { page: walletB.page, label: 'B' },
+          TOKEN,
+          TOKEN_DECIMALS,
+          beforeClaim,
+          HOT_IMPORT_MINT_BASE_UNITS,
+          { timeoutMs: 120_000 }
+        );
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
+
+    await steps.step('reopen_stays_imported_and_funded', async () => {
+      await walletB.reopen();
+      await walletB.assertGuardianAuth(addressB!, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
+      await waitForVaultBalance(walletB.page, TOKEN, FUND_BASE_UNITS + HOT_IMPORT_MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+    });
+  });
+
   test('recovers a public note that was pending before seed recovery', async ({
     walletA,
     walletB,
@@ -247,7 +417,15 @@ test.describe('Guardian recovery - real UI journey', () => {
       address = created.address;
       seed = created.seedPhrase.join(' ');
 
-      await midenCli.init();
+      // Fund for fees and claim it BEFORE the fixture note is minted. The recovery below
+      // ends in a hot-key rotation, which on a fee-charging chain is a real transaction
+      // paid from this account's own vault -- and this spec deliberately claims nothing
+      // afterwards, so a funding note minted later would sit pending like the fixture note
+      // and leave the vault empty. Doing it first means the only claimable note at this
+      // point is the native one, so the fixture note's "still unconsumed" premise below is
+      // untouched.
+      await ensureFeeFunded(midenCli, walletA, address);
+
       const faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, address, PENDING_RECOVERY_BASE_UNITS, 'public');
       await midenCli.sync();

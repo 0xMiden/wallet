@@ -1,3 +1,5 @@
+import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
+import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
 import {
@@ -5,6 +7,8 @@ import {
   DELEGATE_PROOF_STORAGE_KEY,
   AUTO_CONSUME_STORAGE_KEY,
   DEFAULT_AUTO_CONSUME,
+  TELEMETRY_STORAGE_KEY,
+  DEFAULT_TELEMETRY,
   BG_SETTINGS_MIRRORED_KEY,
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_HAPTIC_FEEDBACK,
@@ -29,13 +33,14 @@ function getSetting(key: string, defaultValue: boolean) {
  * (which has no `localStorage`) can read it via `readMirroredSetting`. Guarded:
  * `getStorageProvider()` can throw before platform detection is ready.
  */
-function mirrorSetting(key: string, value: boolean): void {
+function mirrorSetting(key: string, value: boolean): Promise<void> {
   try {
-    void getStorageProvider()
+    return getStorageProvider()
       .set({ [key]: value })
       .catch(() => {});
   } catch {
     /* storage not ready — the startup mirror / defaults cover it */
+    return Promise.resolve();
   }
 }
 
@@ -88,6 +93,129 @@ export function isAutoConsumeEnabledAsync(): Promise<boolean> {
 }
 
 /**
+ * Awaitable, unlike its siblings, because for telemetry the TIMING of the
+ * mirror is part of the guarantee.
+ *
+ * The background reads consent from the mirror, so until that write lands the
+ * gate still answers with the old value. For auto-consume or delegated proving
+ * that window is harmless. Here it means a user can switch telemetry off and
+ * have an event about their session sent afterwards — which is precisely what
+ * "off stops the sharing already under way" promises not to happen. Callers that
+ * turn it OFF must await this before anything that could produce an event; the
+ * telemetry egress e2e caught exactly that ordering (a flow cancelled by the
+ * navigation right after the toggle still reported itself).
+ *
+ * Not a complete ordering guarantee, and cannot be: an event already dispatched
+ * to the background is past the gate. It closes the window that is ours to
+ * close, which is everything the UI does after the switch is flipped.
+ */
+export function setTelemetrySetting(enabled: boolean): Promise<void> {
+  setSetting(TELEMETRY_STORAGE_KEY, enabled);
+  return mirrorSetting(TELEMETRY_STORAGE_KEY, enabled);
+}
+
+export function isTelemetryEnabled() {
+  return getSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+}
+
+/**
+ * The Firefox data-collection permission the wallet declares as optional. Must
+ * stay in step with `data_collection_permissions.optional` in
+ * `public/manifest.v2.json` and `public/manifest.json`.
+ */
+const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
+
+/**
+ * Whether the *browser* permits data collection, independently of our own
+ * setting.
+ *
+ * Firefox 140+ asks the user whether the extension may collect
+ * `technicalAndInteraction` data — at install time, and again in `about:addons`
+ * → Permissions and data. Its answer applies to both usage data and crash
+ * reports, independently of the wallet's "Share usage data" setting.
+ *
+ * **How "this browser has no such concept" is told apart from "this browser
+ * said no".** This is the whole difficulty, and getting it backwards fails
+ * silently in one of two directions: read an absent mechanism as a refusal and
+ * telemetry dies everywhere including Chrome and mobile, with no error; read a
+ * refusal as an absent mechanism and we collect from someone who explicitly
+ * declined. Neither shows up as a crash.
+ *
+ * The discriminator is therefore NOT whether the call throws — Chrome would
+ * reject an unknown `data_collection` key passed to `permissions.contains()`,
+ * so keying off a throw is exactly the trap. It is the **presence of the
+ * `data_collection` key in the `permissions.getAll()` response**, which is the
+ * mechanism Mozilla documents for feature-detecting this experience at runtime:
+ *
+ * - **Key absent** — the browser does not implement data-collection consent at
+ *   all (Chrome, any Firefox below 140). There is no browser-level answer to
+ *   honour, so this gate abstains.
+ * - **Key present** — the browser implements it and its answer is
+ *   authoritative. Granted only if the array actually names our data type. An
+ *   empty array is a refusal, not an absence, and that is the distinction the
+ *   key's presence buys us.
+ *
+ * Everything else fails **closed**: a non-extension context aside, a throw, a
+ * rejected promise, or a `data_collection` that is not an array all return
+ * false, because an error reading a permission must never read as permission
+ * granted.
+ *
+ * Off-extension (mobile, desktop) there is no extension permission model to
+ * consult, so this abstains rather than failing closed. Usage data separately
+ * requires the wallet's own setting to be on.
+ */
+async function isDataCollectionPermitted(): Promise<boolean> {
+  if (!isExtension()) return true;
+
+  try {
+    const browser = await import('webextension-polyfill').then(m => m.default);
+    const granted = await browser.permissions.getAll();
+    const dataCollection = granted.data_collection;
+
+    if (dataCollection === undefined) return true;
+
+    // Not `dataCollection.includes(...)` alone: a bare string would satisfy
+    // `includes` and read as granted.
+    return Array.isArray(dataCollection) && dataCollection.includes(TECHNICAL_AND_INTERACTION);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Service-worker-safe read of the usage-data consent toggle. The background
+ * sink uses this authoritative read to require both the wallet's setting and
+ * the browser-level permission before sending usage data.
+ *
+ * Defaults to OFF on read-miss — unlike auto-consume, a missing mirror here
+ * must fail closed.
+ *
+ * The local read comes first deliberately: it is cheap and it is false for
+ * almost everyone, so the common opted-out path never touches an extension API.
+ */
+export async function isTelemetryEnabledAsync(): Promise<boolean> {
+  if (!(await readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY))) return false;
+  return isDataCollectionPermitted();
+}
+
+/**
+ * Crash reports are independent of the usage-data choice, but Firefox's optional
+ * data-collection permission still applies, so only the browser's answer gates them.
+ */
+export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isDataCollectionPermitted();
+}
+
+/**
+ * Whether the user has ever answered the telemetry prompt. Absence of the key
+ * means "never asked", which is what drives the first-launch step — and which
+ * still sends no usage data, since `isTelemetryEnabled()` reads false.
+ */
+export function hasTelemetryChoice(): boolean {
+  return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
+}
+
+/**
  * One-shot migration: copy the current `localStorage` values of the settings the
  * extension service worker needs — auto-consume (whether to run) and delegated-proving
  * (how to prove) — into the platform KV mirror, so the SW honors a user's choices it
@@ -98,6 +226,7 @@ export function isAutoConsumeEnabledAsync(): Promise<boolean> {
 export function mirrorBackgroundSettings(): void {
   mirrorSetting(AUTO_CONSUME_STORAGE_KEY, isAutoConsumeEnabled());
   mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, isDelegateProofEnabled());
+  mirrorSetting(TELEMETRY_STORAGE_KEY, isTelemetryEnabled());
   // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
   // holds off background native-consume, so it never acts on read-miss defaults for a
   // user who opted out of auto-consume or remote proving.
@@ -139,13 +268,69 @@ export function isValidGuardianUrl(value: string): boolean {
 }
 
 /**
- * Normalize a Guardian endpoint for storage and comparison: trim surrounding
- * whitespace and strip any trailing slashes, so `https://g.example.com/` and
- * `https://g.example.com` are treated as the same endpoint. Apply this to any
- * user-entered Guardian URL before persisting or comparing it.
+ * Normalize a Guardian endpoint for storage: trim surrounding whitespace and
+ * strip any trailing slashes. This is the form persisted and sent, not a
+ * comparison: `sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b)` still misses
+ * two spellings of the same endpoint that differ in host case or an explicit
+ * default port, and it does not tell a different path spelled with a different
+ * case (a different endpoint) from one that only looks different. Compare
+ * endpoints with `sameGuardianEndpoint`.
  */
 export function sanitizeGuardianUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Are these two spellings the same Guardian endpoint? A stored endpoint may have been typed by a user or written by an
+ * older build, and a built-in operator's is a literal in wallet config, so they can differ in host case, an explicit
+ * default port or a trailing slash. `URL` lowercases only the scheme and host, the parts that are case-insensitive: a
+ * blanket lowercase would also fold the path, and a look-alike endpoint differing from a built-in only in path case
+ * would pass as that built-in. An unparseable value can't be a working endpoint; it compares as its trimmed,
+ * lowercased text, so it still matches an identical spelling of itself.
+ */
+export function sameGuardianEndpoint(a: string, b: string): boolean {
+  return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
+}
+
+/**
+ * The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. A
+ * renamed built-in host (`RENAMED_GUARDIAN_ENDPOINTS`) canonicalizes to its current name, so both names are one
+ * endpoint.
+ */
+export function canonicalGuardianEndpoint(raw: string): string {
+  const spelling = canonicalSpelling(raw);
+  const renamed = renamedEndpointsByCanonicalSpelling().get(spelling);
+  return renamed ?? spelling;
+}
+
+let renamedByCanonicalSpelling: Map<string, string> | undefined;
+
+function renamedEndpointsByCanonicalSpelling(): Map<string, string> {
+  if (!renamedByCanonicalSpelling) {
+    renamedByCanonicalSpelling = new Map(
+      [...RENAMED_GUARDIAN_ENDPOINTS].map(([oldName, newName]) => [
+        canonicalSpelling(oldName),
+        canonicalSpelling(newName)
+      ])
+    );
+  }
+  return renamedByCanonicalSpelling;
+}
+
+function canonicalSpelling(raw: string): string {
+  const trimmed = sanitizeGuardianUrl(raw);
+  try {
+    const url = new URL(trimmed);
+    // `href`, not a template of the parts: `GuardianHttpClient` sends every request
+    // to `${baseUrl}${path}`, so a query or fragment (even a bare `?` or `#`, which
+    // `search` and `hash` report as '') moves the appended path out of the path,
+    // and any userinfo makes `fetch` throw. A spelling carrying one is not the
+    // working endpoint, and `href` keeps each of them distinct.
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return url.href;
+  } catch {
+    return trimmed.toLowerCase();
+  }
 }
 
 export function setThemeSetting(theme: ThemeSetting) {

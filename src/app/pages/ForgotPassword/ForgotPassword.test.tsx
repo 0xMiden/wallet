@@ -1,11 +1,37 @@
 import React from 'react';
 
-import { act, render } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
-import { deserializeError } from 'lib/intercom/helpers';
+import { isOnboardingFinishing } from 'app/onboarding-finish';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
+import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import ForgotPassword from './ForgotPassword';
+
+// The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
+const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+// Wraps the real navigateOnFromOnboarding so a holder that regresses to a plain navigate is
+// distinguishable from one that still goes through it: this stays a jest.fn, the delegate call
+// resolves the real module lazily so it is safe regardless of when the factory below runs.
+const mockNavigateOn = jest.fn((to: string) =>
+  jest.requireActual('app/onboarding-finish').navigateOnFromOnboarding(to)
+);
+jest.mock('app/onboarding-finish', () => {
+  const actual = jest.requireActual('app/onboarding-finish');
+  return {
+    ...actual,
+    navigateOnFromOnboarding: (to: string) => mockNavigateOn(to),
+    markOnboardingFinishing: () => {
+      const mark = actual.markOnboardingFinishing();
+      const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
+      mockMarks.push(recorded);
+      return recorded;
+    }
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read/write at call time (must be `mock`-prefixed so
@@ -29,10 +55,16 @@ const captured: {
 // the page renders in jsdom without pulling in wasm, bip39, woozie or the real
 // onboarding navigator.
 // ---------------------------------------------------------------------------
+// The real flow for the cases that read what the Welcome step shows.
+let mockRealFlow = false;
 jest.mock('screens/onboarding/navigator', () => ({
   OnboardingFlow: (props: Record<string, unknown>) => {
     captured.onAction = props.onAction as typeof captured.onAction;
     captured.props = props;
+    if (mockRealFlow) {
+      const { OnboardingFlow: RealFlow } = jest.requireActual('screens/onboarding/navigator');
+      return <RealFlow {...props} />;
+    }
     const seedPhrase = props.seedPhrase as string[] | null;
     return (
       <div
@@ -47,10 +79,18 @@ jest.mock('screens/onboarding/navigator', () => ({
   }
 }));
 
+// The mainnet switch's realm refresh: on the extension, which these cases model, the service worker request.
+const mockRequest = jest.fn<Promise<void>, []>();
+const mockFollow = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     registerWallet: mockRegisterWallet
-  })
+  }),
+  request: () => mockRequest()
+}));
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual('lib/remote-config/runtime'),
+  followEffectiveNetwork: () => mockFollow()
 }));
 
 jest.mock('lib/miden/reset', () => ({
@@ -64,6 +104,47 @@ jest.mock('lib/woozie', () => ({
 const mockPostOnboardingRoute = jest.fn<string, []>(() => '/');
 jest.mock('lib/extension/side-panel-handoff', () => ({
   postOnboardingRoute: () => mockPostOnboardingRoute()
+}));
+
+// False (the extension and desktop path) unless a case sets it.
+const mockIsMobile = jest.fn(() => false);
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockIsMobile(),
+  isExtension: () => true
+}));
+
+// A countdown whose moment has passed: mainnet has launched, so onboarding is invite-only.
+const LAUNCHED = { enabled: true, launchAt: Date.parse('2026-10-01T00:00:00Z') };
+const readySnapshot = (mainnetCountdown?: { enabled: boolean; launchAt?: number }): BridgeConfigSnapshot => ({
+  network: 'testnet',
+  status: 'ready',
+  config: {
+    network: 'testnet',
+    version: 1,
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
+    features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    ...(mainnetCountdown ? { mainnetCountdown } : {})
+  },
+  derived: null,
+  lastFetch: null
+});
+let mockSnapshot = readySnapshot();
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  ...jest.requireActual('lib/remote-config/use-feature-availability'),
+  useBridgeConfigSnapshot: () => mockSnapshot
+}));
+
+let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+let mockDeveloperChoice = false;
+// A stored network choice takes effect at once, as the real override cache does.
+const mockApply = jest.fn<Promise<void>, [EndpointOverride]>();
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockNetwork,
+  hasDeveloperNetworkChoice: () => mockDeveloperChoice,
+  applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
 }));
 
 // Store the latest handler closure so tests can invoke the mobile back handler
@@ -80,26 +161,61 @@ jest.mock('app/defaults', () => ({
   formatMnemonic: (m: string) => `fmt:${m}`
 }));
 
-jest.mock('bip39', () => ({
-  generateMnemonic: (...args: unknown[]) => mockGenerateMnemonic(...(args as [])),
+jest.mock('@miden/hd-key', () => ({
+  generateMnemonic: () => mockGenerateMnemonic(),
+  englishWordlist: ['abandon', 'ability', 'able'],
   __esModule: true
 }));
-
-jest.mock('bip39/src/wordlists/english.json', () => ['abandon', 'ability', 'able']);
 
 // Guardian auto-detection: the real hook dynamically imports the WASM SDK.
 // Stub it with a controllable start() so tests can steer what the probe found.
 const mockProbeStart = jest.fn<Promise<unknown>, unknown[]>();
 const mockProbeReset = jest.fn();
+// Records the network each render asks the probe for.
+const mockUseGuardianProbe = jest.fn((_network?: MIDEN_NETWORK_NAME) => ({
+  state: { status: 'idle' },
+  start: mockProbeStart,
+  reset: mockProbeReset
+}));
 jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
   GUARDIAN_PROBE_WAIT_DEADLINE_MS: 50,
-  useGuardianProbe: () => ({ state: { status: 'idle' }, start: mockProbeStart, reset: mockProbeReset })
+  useGuardianProbe: (network?: MIDEN_NETWORK_NAME) => mockUseGuardianProbe(network)
 }));
 
 const mockPutToStorage = jest.fn<Promise<void>, unknown[]>();
+const mockFetchFromStorage = jest.fn<Promise<unknown>, unknown[]>(async () => null);
 jest.mock('lib/miden/front/storage', () => ({
-  putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
+  ...jest.requireActual('lib/miden/front/storage'),
+  putToStorage: (...args: unknown[]) => mockPutToStorage(...args),
+  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
+
+// Telemetry: each beginFlow() records the flow name and returns a fresh spy
+// handle so a test can assert which flows were begun and how each settled.
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const mockFlowHandles: Array<{ flow: string; handle: TelemetryHandle }> = [];
+const mockBeginFlow = jest.fn((flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  mockFlowHandles.push({ flow, handle });
+  return handle;
+});
+const mockClassifyError = jest.fn<string, [unknown]>(() => 'unknown');
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: (error: unknown) => mockClassifyError(error)
+}));
+
+const flowsBegun = () => mockFlowHandles.map(entry => entry.flow);
+
+// Throwing accessor (rather than a `!`) so a missing flow names what was begun.
+function handleFor(flow: string): TelemetryHandle {
+  const entry = mockFlowHandles.find(candidate => candidate.flow === flow);
+  if (!entry)
+    throw new Error(`no telemetry flow was begun for '${flow}' (begun: ${flowsBegun().join(', ') || 'none'})`);
+  return entry.handle;
+}
+
+const telemetryCallArgs = () => JSON.stringify([mockBeginFlow.mock.calls, mockClassifyError.mock.calls]);
 
 const PROBED_RESULT = {
   best: {
@@ -135,12 +251,33 @@ function renderPage() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFlowHandles.length = 0;
+  // clearAllMocks only clears call data, not a queued *Once implementation, so a
+  // test whose mockRejectedValueOnce/mockImplementationOnce never fires (e.g. it
+  // stops before the dispatch that would consume it) leaks that one-shot into
+  // the next test that calls the same mock. Reset these four explicitly and
+  // re-apply their default; mockBeginFlow is never given a one-shot.
+  mockRegisterWallet.mockReset();
   mockRegisterWallet.mockResolvedValue(undefined);
+  mockPutToStorage.mockReset();
+  mockNavigate.mockReset();
+  mockClassifyError.mockReset();
+  mockClassifyError.mockReturnValue('unknown');
+  mockFetchFromStorage.mockResolvedValue(null);
   mockPostOnboardingRoute.mockReturnValue('/');
+  mockIsMobile.mockReturnValue(false);
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
   captured.props = undefined;
+  mockRealFlow = false;
+  mockSnapshot = readySnapshot();
+  mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockDeveloperChoice = false;
+  mockApply.mockReset().mockImplementation(async override => {
+    mockNetwork = override.networkName;
+  });
+  mockRequest.mockReset().mockResolvedValue(undefined);
 });
 
 describe('ForgotPassword', () => {
@@ -165,7 +302,18 @@ describe('ForgotPassword', () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-wallet' });
     const el = flow(container);
-    expect(mockGenerateMnemonic).toHaveBeenCalledWith(128);
+    expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
+    expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
+    expect(el.getAttribute('data-type')).toBe(OnboardingType.Create);
+    expect(el.getAttribute('data-step')).toBe(OnboardingStep.BackupSeedPhrase);
+  });
+
+  // The onboarding Welcome step's Get started emits choose-protection, not create-wallet.
+  it('choose-protection: generates a seed phrase and moves to BackupSeedPhrase (Create)', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'choose-protection' });
+    const el = flow(container);
+    expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
     expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
     expect(el.getAttribute('data-type')).toBe(OnboardingType.Create);
     expect(el.getAttribute('data-step')).toBe(OnboardingStep.BackupSeedPhrase);
@@ -177,6 +325,16 @@ describe('ForgotPassword', () => {
     const el = flow(container);
     expect(el.getAttribute('data-type')).toBe(OnboardingType.Import);
     expect(el.getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
+  });
+
+  it('remains seed-only when handed the new-wallet file-import action', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+
+    await dispatch({ id: 'import-from-file' });
+
+    expect(flow(container).getAttribute('data-type')).toBe(OnboardingType.Import);
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
   it('import-from-seed: moves to ImportFromSeed step', async () => {
@@ -214,10 +372,46 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
   });
 
+  it('mobile: the create path asks for a passcode, backs out to VerifySeedPhrase and confirms', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const { container } = renderPage();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.VerifySeedPhrase);
+
+    await dispatch({ id: 'create-password' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+  });
+
+  it('mobile: the import path asks for a passcode and backs out to ImportFromSeed', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
+  });
+
   it('create-password-submit: stores the password and moves to Confirmation', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+  });
+
+  it('offers the header back on every step but Confirmation', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'create-password' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+    expect(captured.props?.canGoBack).toBe(true);
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(captured.props?.canGoBack).toBe(false);
   });
 
   it('unknown action id: default branch is a no-op', async () => {
@@ -257,6 +451,23 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so the page never
+  // reads or rewrites the endpoint override: no step of an attempt can lose it (#1174).
+  it('never reads or rewrites the endpoint override around the recovery wipe', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorage.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockRegisterWallet.mock.invocationCallOrder[0]!
+    );
+  });
+
   it('confirmation hands off to the side panel when available (#428)', async () => {
     mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
     renderPage();
@@ -267,6 +478,45 @@ describe('ForgotPassword', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('holds the finishing mark while it registers and releases it after navigating on', async () => {
+    const warn = jest.spyOn(console, 'warn');
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    let heldDuringRegister: boolean | undefined;
+    let heldAtNavigate: boolean | undefined;
+    mockRegisterWallet.mockImplementationOnce(async () => {
+      heldDuringRegister = isOnboardingFinishing();
+    });
+    mockNavigate.mockImplementation((path: string) => {
+      if (path === '/finish-side-panel') heldAtNavigate = isOnboardingFinishing();
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(heldDuringRegister).toBe(true);
+    expect(heldAtNavigate).toBe(true);
+    expect(isOnboardingFinishing()).toBe(false);
+    expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[onboarding-finish]'))).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  it('releases the finishing mark when registration fails', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(isOnboardingFinishing()).toBe(false);
   });
 
   it('confirmation does NOT navigate when registration fails — the reset already happened (#630)', async () => {
@@ -301,12 +551,14 @@ describe('ForgotPassword', () => {
   it('surfaces the reason for the shape the EXTENSION actually rejects with (#630)', async () => {
     // Every other case here rejects with `new Error(...)`, which is not what
     // production produces: on the extension `registerWallet` crosses the intercom
-    // port and a rejected request rejects with `deserializeError(...)`. That used
-    // to be an object that only `implements Error`, so the `e instanceof Error`
-    // narrowing below fell through to `String(e)` and the user — whose wallet had
-    // just been wiped — was shown the literal "[object Object]". Build the error
-    // through the real deserializer so this stays pinned to the production shape.
-    mockRegisterWallet.mockRejectedValue(deserializeError('Failed to create wallet'));
+    // port and a rejected request rejects with `deserializeInternalError(...)` of what
+    // `serializeInternalError` sent. That used to be an object that only `implements Error`,
+    // so the `e instanceof Error` narrowing below fell through to `String(e)` and the user -
+    // whose wallet had just been wiped - was shown the literal "[object Object]". Build the
+    // error through the real port pair so this stays pinned to the production shape.
+    mockRegisterWallet.mockRejectedValue(
+      deserializeInternalError(serializeInternalError(new Error('Failed to create wallet')))
+    );
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
@@ -315,6 +567,17 @@ describe('ForgotPassword', () => {
     // Before the fix this was the literal string "[object Object]".
     expect(captured.props?.recoveryError).toBe('Failed to create wallet');
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('falls back to translated copy when a failure carries no text', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error(''));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    // An empty message used to reach the screen as '', which renders nothing.
+    expect(captured.props?.recoveryError).toBe('smthWentWrong');
   });
 
   it('confirmation (Import-from-seed flow): registers with ownMnemonic=true (Import ternary)', async () => {
@@ -331,6 +594,67 @@ describe('ForgotPassword', () => {
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true, undefined);
   });
 
+  it('Import flow: the password step leads to the recovery-method step, not straight to Confirmation', async () => {
+    // Without this step the flow could only ever recover the Guardian BIP-44
+    // namespace, so a user who onboarded with "no guardian" had their wallet
+    // wiped by clearClientStorage() and then hit "No Guardian accounts found at
+    // this guardian endpoint for this seed" — their OffChain account at
+    // getMainDerivationPath(WalletType.OffChain, 0) was never derived or looked up.
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+  });
+
+  it('Import flow: a non-guardian recovery registers that wallet type with NO endpoint', async () => {
+    mockProbeStart.mockResolvedValue(PROBED_RESULT);
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    await dispatch({ id: 'confirmation' });
+
+    // The selected type reaches Vault.spawn, which derives from that namespace and
+    // skips the Guardian lookup entirely. A detected guardian endpoint must NOT be
+    // bound to a non-guardian recovery.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'fmt:seed words here', true, undefined);
+  });
+
+  it('Import flow: a guardian recovery uses the endpoint chosen on the recovery-method step', async () => {
+    mockProbeStart.mockResolvedValue(PROBED_RESULT);
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://chosen.example.com' }
+    });
+    await dispatch({ id: 'confirmation' });
+
+    // The user's explicit pick wins over the background probe's winner.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'fmt:seed words here',
+      true,
+      'https://chosen.example.com'
+    );
+  });
+
+  it('Create (reset) flow: still goes straight to Confirmation — a fresh seed has nothing to look up', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+  });
+
   it('confirmation (Import flow): threads the probed guardian endpoint into registerWallet', async () => {
     mockProbeStart.mockResolvedValue(PROBED_RESULT);
 
@@ -341,8 +665,8 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
-    // Stage 1 of #408: the detected endpoint is threaded explicitly into
-    // registerWallet rather than written to the global GUARDIAN_URL_STORAGE_KEY.
+    // The detected endpoint is threaded into registerWallet, never written to
+    // storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
@@ -404,6 +728,64 @@ describe('ForgotPassword', () => {
     expect(captured.props?.recoveryError).toContain('register failed');
     expect(mockNavigate).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  it('clears the spinner and retries from the start when the recovery wipe throws (#1093)', async () => {
+    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    const result = captured.backHandler!();
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalled();
+  });
+
+  it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    mockClassifyError.mockImplementationOnce(() => {
+      throw new Error('classify failed');
+    });
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    // React 18.2's act does not flush the queued updates when its callback
+    // rejects, so the rejection is caught inside the act scope.
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('classify failed');
+    });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('guardian not found');
+  });
+
+  it('leaves the spinner cleared when navigating on after a successful registration throws', async () => {
+    mockNavigate.mockImplementationOnce(() => {
+      throw new Error('navigation failed');
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('navigation failed');
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(captured.props?.isLoading).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -507,5 +889,345 @@ describe('ForgotPassword', () => {
       release();
     });
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  // -------------------------------------------------------------------------
+  // Telemetry — the `recover` flow
+  //
+  // This screen hosts BOTH halves of "I lost my password": restoring the
+  // existing wallet from its seed phrase (the `recover` flow) and wiping it to
+  // create a fresh one (not a recovery at all). Only the seed-phrase path is
+  // instrumented.
+  // -------------------------------------------------------------------------
+  it('telemetry: does not begin a flow just by rendering the reset screen', () => {
+    renderPage();
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('telemetry: begins the recover flow when the user chooses to restore from a seed phrase', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockBeginFlow.mock.calls.length).toBeGreaterThan(0);
+    expect(flowsBegun()).toEqual(['recover']);
+  });
+
+  it('telemetry: does not begin a recover flow for the create-a-fresh-wallet path', async () => {
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled(); // the path really did run
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('telemetry: completes the recover flow once the wallet is restored', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    const handle = handleFor('recover');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+    expect(handle.fail).not.toHaveBeenCalled();
+    expect(handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: reports errored with a broad kind when the restore fails after the wipe', async () => {
+    const boom = new Error('guardian not found');
+    mockRegisterWallet.mockRejectedValue(boom);
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClassifyError).toHaveBeenCalledWith(boom);
+    const handle = handleFor('recover');
+    expect(handle.fail).toHaveBeenCalledWith('unknown');
+    expect(handle.complete).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: cancels the recover flow when the user switches to creating a fresh wallet', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-wallet' });
+
+    const handle = handleFor('recover');
+    expect(handle.cancel).toHaveBeenCalledTimes(1);
+    expect(handle.complete).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: cancels the recover flow when the user backs out of seed entry', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'back' });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
+    expect(handleFor('recover').cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('telemetry: cancels a still-open recover flow when the screen unmounts', async () => {
+    const { unmount } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    const handle = handleFor('recover');
+    expect(handle.cancel).not.toHaveBeenCalled();
+
+    await act(async () => {
+      unmount();
+    });
+
+    expect(handle.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('telemetry: leaves a completed recover flow untouched on unmount', async () => {
+    const { unmount } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+    const handle = handleFor('recover');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      unmount();
+    });
+
+    expect(handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: re-entering the recovery path cancels the previous recover flow', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'select-import-type' });
+
+    // Never two open flows for one mount: the superseded one is settled.
+    expect(flowsBegun()).toEqual(['recover', 'recover']);
+    const [first, second] = mockFlowHandles;
+    if (!first || !second) throw new Error('expected two recover flows');
+    expect(first.handle.cancel).toHaveBeenCalledTimes(1);
+    expect(second.handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: never passes the seed phrase or password to the telemetry layer', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'abandon abandon abandon' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'correct-horse-battery' } });
+    await dispatch({ id: 'confirmation' });
+
+    // Positive fact first: telemetry really was exercised on this path.
+    expect(flowsBegun()).toEqual(['recover']);
+    expect(handleFor('recover').complete).toHaveBeenCalledTimes(1);
+
+    const seen = telemetryCallArgs();
+    expect(seen).not.toContain('abandon');
+    expect(seen).not.toContain('correct-horse-battery');
+  });
+});
+
+describe('ForgotPassword on an invite-only network', () => {
+  beforeEach(() => {
+    mockRealFlow = true;
+  });
+
+  it('offers only recovery once mainnet has launched: no code step and no new wallet', () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    renderPage();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-have-code')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
+  });
+
+  it('offers only recovery on mainnet, where a new wallet needs a code', () => {
+    mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    renderPage();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-have-code')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
+  });
+
+  it('keeps Get started and Recover after launch when Developer Settings chose the network', () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    mockDeveloperChoice = true;
+    renderPage();
+    expect(screen.getByTestId('onboarding-get-started')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+  });
+
+  it('keeps Get started and Recover on a network that is not invite-only', () => {
+    renderPage();
+    expect(screen.getByTestId('onboarding-get-started')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+  });
+});
+
+describe('ForgotPassword recovery on an invite-only config', () => {
+  const recover = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+  };
+
+  beforeEach(() => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+  });
+
+  it('switches to mainnet and refreshes the realm before the recovery wipes and registers', async () => {
+    renderPage();
+    await recover();
+
+    expect(mockApply).toHaveBeenCalledWith(
+      expect.objectContaining({ networkName: MIDEN_NETWORK_NAME.MAINNET, rpcUrl: '' })
+    );
+    const [applied] = mockApply.mock.invocationCallOrder;
+    const [refreshed] = mockRequest.mock.invocationCallOrder;
+    expect(applied).toBeLessThan(refreshed!);
+    expect(refreshed).toBeLessThan(mockClearClientStorage.mock.invocationCallOrder[0]!);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(applied).toBeLessThan(mockRegisterWallet.mock.invocationCallOrder[0]!);
+  });
+
+  it('shows a failed switch with nothing wiped, and a retry finishes the switch before recovering', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('Worker unavailable'));
+    const { container } = renderPage();
+    await recover();
+
+    expect(captured.props?.recoveryError).toBe('Worker unavailable');
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockApply).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers on the chosen network without switching when Developer Settings chose it', async () => {
+    mockDeveloperChoice = true;
+    renderPage();
+    await recover();
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the network alone when the config is not invite-only', async () => {
+    mockSnapshot = readySnapshot();
+    renderPage();
+    await recover();
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A recover-only reset restores into mainnet, but switches there only when Confirm registers (so a back-out leaves
+ * the old wallet's network alone). Until then the wallet is still on its own network, so the probe and the
+ * recovery-method step are told which network the recovery restores into.
+ */
+describe('ForgotPassword probes the network it recovers into', () => {
+  const cases: Array<
+    [string, { enabled: boolean; launchAt?: number } | undefined, MIDEN_NETWORK_NAME, MIDEN_NETWORK_NAME | undefined]
+  > = [
+    ['a launched mainnet on a testnet wallet', LAUNCHED, MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.MAINNET],
+    ['a mainnet wallet', undefined, MIDEN_NETWORK_NAME.MAINNET, MIDEN_NETWORK_NAME.MAINNET],
+    ['a testnet wallet before the launch', undefined, MIDEN_NETWORK_NAME.TESTNET, undefined]
+  ];
+
+  it.each(cases)('names the recovery network for %s', (_case, mainnetCountdown, effective, expected) => {
+    mockSnapshot = readySnapshot(mainnetCountdown);
+    mockNetwork = effective;
+    renderPage();
+
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(expected);
+    expect(captured.props?.guardianNetwork).toBe(expected);
+  });
+
+  it('starts the probe before the switch, which still waits for Confirm', async () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+  });
+
+  it('starts the recovery-method step of an invite-only reset on the mainnet operator, with no testnet one', async () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    const { rerender } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    // The real flow only for the step under test: the seed step validates against a word list the stub lacks.
+    mockRealFlow = true;
+    rerender(<ForgotPassword />);
+
+    expect(screen.getByTestId('import-recovery-method')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /LambdaClass/ })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).toContain('https://guardian.cedar.internal.lambdaclass.com');
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('guardian-testnet.openzeppelin.com');
+    expect(document.body.textContent).not.toContain('miden-guardian.lambdaclass.com');
+  });
+});
+
+// The document can change while a reset is under way; each dispatch re-renders the page with the snapshot it then reads.
+describe('ForgotPassword keeps the network a reset started on', () => {
+  it('registers a recovery on its own network when the document turns invite-only after the seed', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    mockSnapshot = readySnapshot(LAUNCHED);
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates no mainnet wallet when the document turns invite-only during the backup', async () => {
+    renderPage();
+    await dispatch({ id: 'choose-protection' });
+    mockSnapshot = readySnapshot(LAUNCHED);
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the new document once the reset is back on Welcome', async () => {
+    const { rerender } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    mockSnapshot = readySnapshot(LAUNCHED);
+    await dispatch({ id: 'back' });
+    await dispatch({ id: 'back' });
+    mockRealFlow = true;
+    rerender(<ForgotPassword />);
+
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
   });
 });

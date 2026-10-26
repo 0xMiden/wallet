@@ -25,167 +25,116 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-// `Badge` — echo the variant and className as data attributes so the "default"
-// badge branch is assertable without pulling in class-variance-authority.
-jest.mock('lib/ui/badge', () => ({
-  Badge: ({ variant, className, children }: { variant?: string; className?: string; children?: React.ReactNode }) => (
-    <span data-testid="default-badge" data-variant={variant} data-classname={className}>
+// `Pill` — echo the tone and testid as data attributes so the "default" badge
+// branch is assertable without pulling in the real component's classes.
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({
+    tone,
+    children,
+    'data-testid': dataTestId
+  }: {
+    tone?: string;
+    children?: React.ReactNode;
+    'data-testid'?: string;
+  }) => (
+    <span data-testid={dataTestId} data-tone={tone}>
       {children}
     </span>
   )
 }));
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const renderScreen = (props: Partial<React.ComponentProps<typeof SelectRecoveryMethodScreen>> = {}) =>
-  render(<SelectRecoveryMethodScreen {...props} />);
-
-// Row wrapper for an option (the clickable card is the parent of the <h2> title).
-const optionCardByTitle = (title: string): HTMLElement => {
-  const heading = screen.getByRole('heading', { level: 2, name: title });
-  // h2 -> "flex items-center gap-2" -> "flex flex-row justify-between" -> card
-  return heading.parentElement!.parentElement!.parentElement as HTMLElement;
-};
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
+const radio = (name: string) => screen.getByRole('radio', { name });
+
 describe('SelectRecoveryMethodScreen', () => {
   describe('default options', () => {
-    it('renders the heading and description copy', () => {
-      renderScreen();
-
+    it('renders the step layout with both recovery options as radio cards', () => {
+      render(<SelectRecoveryMethodScreen data-testid="recovery" />);
       expect(screen.getByRole('heading', { level: 1, name: 'chooseRecoveryMethod' })).toBeInTheDocument();
       expect(screen.getByText('chooseRecoveryMethodDescription')).toBeInTheDocument();
-    });
-
-    it('renders both default recovery options with their titles and descriptions', () => {
-      renderScreen();
-
-      expect(screen.getByRole('heading', { level: 2, name: 'guardianRecovery' })).toBeInTheDocument();
-      expect(screen.getByText('guardianRecoveryDescription')).toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 2, name: 'fullyPrivateRecovery' })).toBeInTheDocument();
-      expect(screen.getByText('fullyPrivateRecoveryDescription')).toBeInTheDocument();
+      expect(screen.getByRole('radiogroup', { name: 'chooseRecoveryMethod' })).toBeInTheDocument();
+      expect(radio('guardianRecovery')).toHaveTextContent('guardianRecoveryDescription');
+      expect(radio('fullyPrivateRecovery')).toHaveTextContent('fullyPrivateRecoveryDescription');
+      expect(screen.getByTestId('continue-button').closest('[data-slot="footer"]')).not.toBeNull();
+      expect(screen.getByTestId('recovery')).toBeInTheDocument();
     });
 
     it('renders the "default" badge only on the default (Guardian) option', () => {
-      renderScreen();
-
+      render(<SelectRecoveryMethodScreen />);
       const badges = screen.getAllByTestId('default-badge');
       expect(badges).toHaveLength(1);
-      expect(badges[0]).toHaveTextContent('default');
-      expect(badges[0]).toHaveAttribute('data-variant', 'default');
-      expect(badges[0]).toHaveAttribute('data-classname', 'bg-primary-500 text-white');
-      // The badge lives inside the Guardian card, not the OffChain card.
-      expect(optionCardByTitle('guardianRecovery')).toContainElement(badges[0]!);
+      expect(badges[0]).toHaveAttribute('data-tone', 'selected');
+      expect(radio('guardianRecovery')).toContainElement(badges[0]!);
     });
 
-    it('applies mb-2 to non-last options and mb-8 to the last option', () => {
-      renderScreen();
-
-      expect(optionCardByTitle('guardianRecovery')).toHaveClass('mb-2');
-      expect(optionCardByTitle('guardianRecovery')).not.toHaveClass('mb-8');
-      expect(optionCardByTitle('fullyPrivateRecovery')).toHaveClass('mb-8');
-      expect(optionCardByTitle('fullyPrivateRecovery')).not.toHaveClass('mb-2');
+    it('pre-selects the default option', () => {
+      render(<SelectRecoveryMethodScreen />);
+      expect(radio('guardianRecovery')).toHaveAttribute('aria-checked', 'true');
+      expect(radio('fullyPrivateRecovery')).toHaveAttribute('aria-checked', 'false');
     });
 
-    it('pre-selects the default option and dims the non-selected one', () => {
-      renderScreen();
-
-      // Guardian is the default => selected => not dimmed.
-      expect(optionCardByTitle('guardianRecovery')).not.toHaveClass('opacity-50');
-      // OffChain is not selected => dimmed.
-      expect(optionCardByTitle('fullyPrivateRecovery')).toHaveClass('opacity-50');
+    it('moves the selection when another option is tapped', () => {
+      render(<SelectRecoveryMethodScreen />);
+      fireEvent.click(radio('fullyPrivateRecovery'));
+      expect(radio('fullyPrivateRecovery')).toHaveAttribute('aria-checked', 'true');
+      expect(radio('guardianRecovery')).toHaveAttribute('aria-checked', 'false');
     });
 
-    it('updates the selection (and dimming) when another option is clicked', () => {
-      renderScreen();
-
-      fireEvent.click(optionCardByTitle('fullyPrivateRecovery'));
-
-      expect(optionCardByTitle('fullyPrivateRecovery')).not.toHaveClass('opacity-50');
-      expect(optionCardByTitle('guardianRecovery')).toHaveClass('opacity-50');
+    // This screen decides whether the wallet has recovery at all, so "how many times" matters as
+    // much as "with what": the rewrite dropped every call count and the at-mount guard together.
+    it('submits nothing before the user interacts', () => {
+      const onSubmit = jest.fn();
+      render(<SelectRecoveryMethodScreen onSubmit={onSubmit} />);
+      expect(onSubmit).not.toHaveBeenCalled();
     });
 
     it('submits the pre-selected (Guardian) wallet type when Continue is clicked', () => {
       const onSubmit = jest.fn();
-      renderScreen({ onSubmit });
-
-      const button = screen.getByTestId('continue-button');
-      expect(button).toHaveTextContent('continue');
-      expect(button).toHaveAttribute('data-classname', 'text-base');
-
-      fireEvent.click(button);
-      expect(onSubmit).toHaveBeenCalledTimes(1);
-      expect(onSubmit).toHaveBeenCalledWith(WalletType.Guardian);
-    });
-
-    it('submits the newly-selected wallet type after clicking another option', () => {
-      const onSubmit = jest.fn();
-      renderScreen({ onSubmit });
-
-      fireEvent.click(optionCardByTitle('fullyPrivateRecovery'));
+      render(<SelectRecoveryMethodScreen onSubmit={onSubmit} />);
       fireEvent.click(screen.getByTestId('continue-button'));
-
+      expect(onSubmit).toHaveBeenCalledWith(WalletType.Guardian);
       expect(onSubmit).toHaveBeenCalledTimes(1);
-      expect(onSubmit).toHaveBeenCalledWith(WalletType.OffChain);
     });
 
-    it('does not throw when Continue is clicked without an onSubmit handler', () => {
-      renderScreen();
-
-      expect(() => fireEvent.click(screen.getByTestId('continue-button'))).not.toThrow();
-    });
-
-    it('does not invoke onSubmit before any interaction', () => {
+    it('submits the newly-selected wallet type after choosing another option', () => {
       const onSubmit = jest.fn();
-      renderScreen({ onSubmit });
-      expect(onSubmit).not.toHaveBeenCalled();
+      render(<SelectRecoveryMethodScreen onSubmit={onSubmit} />);
+      fireEvent.click(radio('fullyPrivateRecovery'));
+      fireEvent.click(screen.getByTestId('continue-button'));
+      expect(onSubmit).toHaveBeenCalledWith(WalletType.OffChain);
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not throw on Continue without an onSubmit handler', () => {
+      render(<SelectRecoveryMethodScreen />);
+      expect(() => fireEvent.click(screen.getByTestId('continue-button'))).not.toThrow();
     });
   });
 
   describe('custom options', () => {
-    const customOptions: RecoveryOption[] = [
-      { id: WalletType.OnChain, title: 'On Chain', description: 'On chain description' },
-      { id: WalletType.OffChain, title: 'Off Chain', description: 'Off chain description', isLast: true }
+    const custom: RecoveryOption[] = [
+      { id: WalletType.OnChain, title: 'Public', description: 'Public account' },
+      { id: WalletType.OffChain, title: 'Private', description: 'Private account', isDefault: true }
     ];
 
-    it('renders provided options instead of the defaults', () => {
-      renderScreen({ options: customOptions });
-
-      expect(screen.getByRole('heading', { level: 2, name: 'On Chain' })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 2, name: 'Off Chain' })).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { level: 2, name: 'guardianRecovery' })).not.toBeInTheDocument();
+    it('renders provided options instead of the defaults, pre-selecting the default one', () => {
+      render(<SelectRecoveryMethodScreen options={custom} />);
+      expect(screen.queryByText('guardianRecovery')).not.toBeInTheDocument();
+      expect(radio('Private')).toHaveAttribute('aria-checked', 'true');
     });
 
     it('falls back to the first option when none is marked default', () => {
       const onSubmit = jest.fn();
-      renderScreen({ options: customOptions, onSubmit });
-
-      // No isDefault => first option (OnChain) is pre-selected and undimmed.
-      expect(optionCardByTitle('On Chain')).not.toHaveClass('opacity-50');
-      expect(optionCardByTitle('Off Chain')).toHaveClass('opacity-50');
-
+      render(
+        <SelectRecoveryMethodScreen options={custom.map(o => ({ ...o, isDefault: false }))} onSubmit={onSubmit} />
+      );
+      expect(radio('Public')).toHaveAttribute('aria-checked', 'true');
       fireEvent.click(screen.getByTestId('continue-button'));
       expect(onSubmit).toHaveBeenCalledWith(WalletType.OnChain);
-    });
-
-    it('renders no "default" badge when no option is marked default', () => {
-      renderScreen({ options: customOptions });
-      expect(screen.queryByTestId('default-badge')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('passthrough props', () => {
-    it('spreads extra props onto the root container', () => {
-      const { container } = renderScreen({ id: 'recovery-root', 'aria-label': 'recovery' } as never);
-
-      const root = container.querySelector('#recovery-root');
-      expect(root).not.toBeNull();
-      expect(root).toHaveAttribute('aria-label', 'recovery');
+      expect(onSubmit).toHaveBeenCalledTimes(1);
     });
   });
 });

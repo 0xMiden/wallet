@@ -1,6 +1,6 @@
 import { resolveRootView } from './root-view';
 
-describe('resolveRootView — MV3 cold-start gating', () => {
+describe('resolveRootView - cold-start gating and the onboarding finish hold', () => {
   it('shows loading (NOT onboarding) before the backend has responded', () => {
     // Popup just opened, MV3 service worker is cold-starting, no GetStateResponse
     // yet → status is the initial Idle and hydrated is false. This is the bug
@@ -25,5 +25,11 @@ describe('resolveRootView — MV3 cold-start gating', () => {
 
   it('shows the app once ready', () => {
     expect(resolveRootView({ locked: false, ready: true, hydrated: true })).toBe('app');
+  });
+
+  it('holds the loading view while a just-created wallet finishes onboarding, so Home never paints first', () => {
+    expect(resolveRootView({ locked: false, ready: true, hydrated: true, finishingOnboarding: true })).toBe('loading');
+    expect(resolveRootView({ locked: false, ready: false, hydrated: true, finishingOnboarding: true })).toBe('welcome');
+    expect(resolveRootView({ locked: true, ready: false, hydrated: true, finishingOnboarding: true })).toBe('unlock');
   });
 });

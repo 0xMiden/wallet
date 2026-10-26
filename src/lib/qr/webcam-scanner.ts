@@ -51,7 +51,8 @@ export function createQrDetector(): BarcodeDetectorLike | null {
  */
 export async function detectAddressFromFrame(
   detector: BarcodeDetectorLike,
-  videoEl: HTMLVideoElement
+  videoEl: HTMLVideoElement,
+  rawPayload = false
 ): Promise<ScanResult | null> {
   let barcodes: Array<{ rawValue: string }>;
   try {
@@ -68,6 +69,7 @@ export async function detectAddressFromFrame(
     return null;
   }
 
+  if (rawPayload) return { success: true, address: first.rawValue };
   const address = decodeAddress(first.rawValue);
   if (!isValidMidenAddress(address)) {
     return { success: false, errorKey: 'invalidMidenAddress' };

@@ -1,0 +1,313 @@
+import React, { KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react';
+
+import { cva } from 'class-variance-authority';
+import { motion, useReducedMotion } from 'framer-motion';
+
+import { useTabShownAgain } from 'app/layouts/page-active';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
+import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
+import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
+import { hapticSelection } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
+
+import { radioGroupKeyTarget } from './radio-group-keys';
+
+export interface SegmentedControlItem<T extends string = string> {
+  id: T;
+  /** Already-translated text, also the item's accessible name. */
+  label: string;
+  disabled?: boolean;
+  'data-testid'?: string;
+}
+
+/** `sm` is 32px (a dense row: chart timeframes); `md` is 40px (a filter row, a settings choice). */
+export type SegmentedControlSize = 'sm' | 'md';
+
+/**
+ * `scroll`: items at their natural width in a row that scrolls sideways when it outgrows the
+ * screen (filters). `fill`: items share the full width equally (a fixed handful of choices).
+ */
+export type SegmentedControlLayout = 'scroll' | 'fill';
+
+export interface SegmentedControlProps<T extends string = string> {
+  items: readonly SegmentedControlItem<T>[];
+  value: T;
+  /** Called once per real change: never for a tap on the item that is already selected. */
+  onChange: (id: T) => void;
+  /** Optional flow tint; omitted controls keep the standard brand tint. */
+  accent?: FlowAccent;
+  size?: SegmentedControlSize;
+  layout?: SegmentedControlLayout;
+  'aria-label'?: string;
+  /** Layout only (margins, padding, width); the look is the control's own. */
+  className?: string;
+  'data-testid'?: string;
+}
+
+// No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
+// bubble's shadow and the focus ring, which a scrolling row would otherwise clip; 8px between the
+// items, because each one is outlined and two hairlines 4px apart read as one seam. `fill` is a grid
+// because a fill row is often sized to its content (a settings row's trailing slot): under
+// max-content sizing fr columns each take the widest item, while basis-0 flex items split the row
+// into the average and cut the longest label.
+const container = cva('items-center gap-2 py-1', {
+  variants: {
+    layout: {
+      scroll: 'flex overflow-x-auto no-scrollbar',
+      fill: 'grid w-full grid-flow-col auto-cols-fr'
+    }
+  },
+  defaultVariants: { layout: 'scroll' }
+});
+
+const segment = cva(
+  [
+    // `group` drives the bubble's pressed shadow; no overflow clip, or it would cut the shadow off.
+    'group flex items-center justify-center rounded-full text-pill whitespace-nowrap',
+    // The label crossfades to its selected colour as the bubble arrives rather than switching under
+    // it: 280ms is `durations.normal`, the settle time of the `tabSwitch` spring the bubble rides.
+    // `motion-reduce` drops it to an instant swap, as the bubble's own transition does.
+    'transition-colors duration-280 motion-reduce:transition-none',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
+    'disabled:cursor-default disabled:opacity-50'
+  ],
+  {
+    variants: {
+      size: {
+        sm: 'h-8 px-3',
+        md: 'h-10 px-4'
+      },
+      layout: {
+        scroll: 'shrink-0',
+        fill: 'min-w-0 px-2'
+      },
+      // Every item is an outlined pill on the page; the selected one hands its outline over to
+      // the raised bubble that covers it, keeping the border transparent so the item's width,
+      // and so the row, never shifts as the selection moves. The selected label is
+      // `accent-tint-ink` on the `accent-tint` bubble, the tested 4.5:1 pairing: a 14px label
+      // needs text contrast, which white on the accent (3:1) does not meet.
+      active: {
+        true: 'border border-transparent text-accent-tint-ink',
+        false: 'border border-hairline bg-page text-ink'
+      }
+    },
+    defaultVariants: { size: 'md', layout: 'scroll', active: false }
+  }
+);
+
+const content = cva('flex min-w-0 items-center', {
+  variants: {
+    size: {
+      sm: 'gap-1',
+      md: 'gap-1.5'
+    }
+  },
+  defaultVariants: { size: 'md' }
+});
+
+interface SegmentProps<T extends string> {
+  item: SegmentedControlItem<T>;
+  active: boolean;
+  accent?: FlowAccent;
+  focusable: boolean;
+  size: SegmentedControlSize;
+  layout: SegmentedControlLayout;
+  onSelect: (id: T) => void;
+  swap: boolean;
+}
+
+/**
+ * One item: a button whose content pops when it becomes selected. `HighlightItem` (asChild) clones
+ * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
+ * dips when pressed.
+ */
+function Segment<T extends string>({ item, active, accent, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
+  const motionTokens = useTabBarMotion();
+  const pop = useTabIconPop(active, swap);
+
+  return (
+    <HighlightItem value={item.id} asChild as="span" className="flex min-w-0 items-center justify-center">
+      <motion.button
+        type="button"
+        role="radio"
+        aria-checked={active}
+        tabIndex={focusable ? 0 : -1}
+        disabled={item.disabled}
+        data-testid={item['data-testid']}
+        onClick={() => onSelect(item.id)}
+        {...(item.disabled ? {} : motionTokens.press)}
+        // Shown again, the new selection's colours land at once instead of cross-fading.
+        className={cn(
+          segment({ size, layout, active }),
+          active && accent && ACCENT_CLASSES[accent].ink,
+          swap && 'transition-none'
+        )}
+      >
+        <motion.span
+          data-pop={pop.phase}
+          animate={pop.animate}
+          transition={pop.transition}
+          onAnimationComplete={pop.onAnimationComplete}
+          className={content({ size })}
+        >
+          <span className="min-w-0 truncate">{item.label}</span>
+        </motion.span>
+      </motion.button>
+    </HighlightItem>
+  );
+}
+
+/**
+ * A single choice out of a few, drawn like the tab bars: no strip behind the items, each one an
+ * outlined pill on the page, and the selected one on the bottom nav's raised bubble
+ * (`raisedBubbleClassName` and `useTabBarMotion` verbatim, so the shadow, the pressed shadow and
+ * the spring it slides on are the bottom bar's, not a copy of them), filled with the accent tint.
+ * Its content pops as it lands and a press dips the item. One selection haptic per real change.
+ * Under reduced motion the bubble moves instantly, nothing pops and a press does not scale.
+ *
+ * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
+ * tab patterns do; only the selected item is in the tab order. A disabled item is never reported
+ * as selected (no bubble, no aria-checked, not the tab stop) unless every item is disabled, which
+ * keeps the read-only look. In the `scroll` layout the selected item is kept on screen.
+ */
+export function SegmentedControl<T extends string>({
+  items,
+  value,
+  onChange,
+  accent,
+  size = 'md',
+  layout = 'scroll',
+  'aria-label': ariaLabel,
+  className,
+  'data-testid': dataTestId
+}: SegmentedControlProps<T>) {
+  const motionTokens = useTabBarMotion();
+  const reduceMotion = useReducedMotion();
+  // A pane shown again (Activity's filter, set by a link while the tab was hidden) takes its new value
+  // at once: no slide, no pop, no smooth scroll.
+  const swap = useTabShownAgain();
+  const rowRef = useRef<HTMLDivElement>(null);
+  // A disabled item is not the answer while another can be chosen, so the radio, the bubble, the tab
+  // stop and the keyboard all read this one index. With nothing choosable the control is disabled as
+  // a whole (read-only Developer Settings, a swap being submitted) and still shows its value.
+  const choosable = items.some(item => !item.disabled);
+  const selectedIndex = items.findIndex(item => item.id === value && !(choosable && item.disabled));
+  // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
+  // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
+  // moves the page under it instead, sideways.
+  const lastSelectedIndex = useRef(selectedIndex);
+  const initialSelectionRevealed = useRef(false);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (initialSelectionRevealed.current || layout !== 'scroll' || !row || row.clientWidth === 0) return;
+    const node = row.children[selectedIndex];
+    if (!(node instanceof HTMLElement)) return;
+    initialSelectionRevealed.current = true;
+    if (row.scrollWidth <= row.clientWidth) return;
+    // A cold deep link can select a chip beyond the viewport. Move only this row,
+    // never scrollIntoView's ancestors (the retained page or horizontal tab pager).
+    const bounds = row.getBoundingClientRect();
+    const item = node.getBoundingClientRect();
+    if (item.right > bounds.right) row.scrollLeft += item.right - bounds.right;
+    else if (item.left < bounds.left) row.scrollLeft -= bounds.left - item.left;
+  }, [layout, selectedIndex, swap]);
+  // The item Tab lands on: the selected one, or the first that can be chosen when none is.
+  const focusIndex =
+    selectedIndex >= 0 && !items[selectedIndex]?.disabled ? selectedIndex : items.findIndex(item => !item.disabled);
+
+  const select = (id: T) => {
+    if (id === value) return;
+    hapticSelection();
+    onChange(id);
+  };
+
+  // The buttons are the row's own children (Highlight's items mode adds no wrapper), in item order.
+  const buttonAt = (index: number): HTMLElement | null => {
+    const node = rowRef.current?.children[index];
+    return node instanceof HTMLElement ? node : null;
+  };
+
+  useEffect(() => {
+    // Scroll when the selection MOVED, not on the first render that happens to be scrollable with a
+    // match: a control mounted with a value matching no item would otherwise swallow the scroll for
+    // the user's first real selection, and a reduced-motion flip (a dep of this effect) would scroll
+    // with no selection change at all.
+    const previous = lastSelectedIndex.current;
+    lastSelectedIndex.current = selectedIndex;
+    if (layout !== 'scroll' || selectedIndex < 0 || selectedIndex === previous) return;
+    const node = rowRef.current?.children[selectedIndex];
+    if (!(node instanceof HTMLElement)) return;
+    node.scrollIntoView({
+      behavior: reduceMotion || swap ? 'auto' : 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  }, [layout, selectedIndex, reduceMotion, swap]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const enabled = items.map((item, index) => ({ item, index })).filter(({ item }) => !item.disabled);
+    if (enabled.length === 0) return;
+
+    const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
+    // The tab stop and the bubble already read `selectedIndex`; the keyboard's origin does too.
+    // radio-group-keys.ts owns the no-origin case (-1) this falls back to.
+    const from = current >= 0 ? current : enabled.findIndex(({ index }) => index === selectedIndex);
+    const to = radioGroupKeyTarget(event.key, enabled.length, from);
+    if (to === null) return;
+
+    event.preventDefault();
+    const target = enabled[to];
+    if (!target) return;
+    buttonAt(target.index)?.focus();
+    select(target.item.id);
+  };
+
+  return (
+    <motion.div
+      ref={rowRef}
+      role="radiogroup"
+      aria-label={ariaLabel}
+      aria-orientation="horizontal"
+      data-testid={dataTestId}
+      // Framer measures the bubble's slide in page coordinates; `layoutScroll` tells it this row
+      // scrolls, so a row scrolled sideways does not throw the bubble off its item.
+      layoutScroll={layout === 'scroll'}
+      onKeyDown={handleKeyDown}
+      className={cn(container({ layout }), className)}
+    >
+      {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
+          control, so two mounted controls never trade bubbles. Controlled and click-free: the
+          selection decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
+          absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
+          cover the item's border and match the outlined pills beside it edge for edge. The bottom
+          nav's bubble in every respect but its fill, the accent tint; shadow, pressed shadow and
+          spring are the shared ones. */}
+      <Highlight
+        controlledItems
+        value={selectedIndex >= 0 ? value : null}
+        click={false}
+        exitDelay={0}
+        transition={swap ? tabBarSwap : motionTokens.highlight}
+        // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
+        // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
+        style={{ zIndex: 1 }}
+        className={cn('-inset-px', raisedBubbleClassName, accent ? ACCENT_CLASSES[accent].tint : 'bg-accent-tint')}
+      >
+        {items.map((item, index) => (
+          <Segment
+            key={item.id}
+            item={item}
+            active={index === selectedIndex}
+            accent={accent}
+            focusable={index === focusIndex}
+            size={size}
+            layout={layout}
+            onSelect={select}
+            swap={swap}
+          />
+        ))}
+      </Highlight>
+    </motion.div>
+  );
+}

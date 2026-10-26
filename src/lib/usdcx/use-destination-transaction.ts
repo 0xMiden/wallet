@@ -1,0 +1,52 @@
+import { useEffect, useState } from 'react';
+
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+
+import { findUsdcxDestinationTransaction } from './destination-transaction';
+
+/**
+ * A hint for rows the old balance rule confirmed, searched only while their details are open. A row with a recorded
+ * payout names its own mint and is never searched.
+ */
+export function useUsdcxDestinationTransaction(tx: ITransaction | undefined): string | undefined {
+  const extra: IBridgedSendExtraInputs | undefined = tx?.type === 'bridged-send' ? tx.extraInputs : undefined;
+  const burn = extra?.provider === 'usdcx' ? extra.usdcxBurn : undefined;
+  const savedToken = burn?.destinationUsdc;
+  const savedFeeAllowance = burn?.payoutFeeAllowance;
+  const beforeBlock = burn?.destinationBalanceBefore?.blockNumber;
+  const confirmedBlock = burn?.destinationBalanceConfirmed?.blockNumber;
+  const chainId = extra?.destinationNetwork;
+  const recipient = extra?.destinationAddress;
+  const amount = tx?.amount;
+  const enabled =
+    tx?.status === ITransactionStatus.Completed &&
+    !tx.restoredFromBackup &&
+    burn?.phase === 'confirmed' &&
+    !burn.payout;
+  const key = [tx?.id, burn?.noteId, chainId, recipient, amount, beforeBlock, confirmedBlock].join(':');
+  const [result, setResult] = useState<{ key: string; hash: string }>();
+
+  useEffect(() => {
+    if (!enabled || !beforeBlock || !confirmedBlock || !chainId || !recipient || !amount) return;
+    let disposed = false;
+    findUsdcxDestinationTransaction({
+      chainId,
+      recipient,
+      amount,
+      beforeBlock,
+      confirmedBlock,
+      savedToken,
+      savedFeeAllowance
+    }).then(
+      hash => {
+        if (!disposed && hash) setResult({ key, hash });
+      },
+      error => console.warn('[usdcx] Destination transaction search failed', error)
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [amount, beforeBlock, chainId, confirmedBlock, key, recipient, enabled, savedToken, savedFeeAllowance]);
+
+  return enabled && result?.key === key ? result.hash : undefined;
+}

@@ -238,6 +238,81 @@ describe('activity/helpers', () => {
       expect(updated.displayIcon).toBe('SEND');
     });
 
+    it('accumulates the amount across MULTIPLE input notes instead of keeping only the last', () => {
+      // A custom (`execute`) transaction can consume several notes. The per-note loop
+      // used to ASSIGN `inputAmount`, so a two-note consume recorded only the last
+      // note's total — half the value that actually moved — and pushed one faucet id
+      // per note, which made a single-faucet transaction look like two faucets and
+      // dropped the row to the generic 'Executed' label.
+      const transaction: Partial<ITransaction> = {
+        type: 'execute',
+        displayMessage: 'Executing',
+        displayIcon: 'DEFAULT',
+        accountId: 'my-account'
+      };
+
+      const result = createMockResult(
+        [
+          createMockNote('faucet-1', BigInt(50), 'other-sender'),
+          createMockNote('faucet-1', BigInt(50), 'other-sender')
+        ],
+        []
+      );
+
+      const updated = interpretTransactionResult(transaction as ITransaction, result as any);
+
+      expect(updated.amount).toBe(BigInt(100));
+      // Deduped across the whole loop, so the single-faucet classification still fires.
+      expect(updated.type).toBe('consume');
+      expect(updated.displayMessage).toBe('Received');
+      expect(updated.faucetId).toBe('bech32_faucet-1');
+    });
+
+    it('accumulates the amount across MULTIPLE output notes instead of keeping only the last', () => {
+      const transaction: Partial<ITransaction> = {
+        type: 'execute',
+        displayMessage: 'Executing',
+        displayIcon: 'DEFAULT',
+        accountId: 'my-account'
+      };
+
+      const result = createMockResult(
+        [],
+        [createMockNote('faucet-1', BigInt(30)), createMockNote('faucet-1', BigInt(70))]
+      );
+
+      const updated = interpretTransactionResult(transaction as ITransaction, result as any);
+
+      expect(updated.amount).toBe(BigInt(100));
+      expect(updated.type).toBe('send');
+      expect(updated.displayMessage).toBe('Sent');
+      expect(updated.faucetId).toBe('bech32_faucet-1');
+    });
+
+    it('still reports a genuinely multi-faucet consume as generic Executed', () => {
+      // Dedupe must collapse REPEATS of one faucet, not distinct faucets — otherwise
+      // a two-token transaction would be mislabelled as a single-token consume.
+      const transaction: Partial<ITransaction> = {
+        type: 'execute',
+        displayMessage: 'Executing',
+        displayIcon: 'DEFAULT',
+        accountId: 'my-account'
+      };
+
+      const result = createMockResult(
+        [
+          createMockNote('faucet-1', BigInt(50), 'other-sender'),
+          createMockNote('faucet-2', BigInt(50), 'other-sender')
+        ],
+        []
+      );
+
+      const updated = interpretTransactionResult(transaction as ITransaction, result as any);
+
+      expect(updated.displayMessage).toBe('Executed');
+      expect(updated.faucetId).toBeUndefined();
+    });
+
     it('interprets generic execute transaction', () => {
       const transaction: Partial<ITransaction> = {
         type: 'execute',

@@ -1,5 +1,6 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // The guardian this spec creates against — same source guardian-recovery uses.
 const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
@@ -39,7 +40,7 @@ const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
  *     (`getMainDerivationPath` in `lib/miden/sdk/derive-seed.ts`), so a restore
  *     only reproduces an address when it uses the SAME wallet type as the
  *     create. Production onboarding can only create GUARDIAN wallets
- *     (`Welcome.tsx` routes every create through `#choose-guardian`) and the
+ *     (`Welcome.tsx` routes every create through `#meet-guardian`) and the
  *     real import screen offers only Guardian or public accounts — none of
  *     which this suite can drive: `playwright.e2e.config.ts` runs on the
  *     localnet per-PR job, which stands up no guardian backend (see
@@ -60,7 +61,7 @@ const SEED_WORD_COUNT = 12;
 // Copy this flow renders, from public/_locales/en/en.json:
 //   continue / verifySeedPhrasePromptTitle / verifyStepWrong / verifyStepCorrect
 const CONTINUE = 'Continue';
-const BACKUP_PROMPT_TITLE = 'Verify your recovery phrase';
+const BACKUP_PROMPT_TITLE = 'Back up your wallet';
 const VERDICT_WRONG = "That's not the first and last word — tap them again";
 const VERDICT_CORRECT = "That's the first and last word — tap Continue";
 
@@ -70,6 +71,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
   test('the phrase the wallet shows me restores the same account in another wallet', async ({
     walletA,
     walletB,
+    midenCli,
     steps
   }) => {
     let addressA = '';
@@ -82,6 +84,18 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // The wallet reports a COMPOSITE id — `<bech32 address>_<suffix>` — so the
       // optional trailing group is required for this to match a real address.
       expect(addressA).toMatch(/^m[a-z]{1,4}1[a-z0-9]+(_[a-z0-9]+)?$/i);
+
+      // Fund the account for FEES, then claim it. The restore below is a seed-only
+      // recovery, which can never recover the device-bound hot key -- so the recovered
+      // wallet always faces `requiresHotKeyRotation`, and that rotation is a real
+      // transaction. On a fee-charging chain an unfunded account cannot pay for it and
+      // the gate never clears: "failed to remove the fungible asset from the vault since
+      // the amount ... is less than the amount to remove". The claim is what moves the
+      // funding into the spendable vault, and it settles its own fee because a note's
+      // credit lands before `pay_fee` withdraws.
+      //
+      // No-op on a chain that charges nothing, so this spec stays fast there.
+      await ensureFeeFunded(midenCli, walletA, addressA);
     });
 
     await steps.step('home_offers_the_backup_prompt', async () => {

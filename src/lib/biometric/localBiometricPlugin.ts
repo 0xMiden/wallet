@@ -60,6 +60,12 @@ export interface HardwareSecurityPlugin {
   decryptWithHardwareKey(options: { encrypted: string }): Promise<{ decrypted: string }>;
 
   deleteHardwareKey(): Promise<void>;
+
+  /** Raw `canAuthenticate(BIOMETRIC_STRONG/WEAK)` codes, and whether this user is a work profile. */
+  biometricStatus(): Promise<{ code: number; weakCode?: number; managedProfile: boolean }>;
+
+  /** Opens strong-biometric enrollment, falling back to a Settings screen. Never rejects. */
+  openBiometricSettings(): Promise<void>;
 }
 
 // Register the Android plugin

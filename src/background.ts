@@ -2,10 +2,12 @@ import './xhr-shim';
 
 import browser, { tabs, runtime } from 'webextension-polyfill';
 
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
 import { failInterruptedTransactions } from 'lib/miden/transaction';
+import { registerChromeUpdateListener } from 'lib/update/chrome';
 
 // NOTE: onInstalled and other synchronous MV3 listeners are registered in
 // background-entry.ts (the actual SW entry point) before this module loads.
@@ -15,28 +17,36 @@ if (process.env.TARGET_BROWSER === 'chrome') {
   const chromeApi = (globalThis as any).chrome;
   chromeApi.storage.local.get('sidepanel_mode', (result: { sidepanel_mode?: boolean }) => {
     if (result.sidepanel_mode) {
-      chromeApi.action.setPopup({ popup: '' });
+      chromeApi.action
+        .setPopup({ popup: '' })
+        .catch((err: Error) => console.warn('[Background] Side panel restore could not clear the popup:', err));
       chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
-        // Restore popup if side panel setup fails
-        chromeApi.action.setPopup({ popup: 'popup.html' });
-        chromeApi.storage.local.set({ sidepanel_mode: false });
+        // Restore popup if side panel setup fails. A failed popup restore leaves the action button doing nothing, so it
+        // warns; a failed storage write keeps sidepanel_mode set, so the next start retries the restore.
+        chromeApi.action
+          .setPopup({ popup: 'popup.html' })
+          .catch((popupErr: Error) =>
+            console.warn('[Background] Side panel restore could not restore the popup:', popupErr)
+          );
+        chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
         console.warn('[Background] Side panel restore failed, reverting to popup:', err);
       });
     }
   });
+  registerChromeUpdateListener();
 }
 
-runtime.onUpdateAvailable.addListener(() => {
-  // Swaps in the new version immediately
-  runtime.reload();
-});
-
 // A real browser/profile cold-start (NOT an SW idle-wake) means any transaction
-// still in `GeneratingTransaction` was orphaned when the browser closed — the
-// tab/SW driving it is gone and nothing will resume it. Fail those immediately
-// so a send interrupted mid-prove doesn't sit on "Sending" for up to 30 min
-// waiting on the age-based reaper (issue #282). Registered synchronously at the
-// top level so it survives MV3 SW eviction.
+// an earlier browser session left in `GeneratingTransaction` was orphaned when
+// the browser closed: the tab/SW driving it is gone and nothing will resume it.
+// The sweep fails those and spares this realm's rows by id
+// (`markStartedInThisRealm`; the startup kick can start one first) and rows
+// another realm of this session started by a stamp from `SESSION_STARTED_AT`
+// to `MAX_WAIT_BEFORE_CANCEL` past the sweep's clock (see
+// `failInterruptedTransactions` in transaction/cancel.ts). Failing them
+// immediately means a send interrupted mid-prove doesn't sit on "Sending" for
+// up to 30 min waiting on the age-based reaper (issue #282). Registered
+// synchronously at the top level so it survives MV3 SW eviction.
 runtime.onStartup.addListener(() => {
   failInterruptedTransactions().catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
 });
@@ -50,7 +60,7 @@ browser.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'miden-sync') {
     doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
   }
-  // 'miden-tx-processor' alarm is just a keepalive — no action needed
+  // 'miden-tx-processor' and 'miden-guardian-wait-keepalive' are keepalives only: no action needed
 });
 
 // Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first
@@ -66,14 +76,20 @@ if (process.env.TARGET_BROWSER === 'safari') {
 }
 
 browser.notifications.onClicked.addListener(notificationId => {
-  browser.notifications.clear(notificationId);
-  // Deep-link to the incoming-notes list (claim actions), matching the mobile
-  // handler — not the generic wallet QR/receive page (#467).
-  tabs.create({ url: runtime.getURL('fullpage.html#/pending-notes') });
+  browser.notifications
+    .clear(notificationId)
+    .catch((err: Error) => console.warn('[Background] Could not clear the notification:', err));
+  // Deep-link to the Activity tab's Pending filter — where an incoming transfer is accepted or
+  // declined — matching the mobile handler, not the generic wallet QR/receive page (#467).
+  tabs
+    .create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) })
+    .catch((err: Error) => console.warn('[Background] Could not open the Activity tab:', err));
 });
 
 function openFullPage() {
-  tabs.create({
-    url: runtime.getURL('fullpage.html')
-  });
+  tabs
+    .create({
+      url: runtime.getURL('fullpage.html')
+    })
+    .catch((err: Error) => console.warn('[Background] Could not open the full page:', err));
 }

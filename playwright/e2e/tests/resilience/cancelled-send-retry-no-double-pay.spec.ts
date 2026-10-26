@@ -166,6 +166,13 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
   );
 }
 
+/** The part of Dexie's constructor the plant uses; the page registers the class under `Symbol.for('Dexie')`. */
+type DexieConstructor = new (databaseName: string) => {
+  open(): Promise<unknown>;
+  close(): void;
+  table(name: string): { get(key: string): Promise<unknown>; put(value: unknown): Promise<unknown> };
+};
+
 /**
  * Rewrite a landed send into the row a mid-flight cancel leaves behind — the
  * stuck-row reaper's, whose error string leaves Retry reachable (see the
@@ -197,19 +204,16 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
 async function plantCancelledMidFlightShape(page: import('@playwright/test').Page, rowId: string): Promise<void> {
   const planted = await page.evaluate(
     async ({ dbName, storeName, id, reason }) => {
-      const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
-      const db: IDBDatabase = await new Promise((res, rej) => {
-        const r = idb.open(dbName);
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
+      // Through the page's own Dexie, not the raw IndexedDB API. The history detail page reads the row with a
+      // Dexie live query, and while any other live query over the table is subscribed Dexie answers it from a
+      // cache that only Dexie writes invalidate, so a raw write left the page showing the landed send.
+      const DexieClass = (globalThis as unknown as Record<symbol, DexieConstructor | undefined>)[Symbol.for('Dexie')];
+      if (!DexieClass) throw new Error('plantCancelledMidFlightShape: the page has no Dexie to write through');
+      const db = new DexieClass(dbName);
+      await db.open();
       try {
-        const store = () => db.transaction(storeName, 'readwrite').objectStore(storeName);
-        const row: Record<string, unknown> | undefined = await new Promise((res, rej) => {
-          const r = store().get(id);
-          r.onsuccess = () => res(r.result);
-          r.onerror = () => rej(r.error);
-        });
+        const table = db.table(storeName);
+        const row = (await table.get(id)) as Record<string, unknown> | undefined;
         if (!row) return false;
 
         row.status = 3; // ITransactionStatus.Failed
@@ -223,11 +227,7 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
         delete row.outputNoteIds;
         delete row.completedAt;
 
-        await new Promise<void>((res, rej) => {
-          const r = store().put(row);
-          r.onsuccess = () => res();
-          r.onerror = () => rej(r.error);
-        });
+        await table.put(row);
         return true;
       } finally {
         db.close();

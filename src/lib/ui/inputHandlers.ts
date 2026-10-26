@@ -1,7 +1,7 @@
 export const focusHandler = (
   evt: any,
   onFocus: React.FocusEventHandler<HTMLInputElement>,
-  setFocus: (value: boolean) => void
+  setFocus?: (value: boolean) => void
 ): void => {
   if (onFocus) {
     onFocus(evt);
@@ -10,7 +10,7 @@ export const focusHandler = (
     }
   }
 
-  setFocus(true);
+  setFocus?.(true);
 };
 
 export const checkedHandler = (
@@ -31,7 +31,7 @@ export const checkedHandler = (
 export const blurHandler = (
   evt: any,
   onBlur: React.FocusEventHandler<HTMLInputElement>,
-  setFocus: (value: boolean) => void
+  setFocus?: (value: boolean) => void
 ): void => {
   if (onBlur) {
     onBlur(evt);
@@ -40,5 +40,5 @@ export const blurHandler = (
     }
   }
 
-  setFocus(false);
+  setFocus?.(false);
 };

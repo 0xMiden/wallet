@@ -3,7 +3,7 @@
  *
  * After PR-3's `<DappBrowserProvider>` hoist, this component is purely
  * VISUAL — it doesn't own the webview lifecycle anymore. It just:
- *  - Renders the `<CapsuleBar>` (drag handle + favicon + title + ✕)
+ *  - Renders the `<CapsuleBar>` (favicon + title + Minimize, Reload and ✕)
  *  - Renders the `<NativeWebViewSlot>` whose rect drives the provider's
  *    `setSlotRect` callback
  *  - Reads the active session and isLoading state from `useDappBrowser()`
@@ -13,16 +13,16 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type FC, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { InAppBrowser } from '@miden/dapp-browser';
-import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { useDappBrowser, useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvider';
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { CapsuleBar } from './CapsuleBar';
 import { DappActionsSheet } from './DappActionsSheet';
@@ -35,12 +35,10 @@ const SETTLE_RETRY_MS = 50;
 /**
  * How long to keep re-checking before measuring anyway.
  *
- * The only transformed ancestor is `TabLayout`'s `motion.div`, whose `x: '8%'`
- * → `0` runs on `springs.standard` (stiffness 322, damping 32, mass 1). That is
- * underdamped-but-close, ~16 rad/s decay, so a ~31px offset on a 390px viewport
- * is still ~2.4px at 200ms and only falls under the 1px threshold around 235ms.
- * 3s is an order of magnitude beyond that — wide enough to absorb an animation
- * whose start was deferred on a loaded device.
+ * The ancestor that moves is the `MobilePageLayers` layer holding the tab panes,
+ * which a slide page above it moves between `translateX(-24%)` and none on
+ * `pageSlideEntrance`, a 340ms tween. 3s is an order of magnitude beyond that,
+ * wide enough to absorb an animation whose start was deferred on a loaded device.
  *
  * A wall-clock deadline rather than a retry count: `update` has several callers,
  * and any of them landing on a skip would spend a counted attempt, so a burst
@@ -49,8 +47,14 @@ const SETTLE_RETRY_MS = 50;
  */
 const SETTLE_TIMEOUT_MS = 3000;
 
-export const DappActive: FC = () => {
-  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
+interface DappActiveProps {
+  /** Reaches the capsule's header, for the morph's companions. */
+  capsuleRef?: Ref<HTMLElement>;
+}
+
+export const DappActive: FC<DappActiveProps> = ({ capsuleRef }) => {
+  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates, reportPresentationLayout } =
+    useDappBrowser();
   const { t } = useTranslation();
   const slotRef = useRef<HTMLDivElement>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -61,13 +65,28 @@ export const DappActive: FC = () => {
     () => (session ? sessionStates.find(s => s.session.id === session.id) : undefined),
     [session, sessionStates]
   );
+  const hiddenHost = sessionState?.policyResolved === false || sessionState?.presentation === 'fullscreen';
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    surface.inert = hiddenHost;
+    if (hiddenHost && surface.contains(document.activeElement) && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, [hiddenHost]);
+  const policyRevision = sessionState?.policyRevision;
+  const policyResolved = sessionState?.policyResolved;
+  const policyLifetime = sessionState?.policyLifetime;
+  const sessionId = session?.id;
   const error = sessionState?.error ?? null;
+  useUserVisibleError(error && !hiddenHost ? 'dappLoadFailed' : null, 'inline');
   const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
   // Hardware back from `<DappActive>`: park (not close) so the session
-  // stays alive as a bubble. The user can drag-down or tap ✕ for a hard
-  // close. The confirmation modal registers its own back handler that
-  // takes precedence (LIFO) when shown.
+  // stays alive as a bubble. The user can tap ✕ for a hard close. The
+  // confirmation modal registers its back handler in the overlay tier, so it
+  // takes precedence whenever it is shown.
   useMobileBackHandler(() => {
     void park();
     return true;
@@ -94,47 +113,25 @@ export const DappActive: FC = () => {
     });
   }, [session, close, open]);
 
-  // When the actions sheet opens, hide the dApp WKWebView so the
-  // React-rendered drawer can sit above it, and mark the drawer as open
-  // so parked dApp trays move out of the way. The webview's JS context,
-  // scroll position, and in-flight requests survive the hide/show cycle.
-  //
-  // IMPORTANT: this effect is a NO-OP while the sheet is closed — it only
-  // runs side effects on "open" and reverses them via the cleanup. An
-  // earlier revision also ran the reverse branch on close, which meant
-  // DappActive's first mount (actionsOpen=false) would call
-  // `setVisible(true)` even when it was not needed.
-  // That race with the provider's own restore flow (which also calls
-  // `setVisible(true)` + `setRect()` on bubble-tap) caused restored dApps
-  // to briefly appear and then get re-parked on the first click.
-  useEffect(() => {
-    if (!isMobile() || !session || !actionsOpen) return;
-    const sessionId = session.id;
-    document.body.setAttribute('data-drawer-open', '');
-    InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
-    return () => {
-      document.body.removeAttribute('data-drawer-open');
-      InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
-    };
-  }, [actionsOpen, session]);
+  useHideForegroundDappWhileOpen(actionsOpen);
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
   //
-  // CAREFUL: TabLayout slides its `motion.div` in from `x: '8%'` on
-  // `springs.standard` (framer-motion, keyed on the pathname), and that
-  // wrapper contains DappActive. `getBoundingClientRect` returns
-  // coordinates that INCLUDE ancestor transforms, so any measurement
-  // taken DURING the slide-in lands ~32pt to the right of the real
-  // resting position. (Not `mobile-page-enter`, which an earlier version
-  // of this comment named — that CSS animation belongs to
-  // FullScreenPage, a layout `/browser` never uses.)
+  // CAREFUL: DappActive renders inside the `MobilePageLayers` layer that
+  // holds the tab panes, and a slide page above that layer moves it between
+  // `x: '-24%'` and `0` on `pageSlideEntrance` (framer-motion).
+  // `getBoundingClientRect` returns coordinates that INCLUDE ancestor
+  // transforms, so any measurement taken DURING that slide lands up to a
+  // quarter of the screen left of the real resting position. (TabLayout's own
+  // wrapper only fades, and `mobile-page-enter` belongs to FullScreenPage, a
+  // layout `/browser` never uses.)
   //
-  // If a measurement happens DURING the tab slide-in transform, the
+  // If a measurement happens DURING the layer slide, the
   // `getBoundingClientRect` call returns mid-transition x coordinates.
   // That wrong rect then flows into `setSlotRect` → provider's restore
-  // effect → `instance.setRect(wrong)` → WKWebView renders ~32pt too
-  // far right. Once the spring settles, another re-measure pushes the
-  // correct x, and the webview jumps back.
+  // effect → `instance.setRect(wrong)` → WKWebView renders too far left.
+  // Once the slide settles, another re-measure pushes the correct x, and the
+  // webview jumps back.
   //
   // GUARD (moved inside `update` itself so EVERY path — immediate,
   // 200ms timer, 400ms timer, ResizeObserver — respects it): if any
@@ -198,10 +195,10 @@ export const DappActive: FC = () => {
         // A ResizeObserver does not fire on transform changes (the observed
         // box does not change size while something slides), so once the fixed
         // timers below have been spent the only remaining trigger is a real
-        // resize, which never arrives. And the slide is framer-motion's
-        // `initial` prop on TabLayout's `motion.div`, written as an inline
-        // style at commit and only animated from a later frame — so the
-        // element holds the 8% offset from the moment it mounts, before the
+        // resize, which never arrives. And a reveal starts from the covered
+        // offset, already applied as an inline style at commit and animated
+        // only from a later frame, so a slot that mounts as its layer is
+        // revealed holds the -24% offset from the moment it mounts, before the
         // animation has begun. Stall the main thread right after commit and
         // all three fixed timers drain against that un-started offset.
         //
@@ -229,12 +226,16 @@ export const DappActive: FC = () => {
       settleDeadline = null;
       clearSettleRetry();
       const r = el.getBoundingClientRect();
-      setSlotRect({
+      const rect = {
         x: Math.round(r.left),
         y: Math.round(r.top),
         width: Math.round(r.width),
         height: Math.round(r.height)
-      });
+      };
+      setSlotRect(rect);
+      if (sessionId && policyResolved && policyLifetime && policyRevision !== undefined) {
+        reportPresentationLayout?.(sessionId, policyLifetime, policyRevision, rect);
+      }
     };
     update();
     // Extra timers beyond the transform's expected ~150ms duration,
@@ -252,7 +253,7 @@ export const DappActive: FC = () => {
       clearSettleRetry();
       ro.disconnect();
     };
-  }, [setSlotRect]);
+  }, [setSlotRect, sessionId, policyRevision, policyResolved, policyLifetime, reportPresentationLayout]);
 
   // Clear slot rect on unmount so the provider knows the visual surface
   // is gone (e.g. user navigated to another tab while parked).
@@ -266,8 +267,16 @@ export const DappActive: FC = () => {
   if (!session) return null;
 
   return (
-    <div className="flex h-full flex-col" data-testid="dapp-active">
+    <div
+      ref={surfaceRef}
+      // Above the launcher BrowserScreen draws behind a moving page.
+      className="relative z-[1] flex h-full flex-col"
+      data-testid="dapp-active"
+      aria-hidden={hiddenHost || undefined}
+      style={hiddenHost ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' } : undefined}
+    >
       <CapsuleBar
+        ref={capsuleRef}
         session={session}
         onClose={() => void close()}
         onReload={handleReload}
@@ -312,7 +321,7 @@ export const DappActive: FC = () => {
         )}
         {error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-solid px-6 text-center">
-            <div className="mb-2 text-lg font-semibold text-black">{t('dappLoadFailed')}</div>
+            <div className="mb-2 text-lg font-semibold text-ink">{t('dappLoadFailed')}</div>
             <div className="mb-6 text-sm text-text-muted">{t('dappLoadFailedHint')}</div>
             <button
               type="button"

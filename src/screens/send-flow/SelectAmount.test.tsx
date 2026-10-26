@@ -1,14 +1,42 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { SelectAmount, SelectAmountProps } from './SelectAmount';
 import { UIToken } from './types';
+const mockQuotePrices: Record<string, number> = {};
+let mockQuoteObservedAt: number | undefined;
+jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: (_prices: unknown, id: string) =>
+    (mockQuotePrices[id] ?? 0) > 0
+      ? {
+          price: mockQuotePrices[id],
+          observedAt: mockQuoteObservedAt ?? Date.now(),
+          change24h: 0,
+          percentageChange24h: 0
+        }
+      : undefined
+}));
+
+// Hex -> the `rgb(r, g, b)` form jsdom normalizes an inline `style.backgroundColor` to.
+const asRgb = (hex: string): string => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+};
 
 // --- i18n: interpolate the `{ value }` option so approxFiatValue is assertable.
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
@@ -18,24 +46,55 @@ jest.mock('react-i18next', () => ({
 
 // --- Platform / haptics.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isExtension: () => false,
+  isIOS: () => false,
+  isAndroid: () => false
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
+
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="confirm-btn" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    accent
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    accent?: string;
+  }) => (
+    <button data-testid="confirm-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -43,21 +102,26 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { ChevronDown: 'chevron-down' }
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
+  IconName: { ChevronDown: 'chevron-down', ChevronRightLucide: 'chevron-right', Globe: 'Globe' }
 }));
 
-// The AmountInput mock forwards every prop we care about and exposes buttons
-// that invoke `onValueChange` with the different value/values shapes the source
-// coalesces over (`values?.formatted || value || ''`).
-type OnValueChange = (value: string | undefined, name?: string, values?: { formatted?: string }) => void;
+// Callback fixtures separate canonical amounts from localized display text.
+type OnValueChange = NonNullable<
+  React.ComponentProps<typeof import('components/AmountInput').AmountInput>['onValueChange']
+>;
 
-jest.mock('components/AmountInput', () => ({
-  AmountInput: ({
+let mockUseRealAmountInput = false;
+jest.mock('components/AmountInput', () => {
+  const StubAmountInput = ({
     label,
     value,
     error,
+    invalid,
     helper,
+    secondary,
     tokenSelector,
     showDivider,
     onValueChange,
@@ -66,25 +130,47 @@ jest.mock('components/AmountInput', () => ({
     label?: React.ReactNode;
     value?: string;
     error?: string;
+    invalid?: boolean;
     helper?: React.ReactNode;
+    secondary?: React.ReactNode;
     tokenSelector?: React.ReactNode;
     showDivider?: boolean;
     onValueChange?: OnValueChange;
     'data-testid'?: string;
   }) => (
-    <div data-testid="amount-input" data-forwarded-testid={dataTestId} data-show-divider={String(showDivider)}>
+    <div
+      data-testid="amount-input"
+      data-forwarded-testid={dataTestId}
+      data-show-divider={String(showDivider)}
+      data-invalid={String(invalid)}
+    >
       <div data-testid="ai-label">{label}</div>
       {error !== undefined && <div data-testid="ai-error">{error}</div>}
+      {secondary}
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
       <div data-testid="ai-token-selector">{tokenSelector}</div>
       <div data-testid="ai-value">{value}</div>
-      <button data-testid="ai-change-formatted" onClick={() => onValueChange?.('rawF', 'n', { formatted: '987.65' })} />
-      <button data-testid="ai-change-value" onClick={() => onValueChange?.('rawVal', 'n', { formatted: '' })} />
+      <button
+        data-testid="ai-change-formatted"
+        onClick={() => onValueChange?.('1.5', 'n', { formatted: '۱.۵', value: '1.5', float: 1.5 })}
+      />
+      <button
+        data-testid="ai-change-value"
+        onClick={() => onValueChange?.('rawVal', 'n', { formatted: '', value: 'rawVal', float: null })}
+      />
       <button data-testid="ai-change-value-novalues" onClick={() => onValueChange?.('rawVal2', 'n', undefined)} />
       <button data-testid="ai-change-empty" onClick={() => onValueChange?.(undefined, 'n', undefined)} />
     </div>
-  )
-}));
+  );
+  return {
+    AmountInput: (props: React.ComponentProps<typeof import('components/AmountInput').AmountInput>) => {
+      const Component = mockUseRealAmountInput
+        ? jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput').AmountInput
+        : StubAmountInput;
+      return <Component {...props} />;
+    }
+  };
+});
 
 const baseToken = (overrides: Partial<UIToken> = {}): UIToken => ({
   id: 't1',
@@ -105,13 +191,45 @@ const renderComponent = (props: Partial<SelectAmountProps> = {}) => {
     onSelectToken: jest.fn(),
     onConfirm: jest.fn()
   };
+  const token = props.token ?? defaults.token;
+  if (token) mockQuotePrices[token.id] = token.fiatPrice ?? 0;
   return render(<SelectAmount {...defaults} {...props} />);
 };
 
 describe('SelectAmount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockQuoteObservedAt = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
+  });
+
+  it.each([true, false])('marks a cleared amount invalid without an error message (mobile: %s)', mobile => {
+    jest.mocked(isMobile).mockReturnValue(mobile);
+    renderComponent({ amount: '', isValidAmount: false, error: 'invalidAmount' });
+
+    expect(screen.getByTestId('amount-input')).toHaveAttribute('data-invalid', 'true');
+    expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 USDC');
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+  });
+
+  it('expires the available-balance USD estimate without a store update', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    mockQuotePrices.t1 = 0.2;
+    mockQuoteObservedAt = Date.now();
+    try {
+      renderComponent();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+
+      act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS));
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+      act(() => jest.advanceTimersByTime(1));
+
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   describe('page variant', () => {
@@ -124,7 +242,8 @@ describe('SelectAmount', () => {
       // Token logo defaults its symbol to token.name.
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
-      expect(logo).toHaveAttribute('data-size', 'md');
+      expect(logo).toHaveAttribute('data-faucet-id', 't1');
+      expect(logo).toHaveAttribute('data-size', 'sm');
 
       // Token name chip + chevron icon.
       expect(screen.getByText('USDC')).toBeInTheDocument();
@@ -153,6 +272,18 @@ describe('SelectAmount', () => {
       expect(helper).toHaveTextContent('approxFiatValue:$200.50');
     });
 
+    it('never quotes an available balance above the real one', () => {
+      // The fee reserve makes a long fractional tail the normal case for the
+      // native token: a 12.345678 balance caps at 12.045677999999999. Rounded to
+      // 4dp that reads "12.0457" — more than the form will accept — so a user
+      // typing the quoted figure back in is rejected as over balance, with no Max
+      // button to fall back on. Rounding down cannot overstate it.
+      renderComponent({ token: baseToken({ balance: 12.045677999999999, fiatPrice: 0 }) });
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available 12.0456 USDC');
+      expect(helper).not.toHaveTextContent('12.0457');
+    });
+
     it('calls onConfirm when the enabled confirm button is clicked', () => {
       const onConfirm = jest.fn();
       renderComponent({ onConfirm });
@@ -178,6 +309,20 @@ describe('SelectAmount', () => {
     it('uses the confirmTitle override for the CTA', () => {
       renderComponent({ confirmTitle: 'Swap Now' });
       expect(screen.getByTestId('confirm-btn')).toHaveTextContent('Swap Now');
+    });
+
+    it('draws the confirm CTA in the accent it is given', () => {
+      renderComponent({ accent: 'earn' });
+      expect(screen.getByTestId('confirm-btn')).toHaveAttribute('data-accent', 'earn');
+    });
+
+    // 12px text needs 4.5:1, which white on the light fills never reaches: the flow's ink on its tint.
+    it('draws the network pill in the flow ink on its tint', () => {
+      renderComponent({ accent: 'send' });
+
+      const pill = screen.getByText('miden');
+      expect(pill).toHaveClass('bg-accent-send-tint', 'text-accent-send-ink');
+      expect(pill).not.toHaveClass('text-pure-white', 'bg-accent-send');
     });
 
     it('hides the network pill when showNetworkPill is false', () => {
@@ -209,6 +354,16 @@ describe('SelectAmount', () => {
         expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
       });
     });
+
+    it.each([true, false])(
+      'shows a balance whose read is still pending as loading, with no figure or fiat estimate (scale known: %s)',
+      scaleIsKnown => {
+        renderComponent({ token: { ...baseToken({ scaleIsKnown }), balance: null } });
+        const helper = screen.getByTestId('ai-helper');
+        expect(helper).toHaveTextContent(/^loading$/);
+        expect(helper).not.toHaveTextContent('approxFiatValue');
+      }
+    );
 
     it('hides the balance helper when showBalanceHelper is false', () => {
       renderComponent({ showBalanceHelper: false });
@@ -251,15 +406,47 @@ describe('SelectAmount', () => {
       expect(container.firstChild).toHaveClass('px-6');
     });
 
-    it('uses the default keyboard-aware footer padding and honors a footerClassName override', () => {
-      const defaultFooterPb = 'pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]';
-      const { container: def } = renderComponent();
-      expect(def.innerHTML).toContain(defaultFooterPb);
+    // The earn deposit step's header sits on the 16px page margin: the field takes it on every
+    // platform, and starts where the earn pages' first line does.
+    it.each([true, false])('takes the page margin and the earn start with pageInset (mobile: %s)', mobile => {
+      jest.mocked(isMobile).mockReturnValue(mobile);
+      const { container } = renderComponent({ pageInset: true });
 
-      const { container: override } = renderComponent({ footerClassName: 'pt-2' });
-      expect(override.querySelector('.pt-2')).not.toBeNull();
-      expect(override.innerHTML).not.toContain(defaultFooterPb);
+      const page = container.firstElementChild;
+      expect(page).toHaveClass('px-4');
+      expect(page).not.toHaveClass('px-6');
+      expect(page).not.toHaveClass('px-8');
+      const body = page?.firstElementChild;
+      expect(body).toHaveClass('pt-7');
+      expect(body).not.toHaveClass('pt-10');
     });
+
+    // #1109: the CTA's bottom padding is the shared cushion, never a literal of its own, so it follows the tab bar
+    // (and drops to 1rem on the slide pages that host this step) instead of pinning a fixed 6rem.
+    it('pins its CTA on the shared cushion', () => {
+      const { container } = renderComponent();
+      const footer = container.querySelector('[data-navbar-cushion="true"]');
+      expect(footer).not.toBeNull();
+      expect(footer).toHaveClass('pt-4');
+      expect(footer).toHaveClass(stepFooterCushionClass());
+      expect(footer!.className).not.toContain('6rem');
+
+      // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame. The
+      // footer adds no transition of its own, and main.css exempts a flow footer's cushion collapse.
+      expect(footer!.className).not.toContain('transition-[padding-bottom]');
+      expect(footer).toHaveAttribute('data-flow-footer');
+    });
+  });
+
+  it("snaps a flow footer's cushion: main.css sets no transition on it", () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodies = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g), ([, selector = '', body = '']) => ({
+      selector: selector.trim(),
+      body: body.trim()
+    }))
+      .filter(rule => rule.selector === "[data-navbar-cushion='true'][data-flow-footer]")
+      .map(rule => rule.body);
+    expect(bodies.some(body => /(^|;)\s*transition:\s*none\s*(;|$)/.test(body))).toBe(true);
   });
 
   describe('token selector', () => {
@@ -292,6 +479,12 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'true');
     });
 
+    // The same typed amount and token as above, with the rule turned off (the earn deposit step, the swap).
+    it.each([false, true])('draws no divider with showAmountDivider false (embedded: %s)', embedded => {
+      renderComponent({ embedded, showAmountDivider: false });
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'false');
+    });
+
     it('fires haptic feedback and onSelectToken when tapped', () => {
       const onSelectToken = jest.fn();
       renderComponent({ onSelectToken });
@@ -302,7 +495,9 @@ describe('SelectAmount', () => {
 
     it('honors the logoSymbol override for the token logo', () => {
       renderComponent({ logoSymbol: 'PSWAP' });
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'PSWAP');
+      const logo = screen.getByTestId('token-logo');
+      expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-fallback-symbol', 'PSWAP');
     });
 
     it('renders "select a token" text and no logo when no token is selected (page variant)', () => {
@@ -314,12 +509,12 @@ describe('SelectAmount', () => {
     });
   });
 
-  describe('amount change coalescing', () => {
-    it('prefers the formatted value from the currency-input values object', () => {
+  describe('canonical amount changes', () => {
+    it('stores the canonical value when the formatted value uses Persian digits', () => {
       const onAmountChange = jest.fn();
       renderComponent({ onAmountChange });
       fireEvent.click(screen.getByTestId('ai-change-formatted'));
-      expect(onAmountChange).toHaveBeenCalledWith('987.65');
+      expect(onAmountChange).toHaveBeenCalledWith('1.5');
     });
 
     it('falls back to the raw value when formatted is empty', () => {
@@ -356,6 +551,12 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-error')).toHaveTextContent('amountTooHigh');
     });
 
+    it('keeps the field invalid but drops its message with hideErrorText, for a caller that draws it', () => {
+      renderComponent({ amount: '', error: 'insufficientFeeAsset', hideErrorText: true });
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-invalid', 'true');
+      expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
+    });
+
     it('renders no error row when error is undefined', () => {
       renderComponent({ error: undefined });
       expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
@@ -381,6 +582,12 @@ describe('SelectAmount', () => {
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
       expect(screen.queryByTestId('token-logo')).not.toBeInTheDocument();
       expect(screen.queryByTestId('confirm-btn')).not.toBeInTheDocument();
+
+      // Avatar's `color` prop, not a `bg-*` className: the circle sits behind an icon, not a
+      // block of layout, so the fill is content, and Avatar applies it as an inline style.
+      const circle = screen.getByText('$').parentElement as HTMLElement;
+      expect(circle.style.backgroundColor).toBe(asRgb('#2F6BED'));
+      expect(circle.className).not.toContain('bg-[#2F6BED]');
     });
 
     it('ignores children in the embedded variant', () => {
@@ -409,6 +616,7 @@ describe('SelectAmount', () => {
       const selector = screen.getByTestId('ai-token-selector');
       expect(selector).toHaveTextContent('USDC');
       expect(selector).toHaveTextContent('Sepolia');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 't1');
       // Arrival hint: "{network} · arrives as {symbol}".
       expect(selector).toHaveTextContent('receiveOnArrivesAs');
     });
@@ -444,11 +652,37 @@ describe('SelectAmount', () => {
       expect(() => fireEvent.click(networkRow())).not.toThrow();
     });
 
+    it.each([true, false])(
+      'names the token by its label in the selector and the Available line, logo on its symbol (bridge: %s)',
+      isBridge => {
+        renderComponent({ isBridge, network: sepolia, tokenLabel: 'Test Epoch USDC' });
+
+        expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('Test Epoch USDC');
+        expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 Test Epoch USDC');
+        expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      }
+    );
+
     it('shows the "$" placeholder while no token is chosen', () => {
       renderComponent({ isBridge: true, token: undefined, network: sepolia });
 
       expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('$');
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
+
+      const circle = screen.getByText('$').parentElement as HTMLElement;
+      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.className).not.toContain('bg-primary-500');
+    });
+
+    it('colors the destination-network circle via Avatar’s color prop, not a className', () => {
+      renderComponent({ isBridge: true, network: sepolia });
+
+      const globeIcon = screen.getByTestId('ai-token-selector').querySelector('[data-name="Globe"]');
+      const circle = globeIcon?.parentElement as HTMLElement;
+      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.className).not.toContain('bg-primary-500');
+      expect(globeIcon).toHaveClass('text-accent-brand-on');
+      expect(globeIcon).not.toHaveClass('text-pure-white');
     });
   });
 
@@ -463,5 +697,159 @@ describe('SelectAmount', () => {
       renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
     });
+  });
+
+  it('pins its CTA in a flow footer that slides and snaps its cushion, like every flow page', () => {
+    renderComponent();
+
+    const footer = screen.getByTestId('confirm-btn').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveAttribute('data-flow-footer');
+    expect(footer.className).not.toContain('transition-[padding-bottom]');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: footer }));
+  });
+
+  describe('an Available figure that changes', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    type Figures = { available: string; fiat: string };
+    const figures = (): Figures => {
+      const [available, fiat] = Array.from(screen.getByTestId('ai-helper').querySelectorAll('.tabular-nums'));
+      return { available: available?.textContent ?? '', fiat: fiat?.textContent ?? '' };
+    };
+    const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
+
+    /** The figures right after the change, and every figure shown until the count is done. */
+    const change = async (from: UIToken, to: UIToken) => {
+      const props: SelectAmountProps = {
+        amount: '10',
+        isValidAmount: true,
+        onAmountChange: jest.fn(),
+        onSelectToken: jest.fn(),
+        onConfirm: jest.fn()
+      };
+      mockQuotePrices[from.id] = from.fiatPrice ?? 0;
+      mockQuotePrices[to.id] = to.fiatPrice ?? 0;
+      const { rerender } = render(<SelectAmount {...props} token={from} />);
+      const helper = screen.getByTestId('ai-helper');
+      const frames: Figures[] = [];
+      const observer = new MutationObserver(() => frames.push(figures()));
+      observer.observe(helper, { characterData: true, childList: true, subtree: true });
+
+      rerender(<SelectAmount {...props} token={to} />);
+      const first = figures();
+      frames.push(first);
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+      frames.push(figures());
+      return { first, frames };
+    };
+
+    const TOKEN_A = baseToken({ id: 'a', name: 'USDC', balance: 12000, fiatPrice: 0.2 });
+    const TOKEN_B = baseToken({ id: 'b', name: 'ETH', balance: 0.25, fiatPrice: 2 });
+
+    it("lands on the new token's Available balance instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, TOKEN_B);
+
+      expect(first.available).toBe('available 0.25 ETH');
+      expect(frames.filter(frame => amountOf(frame.available) > 0.25)).toEqual([]);
+    });
+
+    it("lands on the new token's fiat value instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, TOKEN_B);
+
+      expect(amountOf(first.fiat)).toBe(0.5);
+      expect(frames.filter(frame => amountOf(frame.fiat) > 0.5)).toEqual([]);
+    });
+
+    it('still counts the Available balance when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame.available) > 12000 && amountOf(frame.available) < 15000)).toBe(true);
+      expect(frames[frames.length - 1]?.available).toBe('available 15000 USDC');
+    });
+
+    it('still counts the fiat value when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame.fiat) > 2400 && amountOf(frame.fiat) < 3000)).toBe(true);
+      expect(amountOf(frames[frames.length - 1]?.fiat ?? '')).toBe(3000);
+    });
+  });
+});
+
+describe('SelectAmount user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockUseRealAmountInput = true;
+  });
+
+  afterEach(() => {
+    mockUseRealAmountInput = false;
+    jest.useRealTimers();
+  });
+
+  it.each(['invalidAmount', 'amountMustBeLessThanBalance'])(
+    'reports the visible %s key on the real amount field after 1000 ms',
+    async error => {
+      renderComponent({ amount: '99', error });
+      expect(screen.getByText(error)).toBeVisible();
+      expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'true');
+
+      await act(async () => jest.advanceTimersByTimeAsync(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTimeAsync(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[error, 'field']]);
+      await act(async () => jest.advanceTimersByTimeAsync(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not report a hidden amount message even while its field stays invalid', async () => {
+    renderComponent({ amount: '99', error: 'amountMustBeLessThanBalance', hideErrorText: true });
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText('amountMustBeLessThanBalance')).not.toBeInTheDocument();
+
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports unknown token scale while its confirmation remains disabled', async () => {
+    renderComponent({ token: baseToken({ scaleIsKnown: false }) });
+    expect(screen.getByText('unknownTokenScale')).toBeVisible();
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports only the visible amount error when it hides the unknown-scale balance helper', async () => {
+    renderComponent({ token: baseToken({ scaleIsKnown: false }), amount: '99', error: 'invalidAmount' });
+    expect(screen.getByText('invalidAmount')).toBeVisible();
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toContainEqual(['invalidAmount', 'field']);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['invalidAmount', 'field']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
 });

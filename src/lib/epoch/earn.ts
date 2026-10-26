@@ -5,21 +5,29 @@ import {
   SolveIntentParams,
   TaskType
 } from '@epoch-protocol/epoch-intents-sdk';
-import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import type { EarnVaultProtocol } from 'lib/remote-config/schema';
+import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { createEarnP2IDENote } from './earn-note';
-import type { BridgeNoteDeps } from './miden-note';
+import { isEvmAddress } from './evm-address';
+import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
+import { readEpochIntentStatus } from './intent-status';
+import { marketUidChainId } from './market-uid';
+import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
+import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
 
 /**
- * Epoch "Earn" — open a lending position by depositing Miden-held USDC into a
+ * Epoch "Earn" — open a lending position by depositing reviewed Miden collateral into a
  * protocol market. Structurally this is the Miden→EVM `bridgeEpochSend` flow:
  * collateral is `CollateralType.Miden` (a recallable P2IDE note to the solver's
  * allocator), the EVM lending leg is solver-fulfilled, and the typed EVM address
@@ -28,31 +36,10 @@ import type { IntentResult } from './types';
  * `marketUid`/`action`/`payAsset` extraData, and a non-zero `protocolHashIdentifier`.
  */
 
-// Miden-side collateral token (the wallet's USDC faucet) and its decimals.
-export const MIDEN_USDC_FAUCET = '0x2458e5446128e6b150b75b8ebd9ce1';
-export const MIDEN_USDC_DECIMALS = 6;
-
-// E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id
-// can't exist on a local e2e node, and the CLI-minted faucet id is only known at
-// test time — so the harness injects it at runtime via `setEarnCollateralFaucetForTest`
-// (mirrors `setAgglayerSenderForE2E`). Unset in production, so `getEarnCollateralFaucet()`
-// returns `MIDEN_USDC_FAUCET` and behavior is byte-identical.
-let earnCollateralFaucetOverride: string | undefined;
-
-export function setEarnCollateralFaucetForTest(faucetHex: string | undefined): void {
-  earnCollateralFaucetOverride = faucetHex;
+/** The collateral faucet as the wallet's spending-limit and history code keys it (bech32). */
+export function earnCollateralFaucetId(collateral: MidenUsdc): string {
+  return ifHextoBech32(collateral.faucetId);
 }
-
-function getEarnCollateralFaucet(): string {
-  return earnCollateralFaucetOverride ?? MIDEN_USDC_FAUCET;
-}
-
-// Lending market the deposit targets (testnet `DUMMY_LENDING`). `EARN_UNDERLYING`
-// matches `BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS` (Sepolia USDC).
-export const EARN_MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
-export const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-export const EARN_DESTINATION_CHAIN_ID = 11155111;
-export const EARN_PROTOCOL_HASH = keccak256(toBytes('dummy-lending'));
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -61,7 +48,7 @@ export interface EarnIntentParams {
   midenSourceAccount: string;
   /** Miden faucet of the collateral token. */
   midenFaucetId: string;
-  /** Collateral amount in faucet base units (`MIDEN_USDC_DECIMALS`), as a string. */
+  /** Collateral amount in the collateral faucet's base units, as a string. */
   depositAmount: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: `0x${string}`;
@@ -70,6 +57,8 @@ export interface EarnIntentParams {
    * real reclaim height derives from the SDK callback's `recallBlocks` instead.
    */
   midenReclaimHeight: number;
+  /** The lending market the bridge config names. */
+  market: EarnMarket;
 }
 
 export interface EarnQuote {
@@ -77,11 +66,6 @@ export interface EarnQuote {
   intentData: Record<string, unknown>;
   quoteResult: IntentQuoteResult;
   params: EarnIntentParams;
-}
-
-/** Narrow a plain string to a 0x EVM address without a cast. */
-function isEvmAddress(value: string): value is `0x${string}` {
-  return /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
 /**
@@ -99,19 +83,19 @@ export function buildEarnTaskDataParams(params: EarnIntentParams) {
       isNative: false,
       depositTokenAddress: ZERO_ADDRESS,
       tokenInAmount: params.depositAmount,
-      outputTokenAddress: EARN_UNDERLYING,
+      outputTokenAddress: params.market.underlying,
       minTokenOut: '0',
-      destinationChainId: String(EARN_DESTINATION_CHAIN_ID),
-      protocolHashIdentifier: EARN_PROTOCOL_HASH,
+      destinationChainId: String(params.market.chainId),
+      protocolHashIdentifier: params.market.protocolHash,
       recipient: params.evmRecipient
     },
     extraDataTypestring:
       'string marketUid,string action,string payAsset,uint256 midenReclaimHeight,' +
       'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId',
     extraData: {
-      marketUid: EARN_MARKET_UID,
+      marketUid: params.market.marketUid,
       action: 'deposit',
-      payAsset: EARN_UNDERLYING,
+      payAsset: params.market.underlying,
       midenSourceAccount: midenSourceHex,
       midenFaucetId: midenFaucetHex,
       midenNoteType: 'P2IDE',
@@ -223,7 +207,8 @@ export const EARN_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reve
 export interface EpochLegStatus {
   chainId?: number;
   status?: string;
-  transactionHash?: string;
+  // The SDK reports null for a leg the chain has not recorded yet.
+  transactionHash?: string | null;
 }
 
 export type EarnIntentOutcome = 'pending' | 'done' | 'failed';
@@ -259,67 +244,106 @@ export function resolveEarnIntentOutcome(
   return { outcome: 'pending', destination, source };
 }
 
-/**
- * Background-poll the Epoch allocator for a lending intent's fill and flip the
- * `earn-deposit` row's `epochStatus` once it settles. Fire-and-forget: the Miden
- * collateral note is already locked by the time this runs, so the form doesn't wait
- * on it — the activity row updates in place. Uses the read-only SDK (no wallet),
- * and self-terminates on a terminal status or after `maxAttempts` ticks.
- *
- * Settlement is gated on the SEPOLIA (destination) leg via
- * `resolveEarnIntentOutcome` — the Miden source leg completing only means the
- * collateral note was consumed by the allocator, not that the lending deposit
- * landed.
- */
+interface EarnDepositPollDeps {
+  getSdk?: typeof getEpochReadOnlySdk;
+  updateStatus?: typeof updateEarnDepositStatus;
+  startPoll?: typeof startIntentPoll;
+}
+
+async function isLiveDeposit(txId: string, expected: ExpectedEarnDepositIntent): Promise<boolean> {
+  const row = await Repo.transactions.where({ id: txId }).first();
+  return (
+    row?.type === 'earn-deposit' &&
+    row.status === ITransactionStatus.Completed &&
+    !row.restoredFromBackup &&
+    row.extraInputs?.epochStatus !== 'confirmed' &&
+    row.extraInputs?.epochStatus !== 'failed' &&
+    matchesEarnDepositIntent(row, expected)
+  );
+}
+
+/** Poll the destination leg under shared ownership, retaining bounded retry bursts. */
 export function pollEarnIntentStatus(args: {
   sponsorAddress: `0x${string}`;
   nonce: string;
-  /** `earn-deposit` row id to patch when the intent settles. */
   txId?: string;
   intervalMs?: number;
   maxAttempts?: number;
+  immediate?: boolean;
+  deps?: EarnDepositPollDeps;
 }): void {
-  const { sponsorAddress, nonce, txId, intervalMs = 3000, maxAttempts = 100 } = args;
-  let attempts = 0;
-  const interval = setInterval(() => void tick(), intervalMs);
-
-  async function tick(): Promise<void> {
-    attempts += 1;
-    try {
-      const sdk = await getEpochReadOnlySdk(sponsorAddress);
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
-      console.log('[earn] poll intent status', results);
-      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
-      if (outcome !== 'pending') {
-        clearInterval(interval);
-        // The Sepolia (destination) leg carries the EVM tx hash for the position;
-        // on a source-side failure fall back to whatever leg reported.
-        const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
-        if (txId) {
-          await updateEarnDepositStatus(
-            txId,
-            outcome === 'done' ? 'confirmed' : 'failed',
-            evmTxHash ? { evmTxHash } : undefined
-          );
-        }
+  const { sponsorAddress, nonce, txId, intervalMs = 3000, maxAttempts = 100, immediate, deps = {} } = args;
+  if (!isEvmAddress(sponsorAddress) || !nonce) return;
+  const getSdk = deps.getSdk ?? getEpochReadOnlySdk;
+  const updateStatus = deps.updateStatus ?? updateEarnDepositStatus;
+  const startPoll = deps.startPoll ?? startIntentPoll;
+  const expected: ExpectedEarnDepositIntent = { owner: sponsorAddress, nonce };
+  startPoll({
+    key: earnDepositPollKey(sponsorAddress, nonce),
+    intervalMs,
+    maxAttempts,
+    immediate,
+    tick: async context => {
+      // A config that names no chain throws here, before any read, and the poll retries: the row is never failed for it.
+      const row = txId ? await Repo.transactions.where({ id: txId }).first() : undefined;
+      const marketUid = row?.type === 'earn-deposit' ? row.extraInputs.marketUid : undefined;
+      const destinationChainId = (marketUid ? marketUidChainId(marketUid) : undefined) ?? getEvmChainId();
+      const stillLive = async () => txId === undefined || isLiveDeposit(txId, expected);
+      if (!(await stillLive())) {
+        context.markTerminal();
+        return;
       }
-    } catch (err) {
-      console.warn('[epoch] pollEarnIntentStatus failed', err);
+      if (!context.isCurrent()) return;
+      const sdk = await getSdk(
+        sponsorAddress,
+        row?.type === 'earn-deposit' ? row.extraInputs.epochAllocatorUrl : undefined
+      );
+      if (!context.isCurrent()) return;
+      if (!(await stillLive())) {
+        context.markTerminal();
+        return;
+      }
+      if (!context.isCurrent()) return;
+      const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
+      if (!context.isCurrent()) return;
+      if (!(await stillLive())) {
+        context.markTerminal();
+        return;
+      }
+      if (!context.isCurrent()) return;
+      const { outcome, destination, source } = resolveEarnIntentOutcome(results, destinationChainId);
+      if (outcome === 'pending') return;
+      context.markTerminal();
+      const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
+      if (txId) {
+        await updateStatus(
+          txId,
+          outcome === 'done' ? 'confirmed' : 'failed',
+          evmTxHash ? { evmTxHash } : undefined,
+          expected
+        );
+      }
     }
-    if (attempts >= maxAttempts) clearInterval(interval);
-  }
+  });
 }
 
 export interface OpenEarnPositionArgs {
-  /** Collateral amount in `MIDEN_USDC_DECIMALS` base units. */
+  /** Collateral amount in `collateral`'s base units. */
   amount: bigint;
+  /** The collateral the deposit was reviewed with (`selectEarnCollateral` in the frontend). */
+  collateral: MidenUsdc;
   /** 0x EVM address that will own the lending position. */
   evmAddress: string;
+  /** The market of the vault the user chose (`earnMarketForVault`). The deposit names its uid and protocol hash. */
+  market: EarnMarket;
+  /** The protocol string the document lists the vault with, the same string the market's protocol hash is of. */
+  protocol: EarnVaultProtocol;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
   deps: BridgeNoteDeps;
   /** Fired once the `earn-deposit` row is created (mid-solve, before it proves + submits). */
   onRowCreated?: (txId: string) => void;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
 }
 
 /**
@@ -342,12 +366,14 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   const evmRecipient = args.evmAddress;
 
-  const sdk = await getEpochReadOnlySdk(evmRecipient);
+  const { market } = args;
+  const allocatorUrl = getEpochAllocatorUrl();
+  const sdk = await getEpochReadOnlySdk(evmRecipient, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
 
   const params: EarnIntentParams = {
     midenSourceAccount: args.senderPublicKey,
-    midenFaucetId: getEarnCollateralFaucet(),
+    midenFaucetId: args.collateral.faucetId,
     depositAmount: args.amount.toString(),
     evmRecipient,
     // Mandate-only estimate (hashed into the witness, echoed back by the
@@ -355,10 +381,12 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     // it uses the SDK-supplied `recallBlocks` from the mint callback (allocator
     // minimum + SDK buffer); the allocator validates the note's REMAINING
     // window against its own chain head, not this exact height.
-    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
+    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS,
+    market
   };
 
   let earnTxId: string | undefined;
+  let spendingLimitError: unknown;
   const quote = await getEarnQuote(sdk, params, evmRecipient);
   const intent = await buildEarnIntent(sdk, {
     ...params,
@@ -374,22 +402,34 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
       );
     },
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
-      const res = await createEarnP2IDENote({
-        senderAccountId: args.senderPublicKey,
-        faucetId: faucet,
-        amount,
-        allocatorId,
-        recallBlocks,
-        bindingAttachmentFelts,
-        evmRecipient,
-        marketUid: EARN_MARKET_UID,
-        deps: args.deps,
-        onRowCreated: args.onRowCreated
-      });
-      earnTxId = res.txId;
-      return { success: res.success, noteId: res.noteId };
+      try {
+        const res = await createEarnP2IDENote({
+          senderAccountId: args.senderPublicKey,
+          faucetId: faucet,
+          amount,
+          allocatorId,
+          recallBlocks,
+          bindingAttachmentFelts,
+          evmRecipient,
+          marketUid: market.marketUid,
+          protocol: args.protocol,
+          chainId: market.chainId,
+          allocatorUrl,
+          deps: args.deps,
+          onRowCreated: args.onRowCreated,
+          spendingLimitAuthorization: args.spendingLimitAuthorization
+        });
+        earnTxId = res.txId;
+
+        return { success: res.success, noteId: res.noteId };
+      } catch (error) {
+        spendingLimitError = error;
+        return { success: false };
+      }
     }
   });
+
+  if (spendingLimitError !== undefined) throw spendingLimitError;
 
   if (intent.error) {
     if (earnTxId) {
@@ -421,70 +461,25 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   return { txId: earnTxId };
 }
 
-interface ReconcileEarnDepositsDeps {
-  getSdk?: typeof getEpochReadOnlySdk;
-  updateStatus?: typeof updateEarnDepositStatus;
-  /** Injectable background poller (tests pass a no-op). */
+interface ReconcileEarnDepositsDeps extends EarnDepositPollDeps {
   startStatusPoll?: typeof pollEarnIntentStatus;
 }
 
-/**
- * Startup reconciler for `earn-deposit` rows — the deposit-side counterpart of
- * `reconcileEarnWithdrawals`.
- *
- * `pollEarnIntentStatus` is a plain `setInterval` living in the popup / app
- * process: closing the popup (or an iOS WebView teardown) kills it mid-flight and
- * the row is stranded on `epochStatus: 'pending'` forever, even though the Epoch
- * intent has long since settled. This scans the Completed `earn-deposit` rows
- * that are still un-settled and re-polls their intents once, applying the same
- * destination-leg gating (`resolveEarnIntentOutcome`) the live poller uses. Rows
- * that are still genuinely in flight get their background poll restarted so they
- * settle within this session.
- *
- * Called once per session from the Explore mount, next to
- * `reconcileEarnWithdrawals`.
- */
+/** Restart eligible deposits through the same owned polling path as initiation. */
 export async function reconcileEarnDeposits(deps: ReconcileEarnDepositsDeps = {}): Promise<void> {
-  const getSdk = deps.getSdk ?? getEpochReadOnlySdk;
-  const updateStatus = deps.updateStatus ?? updateEarnDepositStatus;
   const startStatusPoll = deps.startStatusPoll ?? pollEarnIntentStatus;
-
-  // `type` is not a Dexie index (see repo.ts), so scan + filter rather than
-  // `.where('type')` (which throws SchemaError).
   const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
-
   for (const row of rows) {
-    // Only a row whose Miden collateral note actually landed has an intent to poll.
-    if (row.status !== ITransactionStatus.Completed) continue;
-
+    if (row.type !== 'earn-deposit' || row.status !== ITransactionStatus.Completed || row.restoredFromBackup) continue;
     const inputs: IEarnDepositExtraInputs | undefined = row.extraInputs;
-    if (!inputs) continue;
-    // Already settled one way or the other — nothing to reconcile.
-    if (inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
-    // A restored row is not this wallet's in-flight deposit; its nonce and
-    // recipient come from whoever wrote the dump. Import settles the marker so
-    // this is belt-and-braces, but this loop runs on every post-unlock Explore
-    // mount, so it must not depend on that.
-    if (row.restoredFromBackup) continue;
+    if (!inputs || inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
     if (!inputs.intentNonce || !isEvmAddress(inputs.evmRecipient)) continue;
-
-    const sponsorAddress = inputs.evmRecipient;
-    const nonce = inputs.intentNonce;
-    try {
-      const sdk = await getSdk(sponsorAddress);
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
-      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
-
-      if (outcome === 'pending') {
-        // Still in flight — restart the poller the dead process took with it.
-        startStatusPoll({ sponsorAddress, nonce, txId: row.id });
-        continue;
-      }
-
-      const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
-      await updateStatus(row.id, outcome === 'done' ? 'confirmed' : 'failed', evmTxHash ? { evmTxHash } : undefined);
-    } catch (err) {
-      console.warn('[earn] reconcile deposit failed', row.id, err);
-    }
+    startStatusPoll({
+      sponsorAddress: inputs.evmRecipient,
+      nonce: inputs.intentNonce,
+      txId: row.id,
+      immediate: true,
+      deps
+    });
   }
 }

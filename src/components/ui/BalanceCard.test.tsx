@@ -1,13 +1,16 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { BalanceCard } from './BalanceCard';
+import { BalanceCard, BalanceDeltaDirection, resolveDeltaDirection } from './BalanceCard';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  // Interpolated values are appended, so a test can read what the pill was given.
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string>) => (values ? [key, ...Object.values(values)].join(' ') : key)
+  })
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -16,14 +19,48 @@ jest.mock('app/icons/v2', () => ({
   ),
   IconName: {
     CopyNew: 'CopyNew',
+    ArrowUp: 'ArrowUp',
+    ArrowDown: 'ArrowDown',
+    Checkmark: 'Checkmark',
     MidenLogo: 'MidenLogo',
-    SettingsNew: 'SettingsNew'
+    SettingsNew: 'SettingsNew',
+    Edit: 'Edit'
   }
 }));
 
-jest.mock('app/atoms/CopyButton', () => ({
-  __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>
+// The card's own motion.div exposes the scale it is told to animate to, so the press test can check
+// the dip itself rather than the pointer state that drives it. Everything else in framer-motion is real.
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual('framer-motion');
+  const { createElement, forwardRef } = jest.requireActual('react');
+  const MotionDiv = forwardRef(
+    (
+      { animate, transition, ...rest }: { animate?: { scale?: number }; transition?: { duration?: number } },
+      ref: unknown
+    ) =>
+      createElement('div', {
+        ref,
+        'data-animate-scale': animate?.scale,
+        'data-animate-duration': transition?.duration,
+        ...rest
+      })
+  );
+  return {
+    ...actual,
+    useReducedMotion: () => mockReduceMotion,
+    motion: new Proxy(actual.motion, { get: (target, key) => (key === 'div' ? MotionDiv : target[key]) })
+  };
+});
+
+// The canonical CopyButton is used for real (not stubbed) here — it wraps `children` in its own
+// `<span aria-live>`, which is exactly the structure the account row's layout has to survive (see
+// "keeps the label and icon laid out..." below), so a stub that just re-parents `children`
+// straight under a `<button>` would hide that class of bug. Mock only what the real component
+// needs: the clipboard write and the tap haptic (haptic mocked below, same as before).
+const mockClipboardWrite = jest.fn().mockResolvedValue(undefined);
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -45,6 +82,8 @@ let amountScrollWidth = 0;
 
 const isAmountSpan = (el: HTMLElement) => el.tagName === 'SPAN' && el.style.fontSize !== '';
 const isSuffixSpan = (el: HTMLElement) => el.tagName === 'SPAN' && el.className.includes('shrink-0');
+
+const ADDRESS = 'mtst1aqg...940z';
 
 describe('BalanceCard amount fit-to-width', () => {
   let scrollWidthSpy: jest.SpyInstance;
@@ -91,26 +130,26 @@ describe('BalanceCard amount fit-to-width', () => {
 
   it('keeps the max 3.5rem size when the amount fits', () => {
     amountScrollWidth = 200; // fits inside 400 - (40 + 2) = 358 available px
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
-    expect(getAmountSpan('$123.45').style.fontSize).toBe('3.5rem');
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" />);
+    expect(getAmountSpan('123.45').style.fontSize).toBe('3.5rem');
   });
 
   it('shrinks the font proportionally for a long amount', () => {
     amountScrollWidth = 450; // needs 450px at 3.5rem; available is 358px
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$21,000,000.12" />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="21,000,000.12" />);
     // 3.5 * 358 / 450 = 2.784 (rounded to 3 decimals)
-    expect(getAmountSpan('$21,000,000.12').style.fontSize).toBe('2.784rem');
+    expect(getAmountSpan('21,000,000.12').style.fontSize).toBe('2.784rem');
   });
 
   it('clamps at the 2.5rem floor for extreme lengths', () => {
     amountScrollWidth = 3000;
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$1,234,567,890,123,456.78" />);
-    expect(getAmountSpan('$1,234,567,890,123,456.78').style.fontSize).toBe('2.5rem');
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="1,234,567,890,123,456.78" />);
+    expect(getAmountSpan('1,234,567,890,123,456.78').style.fontSize).toBe('2.5rem');
   });
 
   it('renders the hidden state at the max size', () => {
     amountScrollWidth = 150;
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="hidden" />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" state="hidden" />);
     expect(getAmountSpan('••••••').style.fontSize).toBe('3.5rem');
   });
 });
@@ -121,50 +160,208 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('renders the loading skeleton instead of the amount', () => {
-    const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="loading" />);
+    const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" state="loading" />);
 
-    expect(container.querySelector('.animate-pulse')).not.toBeNull();
-    expect(screen.queryByText('$123.45')).toBeNull();
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(screen.queryByText('123.45')).toBeNull();
   });
 
-  it('renders the zero state as $0.00', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="zero" />);
+  it('renders the zero state as 0.00 beside the USD unit, with no second currency marker', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" state="zero" />);
 
-    expect(screen.getByText('$0.00')).toBeTruthy();
+    expect(screen.getByText('0.00')).toBeTruthy();
+    expect(screen.queryByText('$0.00')).toBeNull();
+    expect(screen.getByTestId('balance-card-currency')).toHaveTextContent('USD');
   });
 
-  it('renders a positive delta pill with the neutral background', () => {
-    const { container } = render(
+  // The pill is a darker well of the card's own color, never a status hue (the sage green clashed
+  // with every card color and held white text at 2.2:1): direction is the arrow and the sign.
+  // The component keeps its delta support for when a real source lands; with none passed it simply
+  // shows no pill, which is what Home relies on.
+  it('renders no change pill when the caller passes no delta', () => {
+    render(<BalanceCard accountNumber="1" accountId="0xabc" amount="100.00" />);
+
+    expect(screen.queryByTestId('balance-card-delta')).toBeNull();
+  });
+
+  it('renders a positive change on the card-ink pill with an up arrow and its sign', () => {
+    render(
       <BalanceCard
-        accountNumber="mtst1aqg...940z"
-        amount="$123.45"
+        accountNumber={ADDRESS}
+        amount="123.45"
         delta={{ absolute: '+$12.34', percentage: '+2.5%', direction: 'positive' }}
       />
     );
 
-    const pill = container.querySelector('.rounded-full');
-    expect(pill).not.toBeNull();
-    expect(pill?.textContent).toBe('balanceCardDeltaPill');
-    expect(pill?.className).toContain('bg-[#A8BBA3]');
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveClass('bg-surface-balance-pill', 'text-surface-balance-fg');
+    expect(pill.className).not.toMatch(/status-(positive|negative)/);
+    expect(pill).toHaveTextContent('balanceCardDeltaPill +$12.34 +2.5%');
+    expect(pill.querySelector('[data-name="ArrowUp"]')).not.toBeNull();
   });
 
-  it('renders a negative delta pill with the negative background', () => {
-    const { container } = render(
+  it('renders a negative change with a down arrow and its sign, on the same pill', () => {
+    render(
       <BalanceCard
-        accountNumber="mtst1aqg...940z"
-        amount="$123.45"
+        accountNumber={ADDRESS}
+        amount="123.45"
         delta={{ absolute: '-$5.00', percentage: '-1.0%', direction: 'negative' }}
       />
     );
 
-    expect(container.querySelector('.rounded-full')?.className).toContain('bg-status-negative');
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveClass('bg-surface-balance-pill');
+    expect(pill).toHaveTextContent('balanceCardDeltaPill -$5.00 -1.0%');
+    expect(pill.querySelector('[data-name="ArrowDown"]')).not.toBeNull();
+  });
+
+  it('preserves a negative move when its percentage rounds to negative zero', () => {
+    render(
+      <BalanceCard accountNumber={ADDRESS} amount="123.45" delta={{ absolute: '-$40.00', percentage: '-0.00%' }} />
+    );
+
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveTextContent('balanceCardDeltaPill -$40.00 -0.00%');
+    expect(pill.querySelector('[data-name="ArrowDown"]')).not.toBeNull();
+  });
+
+  it('uses the absolute sign when the percentage rounds to zero and direction says positive', () => {
+    render(
+      <BalanceCard
+        accountNumber={ADDRESS}
+        amount="123.45"
+        delta={{ absolute: '-$40.00', percentage: '0.00%', direction: 'positive' }}
+      />
+    );
+
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveTextContent('balanceCardDeltaPill -$40.00 0.00%');
+    expect(pill.querySelector('[data-name="ArrowDown"]')).not.toBeNull();
+  });
+
+  it('renders a zero change as neutral: no arrow and no sign, even when the caller says positive', () => {
+    render(
+      <BalanceCard
+        accountNumber={ADDRESS}
+        amount="123.45"
+        delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
+      />
+    );
+
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveTextContent('balanceCardDeltaPill 0.00 0.00%');
+    expect(pill.querySelector('[data-name^="Arrow"]')).toBeNull();
+  });
+
+  it('keeps the plain brand card color with the footer on a darker well of it, no scrim or retired tone', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
+
+    const card = container.firstElementChild;
+    expect(card).toHaveClass('bg-card-slate');
+    expect(container.querySelector('[class*="scrim"]')).toBeNull();
+    expect(container.querySelector('[class*="-deep"]')).toBeNull();
+    expect(container.querySelector('.border-dashed')).toBeNull();
+    const footer = screen.getByTestId('balance-card-footer');
+    expect(footer).toHaveClass('bg-surface-balance-footer');
+    expect(footer).not.toHaveClass('border-t');
+  });
+
+  it('dips the card while its options button is held, and not for a press on the copy control', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+    const card = container.firstElementChild;
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+    fireEvent.pointerDown(options);
+    expect(card).toHaveAttribute('data-pressed', 'true');
+    expect(card).toHaveAttribute('data-animate-scale', '0.98');
+    fireEvent.pointerUp(options);
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    fireEvent.pointerDown(options);
+    fireEvent.pointerLeave(options);
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    fireEvent.pointerDown(screen.getByTestId('balance-card-copy-address'));
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+  });
+
+  it('dips only for a primary press: not a right click, not a second finger', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+    const card = container.firstElementChild;
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    // jsdom has no PointerEvent, so a MouseEvent carries the fields React reads.
+    const press = (init: MouseEventInit, isPrimary?: boolean) => {
+      const event = new MouseEvent('pointerdown', { bubbles: true, ...init });
+      if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
+      act(() => {
+        options.dispatchEvent(event);
+      });
+    };
+
+    press({ button: 2 });
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    press({ button: 0 }, false);
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    // A second finger lifting does not end the first finger's press.
+    press({ button: 0 }, true);
+    expect(card).toHaveAttribute('data-pressed', 'true');
+    const up = new MouseEvent('pointerup', { bubbles: true, button: 0 });
+    Object.defineProperty(up, 'isPrimary', { value: false });
+    act(() => {
+      options.dispatchEvent(up);
+    });
+    expect(card).toHaveAttribute('data-pressed', 'true');
+  });
+
+  // Reduced motion keeps the press preset's feedback and makes it instant, as every press does.
+  it('dips on the press spring, and instantly under reduced motion', () => {
+    const first = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+    expect(first.container.firstElementChild).not.toHaveAttribute('data-animate-duration');
+    first.unmount();
+
+    mockReduceMotion = true;
+    try {
+      const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
+      expect(container.firstElementChild).toHaveAttribute('data-animate-scale', '0.98');
+      expect(container.firstElementChild).toHaveAttribute('data-animate-duration', '0.001');
+    } finally {
+      mockReduceMotion = false;
+    }
+  });
+
+  it('draws the label in Nunito (15px bold) in the full-strength card ink', () => {
+    render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
+
+    const label = screen.getByTestId('balance-card-label');
+    expect(label).toHaveTextContent('balanceCardTotalBalance');
+    expect(label).toHaveClass('text-value');
+    expect(label.className).not.toMatch(/muted|opacity/);
+  });
+
+  it('sets the currency as a 22px bold unit on the amount baseline, in the full-strength ink', () => {
+    render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
+
+    const currency = screen.getByTestId('balance-card-currency');
+    expect(currency).toHaveTextContent('USD');
+    expect(currency).toHaveClass('text-entry-unit');
+    expect(currency.className).not.toMatch(/muted|opacity/);
+    expect(currency.parentElement).toHaveClass('items-baseline');
+    expect(currency.previousElementSibling).toHaveTextContent('123.45');
   });
 
   it('hides the delta pill while loading', () => {
     render(
       <BalanceCard
         accountNumber="mtst1aqg...940z"
-        amount="$123.45"
+        amount="123.45"
         state="loading"
         delta={{ absolute: '+$1.00', percentage: '+0.1%' }}
       />
@@ -173,9 +370,9 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(screen.queryByText(/\+0\.1%/)).toBeNull();
   });
 
-  it('fires haptic feedback and onMore when the settings button is clicked', () => {
+  it('fires haptic feedback and onMore when the card is tapped', () => {
     const onMore = jest.fn();
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={onMore} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
 
@@ -183,24 +380,108 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the new copy icon and a settings icon colored with the card secondary tone', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+  // The copy control is the shared CopyButton (rendered for real, not stubbed): the address is its
+  // label and the animated glyph trails it.
+  const copyControl = () => screen.getByTestId('balance-card-copy-address');
+  const presentGlyph = () => copyControl().querySelector('[data-copy-icon] [data-present="true"]');
 
-    const copyIcon = screen.getByText('balanceCardAccount').nextElementSibling;
-    expect(copyIcon?.getAttribute('data-name')).toBe('CopyNew');
-    // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
-    expect(copyIcon?.className).toContain('w-3.5!');
+  it('renders the shared copy glyph after the address and no edit glyph: the whole card is the account-options control', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
-    const settingsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
-    expect(settingsIcon?.getAttribute('data-name')).toBe('SettingsNew');
-    expect(settingsIcon?.className).toContain('text-card-slate-deep');
-    expect(settingsIcon?.className).toContain('w-3!');
+    expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
+    expect(presentGlyph()?.querySelector('[data-name="CopyNew"]')).toBeInTheDocument();
+    // 16px, the size the footer used before the shared glyph.
+    expect(copyControl().querySelector('[data-copy-icon]')).toHaveClass('w-4', 'h-4');
+
+    expect(document.querySelector('[data-name="Edit"]')).toBeNull();
   });
 
-  it('omits the settings button when onMore is not provided', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+  it('lays the address out before the glyph in one truncating row, in the footer type', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
+
+    const row = copyControl().querySelector('[aria-live="polite"]')!;
+    expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-caption-heading', 'font-bold');
+    expect(row.children[0]).toHaveAttribute('data-copy-label');
+    expect(screen.getByText(ADDRESS)).toHaveClass('truncate');
+    expect(row.children[1]).toHaveAttribute('data-copy-icon');
+  });
+
+  it('morphs the copy glyph to a check while the account id is copied, keeping the address in place', async () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" accountId="mtst1aqgfullaccountid940z" amount="123.45" />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText(ADDRESS));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'mtst1aqgfullaccountid940z' });
+    expect(presentGlyph()).toHaveAttribute('data-copy-state', 'copied');
+    expect(presentGlyph()?.querySelector('[data-name="Checkmark"]')).toBeInTheDocument();
+    expect(screen.getByText(ADDRESS)).toBeInTheDocument();
+    // The glyph carries no text, so the state is in the accessible name.
+    expect(copyControl()).toHaveAccessibleName('balanceCardAddressCopied');
+  });
+
+  // A role=button container presents its children as decoration, so the balance and the copy
+  // control disappeared for assistive tech and one focusable button sat inside another. The
+  // options target is a real button under the content instead, which also brings native keyboard
+  // activation back in place of a hand-rolled Enter/Space handler.
+  it('keeps the balance and the copy control outside the account-options control', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
+
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    expect(options.tagName).toBe('BUTTON');
+    expect(options.querySelectorAll('button')).toHaveLength(0);
+    expect(options).not.toContainElement(screen.getByText('123.45'));
+    expect(options).not.toContainElement(screen.getByText(ADDRESS));
+    expect(screen.getByText(ADDRESS).closest('[role="button"]')).toBeNull();
+  });
+
+  it('keeps a visible focus ring and lets a tap anywhere on the card reach the options', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
+
+    // The ring is inset because the card clips to this button's own border box.
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    expect(options).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-inset');
+
+    // These classes ARE the tap-anywhere behaviour: the content lets taps through to the button
+    // underneath, and only the copy control takes its own. jsdom dispatches clicks at the target
+    // whatever pointer-events says, so without this assertion dropping them fails no test.
+    const balance = screen.getByText('123.45');
+    expect(balance.closest('.pointer-events-none')).not.toBeNull();
+    expect(screen.getByText(ADDRESS).closest('.pointer-events-auto')).not.toBeNull();
+  });
+
+  it('does not open the account options when the address is copied', async () => {
+    const onMore = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={onMore} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText(ADDRESS));
+    });
+
+    expect(onMore).not.toHaveBeenCalled();
+  });
+
+  it('is not a control when onMore is not provided', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" />);
 
     expect(screen.queryByRole('button', { name: 'balanceCardAccountOptions' })).toBeNull();
+  });
+
+  it('copies from a 44px target named for what it does, showing the address without an "Address:" prefix', () => {
+    render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
+
+    const copy = screen.getByTestId('balance-card-copy-address');
+    expect(copy).toHaveAccessibleName('balanceCardCopyAddress');
+    expect(copy).toHaveClass('min-h-11');
+    expect(copy).toHaveTextContent(ADDRESS);
+    expect(copy.textContent).not.toMatch(/balanceCardAccount/);
+  });
+
+  it('shows the account name beside the address when given one', () => {
+    render(<BalanceCard accountNumber={ADDRESS} accountName="Account 1" amount="123.45" />);
+
+    expect(screen.getByTestId('balance-card-account-name')).toHaveTextContent('Account 1');
   });
 
   it('renders a custom currency and the account label', () => {
@@ -208,13 +489,13 @@ describe('BalanceCard states, delta, and interactions', () => {
       <BalanceCard
         accountNumber="mtst1aqg...940z"
         accountId="mtst1aqgfullaccountid940z"
-        amount="$123.45"
+        amount="123.45"
         currency="EUR"
       />
     );
 
     expect(screen.getByText('EUR')).toBeTruthy();
-    expect(screen.getByText('balanceCardAccount')).toBeTruthy();
+    expect(screen.getByText(ADDRESS)).toBeTruthy();
   });
 
   it('observes row and text and disconnects on unmount when ResizeObserver exists', () => {
@@ -228,12 +509,28 @@ describe('BalanceCard states, delta, and interactions', () => {
     const original = (global as any).ResizeObserver;
     (global as any).ResizeObserver = MockResizeObserver;
 
-    const { unmount } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+    const { unmount } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" />);
     expect(observe).toHaveBeenCalledTimes(2);
 
     unmount();
     expect(disconnect).toHaveBeenCalledTimes(1);
 
     (global as any).ResizeObserver = original;
+  });
+});
+
+describe('resolveDeltaDirection', () => {
+  const cases: Array<[Parameters<typeof resolveDeltaDirection>[0], BalanceDeltaDirection]> = [
+    [{ percentage: '+2.5%', direction: 'positive' }, 'positive'],
+    [{ percentage: '-1.0%', direction: 'negative' }, 'negative'],
+    [{ percentage: '0.00%', direction: 'positive' }, 'neutral'],
+    [{ percentage: '-0.00%', direction: 'negative' }, 'neutral'],
+    [{ percentage: '\u22123.1%' }, 'negative'],
+    [{ percentage: '4%' }, 'positive'],
+    [{ percentage: '—' }, 'neutral']
+  ];
+
+  it.each(cases)('%o is %s', (delta, expected) => {
+    expect(resolveDeltaDirection(delta)).toBe(expected);
   });
 });

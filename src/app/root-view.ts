@@ -10,9 +10,17 @@ export type RootView = 'unlock' | 'loading' | 'welcome' | 'app';
  * cold-start window (status still Idle, backend not yet responded) and gets
  * routed to onboarding/restore-from-seed instead of unlock.
  */
-export function resolveRootView(ctx: { locked: boolean; ready: boolean; hydrated: boolean }): RootView {
+export function resolveRootView(ctx: {
+  locked: boolean;
+  ready: boolean;
+  hydrated: boolean;
+  /** A just-created wallet whose onboarding has not yet navigated on (see `app/onboarding-finish`). */
+  finishingOnboarding?: boolean;
+}): RootView {
   if (ctx.locked) return 'unlock';
   if (!ctx.hydrated) return 'loading';
   if (!ctx.ready) return 'welcome';
+  // Ready arrives before onboarding navigates to its next screen; showing Home for that moment would flash it.
+  if (ctx.finishingOnboarding) return 'loading';
   return 'app';
 }

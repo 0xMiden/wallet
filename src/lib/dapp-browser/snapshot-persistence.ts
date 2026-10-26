@@ -22,6 +22,17 @@
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 
 const SNAPSHOT_DIR = 'miden-dapp-snapshots';
+let persistence = Promise.resolve();
+
+// Directory-wide ordering also makes clear-all wait for outstanding mkdir/write operations.
+function serialize<T>(operation: () => Promise<T>): Promise<T> {
+  const result = persistence.then(operation);
+  persistence = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
 
 function pathFor(sessionId: string): string {
   // Sanitize the id — dapp-* ids only contain [A-Za-z0-9-], so this is
@@ -55,7 +66,11 @@ async function ensureDir(): Promise<void> {
  * garbage and every rehydrated bubble comes back as an empty white
  * circle.
  */
-export async function writeSnapshotToDisk(sessionId: string, dataUrl: string): Promise<void> {
+export function writeSnapshotToDisk(sessionId: string, dataUrl: string): Promise<void> {
+  return serialize(() => writeSnapshot(sessionId, dataUrl));
+}
+
+async function writeSnapshot(sessionId: string, dataUrl: string): Promise<void> {
   try {
     await ensureDir();
     await Filesystem.writeFile({
@@ -70,7 +85,11 @@ export async function writeSnapshotToDisk(sessionId: string, dataUrl: string): P
 }
 
 /** Read a previously-written snapshot back from disk. Returns null if missing. */
-export async function readSnapshotFromDisk(sessionId: string): Promise<string | null> {
+export function readSnapshotFromDisk(sessionId: string): Promise<string | null> {
+  return serialize(() => readSnapshot(sessionId));
+}
+
+async function readSnapshot(sessionId: string): Promise<string | null> {
   try {
     const result = await Filesystem.readFile({
       path: pathFor(sessionId),
@@ -91,7 +110,7 @@ export async function readSnapshotFromDisk(sessionId: string): Promise<string | 
     if (!data.startsWith('data:')) {
       // Try to delete the stale file so we stop re-reading it every
       // rehydrate; best-effort, not fatal if it fails.
-      void removeSnapshotFromDisk(sessionId);
+      await removeSnapshot(sessionId);
       return null;
     }
     return data;
@@ -103,7 +122,11 @@ export async function readSnapshotFromDisk(sessionId: string): Promise<string | 
 }
 
 /** Remove a snapshot file. */
-export async function removeSnapshotFromDisk(sessionId: string): Promise<void> {
+export function removeSnapshotFromDisk(sessionId: string): Promise<void> {
+  return serialize(() => removeSnapshot(sessionId));
+}
+
+async function removeSnapshot(sessionId: string): Promise<void> {
   try {
     await Filesystem.deleteFile({
       path: pathFor(sessionId),
@@ -115,7 +138,11 @@ export async function removeSnapshotFromDisk(sessionId: string): Promise<void> {
 }
 
 /** Remove every persisted snapshot. Called on wallet reset. */
-export async function clearAllSnapshotsFromDisk(): Promise<void> {
+export function clearAllSnapshotsFromDisk(): Promise<void> {
+  return serialize(clearSnapshots);
+}
+
+async function clearSnapshots(): Promise<void> {
   try {
     await Filesystem.rmdir({
       path: SNAPSHOT_DIR,

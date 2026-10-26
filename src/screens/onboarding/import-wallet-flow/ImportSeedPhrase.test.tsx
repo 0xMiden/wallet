@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ImportSeedPhraseScreen } from './ImportSeedPhrase';
 
 // --- Mocked dependencies -------------------------------------------------
@@ -22,20 +24,21 @@ const SEED_WORD_ERROR_KEY = 'importSeedPhraseError';
 // SeedPhraseInput test — lets us invoke the exact `onChange` / `onPaste`
 // callbacks the parent wires up, indexed by the `seed-phrase-input-N` id.
 const mockInputProps: any[] = [];
-jest.mock('components/Input', () => ({
-  Input: (props: any) => {
+jest.mock('components/ui/TextField', () => ({
+  TextField: React.forwardRef((props: any, ref: any) => {
     const index = Number(String(props.id).replace('seed-phrase-input-', ''));
     mockInputProps[index] = props;
     return (
       <input
+        ref={ref}
         data-testid={props.id}
-        data-prefix={props.prefix}
+        data-prefix={props.leading}
         value={props.value ?? ''}
         onChange={props.onChange}
         onPaste={props.onPaste}
       />
     );
-  }
+  })
 }));
 
 // The child `Button` is stubbed so we can (a) read its `disabled`/`title`
@@ -105,8 +108,32 @@ beforeEach(() => {
   mockButtonProps = null;
 });
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('ImportSeedPhraseScreen', () => {
   describe('rendering', () => {
+    it('keeps the clear action off every word field: a seed word is key material (#503)', () => {
+      setup();
+      expect(mockInputProps).toHaveLength(12);
+      mockInputProps.forEach(props => expect(props.clearable).toBe(false));
+    });
+
     it('renders the headings, 12 prefixed inputs and a disabled continue button by default', () => {
       const { container } = setup();
 
@@ -114,7 +141,8 @@ describe('ImportSeedPhraseScreen', () => {
       expect(screen.getByTestId('import-seed-phrase')).toBeInTheDocument();
       expect(screen.getByText('importWallet')).toBeInTheDocument();
       expect(screen.getByText('enterYourWalletSeedPhrase')).toBeInTheDocument();
-      expect(screen.getByText('onlyMidenSeedPhrasesAreSupported')).toBeInTheDocument();
+      // The unenforced "only Miden phrases" line is gone.
+      expect(screen.queryByText('onlyMidenSeedPhrasesAreSupported')).not.toBeInTheDocument();
 
       // Exactly 12 word inputs, each with the right id and 1-based prefix.
       expect(mockInputProps).toHaveLength(12);
@@ -134,10 +162,11 @@ describe('ImportSeedPhraseScreen', () => {
       expect(container).toBeTruthy();
     });
 
-    it('merges an extra className onto the root container', () => {
-      setup({ className: 'my-extra-class' });
-
-      expect(screen.getByTestId('import-seed-phrase')).toHaveClass('my-extra-class');
+    it('draws on the step layout: 28px title, two columns of word fields and Continue pinned', () => {
+      setup();
+      expect(screen.getByRole('heading', { level: 1, name: 'importWallet' })).toBeInTheDocument();
+      expect(screen.getByTestId('seed-phrase-input-0').parentElement).toHaveClass('grid-cols-2');
+      expect(screen.getByTestId('submit-button').closest('[data-slot="footer"]')).not.toBeNull();
     });
   });
 
@@ -284,12 +313,70 @@ describe('ImportSeedPhraseScreen', () => {
     it('lowercases pasted words and keeps the input array at 12 entries', () => {
       setup();
 
-      pasteInto(0, VALID_MNEMONIC.map(w => w.toUpperCase()).join(' ') + ' extra');
+      pasteInto(0, VALID_MNEMONIC.map(w => w.toUpperCase()).join(' '));
 
       VALID_MNEMONIC.forEach((word, i) => expect(mockInputProps[i].value).toBe(word));
-      // Words beyond the 12th are dropped rather than growing the array.
       expect(mockInputProps).toHaveLength(12);
       expect(mockButtonProps.disabled).toBe(false);
+    });
+
+    // A 24-word phrase derives a different wallet than its first 12 words, so cutting it down would
+    // restore (or create) the wrong account. Reject it and leave the grid as it was.
+    it('rejects a pasted 24-word phrase with a message and never truncates it to 12', () => {
+      setup();
+      fillPhrase(['abandon', 'ability']);
+      const twentyFour = [...VALID_MNEMONIC, ...VALID_MNEMONIC];
+
+      pasteInto(0, twentyFour.join(' '));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('importSeedPhraseTooLong');
+      expect(mockInputProps[0].value).toBe('abandon');
+      expect(mockInputProps[1].value).toBe('ability');
+      expect(mockInputProps[2].value).toBe('');
+      expect(mockButtonProps.disabled).toBe(true);
+    });
+
+    it('cannot submit the phrase that was already entered while a refused paste is showing', () => {
+      const onSubmit = jest.fn();
+      setup({ onSubmit });
+      fillValidPhrase();
+      expect(mockButtonProps.disabled).toBe(false);
+
+      pasteInto(0, [...VALID_MNEMONIC, ...VALID_MNEMONIC].join(' '));
+
+      expect(mockButtonProps.disabled).toBe(true);
+      act(() => {
+        mockButtonProps.onClick();
+      });
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      changeWord(0, 'abandon');
+      expect(mockButtonProps.disabled).toBe(false);
+    });
+
+    it('rejects any pasted phrase longer than 12 words', () => {
+      setup();
+
+      pasteInto(0, [...VALID_MNEMONIC, 'extra'].join(' '));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('importSeedPhraseTooLong');
+      expect(mockInputProps[0].value).toBe('');
+      expect(mockButtonProps.disabled).toBe(true);
+    });
+
+    it('clears the too-long message once a valid paste or an edit follows', () => {
+      setup();
+      pasteInto(0, [...VALID_MNEMONIC, 'extra'].join(' '));
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+
+      pasteInto(0, VALID_MNEMONIC.join(' '));
+
+      expect(screen.queryByText('importSeedPhraseTooLong')).not.toBeInTheDocument();
+      expect(mockButtonProps.disabled).toBe(false);
+
+      pasteInto(0, [...VALID_MNEMONIC, 'extra'].join(' '));
+      changeWord(0, 'abandon');
+      expect(screen.queryByText('importSeedPhraseTooLong')).not.toBeInTheDocument();
     });
   });
 
@@ -316,5 +403,65 @@ describe('ImportSeedPhraseScreen', () => {
       expect(message).not.toBe('');
       expect(message).not.toBe(SEED_WORD_ERROR_KEY);
     });
+  });
+});
+
+describe('import-with-key link', () => {
+  it('renders the link only when onImportWithKey is provided, and fires it on click', () => {
+    const onImportWithKey = jest.fn();
+    render(<ImportSeedPhraseScreen wordslist={WORDS} onImportWithKey={onImportWithKey} />);
+
+    const link = screen.getByTestId('import-with-key-link');
+    expect(link).toHaveTextContent('importWithKeyInstead');
+
+    fireEvent.click(link);
+    expect(onImportWithKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no link without the prop — the RecoverySeedPrompt reuse stays link-free', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+
+    expect(screen.queryByTestId('import-with-key-link')).not.toBeInTheDocument();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a word validation failure without sending the word', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+    changeWord(0, privateErrorFixture);
+    expect(screen.getByRole('alert')).toHaveTextContent('importSeedPhraseError');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('importSeedPhraseError', 'notice');
+  });
+  it('reports a restore rejection', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} isError />);
+    expect(screen.getByRole('alert')).toHaveTextContent('importSeedPhraseError');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('importSeedPhraseError', 'notice');
+  });
+  it('reports a known-word checksum failure without sending the phrase', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+    WORDS.forEach((word, index) => changeWord(index, word));
+    expect(screen.getByRole('alert')).toHaveTextContent('justValidPreGeneratedMnemonic');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('justValidPreGeneratedMnemonic', 'notice');
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(WORDS[0]);
+  });
+  it('does not report an empty phrase', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

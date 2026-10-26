@@ -23,15 +23,25 @@ import UIKit
 
     private let lock = NSLock()
     private var instances: [String: WKWebViewInstance] = [:]
+    private var landingCard: BreadMorphCard?
+    private var proxyOrder: [String] = []
+
+    var morphCard: BreadMorphCard? {
+        get { lock.lock(); defer { lock.unlock() }; return landingCard }
+        set { lock.lock(); defer { lock.unlock() }; landingCard = newValue }
+    }
 
     private override init() {
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(dropAllProxies),
+                                               name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
     }
 
     /// Register an instance under the given id, replacing any existing entry.
     @objc public func register(_ instance: WKWebViewInstance) {
         lock.lock()
         defer { lock.unlock() }
+        if let existing = instances[instance.id], existing !== instance, existing.managedClose != nil { return }
         instances[instance.id] = instance
     }
 
@@ -48,6 +58,7 @@ import UIKit
         lock.lock()
         defer { lock.unlock() }
         instances.removeValue(forKey: id)
+        proxyOrder.removeAll { $0 == id }
     }
 
     /// Snapshot of the current ids in registration order. Used by
@@ -77,6 +88,24 @@ import UIKit
         }
     }
 
+    func retainProxy(for id: String) {
+        lock.lock()
+        proxyOrder.removeAll { $0 == id }
+        proxyOrder.insert(id, at: 0)
+        let evicted = Array(proxyOrder.dropFirst(3))
+        proxyOrder = Array(proxyOrder.prefix(3))
+        lock.unlock()
+        for id in evicted { get(id: id)?.controller.breadPresentation?.dropProxy() }
+    }
+
+    @objc func dropAllProxies() {
+        lock.lock()
+        let ids = proxyOrder
+        proxyOrder = []
+        lock.unlock()
+        for id in ids { get(id: id)?.controller.breadPresentation?.dropProxy() }
+    }
+
     /// Remove ALL registered instances. Caller is responsible for tearing
     /// down the underlying webviews / windows. Used by `closeAll` and on
     /// app shutdown.
@@ -84,5 +113,6 @@ import UIKit
         lock.lock()
         defer { lock.unlock() }
         instances.removeAll()
+        proxyOrder.removeAll()
     }
 }

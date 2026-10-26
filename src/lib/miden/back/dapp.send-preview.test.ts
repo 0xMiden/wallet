@@ -28,6 +28,7 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Mirrors the scaffold in `dapp.preview-error.test.ts`; `dapp.ts` pulls in the
@@ -110,6 +111,13 @@ jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args)
 }));
 
+const mockAssessOutgoingSpendingLimitDetails = jest.fn();
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
+}));
+
 const mockRequestConfirmation = jest.fn();
 jest.mock('lib/dapp-browser/confirmation-store', () => ({
   dappConfirmationStore: {
@@ -125,6 +133,28 @@ jest.mock('lib/dapp-browser/confirmation-store', () => ({
 
 jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
+}));
+
+// The consume approval preview resolves the note the wallet will actually consume
+// (rather than trusting the dApp's declared faucet/amount/type), so the consume
+// case needs a client whose store contains it.
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  getMidenClient: async () => ({
+    getInputNoteDetails: async () => [
+      {
+        noteId: 'note-1',
+        noteType: 0,
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 0,
+        assets: [{ faucetId: 'faucet-6dp', amount: '1500000' }],
+        nonFungibleAssets: []
+      }
+    ],
+    on: jest.fn()
+  }),
+  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  runWhenClientIdle: () => {}
 }));
 
 /**
@@ -178,7 +208,11 @@ import { requestSendTransaction, requestConsumeTransaction, requestTransaction }
 const DECLINED = MidenDAppErrorType.NotGranted;
 
 /** The single `DAppConfirmationRequest` the wallet put in front of the user. */
-type CapturedConfirmation = { origin: string; transactionMessages?: string[] };
+type CapturedConfirmation = {
+  origin: string;
+  transactionMessages?: string[];
+  spendingLimitAssessment?: unknown;
+};
 
 /**
  * The confirmation the wallet actually raised. The exactly-one check is the
@@ -202,6 +236,8 @@ const sendRequest = (faucetId: string, amount: string, noteType: unknown = OMITT
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
+      // Must be the connected account — the wallet now rejects a send that names
+      // any other account as the payer (`executingAccountError`).
       senderAddress: 'miden-account-1',
       recipientAddress: 'mtst1recipient',
       faucetId,
@@ -218,6 +254,137 @@ beforeEach(() => {
   // shown, which is exactly the state these tests inspect. Approving would run
   // the transaction pipeline, which is a different test's subject.
   mockRequestConfirmation.mockResolvedValue({ confirmed: false });
+  mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+});
+
+describe('dApp send approval: spending-limit authorization stays inside the wallet', () => {
+  const assessment = {
+    accountId: 'miden-account-1',
+    usdAmount: 1_500_000n,
+    revision: 'revision-1',
+    assessedAt: 100,
+    breach: { spent: 900_000n, proposedTotal: 2_400_000n, limit: 1_000_000n, overBy: 1_400_000n, resetAt: 200 }
+  };
+  const asset = { symbol: 'USDC', decimals: 6 };
+
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue(asset);
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({ assessment });
+  });
+
+  it('preflights the exact formatted send and requires strict confirmation before initiation', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+
+    const response = await requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1');
+
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [{ faucetId: 'faucet-6dp', amount: 1_500_000n }]
+    });
+    expect(capturedConfirmation()).toMatchObject({ spendingLimitAssessment: assessment });
+    expect(capturedConfirmation()).not.toHaveProperty('spendingLimitAsset');
+    expect(mockInitiateSendTransaction).toHaveBeenCalledWith(
+      'miden-account-1',
+      'mtst1recipient',
+      'faucet-6dp',
+      'private',
+      1_500_000n,
+      0,
+      false,
+      expect.objectContaining({
+        kind: 'usd',
+        accountId: 'miden-account-1',
+        usdAmount: 1_500_000n,
+        revision: 'revision-1'
+      }),
+      DAPP_ORIGIN
+    );
+    expect(response).not.toHaveProperty('spendingLimitAuthorization');
+    expect(response).not.toHaveProperty('spendingLimitAuthenticated');
+  });
+
+  it('applies the same preflight and authorization to a generalized send request', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+    const send = sendRequest('faucet-6dp', '1500000');
+    const request = {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: send.sourcePublicKey,
+      transaction: { type: 'send', payload: send.transaction }
+    } as unknown as Parameters<typeof requestTransaction>[1];
+
+    const response = await requestTransaction(DAPP_ORIGIN, request, 'session-1');
+
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [{ faucetId: 'faucet-6dp', amount: 1_500_000n }]
+    });
+    expect(mockInitiateSendTransaction.mock.calls[0]![7]).toMatchObject({ revision: 'revision-1' });
+    expect(response).toEqual({ type: MidenDAppMessageType.TransactionResponse, transactionId: 'tx-1' });
+  });
+
+  it('denies a breached request that resolves approved without strict authentication', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  type SendRequestWithForgedAuthorization = Parameters<typeof requestSendTransaction>[1] & {
+    spendingLimitAuthenticated: boolean;
+    transaction: { spendingLimitAuthorization: { id: string } };
+  };
+
+  it('does not trust authorization-shaped fields supplied by the dApp', async () => {
+    // Differential against the test above: same breach, same approval without strict
+    // authentication, same expected refusal - the ONLY delta is the authorization-shaped fields
+    // planted on the dApp's request. Identical outcome is the assertion. Keep it even though it
+    // mirrors its neighbour: it is what fails if someone later wires `req.spendingLimitAuthenticated`
+    // into the decision.
+    //
+    // The enclosing beforeEach supplies a BREACHING assessment and it must stay: with no breach,
+    // authorizationForDappSend returns at its first guard and this test passes without ever
+    // reaching the trust boundary it is named for.
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+    const request = sendRequest('faucet-6dp', '1500000') as SendRequestWithForgedAuthorization;
+    // Planted on the dApp's own request object, which is the only thing an attacker controls. The
+    // decision is taken from the wallet's confirmation result, and that result withholds
+    // `spendingLimitAuthenticated`, so the send must be refused rather than authorized.
+    request.spendingLimitAuthenticated = true;
+    request.transaction.spendingLimitAuthorization = { id: 'attacker-controlled' };
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, request, 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns stable retry guidance when the atomic insertion detects a policy race', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+    mockInitiateSendTransaction.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: { ...assessment, revision: 'revision-2', assessedAt: 120 }
+    });
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(/spending limit changed.*retry/i);
+  });
+
+  it('refuses a send when the covered asset has no price, rather than leaking the internal error', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-6dp'));
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(/spending limit changed.*retry/i);
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
 });
 
 // ── 1. The amount uses the faucet's own decimals ───────────────────
@@ -302,6 +469,72 @@ describe('dApp send approval: the amount is scaled by the faucet decimals', () =
     await expect(requestConsumeTransaction(DAPP_ORIGIN, consumeReq, 'session-1')).rejects.toThrow(DECLINED);
 
     expect(amountRow(capturedConfirmation())).toBe('Amount, +?');
+  });
+});
+
+// ── 1b. The executing account must be the connected one ────────────
+
+describe('dApp transactions execute ONLY as the connected account', () => {
+  const sendRequestFrom = (senderAddress: string) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      // Authorized against the connected account …
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        // … but asked to execute as this one.
+        senderAddress,
+        recipientAddress: 'mtst1attacker',
+        faucetId: 'faucet-6dp',
+        noteType: 'private',
+        amount: '5000000',
+        recallBlocks: 0
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  const customRequestFrom = (address: string) =>
+    ({
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        payload: { address, transactionRequest: 'tx', recipientAddress: 'mtst1attacker', inputNoteIds: [] }
+      }
+    }) as unknown as Parameters<typeof requestTransaction>[1];
+
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+  });
+
+  it('rejects a send whose senderAddress is an account the origin is not connected to', async () => {
+    await expect(requestSendTransaction(DAPP_ORIGIN, sendRequestFrom('miden-account-2'), 'session-1')).rejects.toThrow(
+      'NOT_GRANTED'
+    );
+    // Rejected BEFORE any approval sheet: the user is never shown a prompt that
+    // looks like the connected account's own transfer.
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects a custom transaction whose address is an account the origin is not connected to', async () => {
+    await expect(requestTransaction(DAPP_ORIGIN, customRequestFrom('miden-account-2'), 'session-1')).rejects.toThrow(
+      'NOT_GRANTED'
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('accepts the composite `<address>_<suffix>` publicKey form for the same account', async () => {
+    // Guardian accounts store a composite publicKey; the dApp side sends the bare
+    // address. A raw `===` would reject this legitimate request.
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequestFrom('miden-account-1_qr7qqq9wr6w'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the paying account on the send approval sheet', async () => {
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    expect(capturedConfirmation().transactionMessages).toContain('From, miden-account-1');
   });
 });
 
@@ -409,7 +642,9 @@ describe('dApp send approval: the note type must resolve before the user is aske
       persisted,
       expect.anything(),
       expect.anything(),
-      expect.anything()
+      expect.anything(),
+      undefined,
+      DAPP_ORIGIN
     );
   });
 

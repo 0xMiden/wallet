@@ -20,9 +20,9 @@ const FormCheckbox = forwardRef<HTMLInputElement, FormCheckboxProps>(
 
         {label ? (
           <div className={classNames('ml-4', 'leading-tight', 'flex flex-col')}>
-            <span className={classNames('text-sm font-semibold text-black')}>{label}</span>
+            <span className={classNames('text-sm font-semibold text-ink')}>{label}</span>
 
-            {labelDescription && <span className={classNames('mt-1', 'text-sm text-black')}>{labelDescription}</span>}
+            {labelDescription && <span className={classNames('mt-1', 'text-sm text-ink')}>{labelDescription}</span>}
           </div>
         ) : null}
       </label>

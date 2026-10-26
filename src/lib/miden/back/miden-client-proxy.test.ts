@@ -27,22 +27,47 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   return {
     getWasmOrThrow: (...a: any[]) => g.__px.getWasmOrThrow(...a),
+    Address: {
+      fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
+    },
+    NetworkId: { testnet: () => 'testnet' },
     Account: { deserialize: (...a: any[]) => g.__px.accountDeserialize(...a) },
     // Slice 5: the flag-on offscreen consume re-hydrates the serialized
     // TransactionResult on the SW side.
-    TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) }
+    TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
+    // The inline dry run deserializes the request it executes.
+    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) }
   };
+});
+
+// The dry run's request preparation, which reads the account through the client, answered here.
+jest.mock('lib/miden/sdk/custom-request', () => {
+  const g = globalThis as any;
+  return { prepareCustomRequestBytes: (...a: any[]) => g.__px.prepareCustomRequestBytes(...a) };
 });
 
 jest.mock('lib/miden/sdk/miden-client', () => {
   const g = globalThis as any;
   return {
     getMidenClient: (...a: any[]) => g.__px.getMidenClient(...a),
+    getCurrentWasmLockHold: () => g.__px.inlineHold,
+    assertWasmHoldCurrent: (hold: unknown) => {
+      if (hold !== g.__px.inlineHold) throw new Error('hold replaced');
+    },
     // The flag-off consume takes the CALLER lock itself (byte-identical to the
     // old switch-under-lock); route through the control so tests can assert it.
     withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a)
   };
 });
+
+jest.mock('lib/miden/swap/fee-context', () => {
+  const g = globalThis as any;
+  return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
+});
+
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+
+import { decodeArg } from './offscreen-codec';
 
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
 // forceClose drive the chrome mock, and the criticalOp counters are the genuine
@@ -50,6 +75,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
 // in flight" downgrade is exercised against real bookkeeping, not a stub.
 
 type OnMessageListener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
+type WasmLockHold = import('lib/miden/sdk/miden-client').WasmLockHold;
 
 let fakeChrome: any;
 let docExists = false;
@@ -104,22 +130,34 @@ function resetControl() {
     accountDeserialize: jest.fn((bytes: Uint8Array) => ({ __account: Array.from(bytes) })),
     // Slice 5: rehydrate a serialized TransactionResult on the SW side.
     txResultDeserialize: jest.fn((bytes: Uint8Array) => ({ __txResult: Array.from(bytes) })),
+    txRequestDeserialize: jest.fn((bytes: Uint8Array) => ({ __request: Array.from(bytes) })),
+    prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes),
     inlineGetAccount: jest.fn(async () => ({ __inlineAccount: true })),
     // The inline (flag-off) client also exposes the slice-3/4/5 methods so the
     // flag-off pass-through of each is assertable against a spy.
-    inlineSyncState: jest.fn(async () => ({ __syncSummary: true })),
+    inlineSyncState: jest.fn(async () => ({ __syncSummary: true, blockNum: () => 5000 })),
     // Slice 6b: the flag-off pass-through of the structural commit-wait.
     inlineWaitForTransactionCommit: jest.fn(async () => {}),
     // Slice 7b: the flag-off pass-through of the private-note relay.
     inlineSendPrivateNote: jest.fn(async () => {}),
+    inlineRelayPrivateNoteById: jest.fn(async () => {}),
+    inlineIsOutputNoteConsumed: jest.fn(async () => false),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
+    inlineGetDetailsCommitmentMatches: jest.fn(async () => [{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
+    inlineBuildPswapCancelRequest: jest.fn(async () => new Uint8Array([20, 14, 7, 6])),
     inlineConsumeNoteId: jest.fn(async () => ({ __inlineTxResult: true })),
     // Slice 5b: the flag-off passthrough of each remaining non-guardian write.
     inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
     inlineSwapTransaction: jest.fn(async () => ({ __inlineSwapResult: true })),
     inlineNewTransaction: jest.fn(async () => ({ __inlineNewResult: true })),
+    readSwapFeeContext: jest.fn(async (scope?: string) => ({
+      scope: scope ?? 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    })),
     // Slice 7a: the flag-off passthrough of the deferred reach-through reads. The
     // raw client (`.client`) exposes getSyncHeight / sync / pswap.lineage; the
     // interface exposes getInputNote / importNoteBytes. The live-record returns are
@@ -134,25 +172,55 @@ function resetControl() {
       remainingOffered: () => 10n,
       remainingRequested: () => 20n
     })),
-    inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
+    inlineLineages: jest.fn(async () => [
+      {
+        orderId: () => '77',
+        currentTipNoteId: () => ({ toString: () => '0xtip' }),
+        currentDepth: () => 2,
+        state: () => 1,
+        remainingOffered: () => 9007199254740993n,
+        remainingRequested: () => 20n
+      },
+      {
+        orderId: () => '88',
+        currentTipNoteId: () => ({ toString: () => '0xtip88' }),
+        currentDepth: () => 0,
+        state: () => 0,
+        remainingOffered: () => 30n,
+        remainingRequested: () => 40n
+      }
+    ]),
+    inlineGetInputNote: jest.fn(async () => ({
+      metadata: () => ({ noteType: () => 1 }),
+      details: () => {
+        throw new Error('note details unavailable');
+      }
+    })),
     inlineGetTransactionCommitState: jest.fn(async () => 'committed'),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
     inlineDrainPrivateNoteTransport: jest.fn(async () => {}),
     inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
     inlineRecoverPublicNotesRange: jest.fn(async () => ({ imported: 3, failures: 0 })),
     inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
+    inlineDecodeGuardianHistory: jest.fn(async () => ({ __inlineSummary: true })),
+    inlineGetGuardianResultCommitment: jest.fn(async () => '0xinlinecommitment'),
+    inlineHold: { mock: 'inline-hold' },
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
-    withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
+    withWasmClientLock: jest.fn(async (fn: (hold: unknown) => Promise<unknown>) => fn(G.__px.inlineHold)),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
       waitForTransactionCommit: (...a: any[]) => G.__px.inlineWaitForTransactionCommit(...a),
       sendPrivateNote: (...a: any[]) => G.__px.inlineSendPrivateNote(...a),
+      relayPrivateNoteById: (...a: any[]) => G.__px.inlineRelayPrivateNoteById(...a),
+      isOutputNoteConsumed: (...a: any[]) => G.__px.inlineIsOutputNoteConsumed(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
+      getDetailsCommitmentMatches: (...a: any[]) => G.__px.inlineGetDetailsCommitmentMatches(...a),
       getTransactionCommitState: (...a: any[]) => G.__px.inlineGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
+      buildPswapCancelRequest: (...a: any[]) => G.__px.inlineBuildPswapCancelRequest(...a),
       consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
       swapTransaction: (...a: any[]) => G.__px.inlineSwapTransaction(...a),
@@ -165,21 +233,39 @@ function resetControl() {
       importRecoveryNoteBytes: (...a: any[]) => G.__px.inlineImportRecoveryNoteBytes(...a),
       recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
       resolveRecoveryScanRange: (...a: any[]) => G.__px.inlineResolveRecoveryScanRange(...a),
+      decodeGuardianHistory: (...a: any[]) => G.__px.inlineDecodeGuardianHistory(...a),
+      getGuardianResultCommitment: (...a: any[]) => G.__px.inlineGetGuardianResultCommitment(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
-        pswap: { lineage: (...a: any[]) => G.__px.inlineLineage(...a) }
+        pswap: {
+          lineage: (orderId: string | bigint) => G.__px.inlineLineage(orderId),
+          lineages: () => G.__px.inlineLineages()
+        }
       }
     }))
   };
 }
 
-/** Set the flag, reset module registry, and import a fresh proxy. */
-async function loadProxy(flagOn: boolean) {
+/**
+ * Set the flag, reset module registry, and import a fresh proxy. The realm starts with nothing stored and,
+ * unless `overridesLoaded` is false, has run its first override load, as start() does before any message
+ * reaches the offscreen document (#1482).
+ */
+async function loadProxy(flagOn: boolean, { overridesLoaded = true }: { overridesLoaded?: boolean } = {}) {
   if (flagOn) process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
   else delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   jest.resetModules();
+  const endpoints = await import('lib/miden-chain/effective-endpoints');
+  await endpoints.clearEndpointOverride();
+  if (overridesLoaded) await endpoints.loadEndpointOverrides();
   return import('./miden-client-proxy');
+}
+
+function tryReadAccount(proxy: object, accountId: string): Promise<unknown> {
+  const method: unknown = Reflect.get(proxy, 'tryGetAccount');
+  if (typeof method !== 'function') throw new Error('midenClientProxy.tryGetAccount is missing');
+  return Promise.resolve(Reflect.apply(method, proxy, [accountId]));
 }
 
 beforeEach(() => {
@@ -195,6 +281,56 @@ afterEach(() => {
 });
 
 describe('MidenClientProxy — flag routing', () => {
+  it('the try-lock read reports busy without waiting', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ ran: false })).toString('base64'),
+      durationMs: 0
+    }));
+
+    const read = tryReadAccount(midenClientProxy, 'busy-fee-account');
+    await flush();
+    fireReady();
+    const result = await read;
+
+    expect(result).toEqual({ ran: false });
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'tryGetAccount',
+        argsB64: ['s:"busy-fee-account"'],
+        deadline_ms: 15_000
+      })
+    );
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.accountDeserialize).not.toHaveBeenCalled();
+  });
+
+  it('the try-lock inline read runs under the caller hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const { withWasmClientLock, getCurrentWasmLockHold } = await import('lib/miden/sdk/miden-client');
+    const account = { __inlineFeeAccount: true };
+    let callerHold: unknown;
+    let holdAtRead: unknown;
+    G.__px.inlineGetAccount.mockImplementation(async () => {
+      holdAtRead = getCurrentWasmLockHold();
+      return account;
+    });
+
+    const result = await withWasmClientLock(async hold => {
+      callerHold = hold;
+      return tryReadAccount(midenClientProxy, 'inline-fee-account');
+    });
+
+    expect(result).toEqual({ ran: true, account });
+    expect(holdAtRead).toBe(callerHold);
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineGetAccount).toHaveBeenCalledWith('inline-fee-account');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('flag OFF → getAccount goes inline (getMidenClient), never touches offscreen', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const result = await midenClientProxy.getAccount('acc-1');
@@ -295,7 +431,7 @@ describe('MidenClientProxy — flag routing', () => {
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(4);
     expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
-    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
+    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes, G.__px.inlineHold);
     expect(G.__px.inlineResolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
     expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200, 0);
     expect(imported).toEqual({ imported: 2, failures: 0 });
@@ -591,6 +727,8 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     // Relayed on the SW inline client — the one that created the note flag-off.
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    // The user's own relay keeps its default hold: it is not a timer-driven probe.
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     // The LIVE note object crossed straight through — never serialized on this path.
     expect(G.__px.inlineSendPrivateNote).toHaveBeenCalledWith(note, 'mtst1qrecipient');
     expect(serializeSpy).not.toHaveBeenCalled();
@@ -611,39 +749,89 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches OFFSCREEN_CALL to the realm that created the note, crossing the note as SERIALIZED bytes; the SW client is NEVER used', async () => {
+  it('flag ON → sendPrivateNote still relays on the SW client (offscreen fetch to 127.0.0.1 is CORS-blocked)', async () => {
     const { midenClientProxy } = await loadProxy(true);
-    // The offscreen side relays and returns null (void discarded).
+    const note = makeNote([0xde, 0xad, 0xbe, 0xef]);
+
+    const result = await midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
+
+    expect(result).toBeUndefined();
+    expect(G.__px.inlineSendPrivateNote).toHaveBeenCalledWith(note, 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → relayPrivateNoteById re-pushes on the SW client under withWasmClientLock, as sendPrivateNote relays', async () => {
+    // The sweep's re-push runs where the original relay runs. Offscreen fetch to a
+    // localnet transport is CORS-blocked, and the SW client resolves the output note
+    // the offscreen client applied.
+    const { midenClientProxy } = await loadProxy(true);
+
+    const result = await midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+
+    expect(result).toBeUndefined();
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    // An unattended hold, so bounded at the sync ceiling and named in any eviction record.
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'note-delivery-push'
+    });
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → isOutputNoteConsumed is a plain read and decodes the boolean', async () => {
+    // The delivery receipt. A read, not a critical op: losing it costs one sweep
+    // cycle, and the sweep's fallback ("not proven delivered") is the safe answer.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from('true').toString('base64'),
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.isOutputNoteConsumed('0xnote');
+    await flush();
+    fireReady();
+
+    expect(await p).toBe(true);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('isOutputNoteConsumed');
+    expect(env.deadline_ms).toBe(15_000);
+  });
+
+  it('flag ON → an empty receipt result reads as not-consumed rather than throwing', async () => {
+    // A missing result must not wedge the sweep: it re-pushes, which is harmless.
+    const { midenClientProxy } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,
       resultB64: null,
-      durationMs: 4
+      durationMs: 1
     }));
 
-    const note = makeNote([0xde, 0xad, 0xbe, 0xef]);
-    const p = midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
+    const p = midenClientProxy.isOutputNoteConsumed('0xnote');
     await flush();
     fireReady();
-    const result = await p;
 
-    expect(result).toBeUndefined();
-    // THE FIX: the relay crossed to the offscreen realm (which owns the note + the
-    // fresh sync height); the dormant SW client — whose stale height would overshoot
-    // the note's commitment — was NEVER used.
-    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
-    expect(G.__px.inlineSendPrivateNote).not.toHaveBeenCalled();
-    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
-    expect(env.type).toBe('OFFSCREEN_CALL');
-    expect(env.method).toBe('sendPrivateNote');
-    // A transport relay — no prove/sign — so a short read deadline, NOT the write one.
-    expect(env.deadline_ms).toBe(15_000);
-    // The Note crossed as RAW serialized bytes (the 'b:' tag), never JSON/handle...
-    expect(env.argsB64[0].startsWith('b:')).toBe(true);
-    expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xde, 0xad, 0xbe, 0xef]);
-    // ...and the recipient id crossed as a JSON string.
-    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+    expect(await p).toBe(false);
+  });
+
+  it('flag OFF → both sweep calls run inline on the SW client under the WASM lock', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineIsOutputNoteConsumed.mockResolvedValueOnce(true);
+
+    expect(await midenClientProxy.isOutputNoteConsumed('0xnote')).toBe(true);
+    await midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+
+    expect(G.__px.inlineIsOutputNoteConsumed).toHaveBeenCalledWith('0xnote');
+    expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(G.__px.withWasmClientLock.mock.calls.map((call: unknown[]) => call[1])).toEqual([
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-receipt' },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-push' }
+    ]);
   });
 
   it('flag ON → a deadline kill rejects with OperationAbortedError (caught by the completion relay → Completed, degraded)', async () => {
@@ -669,12 +857,59 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
   });
 });
 
+describe('MidenClientProxy — the assertLive liveness check on the INLINE path', () => {
+  // These three reads reach through to a live SDK object BETWEEN two of their own
+  // awaits, so the only place the ownership re-check can go is inside the
+  // interface method. Threading it through the proxy is what makes that check
+  // reachable at all on mobile, desktop, Firefox and every flag-off build — with
+  // the parameter dropped here it existed solely for the offscreen dispatch, and
+  // the shipping paths ran unguarded.
+  it('flag OFF → forwards the caller check into each of the three reads', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await midenClientProxy.exportNote('note-1', 'Details' as any, assertLive);
+    await midenClientProxy.getInputNoteDetails({ ids: ['n1'] } as any, assertLive);
+    await midenClientProxy.getConsumableNotes('acc-1', assertLive);
+
+    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details', assertLive);
+    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] }, assertLive);
+    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1', assertLive);
+  });
+
+  it('flag ON → does NOT try to send the check over the wire', async () => {
+    // It cannot be serialized, and it must not be: under the flag the
+    // reach-through happens in the offscreen realm under the OFFSCREEN hold, and
+    // that dispatch injects its own check. The caller's hold is the wrong hold to
+    // ask about there.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([1]).toString('base64'),
+      durationMs: 1
+    }));
+    const assertLive = jest.fn();
+
+    const p = midenClientProxy.exportNote('note-2', 'Details' as any, assertLive);
+    await flush();
+    fireReady();
+    await p;
+
+    const [envelope] = fakeChrome.runtime.sendMessage.mock.calls[0];
+    // The two real arguments and nothing else — a third slot here would be an
+    // un-JSON-able function tagged onto the wire.
+    expect(envelope.argsB64).toEqual(['s:"note-2"', 's:"Details"']);
+    expect(assertLive).not.toHaveBeenCalled();
+  });
+});
+
 describe('MidenClientProxy — slice-3 reads: exportNote', () => {
   it('flag OFF → exportNote goes inline and returns the raw bytes', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const bytes = await midenClientProxy.exportNote('note-1', 'Details' as any);
 
-    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details');
+    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details', undefined);
     expect(Array.from(bytes)).toEqual([1, 2, 3]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -726,7 +961,7 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     const { midenClientProxy } = await loadProxy(false);
     const details = await midenClientProxy.getInputNoteDetails({ ids: ['n1'] } as any);
 
-    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] });
+    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] }, undefined);
     expect(details).toEqual([{ __inlineDetail: true }]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -788,6 +1023,129 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     // `undefined` arg is JSON-null on the wire (decodeArg → null → `?? undefined`).
     expect(env.argsB64).toEqual(['s:null']);
     expect(details).toEqual([]);
+  });
+});
+
+// The records a details commitment names, read where the store lives (#1389).
+describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
+  it('forwards a batch inline with its liveness check and preserves entry order', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    G.__px.inlineGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
+
+    await expect(
+      midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10'], assertLive)
+    ).resolves.toEqual(dto);
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
+      assertLive
+    );
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('forwards a batch offscreen and decodes each result in order', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(dto)).toString('base64'),
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10']);
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(dto);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:["0xcommitment","0xother"]',
+      's:["n9","n10"]'
+    ]);
+  });
+
+  it('returns one empty entry per requested commitment for a null offscreen reply', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], []);
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual([
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 0 }
+    ]);
+  });
+
+  it('flag OFF goes inline, forwarding the commitment and the caller check', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    const matches = await midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['n9'], assertLive);
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], ['n9'], assertLive);
+    expect(matches).toEqual([{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON asks the offscreen client and parses the DTO it answers', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = [
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dto))).toString('base64'),
+      durationMs: 3
+    }));
+
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['0xreal'], jest.fn());
+    await flush();
+    fireReady();
+    const matches = await p;
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getDetailsCommitmentMatches');
+    expect(env.argsB64).toEqual(['s:["0xcommitment"]', 's:["0xreal"]']);
+    expect(matches).toEqual(dto);
+  });
+
+  it('flag ON reads no result as no match', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], []);
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual([{ notes: [], uncommitted: 0 }]);
   });
 });
 
@@ -860,7 +1218,7 @@ describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () =>
     // Flag-off routes to the DTO-reducing interface method, NOT the raw
     // getConsumableNotes — so the reclaim gate + reduction run inline, exactly
     // as before this slice (just relocated into one place).
-    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1');
+    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1', undefined);
     expect(notes).toEqual([{ __inlineConsumable: true }]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -919,6 +1277,93 @@ describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () =>
   });
 });
 
+describe('MidenClientProxy — zero-fill PSWAP cancel request', () => {
+  it('flag OFF builds in the inline canonical client and forwards the hold check', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await expect(midenClientProxy.buildPswapCancelRequest('acc-1', 'tip-1', assertLive)).resolves.toEqual(
+      new Uint8Array([20, 14, 7, 6])
+    );
+
+    // One call with the flag, false for a live order (#1487).
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive, {
+      allowNodeNote: false
+    });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON returns the offscreen-built request bytes verbatim', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const bytes = new Uint8Array([20, 14, 7, 6]);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 4
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-2', 'tip-2');
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(bytes);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('buildPswapCancelRequest');
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"', 's:false']);
+    expect(env.deadline_ms).toBe(15_000);
+    expect(G.__px.inlineBuildPswapCancelRequest).not.toHaveBeenCalled();
+  });
+
+  // A recovered order's note exists only on the node (#1487).
+  it('flag OFF forwards the node-note option to the inline client', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await midenClientProxy.buildPswapCancelRequest('acc-1', 'tip-1', assertLive, { allowNodeNote: true });
+
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive, {
+      allowNodeNote: true
+    });
+  });
+
+  it('flag ON sends the node-note option, with room in the deadline for its two node reads', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const bytes = new Uint8Array([9, 9]);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 4
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-2', 'tip-2', undefined, { allowNodeNote: true });
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(bytes);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"', 's:true']);
+    expect(env.deadline_ms).toBe(25_000);
+  });
+
+  it('flag ON refuses a missing request payload', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-3', 'tip-3');
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('returned no request bytes');
+  });
+});
+
 describe('MidenClientProxy — slice-7a reach-through reads', () => {
   // ── getSyncHeight ─────────────────────────────────────────────────────────
   it('flag OFF → getSyncHeight() reads the inline client height verbatim (no sync)', async () => {
@@ -935,11 +1380,38 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     const { midenClientProxy } = await loadProxy(false);
     const height = await midenClientProxy.getSyncHeight({ fresh: true });
 
-    // Verbatim `(await getMidenClient()).client.sync().blockNum()` — NOT getSyncHeight.
-    expect(G.__px.inlineSync).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineSyncState).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineSync).not.toHaveBeenCalled();
     expect(G.__px.inlineGetSyncHeight).not.toHaveBeenCalled();
     expect(height).toBe(5000);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses to sync after inline client acquisition outlives its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let release: (client: unknown) => void = () => undefined;
+    G.__px.getMidenClient.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const height = midenClientProxy.getSyncHeight({ fresh: true });
+    G.__px.inlineHold = { replacement: true };
+    release({ syncState: G.__px.inlineSyncState });
+    await expect(height).rejects.toThrow('hold replaced');
+    expect(G.__px.inlineSyncState).not.toHaveBeenCalled();
+  });
+
+  it('does not read a borrowed height summary after its sync lost the hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const blockNum = jest.fn(() => 5000);
+    G.__px.inlineSyncState.mockImplementationOnce(async () => {
+      G.__px.inlineHold = { replacement: true };
+      return { blockNum };
+    });
+    await expect(midenClientProxy.getSyncHeight({ fresh: true })).rejects.toThrow('hold replaced');
+    expect(blockNum).not.toHaveBeenCalled();
   });
 
   it('flag ON → getSyncHeight() dispatches with the read deadline + fresh:false and parses the number', async () => {
@@ -1072,14 +1544,166 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     expect(await p).toBeNull();
   });
 
-  // ── getInputNoteSummary ───────────────────────────────────────────────────
-  it('flag OFF → getInputNoteSummary reduces the inline live InputNoteRecord to its noteType', async () => {
+  it('reads all inline lineages once without IPC and preserves decimal amounts', async () => {
     const { midenClientProxy } = await loadProxy(false);
+    const result = await midenClientProxy.getPswapLineages(() => {});
+
+    expect(G.__px.inlineLineages).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineLineage).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '20'
+      },
+      {
+        orderId: '88',
+        currentTipNoteId: '0xtip88',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '30',
+        remainingRequested: '40'
+      }
+    ]);
+  });
+
+  it('does not start a bulk SDK read after the client acquisition loses its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let live = true;
+    const acquire = G.__px.getMidenClient;
+    G.__px.getMidenClient = jest.fn(async () => {
+      const client = await acquire();
+      live = false;
+      return client;
+    });
+    await expect(
+      midenClientProxy.getPswapLineages(() => {
+        if (!live) throw new Error('abandoned hold');
+      })
+    ).rejects.toThrow('abandoned hold');
+    expect(G.__px.inlineLineages).not.toHaveBeenCalled();
+  });
+
+  it('does not reduce bulk live records after the SDK read loses its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let live = true;
+    const readRecord = jest.fn(() => '77');
+    G.__px.inlineLineages = jest.fn(async () => {
+      live = false;
+      return [{ orderId: readRecord }];
+    });
+    await expect(
+      midenClientProxy.getPswapLineages(() => {
+        if (!live) throw new Error('abandoned hold');
+      })
+    ).rejects.toThrow('abandoned hold');
+    expect(readRecord).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [],
+    [
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '20'
+      }
+    ]
+  ])('routes a bulk lineage snapshot through offscreen with no arguments', async (...rows) => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(rows)).toString('base64'),
+      durationMs: 1
+    }));
+    const pending = midenClientProxy.getPswapLineages(() => {});
+    await flush();
+    fireReady();
+    expect(await pending).toEqual(rows);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        method: 'getPswapLineages',
+        argsB64: [],
+        deadline_ms: 15_000
+      })
+    );
+    expect(G.__px.inlineLineages).not.toHaveBeenCalled();
+  });
+
+  it('rejects an absent offscreen bulk snapshot instead of reporting no tracked orders', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const pending = midenClientProxy.getPswapLineages(() => {}).catch((error: Error) => error);
+    await flush();
+    fireReady();
+    expect(await pending).toEqual(new Error('getPswapLineages: offscreen document returned no snapshot'));
+  });
+
+  // ── getInputNoteSummary ───────────────────────────────────────────────────
+  it('inline summary carries fee assets under its current hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const record = {
+      metadata: jest.fn(() => ({ noteType: () => 1 })),
+      details: jest.fn(() => ({
+        assets: () => ({
+          fungibleAssets: () => [
+            { faucetId: () => ({ canonical: nativeId }), amount: () => 10000n },
+            { faucetId: () => ({ canonical: tokenId }), amount: () => 7n }
+          ]
+        })
+      }))
+    };
+    G.__px.inlineGetInputNote.mockResolvedValue(record);
     const summary = await midenClientProxy.getInputNoteSummary('0xn');
 
     expect(G.__px.inlineGetInputNote).toHaveBeenCalledWith('0xn');
-    expect(summary).toEqual({ noteType: 1 });
+    expect(G.__px.inlineGetInputNote).toHaveBeenCalledTimes(1);
+    expect(summary).toEqual({
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    });
+    expect(record.details).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(JSON.stringify(summary))).toEqual(summary);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+    const client = await G.__px.getMidenClient();
+    G.__px.inlineGetInputNote.mockClear();
+    G.__px.getMidenClient = jest.fn(async () => {
+      G.__px.inlineHold = { mock: 'replacement-during-build' };
+      return client;
+    });
+    await expect(midenClientProxy.getInputNoteSummary('stale-build')).rejects.toThrow('hold replaced');
+    expect(G.__px.inlineGetInputNote).not.toHaveBeenCalled();
+
+    const staleRecord = { metadata: record.metadata, details: record.details };
+    staleRecord.metadata.mockClear();
+    staleRecord.details.mockClear();
+    G.__px.getMidenClient = jest.fn(async () => client);
+    G.__px.inlineGetInputNote.mockImplementation(async () => {
+      G.__px.inlineHold = { mock: 'replacement-during-read' };
+      return staleRecord;
+    });
+    await expect(midenClientProxy.getInputNoteSummary('stale-record')).rejects.toThrow('hold replaced');
+    expect(staleRecord.metadata).not.toHaveBeenCalled();
+    expect(staleRecord.details).not.toHaveBeenCalled();
   });
 
   it('flag OFF → getInputNoteSummary returns null for a not-found note (preserves the caller throw)', async () => {
@@ -1090,10 +1714,19 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
 
   it('flag ON → getInputNoteSummary dispatches by note id and parses the DTO back', async () => {
     const { midenClientProxy } = await loadProxy(true);
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const dto = {
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    };
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,
-      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify({ noteType: 1 }))).toString('base64'),
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dto))).toString('base64'),
       durationMs: 2
     }));
 
@@ -1107,7 +1740,7 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     expect(env.method).toBe('getInputNoteSummary');
     expect(env.deadline_ms).toBe(15_000);
     expect(env.argsB64).toEqual(['s:"0xn"']);
-    expect(summary).toEqual({ noteType: 1 });
+    expect(summary).toEqual(dto);
   });
 
   it('flag ON → a null getInputNoteSummary result is a not-found note (null)', async () => {
@@ -1125,12 +1758,15 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
   });
 
   // ── importNoteBytes (store WRITE) ─────────────────────────────────────────
+  const callerHold = { mock: 'caller-hold' } as unknown as WasmLockHold;
+
   it('flag OFF → importNoteBytes imports into the inline client store and returns the id', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const bytes = new Uint8Array([1, 2, 3]);
-    const id = await midenClientProxy.importNoteBytes(bytes);
+    const id = await midenClientProxy.importNoteBytes(bytes, callerHold);
 
-    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes);
+    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes, callerHold);
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     expect(id).toBe('0ximportedid');
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -1144,7 +1780,7 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
       durationMs: 3
     }));
 
-    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]));
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]), callerHold);
     await flush();
     fireReady();
     const id = await p;
@@ -1154,7 +1790,8 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('importNoteBytes');
     expect(env.deadline_ms).toBe(15_000);
-    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON.
+    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON, and the hold stays in this realm.
+    expect(env.argsB64).toHaveLength(1);
     expect(env.argsB64[0].startsWith('b:')).toBe(true);
     expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xab, 0xcd]);
     expect(id).toBe('0xoffscreenid');
@@ -1168,13 +1805,42 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
       resultB64: null,
       durationMs: 1
     }));
-    const p = midenClientProxy.importNoteBytes(new Uint8Array([1])).catch((e: Error) => e);
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([1]), callerHold).catch((e: Error) => e);
     await flush();
     fireReady();
     const err = await p;
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('no note id');
   });
+});
+
+describe('MidenClientProxy - Guardian history ops', () => {
+  it.each([
+    {
+      name: 'decodeGuardianHistory',
+      invoke: (proxy: any) => proxy.decodeGuardianHistory('summary'),
+      inline: () => G.__px.inlineDecodeGuardianHistory,
+      args: () => ['summary', G.__px.inlineHold],
+      expected: { __inlineSummary: true }
+    },
+    {
+      name: 'getGuardianResultCommitment',
+      invoke: (proxy: any) => proxy.getGuardianResultCommitment(new Uint8Array([4, 2])),
+      inline: () => G.__px.inlineGetGuardianResultCommitment,
+      args: () => [new Uint8Array([4, 2]), G.__px.inlineHold],
+      expected: '0xinlinecommitment'
+    }
+  ])(
+    'flag ON but no chrome.offscreen API → $name runs inline under withWasmClientLock, with the hold it took',
+    async ({ invoke, inline, args, expected }) => {
+      installChromeMock({ withOffscreen: false });
+      const { midenClientProxy } = await loadProxy(true);
+      await expect(invoke(midenClientProxy)).resolves.toEqual(expected);
+      expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+      expect(inline()).toHaveBeenCalledWith(...args());
+      expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (invalid-note detail batch)', () => {
@@ -1257,6 +1923,75 @@ describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (inva
   });
 });
 
+describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () => {
+  const REQUEST = new Uint8Array([1, 2, 3]);
+
+  it('flag OFF → dry-runs on the inline client under the caller hold, with no sync and no note import', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+
+    const result = await midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+
+    // The multisig mock's summary serializes to [0xab].
+    expect(result).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+    const inline = await G.__px.getMidenClient.mock.results[0].value;
+    expect(G.__px.prepareCustomRequestBytes).toHaveBeenCalledWith(
+      inline.client,
+      '0xaccount',
+      REQUEST,
+      G.__px.inlineHold
+    );
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(inline.client, '0xaccount', { __request: [1, 2, 3] });
+    expect(G.__px.inlineSyncState).not.toHaveBeenCalled();
+    expect(G.__px.inlineSync).not.toHaveBeenCalled();
+    expect(G.__px.inlineImportNoteBytes).not.toHaveBeenCalled();
+    // The caller holds the lock; the proxy takes none of its own.
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → forwards ONE dryRunTransaction op with a deadline and parses its result', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const answer = { executedBytes: 'ZXhlY3V0ZWQ=' };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(answer))).toString('base64'),
+      durationMs: 2
+    }));
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual(answer);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('dryRunTransaction');
+    expect(env.deadline_ms).toEqual(expect.any(Number));
+    expect(env.deadline_ms).toBeGreaterThan(0);
+    expect(env.argsB64).toEqual(['s:"0xaccount"', `b:${Buffer.from(REQUEST).toString('base64')}`]);
+    // The service worker's own client is never built for the probe.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → a dry run that answers nothing rejects', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold).catch((e: Error) => e);
+    await flush();
+    fireReady();
+
+    expect(await p).toBeInstanceOf(Error);
+  });
+});
+
 describe('MidenClientProxy — deadline kill', () => {
   it('deadline → closeDocument + reopen + rejects the op with OperationAbortedError', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
@@ -1277,6 +2012,10 @@ describe('MidenClientProxy — deadline kill', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('deadline');
+    expect((err as any).facts).toEqual({
+      started: false,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
     expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
     // Reopened a fresh doc (initial create + reopen create).
     expect(fakeChrome.offscreen.createDocument.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -1303,7 +2042,45 @@ describe('MidenClientProxy — deadline kill', () => {
     const [errA, errB] = await Promise.all([pA, pB]);
     expect(errA).toBeInstanceOf(OperationAbortedError);
     expect(errB).toBeInstanceOf(OperationAbortedError);
+    // B never owned the deadline that closed the document: its report must say so.
+    expect((errA as any).facts.deadline.owner).toBe('own');
+    expect((errB as any).facts).toEqual({
+      started: false,
+      deadline: { owner: 'collateral', timer: 'dispatch', killer: 'read' }
+    });
     expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('reports the timer that fired even when a start signal lands while the document closes', async () => {
+    const { midenClientProxy, __test, markOpStarted } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    let finishClose!: () => void;
+    fakeChrome.offscreen.closeDocument.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishClose = resolve;
+        })
+    );
+
+    const p = midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    const [op_id] = __test.inFlightOpIds();
+    await wait(40); // the dispatch deadline fires and the close is now pending
+    markOpStarted(op_id!);
+    finishClose();
+    await flush();
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect((err as any).reason).toBe('deadline');
+    // The start signal did arrive before the rejection; the deadline that fired was still the dispatch one.
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
   });
 
   it('§3.3 downgrade: a critical op in flight turns a read deadline into reject-without-kill', async () => {
@@ -1326,6 +2103,10 @@ describe('MidenClientProxy — deadline kill', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('deadline-no-kill');
+    expect((err as any).facts).toEqual({
+      started: false,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
     // The doc (and the write) survived — no teardown.
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
     expect(__test.inFlightSize()).toBe(0);
@@ -1397,22 +2178,31 @@ describe('MidenClientProxy — settlement paths', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('doc-closed');
+    expect((err as any).facts).toEqual({ started: false });
     // No deadline armed → no kill.
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
 
-  it('a sendMessage transport rejection surfaces the transport error (finishOpError)', async () => {
+  // FUNDS-1: a transport rejection is the SAME physical event as the `undefined`
+  // response above — the offscreen document went away — so it must settle with the
+  // same error TYPE. It used to surface as a bare Error, which classified as an
+  // ordinary failure everywhere downstream: `tryCompleteKilledConsume` skipped its
+  // node check, and the persisted `rawError` carried no recognizable kill reason.
+  it('a sendMessage transport rejection settles as OperationAbortedError(transport), keeping the cause', async () => {
     const { midenClientProxy } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
-    fakeChrome.runtime.sendMessage.mockRejectedValue(new Error('message port closed before a response'));
+    const transportError = new Error('message port closed before a response');
+    fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
 
     const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
     await flush();
     fireReady();
     const err = await p;
-    expect(err).toBeInstanceOf(Error);
-    expect(err).not.toBeInstanceOf(OperationAbortedError);
-    expect((err as Error).message).toContain('message port closed');
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as { reason?: string }).reason).toBe('transport');
+    expect((err as { facts?: unknown }).facts).toEqual({ started: false });
+    // The original transport message is preserved, not swallowed.
+    expect((err as Error).cause).toBe(transportError);
   });
 });
 
@@ -1431,44 +2221,27 @@ const consumeTx = () => ({
   displayIcon: 'RECEIVE'
 });
 
-describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identity', () => {
-  it('flag OFF → consumeNoteId runs inline under withWasmClientLock with the wrapped sign options (byte-identical)', async () => {
+describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
+  it('flag OFF → consumeNoteId runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = consumeTx();
     const result = await midenClientProxy.consumeNoteId(tx as any, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     // The caller lock wraps the op (exactly as the old switch-under-lock did).
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
-    // getMidenClient was resolved WITH the wrapped sign-callback options.
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // The inline client's consumeNoteId ran on the full tx object.
-    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx);
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx, undefined);
     expect(result).toEqual({ __inlineTxResult: true });
     // Offscreen never touched.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it('flag OFF → the wrapped sign option hex-converts args and tags a thrown error via buildSignCallbackError', async () => {
-    const { midenClientProxy } = await loadProxy(false);
-    const rawSign = jest.fn(async () => {
-      throw new Error('wallet is locked');
-    });
-    await midenClientProxy.consumeNoteId(consumeTx() as any, rawSign);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    // The SDK keystore would call opts.signCallback with BYTES; assert it hex-
-    // converts and wraps a throw with a `reason` tag (the #313 classification).
-    let thrown: any;
-    try {
-      await opts.signCallback(new Uint8Array([0xab, 0xcd]), new Uint8Array([0x01]));
-    } catch (e) {
-      thrown = e;
-    }
-    expect(rawSign).toHaveBeenCalledWith('abcd', '01');
-    expect(thrown.reason).toBe('locked');
   });
 
   it('flag ON but no chrome.offscreen API → consumeNoteId falls back inline', async () => {
@@ -1483,7 +2256,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identi
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, write deadline, criticalOp bracketed) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     let criticalDuring: boolean | undefined;
@@ -1506,12 +2279,12 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identi
     // serializes in the offscreen doc, keeping the SW free + sign handler unblocked).
     expect(G.__px.getMidenClient).not.toHaveBeenCalled();
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
-    // Exactly one OFFSCREEN_CALL, method consumeNoteId, 90s deadline, MINIMAL DTO.
+    // Exactly one OFFSCREEN_CALL, method consumeNoteId, write deadline, MINIMAL DTO.
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('consumeNoteId');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
-    expect(env.deadline_ms).toBe(90_000);
+    expect(env.deadline_ms).toBe(180_000);
     // The DTO carries only the 4 fields the op reads — NOT the BigInt-bearing tx.
     const sentDto = JSON.parse(env.argsB64[0].slice(2));
     expect(sentDto).toEqual({
@@ -1690,7 +2463,7 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
 // START (when the op wins the offscreen WASM mutex and posts OFFSCREEN_OP_STARTED
 // → markOpStarted), NOT at dispatch. So queue-wait behind other ops on the single
 // offscreen mutex is off-budget: a write that sits in the queue for longer than
-// its 90s WRITE_DEADLINE is NOT falsely killed before it executes. At dispatch a
+// its WRITE_DEADLINE is NOT falsely killed before it executes. At dispatch a
 // GENEROUS `CRITICAL_DISPATCH_BACKSTOP_MS` backstop is armed instead (defense-in-
 // depth): if the start signal is dropped, the write is eventually reclaimed rather
 // than hanging timer-less until SW eviction. `markOpStarted` REPLACES the backstop
@@ -1715,9 +2488,12 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       // WRITE_DEADLINE (which is off-budget until execution start, flip-prep #3).
       expect(__test.hasOpTimer(op_id)).toBe(true);
 
-      // Advance FAR past the real 90s deadline AND past the ~2min worst-case
-      // commit-wait (70s) + sync (45s) queue-wait, but still below the 5min backstop.
-      await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 120_000);
+      // Advance FAR past the real write deadline but still below the backstop —
+      // stated against the backstop itself rather than as a fixed offset from the
+      // deadline, so raising the deadline can't silently push this onto (or past)
+      // the backstop and make the test assert the opposite of its name.
+      expect(__test.writeDeadlineMs()).toBeLessThan(__test.criticalDispatchBackstopMs());
+      await jest.advanceTimersByTimeAsync(__test.criticalDispatchBackstopMs() - 1_000);
       // It was NOT killed: no closeDocument, still in flight — the backstop cannot
       // false-kill a merely-queued write (no false-kill regression).
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
@@ -1746,7 +2522,7 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       // critical write, so a dropped start signal hung the op forever.
       expect(__test.hasOpTimer(op_id)).toBe(true);
 
-      // Past the real 90s deadline but below the 5min backstop, with NO start signal:
+      // Past the real write deadline but below the backstop, with NO start signal:
       // still alive — the real deadline is never armed without markOpStarted.
       await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 30_000);
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
@@ -1760,6 +2536,10 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       const err = await p;
       expect(err).toBeInstanceOf(OperationAbortedError);
       expect((err as any).reason).toBe('deadline');
+      expect((err as any).facts).toEqual({
+        started: false,
+        deadline: { owner: 'own', timer: 'backstop', killer: 'write' }
+      });
       expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
       expect(__test.inFlightSize()).toBe(0);
     } finally {
@@ -1767,9 +2547,9 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
     }
   });
 
-  it('markOpStarted before the backstop REPLACES it with the real WRITE_DEADLINE (kill ~90s from start, not the 5min backstop)', async () => {
+  it('markOpStarted before the backstop REPLACES it with the real WRITE_DEADLINE (kill a full write deadline from start, not the backstop)', async () => {
     // Case (b): the normal path. The op starts before the backstop fires; the real
-    // deadline governs, so the effective kill time is ~90s from start — NOT 5min.
+    // deadline governs, so the effective kill time is a full write deadline from start — NOT the backstop.
     jest.useFakeTimers();
     try {
       const { __test, markOpStarted } = await loadProxy(true);
@@ -1790,13 +2570,13 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       markOpStarted(op_id);
       expect(__test.hasOpTimer(op_id)).toBe(true);
 
-      // Just under the real 90s deadline from start: NOT killed yet ...
+      // Just under the real write deadline from start: NOT killed yet ...
       await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() - 1_000);
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
       expect(__test.inFlightSize()).toBe(1);
 
-      // ... crossing the real 90s deadline kills it — the effective budget is ~90s
-      // from start, NOT the 5min backstop (which markOpStarted replaced).
+      // ... crossing the real write deadline kills it — the effective budget is one write deadline
+      // from start, NOT the backstop (which markOpStarted replaced).
       await jest.advanceTimersByTimeAsync(2_000);
       fireReady(); // reopen ready gate after the kill
       await jest.advanceTimersByTimeAsync(0);
@@ -1805,7 +2585,7 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       expect(err).toBeInstanceOf(OperationAbortedError);
       expect((err as any).reason).toBe('deadline');
       expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
-      // The kill happened at the ~90s real deadline — WELL below the 5min backstop.
+      // The kill happened at the real write deadline — WELL below the backstop.
       expect(__test.writeDeadlineMs()).toBeLessThan(__test.criticalDispatchBackstopMs());
       expect(__test.inFlightSize()).toBe(0);
     } finally {
@@ -1839,6 +2619,10 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('deadline');
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
     expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
     expect(__test.inFlightSize()).toBe(0);
   });
@@ -1938,6 +2722,41 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
     expect(__test.inFlightSize()).toBe(0);
   });
 
+  it('a deadline re-armed after a sign round-trip reports the resumed timer', async () => {
+    const { handleOffscreenSignRequest, __test, markOpStarted } = await loadProxy(true);
+    const { bytesToB64 } = await import('./offscreen-codec');
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], 20);
+    const p = promise.catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    markOpStarted(op_id);
+    await handleOffscreenSignRequest(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id,
+        sign_id: 's',
+        publicKeyB64: bytesToB64(new Uint8Array([1])),
+        signingInputsB64: bytesToB64(new Uint8Array([2]))
+      } as any,
+      (async () => new Uint8Array([1])) as any
+    );
+    await wait(40); // the re-armed deadline fires
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect((err as any).reason).toBe('deadline');
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'resumed', killer: 'write' }
+    });
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
   it('a coincident READ deadline does NOT kill a live write (downgrade), then the write completes', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
@@ -1988,14 +2807,14 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
 
 // ─── Slice 5b: send / swap / newTransaction (the remaining WRITE pipeline) ────
 //
-// Each mirrors the slice-5a consumeNoteId contract exactly: flag-OFF is
-// BYTE-IDENTICAL to production (inline under withWasmClientLock with the wrapped
-// sign options); flag-ON is a whole-op OFFSCREEN_CALL (minimal DTO / raw bytes in,
-// serialized TransactionResult out) run on the SHARED critical machinery (90s
+// Each mirrors the slice-5a consumeNoteId contract exactly: flag-OFF runs inline
+// under withWasmClientLock on the realm's one client, signed by the realm signer
+// (the per-write signCallback unused, #878); flag-ON is a whole-op OFFSCREEN_CALL (minimal DTO / raw bytes in,
+// serialized TransactionResult out) run on the SHARED critical machinery (write-deadline
 // deadline, criticalOp bracketing, op-scoped sign callback). The kill-window /
 // sign-pause / read-downgrade matrix is the SAME shared `dispatchOp` path the
 // slice-5a tests exercise via `__test.dispatchCritical` (method-agnostic); the
-// per-method tests below prove the ROUTING, DTO field-set, byte-identity, and that
+// per-method tests below prove the ROUTING, DTO field-set, the unused flag-OFF signer, and that
 // a killed write rejects with OperationAbortedError (→ the loop marks it Failed).
 
 const sendTx = () => ({
@@ -2007,7 +2826,14 @@ const sendTx = () => ({
   noteType: 'public',
   amount: 1000n, // a BigInt — proves the DTO ships amount as a string, never JSON.stringify(tx)
   delegateTransaction: false,
-  extraInputs: { recallBlocks: 100 },
+  extraInputs: {
+    recallBlocks: 100,
+    oneClick: {
+      fundingDeadline: '2026-10-22T12:00:00.000Z',
+      request: { deadline: '2026-10-22T12:00:00.000Z' },
+      quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+    }
+  },
   status: 0,
   initiatedAt: 0,
   displayIcon: 'SEND'
@@ -2026,19 +2852,24 @@ const swapTx = () => ({
   displayIcon: 'SWAP'
 });
 
-describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-identity', () => {
-  it('flag OFF → sendTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
+  it('flag OFF → sendTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = sendTx();
     const result = await midenClientProxy.sendTransaction(tx as any, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
-    // The inline client's sendTransaction ran on the full tx object.
-    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx);
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
+    // The inline client's sendTransaction ran on the full tx object. The trailing
+    // `onStage` is the PR #524 stage stamp, passed straight through (undefined here
+    // — this caller supplied none).
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx, undefined);
     expect(result).toEqual({ __inlineSendResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2056,7 +2887,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, write deadline, criticalOp bracketed) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     let criticalDuring: boolean | undefined;
@@ -2081,7 +2912,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('sendTransaction');
-    expect(env.deadline_ms).toBe(90_000);
+    expect(env.deadline_ms).toBe(180_000);
     // The DTO carries only the fields sendTransaction reads — with the BigInt
     // amount shipped as a decimal STRING (never the BigInt-bearing tx).
     const sentDto = JSON.parse(env.argsB64[0].slice(2));
@@ -2092,7 +2923,14 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: { recallBlocks: 100 }
+      extraInputs: {
+        recallBlocks: 100,
+        oneClick: {
+          fundingDeadline: '2026-10-22T12:00:00.000Z',
+          request: { deadline: '2026-10-22T12:00:00.000Z' },
+          quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+        }
+      }
     });
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -2102,6 +2940,67 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
     expect(result).toEqual({ __txResult: [1, 2, 3] });
     expect(__test.inFlightSize()).toBe(0);
   });
+
+  it.each([
+    ['signed request first', 20, 40],
+    ['provider expiry first', 40, 20]
+  ])(
+    'preserves the %s cutoff through offscreen decoding and SDK consumption',
+    async (_label, requestMinutes, providerMinutes) => {
+      const requestDeadline = new Date(Date.now() + requestMinutes * 60_000).toISOString();
+      const providerDeadline = new Date(Date.now() + providerMinutes * 60_000).toISOString();
+      const fundingDeadline = requestMinutes < providerMinutes ? requestDeadline : providerDeadline;
+      const { midenClientProxy } = await loadProxy(true);
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from([1, 2, 3]).toString('base64'),
+        durationMs: 1
+      }));
+      const tx = {
+        ...sendTx(),
+        delegateTransaction: true,
+        extraInputs: {
+          oneClick: {
+            fundingDeadline,
+            request: { deadline: requestDeadline },
+            quote: { quote: { deadline: providerDeadline } }
+          }
+        }
+      };
+      const dispatched = midenClientProxy.sendTransaction(tx as any, jest.fn());
+      await flush();
+      fireReady();
+      await dispatched;
+
+      const envelope = fakeChrome.runtime.sendMessage.mock.calls[0]?.[0];
+      expect(envelope?.method).toBe('sendTransaction');
+      const decoded = decodeArg(envelope.argsB64[0]) as any;
+      expect(decoded.amount).toBe('1000');
+      expect(decoded.extraInputs.oneClick.fundingDeadline).toBe(fundingDeadline);
+      expect(decoded.extraInputs.oneClick.quote.quote.deadline).toBe(providerDeadline);
+
+      const controlledReceiver = new WebAssembly.RuntimeError('SDK receiver reached after the deadline contract');
+      const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+      const consumer = MidenClientInterface.fromClient(
+        {
+          _withInnerWebClient: jest.fn(async () => {
+            throw controlledReceiver;
+          })
+        } as any,
+        'testnet'
+      );
+      const validDecoded = {
+        ...decoded,
+        extraInputs: {
+          ...decoded.extraInputs,
+          oneClick: { ...decoded.extraInputs.oneClick, request: { deadline: requestDeadline } }
+        }
+      };
+      await expect(consumer.sendTransaction(validDecoded)).rejects.toBe(controlledReceiver);
+      await expect(consumer.sendTransaction(decoded)).rejects.toBe(controlledReceiver);
+    }
+  );
 
   it('flag ON → a null offscreen result throws (a send must always yield a TransactionResult)', async () => {
     const { midenClientProxy } = await loadProxy(true);
@@ -2149,18 +3048,292 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
   });
 });
 
-describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-identity', () => {
-  it('flag OFF → swapTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+// ─── PR #524 per-step send timings survive the rehost (OFFSCREEN_STAGE_EVENT) ──
+//
+// The staged send stamps `executing`/`proving`/`submitting` as it runs; the
+// generating-transaction screen turns those stamps into a duration per step. The
+// stamps are keyed by the DB ROW id, which the offscreen write DTO deliberately
+// doesn't carry — so the callback is registered OP-SCOPED (exactly like the sign
+// callback) and the offscreen realm's fire-and-forget OFFSCREEN_STAGE_EVENT is
+// replayed through it. Both flag states must stamp: the SW build
+// (vite.background.config.ts) is the one build that defaults the flag ON, so a
+// callback that rode the inline leaf only would silently delete the timings on
+// Chrome.
+describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)', () => {
+  it('flag OFF → the stage callback is handed straight to the inline sendTransaction (the call the tx loop used to make itself)', async () => {
+    const { midenClientProxy, __test } = await loadProxy(false);
+    const stages: string[] = [];
+    const onStage = jest.fn(async (s: string) => {
+      stages.push(s);
+    });
+    // The inline client drives the callback exactly as the SDK's staged pipeline does.
+    G.__px.inlineSendTransaction = jest.fn(async (_tx: any, cb?: (s: string) => Promise<void>) => {
+      await cb?.('executing');
+      await cb?.('proving');
+      await cb?.('submitting');
+      return { __inlineSendResult: true };
+    });
+
+    const tx = sendTx();
+    const result = await midenClientProxy.sendTransaction(
+      tx as any,
+      jest.fn(async () => new Uint8Array([1])),
+      onStage
+    );
+
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx, onStage);
+    expect(stages).toEqual(['executing', 'proving', 'submitting']);
+    expect(result).toEqual({ __inlineSendResult: true });
+    // Nothing offscreen: no op registered, no message, no doc.
+    expect(__test.opStageCallbacksSize()).toBe(0);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → an OFFSCREEN_STAGE_EVENT for the in-flight op_id invokes the registered callback', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent, __test } = await loadProxy(true);
+    const stages: string[] = [];
+    const onStage = jest.fn(async (s: string) => {
+      stages.push(s);
+    });
+
+    // Mid-op: the offscreen realm posts one stage event per step, tagged with the
+    // op_id the SW minted at dispatch, then the write replies.
+    let sizeDuring: number | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      sizeDuring = __test.opStageCallbacksSize();
+      handleOffscreenStageEvent(env.op_id, 'executing');
+      handleOffscreenStageEvent(env.op_id, 'proving');
+      handleOffscreenStageEvent(env.op_id, 'submitting');
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
+    });
+
+    const p = midenClientProxy.sendTransaction(
+      sendTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    const result = await p;
+    await flush(); // the callback is invoked without being awaited by the handler
+
+    // The row-bound callback got every stamp, in order — the timings survive the
+    // rehost even though the row id never crossed the boundary.
+    expect(stages).toEqual(['executing', 'proving', 'submitting']);
+    // Registered for exactly this op while it was in flight, and the write itself
+    // is untouched (still the offscreen whole-op result).
+    expect(sizeDuring).toBe(1);
+    expect(result).toEqual({ __txResult: [1, 2, 3] });
+    // The inline SW client was never involved.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → the stage event forwards the evidence it carried, marked unreliable (#1081)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const onStage = jest.fn(async () => {});
+    const evidence = { transactionId: `0x${'a'.repeat(64)}`, refBlock: 7 };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'submitting', evidence);
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
+    });
+    const p = midenClientProxy.consumeNoteId(
+      consumeTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await p;
+    await flush();
+    expect(onStage).toHaveBeenCalledWith('submitting', { reliable: false, evidence });
+  });
+
+  it('flag OFF → consume, swap and newTransaction hand the stage callback straight to the inline leaf (#1081)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const onStage = jest.fn(async () => {});
+    const signCallback = jest.fn(async () => new Uint8Array([1]));
+    const consume = consumeTx();
+    const swap = swapTx();
+    const requestBytes = new Uint8Array([1]);
+
+    await midenClientProxy.consumeNoteId(consume as any, signCallback, onStage);
+    await midenClientProxy.swapTransaction(swap as any, signCallback, onStage);
+    await midenClientProxy.newTransaction('mtst1qacc', requestBytes, true, signCallback, onStage);
+
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(consume, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage, {
+      scope: 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', requestBytes, true, onStage);
+  });
+
+  it('flag ON → swap and newTransaction register the stage callback for their op (#1081)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const onStage = jest.fn(async () => {});
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'submitting', { refBlock: 3 });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const swap = midenClientProxy.swapTransaction(
+      swapTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await swap;
+    const execute = midenClientProxy.newTransaction(
+      'mtst1qacc',
+      new Uint8Array([1]),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await execute;
+    await flush();
+
+    expect(onStage).toHaveBeenCalledTimes(2);
+    expect(onStage).toHaveBeenNthCalledWith(1, 'submitting', { reliable: false, evidence: { refBlock: 3 } });
+    expect(onStage).toHaveBeenNthCalledWith(2, 'submitting', { reliable: false, evidence: { refBlock: 3 } });
+  });
+
+  it('a stage event for an unknown op_id is ignored silently (never throws)', async () => {
+    const { handleOffscreenStageEvent, __test } = await loadProxy(true);
+    // Never dispatched, so nothing is registered under this id.
+    expect(() => handleOffscreenStageEvent('never-dispatched', 'proving')).not.toThrow();
+    expect(__test.opStageCallbacksSize()).toBe(0);
+  });
+
+  it('the stage callback is deregistered once the op settles — a late stamp is a silent no-op', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent, __test } = await loadProxy(true);
+    const onStage = jest.fn();
+    let opId = '';
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      opId = env.op_id;
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const p = midenClientProxy.sendTransaction(
+      sendTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await p;
+
+    // Torn down in the write's `finally`, on the same line as the sign callback.
+    expect(__test.opStageCallbacksSize()).toBe(0);
+    expect(__test.opSignCallbacksSize()).toBe(0);
+    // A stamp that lost the race with the final response finds no entry: dropped,
+    // not thrown, and the callback is never invoked after settle.
+    expect(() => handleOffscreenStageEvent(opId, 'submitting')).not.toThrow();
+    expect(onStage).not.toHaveBeenCalled();
+  });
+
+  it('a throwing / rejecting stage callback never fails the write (the stamp is telemetry)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // One synchronous throw, one rejected promise — both non-fatal paths.
+    const onStage = jest
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('dexie write blew up');
+      })
+      .mockImplementationOnce(() => Promise.reject(new Error('dexie write rejected')));
+
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'executing');
+      handleOffscreenStageEvent(env.op_id, 'proving');
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([5]).toString('base64'), durationMs: 1 };
+    });
+
+    const p = midenClientProxy.sendTransaction(
+      sendTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    // The funds-moving write completes normally despite both failures.
+    await expect(p).resolves.toEqual({ __txResult: [5] });
+    await flush();
+    expect(onStage).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    warnSpy.mockRestore();
+  });
+
+  it('a write with NO stage callback registers nothing', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    let stageSizeDuring: number | undefined;
+    let signSizeDuring: number | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      stageSizeDuring = __test.opStageCallbacksSize();
+      signSizeDuring = __test.opSignCallbacksSize();
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const p = midenClientProxy.consumeNoteId(
+      consumeTx() as any,
+      jest.fn(async () => new Uint8Array())
+    );
+    await flush();
+    fireReady();
+    await p;
+
+    // The sign callback is mandatory for every write; the stage stamp is opt-in.
+    expect(signSizeDuring).toBe(1);
+    expect(stageSizeDuring).toBe(0);
+  });
+});
+
+describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
+  it('resolves the fee context before taking the inline WASM lock', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const fee = { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n };
+    G.__px.readSwapFeeContext.mockResolvedValue(fee);
+    const tx = {
+      ...swapTx(),
+      extraInputs: { ...swapTx().extraInputs, balanceScope: fee.scope }
+    };
+
+    await midenClientProxy.swapTransaction(
+      tx as any,
+      jest.fn(async () => new Uint8Array())
+    );
+
+    expect(G.__px.readSwapFeeContext).toHaveBeenCalledWith(fee.scope);
+    expect(G.__px.readSwapFeeContext.mock.invocationCallOrder[0]).toBeLessThan(
+      G.__px.withWasmClientLock.mock.invocationCallOrder[0]
+    );
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, fee);
+  });
+
+  it('flag OFF → swapTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = swapTx();
     const result = await midenClientProxy.swapTransaction(tx as any, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx);
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined, {
+      scope: 'testnet|default',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2181,6 +3354,12 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
   it('flag ON → dispatches a whole-op OFFSCREEN_CALL with the swap DTO (both BigInt amounts as strings) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
+    const fee = { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n };
+    G.__px.readSwapFeeContext.mockResolvedValue(fee);
+    const transaction = {
+      ...swapTx(),
+      extraInputs: { ...swapTx().extraInputs, balanceScope: 'testnet|queued-endpoint' }
+    };
     let criticalDuring: boolean | undefined;
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
       criticalDuring = prover.isCriticalOpInFlight();
@@ -2188,7 +3367,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
     });
 
     const p = midenClientProxy.swapTransaction(
-      swapTx() as any,
+      transaction as any,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -2199,7 +3378,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('swapTransaction');
-    expect(env.deadline_ms).toBe(90_000);
+    expect(env.deadline_ms).toBe(180_000);
     // Offered amount AND requested amount both cross as decimal strings; the
     // display-only expirySeconds/autoConsume are NOT part of the DTO.
     const sentDto = JSON.parse(env.argsB64[0].slice(2));
@@ -2208,7 +3387,12 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
       faucetId: 'mtst1qoffered',
       amount: '500',
       delegateTransaction: false,
-      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      },
+      swapFeeContext: { ...fee, baseFee: '7' }
     });
     expect(criticalDuring).toBe(true);
     expect(prover.isCriticalOpInFlight()).toBe(false);
@@ -2238,20 +3422,23 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
   });
 });
 
-describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + byte-identity', () => {
+describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', () => {
   const reqBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
-  it('flag OFF → newTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+  it('flag OFF → newTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const result = await midenClientProxy.newTransaction('mtst1qacc', reqBytes, false, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // Positional passthrough — accountId, requestBytes, delegateTransaction — verbatim.
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false, undefined);
     expect(result).toEqual({ __inlineNewResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2266,7 +3453,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + 
       undefined,
       jest.fn(async () => new Uint8Array())
     );
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined, undefined);
     expect(result).toEqual({ __inlineNewResult: true });
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -2294,7 +3481,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + 
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('newTransaction');
-    expect(env.deadline_ms).toBe(90_000);
+    expect(env.deadline_ms).toBe(180_000);
     // accountId (JSON) + requestBytes (RAW bytes, not JSON) + delegateTransaction (JSON).
     expect(env.argsB64[0]).toBe('s:"mtst1qacc"');
     expect(env.argsB64[1].startsWith('b:')).toBe(true);
@@ -2393,12 +3580,13 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       // The REAL classifier extractor — asserting it returns the code proves the SW
       // takes the `=== 'ApplyTransactionAfterSubmitFailed'` → mark-Completed branch,
       // exactly as the flag-off inline path does.
-      const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+      const { extractLanded, extractSdkErrorCode } = await import('../sdk/sdk-error-code');
       fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
         ok: false,
         op_id: env.op_id,
         error: 'local apply failed after submit',
-        errorCode: APPLY
+        errorCode: APPLY,
+        errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
       }));
 
       const p = invoke(midenClientProxy).catch((e: unknown) => e);
@@ -2412,8 +3600,150 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       // ...AND the stable code rides the rejection in the exact shape the classifier
       // reads → Completed, never Failed → requeue → double-spend.
       expect(extractSdkErrorCode(err)).toBe(APPLY);
+      expect(extractLanded(err)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 2 });
     }
   );
+
+  // Issue #775, the other half of the same funds-critical rule. An offscreen-realm
+  // lock eviction has no error CODE — it is identified by its CLASS, and the SW's
+  // kill classifiers (`cancelTransactionAfterPipelineStopped`'s may-have-submitted
+  // crossing, `tryCompleteKilledConsume`'s node adjudication) key off exactly that.
+  // Rebuilt as a bare `Error` it reads as an ordinary pre-submit failure, and for a
+  // send that lets Retry mint a second payment while the abandoned offscreen op is
+  // still able to submit.
+  it.each(writeCases)(
+    '$name: a poison-eviction offscreen reply rejects with a WasmClientPoisonedError, not a bare Error',
+    async ({ invoke }) => {
+      const { midenClientProxy } = await loadProxy(true);
+      const { isWasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: false,
+        op_id: env.op_id,
+        error: 'WASM client poisoned (realm-error): uncaught realm error while holding the WASM client lock',
+        errorName: 'WasmClientPoisonedError',
+        errorReason: 'realm-error'
+      }));
+
+      const p = invoke(midenClientProxy).catch((e: unknown) => e);
+      await flush();
+      fireReady();
+      const err = await p;
+
+      expect(isWasmClientPoisonedError(err)).toBe(true);
+      expect((err as { reason?: string }).reason).toBe('realm-error');
+    }
+  );
+
+  it('preserves a terminal history fee error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian history fee metadata is unavailable',
+      errorName: 'GuardianHistoryFeeUnavailableError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary');
+    await flush();
+    fireReady();
+    await expect(result).rejects.toMatchObject({ name: 'GuardianHistoryFeeUnavailableError' });
+  });
+
+  it('preserves a history fee lookup error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryFeeLookupError } = await import('../guardian/history-errors');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian history fee metadata is not available yet',
+      errorName: 'GuardianHistoryFeeLookupError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary');
+    await flush();
+    fireReady();
+    await expect(result).rejects.toBeInstanceOf(GuardianHistoryFeeLookupError);
+  });
+
+  it('preserves a history data error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryDataError } = await import('../guardian/history-errors');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian summary is too large',
+      errorName: 'GuardianHistoryDataError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary').catch((reason: unknown) => reason);
+    await flush();
+    fireReady();
+    const error = await result;
+    expect({ name: (error as Error).name, message: (error as Error).message }).toEqual({
+      name: 'GuardianHistoryDataError',
+      message: 'Guardian summary is too large'
+    });
+    expect(error).toBeInstanceOf(GuardianHistoryDataError);
+  });
+
+  const summaryB64 = (text: string) => Buffer.from(text).toString('base64');
+  const validSummary = { accountId: 'account', inputNotes: [], outputNotes: [] };
+  const sharedNoteSummary = { ...validSummary, inputNotes: [{ id: 'note', assets: [], visibility: 'shared' }] };
+  it.each<[string, string | null, 'data' | 'transport' | 'valid']>([
+    ['text that is not JSON', summaryB64('{'), 'data'],
+    ['JSON that fails the summary schema', summaryB64(JSON.stringify(sharedNoteSummary)), 'data'],
+    ['no summary', null, 'transport'],
+    ['a valid summary', summaryB64(JSON.stringify(validSummary)), 'valid']
+  ])('settles an ok history decode reply carrying %s by what failed', async (_label, resultB64, kind) => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryDataError } = await import('../guardian/history-errors');
+    const outcomes = {
+      data: { name: 'GuardianHistoryDataError', message: 'Guardian summary fails its schema' },
+      transport: { name: 'Error', message: 'Missing Guardian summary response' },
+      valid: validSummary
+    };
+    const classes = { data: GuardianHistoryDataError, transport: Error, valid: Object };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64,
+      durationMs: 1
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary').catch((reason: unknown) => reason);
+    await flush();
+    fireReady();
+    const settled = await result;
+    expect(settled instanceof Error ? { name: settled.name, message: settled.message } : settled).toEqual(
+      outcomes[kind]
+    );
+    expect(settled).toBeInstanceOf(classes[kind]);
+  });
+
+  it('a poison reply whose errorReason is missing or garbled is still classified as an eviction', async () => {
+    // The classification is what protects the funds; the mechanism name is only
+    // diagnostic. An older or malformed payload must therefore degrade to "some
+    // eviction happened", never to "an ordinary failure".
+    const { midenClientProxy } = await loadProxy(true);
+    const { isWasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'WASM client poisoned',
+      errorName: 'WasmClientPoisonedError',
+      errorReason: 'not-a-known-reason'
+    }));
+
+    const p = midenClientProxy
+      .sendTransaction(
+        sendTx() as any,
+        jest.fn(async () => new Uint8Array())
+      )
+      .catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+
+    expect(isWasmClientPoisonedError(err)).toBe(true);
+    // Falls back to the mechanism that bounds every wedge.
+    expect((err as { reason?: string }).reason).toBe('watchdog');
+  });
 
   it('an ok:false reply with NO errorCode still rejects (abort/undefined-code path unchanged)', async () => {
     const { midenClientProxy } = await loadProxy(true);
@@ -2447,14 +3777,15 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
 // A guardian tx's co-signature is contributed BEFORE execute, so the leaf that
 // crosses is byte-for-byte the same op-shape as a non-guardian write — it reuses
 // `dispatchOffscreenWrite` wholesale. These tests pin the guardian-specific waist:
-// the `guardianPipeline` method name, the [accountId, trBytes, delegate] DTO with
-// the co-signed request crossing as RAW BYTES intact (§4.0), the shared 90s
+// the `guardianPipeline` method name, the [accountId, trBytes, delegate,
+// chainAnchorB64] DTO with
+// the co-signed request crossing as RAW BYTES intact (§4.0), the shared write-deadline
 // deadline + criticalOp bracketing, the reused OFFSCREEN_SIGN_REQUEST sign channel,
 // the errorCode round-trip, and the retryable abort on a kill.
 describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf offscreen)', () => {
   const trBytes = () => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
 
-  it('flag ON → dispatches a whole-op guardianPipeline OFFSCREEN_CALL (accountId + co-signed tr bytes intact + delegate, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+  it('flag ON → dispatches a whole-op guardianPipeline OFFSCREEN_CALL (accountId + co-signed tr bytes intact + delegate, write deadline, criticalOp bracketed) + rehydrates', async () => {
     const { dispatchGuardianPipeline, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     const { b64ToBytes } = await import('./offscreen-codec');
@@ -2481,19 +3812,26 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     // offscreen doc serializes, keeping the SW free + the sign handler unblocked).
     expect(G.__px.getMidenClient).not.toHaveBeenCalled();
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
-    // Exactly one OFFSCREEN_CALL, method guardianPipeline, 90s write deadline.
+    // Exactly one OFFSCREEN_CALL, method guardianPipeline, write deadline.
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('guardianPipeline');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
-    expect(env.deadline_ms).toBe(90_000);
-    // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool)].
+    expect(env.deadline_ms).toBe(180_000);
+    // DTO: accountId, proof bytes, delegate, compatibility anchor, deadline, required flag.
+    expect(env.argsB64).toHaveLength(6);
     expect(env.argsB64[0]).toBe(`s:${JSON.stringify('mtst1qguardian')}`);
     expect(env.argsB64[2]).toBe('s:false');
     // §4.0: the co-signed request crossed as RAW BYTES, byte-for-byte intact —
     // NOT JSON-mangled — so the advice map carrying the co-signatures survives.
     expect(env.argsB64[1].startsWith('b:')).toBe(true);
     expect(Array.from(b64ToBytes(env.argsB64[1].slice(2)))).toEqual(Array.from(tr));
+    // #784: no anchor passed here, and the slot is still present — `encodeArg`
+    // maps it to the wire NULL rather than dropping it, so the offscreen
+    // dispatch's positional parameters stay aligned.
+    expect(env.argsB64[3]).toBe('s:null');
+    expect(env.argsB64[4]).toBe('s:null');
+    expect(env.argsB64[5]).toBe('s:false');
     // criticalOp + sign callback bracketed AROUND the op, cleaned up after.
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -2505,14 +3843,47 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(__test.inFlightSize()).toBe(0);
   });
 
+  // #784: wire compatibility only. The offscreen leaf reads nothing from the
+  // 4th slot, but the packer still fills it with the value it is handed, and
+  // this is the one test that drives the packer with a value: the caller is
+  // covered by a mocked `dispatchGuardianPipeline`, the leaf by hand-built envelopes.
+  it('#784: the retained 4th DTO slot carries the anchor base64 unchanged (wire compatibility only)', async () => {
+    const { dispatchGuardianPipeline } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([5, 6, 7]).toString('base64'),
+      durationMs: 4
+    }));
+
+    const p = dispatchGuardianPipeline(
+      'mtst1qguardian',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      'BwcH'
+    );
+    await flush();
+    fireReady();
+    await p;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.argsB64).toHaveLength(6);
+    expect(env.argsB64[3]).toBe('s:"BwcH"');
+    expect(env.argsB64[4]).toBe('s:null');
+    expect(env.argsB64[5]).toBe('s:false');
+  });
+
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {
     const { dispatchGuardianPipeline } = await loadProxy(true);
-    const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+    const { extractLanded, extractSdkErrorCode } = await import('../sdk/sdk-error-code');
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: false,
       op_id: env.op_id,
       error: 'local apply failed after submit',
-      errorCode: 'ApplyTransactionAfterSubmitFailed'
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
     }));
 
     const p = dispatchGuardianPipeline(
@@ -2529,6 +3900,7 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect((err as Error).message).toContain('local apply failed after submit');
     // The stable code rides the rejection in the shape the guardian classifier reads.
     expect(extractSdkErrorCode(err)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(extractLanded(err)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 2 });
   });
 
   it('flag ON → the executeRequest sign reverses through the op-registered callback over the EXISTING OFFSCREEN_SIGN_REQUEST channel', async () => {
@@ -2589,5 +3961,433 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(prover.isCriticalOpInFlight()).toBe(false);
     expect(__test.inFlightSize()).toBe(0);
     expect(__test.opSignCallbacksSize()).toBe(0);
+  });
+
+  // PR #524 × slice 6a. Guardian is the wallet's DEFAULT account type and the SW
+  // build defaults the flag ON, so the guardian leaf needs the same op-scoped stage
+  // channel the non-guardian send got — without it the default send flow shows a
+  // blank duration on every step.
+  it('flag ON → forwards the stage callback op-scoped, and the leaf`s OFFSCREEN_STAGE_EVENTs replay through it', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenStageEvent, __test } = await loadProxy(true);
+    const stages: string[] = [];
+    const onStage = jest.fn(async (s: string) => {
+      stages.push(s);
+    });
+
+    let sizeDuring: number | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      sizeDuring = __test.opStageCallbacksSize();
+      // The offscreen guardianPipeline stamps the same three boundaries the inline
+      // `runGuardianPipeline` does, each tagged with the op_id the SW minted here.
+      handleOffscreenStageEvent(env.op_id, 'executing');
+      handleOffscreenStageEvent(env.op_id, 'proving');
+      handleOffscreenStageEvent(env.op_id, 'submitting');
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([5, 6, 7]).toString('base64'), durationMs: 4 };
+    });
+
+    const p = dispatchGuardianPipeline(
+      'mtst1qguardian',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    const result = await p;
+    await flush(); // the handler invokes the callback without awaiting it
+
+    expect(stages).toEqual(['executing', 'proving', 'submitting']);
+    // Registered for exactly this op while in flight, torn down with the sign
+    // callback on settle — and the write result itself is untouched.
+    expect(sizeDuring).toBe(1);
+    expect(__test.opStageCallbacksSize()).toBe(0);
+    expect(result).toEqual({ __txResult: [5, 6, 7] });
+  });
+
+  it('flag ON → omitting the stage callback registers nothing (the guardian arg stays optional)', async () => {
+    const { dispatchGuardianPipeline, __test } = await loadProxy(true);
+    let stageSizeDuring: number | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      stageSizeDuring = __test.opStageCallbacksSize();
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array())
+    );
+    await flush();
+    fireReady();
+    await p;
+
+    expect(stageSizeDuring).toBe(0);
+  });
+});
+
+// --- reloadOffscreenEndpointOverrides ---------------------------------------
+//
+// The override cache and the client singleton are BOTH module-scoped, so the SW's
+// loadEndpointOverrides() + resetMidenClient() reach only the SW realm. Flag-on it
+// is the OFFSCREEN client that talks to the node, so it needs its own nudge.
+// The offscreen document has no extension storage, so the network it runs on is the one these messages carry (#1482).
+// #1644: the Guardian leaf's submit gate opens only for an op this worker still runs, after the leaf recorded the
+// crossing, so a leaf the worker never let through never submits.
+describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
+  const trBytes = () => new Uint8Array([0xca, 0xfe]);
+  const gateReq = (op_id: string, evidence?: unknown) =>
+    ({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id, evidence }) as never;
+
+  it('opens for the in-flight op once its gate recorded the crossing, with the evidence the leaf read', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let answer: unknown;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      answer = await handleOffscreenSubmitGate(gateReq(env.op_id, { refBlock: 4 }));
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
+    expect(answer).toEqual({ ok: true });
+  });
+
+  it('refuses when the leaf has already settled or could not record the crossing', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const answers: unknown[] = [];
+    const gates = [jest.fn(async () => false), jest.fn(async () => Promise.reject(new Error('IndexedDB closed')))];
+    for (const submitGate of gates) {
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+        answers.push(await handleOffscreenSubmitGate(gateReq(env.op_id)));
+        return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+      });
+      const p = dispatchGuardianPipeline(
+        'acc',
+        trBytes(),
+        false,
+        jest.fn(async () => new Uint8Array()),
+        undefined,
+        undefined,
+        submitGate
+      );
+      await flush();
+      fireReady();
+      // eslint-disable-next-line no-await-in-loop
+      await p;
+    }
+    expect(answers).toEqual([
+      expect.objectContaining({ ok: false }),
+      expect.objectContaining({ ok: false, error: expect.stringContaining('IndexedDB closed') })
+    ]);
+  });
+
+  it('refuses an op that is no longer in flight, and never asks its gate', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let opId = '';
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      opId = env.op_id;
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(await handleOffscreenSubmitGate(gateReq(opId))).toEqual(expect.objectContaining({ ok: false }));
+    expect(await handleOffscreenSubmitGate(gateReq('never-dispatched'))).toEqual(
+      expect.objectContaining({ ok: false })
+    );
+    expect(submitGate).not.toHaveBeenCalled();
+  });
+});
+
+describe('MidenClientProxy - the endpoint state on every offscreen message (#1482)', () => {
+  const customOverride = async () => {
+    const { buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    return {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://custom.example/rpc',
+      feeFaucetId: '0xfee'
+    };
+  };
+
+  it('attaches the state as it is when the message is sent, to a read and to a write', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const { applyEndpointOverride } = await import('lib/miden-chain/effective-endpoints');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const read = midenClientProxy.getAccount('acc');
+    await flush();
+    // Saved while the document was still opening: the read goes out on the saved network.
+    const override = await customOverride();
+    await applyEndpointOverride(override);
+    fireReady();
+    await read;
+    const { promise } = __test.dispatchCritical('sendTransaction', [{}], __test.writeDeadlineMs());
+    await promise;
+
+    const envelopes = fakeChrome.runtime.sendMessage.mock.calls.map(([env]: [any]) => env);
+    expect(envelopes.map((env: any) => env.method)).toEqual(['getAccount', 'sendTransaction']);
+    for (const env of envelopes) {
+      expect(env.endpoints).toEqual({ override, feeFaucetId: '0xfee' });
+    }
+  });
+
+  // The `miden-sync` alarm can reach a call before start() has loaded the override (#1482).
+  it('sends no call until the realm has loaded its own override, then sends that override', async () => {
+    const { midenClientProxy } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const stored = endpoints.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const calls = () =>
+      fakeChrome.runtime.sendMessage.mock.calls
+        .map(([env]: [any]) => env)
+        .filter((env: any) => env?.type === 'OFFSCREEN_CALL');
+
+    const read = midenClientProxy.getAccount('acc');
+    await flush();
+    fireReady();
+    await flush();
+    expect(calls()).toHaveLength(0);
+
+    await endpoints.loadEndpointOverrides();
+    await read;
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0].endpoints.override).toEqual(stored);
+  });
+
+  it('sends no reload until the realm has loaded its own override, then sends the loaded state', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const stored = await customOverride();
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    const reload = reloadOffscreenEndpointOverrides();
+    await flush();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+    await endpoints.loadEndpointOverrides();
+    await expect(reload).resolves.toBe(true);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: stored, feeFaucetId: '0xfee' }
+    });
+  });
+
+  it('sends the state with the reload, so a live document switches without reading storage', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { applyEndpointOverride } = await import('lib/miden-chain/effective-endpoints');
+    const override = await customOverride();
+    await applyEndpointOverride(override);
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(true);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override, feeFaucetId: '0xfee' }
+    });
+  });
+});
+
+describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
+  it('flag OFF → no-op even with a document open (the SW client is the one that talks to the node)', async () => {
+    // A doc CAN exist flag-off (the offscreen prover uses one), so the flag is the
+    // only thing that may keep the message from being sent here.
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(false);
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but no chrome.offscreen API → no-op (Firefox/Safari have no offscreen realm)', async () => {
+    installChromeMock({ withOffscreen: false });
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON but NO document open → no-op, and does NOT create one (a later doc gets the state with its first call)', async () => {
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON with a document open → sends OFFSCREEN_RELOAD_ENDPOINTS and reports the ack', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(true);
+
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: null, feeFaucetId: undefined }
+    });
+    // Reuses the document it found — never respawns the realm.
+    expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+
+  it('reports false when the offscreen realm answers ok:false', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: false, error: 'storage exploded' }));
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
+  });
+
+  it('resolves false instead of throwing when the doc is reaped between the check and the send', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockRejectedValue(new Error('message port closed'));
+    // Must not reject: the replacement document gets the state with its first call,
+    // so the caller (the RELOAD_ENDPOINT_OVERRIDES handler) has nothing to recover.
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
+  });
+
+  it('never tears down the realm — an in-flight critical write survives the reload', async () => {
+    const { __test, reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    // The write never answers; only the reload does.
+    fakeChrome.runtime.sendMessage.mockImplementation((env: any) =>
+      env?.type === 'OFFSCREEN_RELOAD_ENDPOINTS' ? Promise.resolve({ ok: true }) : new Promise(() => {})
+    );
+
+    const { op_id, promise } = __test.dispatchCritical('sendTransaction', [{}], __test.writeDeadlineMs());
+    void promise.catch(() => {});
+    await flush();
+    fireReady(); // ensureOffscreenDocument resolves → the doc is now open
+    await flush();
+    expect(__test.inFlightSize()).toBe(1);
+
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(true);
+
+    // This is the whole reason it is a message and not forceCloseOffscreenDocument():
+    // no close, and the value-moving op is still in flight rather than aborted.
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+    expect(__test.inFlightOpIds()).toEqual([op_id]);
+  });
+});
+
+describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
+  it('rebuilds a tagged reply as a tagged error, and an untagged one untagged', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'pre',
+      errorBeforeSubmit: true
+    }));
+    const tagged = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    expect(hasErrorBeforeSubmit(await tagged)).toBe(true);
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'post'
+    }));
+    const untagged = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    expect(hasErrorBeforeSubmit(await untagged)).toBe(false);
+  });
+
+  it('never tags a rebuilt eviction', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'evicted',
+      errorName: 'WasmClientPoisonedError',
+      errorBeforeSubmit: true
+    }));
+    const poisoned = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    expect(hasErrorBeforeSubmit(await poisoned)).toBe(false);
+  });
+
+  it('a document that cannot be opened fails tagged and registers nothing', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.offscreen.createDocument.mockRejectedValueOnce(new Error('cannot create the document'));
+    const failed = await __test.dispatchCritical('sendTransaction', [{}], 20).promise.catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(failed)).toBe(true);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('an argument that cannot be encoded fails tagged, registers nothing, and kills no concurrent write', async () => {
+    jest.useFakeTimers();
+    try {
+      const { __test } = await loadProxy(true);
+      const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+      fakeChrome.runtime.sendMessage.mockImplementation(() => new Promise(() => {}));
+      // No deadline, so no timer of its own: only a stale op's backstop could settle it.
+      const live = __test.dispatchCritical('sendTransaction', [{}], null);
+      let liveSettled = false;
+      live.promise.then(
+        () => (liveSettled = true),
+        () => (liveSettled = true)
+      );
+      // The first dispatch opens the document and waits for its ready signal.
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      const failed = await __test
+        .dispatchCritical('sendTransaction', [{ amount: 1n }], 20)
+        .promise.catch((e: unknown) => e);
+      expect(hasErrorBeforeSubmit(failed)).toBe(true);
+      expect(__test.inFlightOpIds()).toEqual([live.op_id]);
+      await jest.advanceTimersByTimeAsync(__test.criticalDispatchBackstopMs() + 1);
+      expect(liveSettled).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

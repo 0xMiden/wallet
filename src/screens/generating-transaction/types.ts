@@ -1,6 +1,8 @@
+import type { FlowAccent } from 'components/flow/accent';
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
-import type { TRANSACTION_STEPS } from './constants';
+import type { TransactionStepDef } from './constants';
 
 export interface GeneratingTransactionPageProps {
   /** Id of the transaction this page tracks; comes from the `/:txId` route param. */
@@ -17,6 +19,13 @@ export interface GeneratingTransactionProps {
   activeStage?: ITransactionStage;
   /** Type of the tx currently being processed (for type-specific labels). */
   activeType?: ITransactionType;
+  /**
+   * Whether the sending account is a Guardian account. Selects the step set:
+   * Guardian sends show co-sign → prove → submit → guardian-sync, and a private
+   * send its delivery after that; standard sends show prove → submit (the
+   * guardian-only steps are omitted).
+   */
+  isGuardian: boolean;
   /** The in-flight tx, used by the summary badge under the title. */
   activeTransaction?: ITransaction;
   /** Last transaction shown before the queue completed, used by the success receipt. */
@@ -42,25 +51,37 @@ export interface GeneratingTransactionProps {
   isRetrying?: boolean;
   /** Error message from a failed retry attempt, shown under the buttons. */
   retryError?: string | null;
+  /** Closed identity for the displayed retry error; null marks a non-error display. */
+  retryErrorId?: UserErrorId | null;
 }
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
-export type TransactionStep = (typeof TRANSACTION_STEPS)[number];
-export type TransactionHeroState = 'processing' | 'success' | 'failed';
+export type TransactionStep = TransactionStepDef;
+export type TransactionHeroState = 'processing' | 'success' | 'failed' | 'unconfirmed';
+
+/** Circle diameter in px. 64 is the spec's status-circle size (Hero's `visual` slot); 96 is kept for a caller that needs a bigger hero. */
+export type TransactionHeroIconSize = 64 | 96;
 
 export interface TransactionHeroIconProps {
   state: TransactionHeroState;
+  /** The flow's highlight color, used while processing. Defaults to brand. */
+  accent?: FlowAccent;
+  /** Defaults to 64 — the spec's status-circle size, shared by Processing and the receipt. */
+  size?: TransactionHeroIconSize;
 }
 
 export interface StatusIndicatorProps {
   state: TransactionStepState;
+  accent?: FlowAccent;
 }
 
 export interface TransactionStepRowProps {
-  step: TransactionStep;
+  /** The row reads only the id and the label; a step list with no stage timings passes just those. */
+  step: Pick<TransactionStep, 'id' | 'labelKey' | 'defaultLabel'>;
   state: TransactionStepState;
   isLast: boolean;
   label?: string;
   /** Right-aligned muted text, e.g. the step's duration ("2 sec"). */
   meta?: string;
+  accent?: FlowAccent;
 }

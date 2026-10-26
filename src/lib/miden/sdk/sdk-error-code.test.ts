@@ -1,0 +1,806 @@
+import {
+  ApplyAfterSubmitError,
+  carriesIndefiniteSubmitOutcome,
+  extractLanded,
+  extractSdkErrorCode,
+  hasErrorBeforeSubmit,
+  indefiniteSubmitTransactionId,
+  isAccountNotFoundOnChainError,
+  isApplyAfterSubmitError,
+  isClientTerminatedError,
+  isGuardianCanonicalizationError,
+  isIndefiniteSubmitOutcomeError,
+  isKilledPipeline,
+  isPipelineKillLink,
+  isPoisonedPipeline,
+  isRealmIntactAbort,
+  isRunningPipelineKill,
+  isStaleInitialCommitmentError,
+  isTransactionDiscardedError,
+  markErrorBeforeSubmit,
+  pipelineKillIn,
+  someInCauseChain
+} from './sdk-error-code';
+
+/**
+ * The verbatim `Display` text miden-client produces for
+ * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.4` wasm (both wordings appear there;
+ * the second is the one raised through the `apply_transaction_update` path).
+ */
+const REAL_APPLY_AFTER_SUBMIT_MESSAGES = [
+  "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed. " +
+    'The pending update is attached to this error as `pending_update`; you can re-apply it later via ' +
+    '`Client::apply_transaction_update`. Do NOT resubmit the same transaction: if the original is still in the ' +
+    'mempool or has been finalized in a block, the account (and network) state has already been mutated by the ' +
+    'accepted copy, so the node will reject the retry.',
+  "transaction 0xfeedface was accepted into the node's mempool at block 7 but the local store update failed. " +
+    'The pending store update is attached and can be re-applied later via `apply_transaction_update`. ' +
+    'Resubmitting the same transaction will be rejected if the original is still in the mempool or has been ' +
+    'finalized in a block, because the account (and network) state has already been mutated by the accepted copy.'
+];
+
+/** `text` two links down, under a lock-recovery eviction or under a plain wrapper of the same depth (#1313). */
+const underWrappedEviction = (text: string): Error => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  return new Error('Offscreen call failed', { cause: new WasmClientPoisonedError('realm-error', new Error(text)) });
+};
+const underWrapper = (text: string): Error =>
+  new Error('Offscreen call failed', { cause: new Error('trap', { cause: new Error(text) }) });
+
+describe('extractSdkErrorCode', () => {
+  it('reads `code`, the property web-sdk actually sets', () => {
+    expect(extractSdkErrorCode(Object.assign(new Error('x'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' }))).toBe(
+      'ACCOUNT_NOT_FOUND_ON_CHAIN'
+    );
+  });
+
+  it('reads `errorCode`, the property the offscreen bus re-attaches', () => {
+    expect(extractSdkErrorCode(Object.assign(new Error('x'), { errorCode: 'SOMETHING' }))).toBe('SOMETHING');
+  });
+
+  it('prefers `errorCode` when both are present', () => {
+    expect(extractSdkErrorCode(Object.assign(new Error('x'), { errorCode: 'a', code: 'b' }))).toBe('a');
+  });
+
+  it('returns undefined for non-objects, nullish values and non-string codes', () => {
+    expect(extractSdkErrorCode(undefined)).toBeUndefined();
+    expect(extractSdkErrorCode(null)).toBeUndefined();
+    expect(extractSdkErrorCode('boom')).toBeUndefined();
+    expect(extractSdkErrorCode(new Error('plain'))).toBeUndefined();
+    expect(extractSdkErrorCode(Object.assign(new Error('x'), { code: 42 }))).toBeUndefined();
+  });
+});
+
+describe('isApplyAfterSubmitError', () => {
+  it.each(REAL_APPLY_AFTER_SUBMIT_MESSAGES)('matches the real SDK error text (%#)', message => {
+    // No code property of any name — this is exactly what web-sdk 0.16 throws.
+    const err = new Error(message);
+    expect(extractSdkErrorCode(err)).toBeUndefined();
+    expect(isApplyAfterSubmitError(err)).toBe(true);
+  });
+
+  it('matches when the offscreen bus has re-wrapped the SDK message', () => {
+    const err = new Error(`Offscreen call 'newSendTransaction' failed: ${REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]}`);
+    expect(isApplyAfterSubmitError(err)).toBe(true);
+  });
+
+  it('matches through a `cause` chain', () => {
+    const err = new Error('Failed to submit transaction', {
+      cause: new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0])
+    });
+    expect(isApplyAfterSubmitError(err)).toBe(true);
+  });
+
+  it('still honours an explicitly attached code, for a future SDK that maps the variant', () => {
+    expect(
+      isApplyAfterSubmitError(Object.assign(new Error('opaque'), { errorCode: 'ApplyTransactionAfterSubmitFailed' }))
+    ).toBe(true);
+    expect(
+      isApplyAfterSubmitError(Object.assign(new Error('opaque'), { code: 'ApplyTransactionAfterSubmitFailed' }))
+    ).toBe(true);
+  });
+
+  it('accepts a bare string error', () => {
+    expect(isApplyAfterSubmitError(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0])).toBe(true);
+    expect(isApplyAfterSubmitError('some other failure')).toBe(false);
+  });
+
+  it('does NOT match unrelated failures', () => {
+    expect(isApplyAfterSubmitError(new Error('Transaction proving failed'))).toBe(false);
+    expect(isApplyAfterSubmitError(new Error("was accepted into the node's mempool at block 9"))).toBe(false);
+    expect(isApplyAfterSubmitError(new Error('the local store update failed'))).toBe(false);
+    expect(isApplyAfterSubmitError(undefined)).toBe(false);
+    expect(isApplyAfterSubmitError(null)).toBe(false);
+    expect(isApplyAfterSubmitError({})).toBe(false);
+    expect(isApplyAfterSubmitError(123)).toBe(false);
+  });
+
+  it('requires both phrases to come from the SAME error, not two joined ones', () => {
+    // A verdict of `true` here means "the write DID reach the chain", which
+    // marks the row Completed. Assembling that verdict out of two unrelated
+    // errors — a wrapper that happens to mention the mempool, an inner failure
+    // that happens to mention the store — reports a send that never submitted
+    // as money sent. Each half alone is already rejected above; the point of
+    // this case is that concatenating them must not manufacture a match.
+    const split = new Error("was accepted into the node's mempool at block 9", {
+      cause: new Error('the local store update failed')
+    });
+    expect(isApplyAfterSubmitError(split)).toBe(false);
+  });
+
+  it('stops walking a self-referential cause chain', () => {
+    const err: Error & { cause?: unknown } = new Error('loop');
+    err.cause = err;
+    expect(isApplyAfterSubmitError(err)).toBe(false);
+  });
+
+  it('survives an error whose message or cause is a throwing accessor', () => {
+    // These are classifiers, so they run on the failure path. One that throws
+    // while inspecting an error converts a handled failure into an unhandled one
+    // at the worst possible moment — and the rejections reaching them cross a
+    // realm boundary and a wasm-bindgen shim, so their shapes are not this
+    // codebase's to guarantee.
+    const throwingMessage = {};
+    Object.defineProperty(throwingMessage, 'message', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    expect(() => isApplyAfterSubmitError(throwingMessage)).not.toThrow();
+    expect(isApplyAfterSubmitError(throwingMessage)).toBe(false);
+
+    const throwingCause: Error & { cause?: unknown } = new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]);
+    Object.defineProperty(throwingCause, 'cause', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    // The throw costs the rest of the chain, not the node already in hand: this
+    // error's own message classifies it, and a throwing `cause` must not take
+    // that away.
+    expect(() => isApplyAfterSubmitError(throwingCause)).not.toThrow();
+    expect(isApplyAfterSubmitError(throwingCause)).toBe(true);
+  });
+
+  it('never classifies a lock-recovery poison error as apply-after-submit, even via its cause chain (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // The poison error's own message is a closed set, but its `cause` carries
+    // the raw realm error verbatim — and this classifier walks the cause chain.
+    // Misclassifying here writes a never-submitted row as Completed.
+    const trapWithSdkText = new Error(
+      "Transaction 0xabc was accepted into the node's mempool at block 5 but the local store update failed."
+    );
+    expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
+    expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never classifies an error wrapping a lock-recovery eviction as apply-after-submit (#1313)', () => {
+    expect(isApplyAfterSubmitError(underWrapper(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!))).toBe(true);
+    expect(isApplyAfterSubmitError(underWrappedEviction(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!))).toBe(false);
+  });
+});
+
+describe('ApplyAfterSubmitError', () => {
+  it('classifies by its code and, with the code gone, by its text', () => {
+    const cause = new Error('store quota');
+    const error = new ApplyAfterSubmitError(cause);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ApplyAfterSubmitError');
+    expect(error.cause).toBe(cause);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+
+  it('carries the landed facts as one object, which extractLanded reads', () => {
+    const landed = { transactionId: '0xlanded', privateOutputNotes: 2 };
+    const error = new ApplyAfterSubmitError(new Error('store quota'), landed);
+    expect(error.landed).toEqual(landed);
+    expect(extractLanded(error)).toEqual(landed);
+    expect(new ApplyAfterSubmitError(new Error('store quota')).landed).toEqual({});
+    // As the service worker rebuilds an offscreen failure: a plain Error with the forwarded object.
+    const rebuilt = Object.assign(new Error('rebuilt'), {
+      landed: { transactionId: '0xlanded', privateOutputNotes: 0 }
+    });
+    expect(extractLanded(rebuilt)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 0 });
+  });
+
+  it('extractLanded keeps only a string id and a non-negative integer count', () => {
+    expect(extractLanded({ landed: { transactionId: 5, privateOutputNotes: 1.5 } })).toEqual({});
+    const counts = [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY, '2', null];
+    expect(
+      counts.map(count => extractLanded({ landed: { transactionId: '0xlanded', privateOutputNotes: count } }))
+    ).toEqual(counts.map(() => ({ transactionId: '0xlanded' })));
+    // The facts cross as one object: fields beside it are not read.
+    expect(
+      extractLanded(Object.assign(new Error('rebuilt'), { transactionId: '0xlanded', privateOutputNotes: 2 }))
+    ).toEqual({});
+  });
+
+  it('extractLanded reads nothing off a non-object or a throwing landed accessor', () => {
+    for (const value of [
+      null,
+      undefined,
+      2,
+      '0xlanded',
+      new Error('plain'),
+      { landed: '0xlanded' },
+      { landed: null }
+    ]) {
+      expect(extractLanded(value)).toEqual({});
+    }
+    const hostile = Object.defineProperty(new Error('hostile'), 'landed', {
+      get() {
+        throw new Error('accessor');
+      }
+    });
+    const hostileFields = {
+      landed: Object.defineProperties(
+        {},
+        {
+          transactionId: {
+            get() {
+              throw new Error('accessor');
+            }
+          },
+          privateOutputNotes: {
+            get() {
+              throw new Error('accessor');
+            }
+          }
+        }
+      )
+    };
+    expect(extractLanded(hostile)).toEqual({});
+    expect(extractLanded(hostileFields)).toEqual({});
+  });
+
+  it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
+    expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment: '0xfinal' } })).toEqual({
+      transactionId: '0xlanded',
+      finalAccountCommitment: '0xfinal'
+    });
+    for (const finalAccountCommitment of [5, null, { toHex: () => '0xfinal' }]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
+});
+
+describe('isTransactionDiscardedError', () => {
+  // Verbatim from both producers of this verdict: the SDK's
+  // `TransactionsResource.waitFor` (`throw new Error(\`Transaction rejected: ${hex}\`)`
+  // in its `isDiscarded()` branch) and the offscreen realm's in-realm poll loop,
+  // which reproduces the same text so one matcher covers all three platforms.
+  const DISCARDED_MESSAGE = 'Transaction rejected: 0x1234abcd';
+
+  it('matches the discard text both realms produce', () => {
+    expect(isTransactionDiscardedError(new Error(DISCARDED_MESSAGE))).toBe(true);
+  });
+
+  it('matches through the offscreen bus wrapper and a cause chain', () => {
+    expect(
+      isTransactionDiscardedError(new Error(`Offscreen call 'waitForTransactionCommit' failed: ${DISCARDED_MESSAGE}`))
+    ).toBe(true);
+    expect(isTransactionDiscardedError(new Error('commit wait failed', { cause: new Error(DISCARDED_MESSAGE) }))).toBe(
+      true
+    );
+  });
+
+  it('does NOT match an indeterminate timeout', () => {
+    // The whole point of the distinction: a timeout leaves the transaction
+    // possibly on chain, so the caller optimistically finalizes. Matching here
+    // would turn every slow commit into a hard failure.
+    expect(isTransactionDiscardedError(new Error('Timed out waiting for transaction 0xabc to commit'))).toBe(false);
+    expect(isTransactionDiscardedError(new Error('network request failed'))).toBe(false);
+    expect(isTransactionDiscardedError(undefined)).toBe(false);
+    expect(isTransactionDiscardedError(null)).toBe(false);
+    expect(isTransactionDiscardedError({})).toBe(false);
+  });
+
+  it('never reads a lock-recovery poison error as a node verdict (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // An eviction is abandonment, not a chain verdict — and its `cause` carries
+    // the raw realm error verbatim. Reading it as "discarded" would fail a row
+    // whose transaction may well have submitted.
+    expect(isTransactionDiscardedError(new WasmClientPoisonedError('realm-error', new Error(DISCARDED_MESSAGE)))).toBe(
+      false
+    );
+    expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never reads an error wrapping a lock-recovery eviction as a node verdict (#1313)', () => {
+    expect(isTransactionDiscardedError(underWrapper(DISCARDED_MESSAGE))).toBe(true);
+    expect(isTransactionDiscardedError(underWrappedEviction(DISCARDED_MESSAGE))).toBe(false);
+  });
+});
+
+/**
+ * The two phrases the node's admission refusal carries (quoted in #904 and in
+ * `guardian/account.ts`); the wording around them is illustrative.
+ */
+const STALE_INITIAL_COMMITMENT_REFUSAL =
+  'transaction conflicts with current mempool state: initial account commitment 0x1111 does not match ' +
+  'the current commitment 0x2222 for account 0x3333';
+
+describe('isStaleInitialCommitmentError', () => {
+  it('matches the node refusing a transaction whose initial account commitment was superseded', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(`failed to submit proven transaction: ${STALE_INITIAL_COMMITMENT_REFUSAL}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the refusal after the offscreen bus rewraps it', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(`Offscreen call 'guardianPipeline' failed: ${STALE_INITIAL_COMMITMENT_REFUSAL}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the refusal on the cause chain', () => {
+    expect(
+      isStaleInitialCommitmentError(new Error('submit failed', { cause: new Error(STALE_INITIAL_COMMITMENT_REFUSAL) }))
+    ).toBe(true);
+  });
+
+  it('does not assemble a match from two errors in one chain', () => {
+    const chain = new Error('initial account commitment 0x1111 was read', {
+      cause: new Error('the note does not match the current commitment of its script')
+    });
+    expect(isStaleInitialCommitmentError(chain)).toBe(false);
+  });
+
+  it('does not match the SDK refusing to import guardian state', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(
+          'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account 0x3333'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('never reads a lock-recovery eviction as a node verdict', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    expect(
+      isStaleInitialCommitmentError(
+        new WasmClientPoisonedError('realm-error', new Error(STALE_INITIAL_COMMITMENT_REFUSAL))
+      )
+    ).toBe(false);
+  });
+
+  it('never reads an error wrapping a lock-recovery eviction as a node verdict (#1313)', () => {
+    expect(isStaleInitialCommitmentError(underWrapper(STALE_INITIAL_COMMITMENT_REFUSAL))).toBe(true);
+    expect(isStaleInitialCommitmentError(underWrappedEviction(STALE_INITIAL_COMMITMENT_REFUSAL))).toBe(false);
+  });
+});
+
+describe('isGuardianCanonicalizationError', () => {
+  // Verbatim shape of the SDK's refusal to import a guardian view that is not
+  // ahead of the local one.
+  const CANONICALIZATION_MESSAGE =
+    'Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 4 for account 0xabc';
+
+  it('matches the refusal, including through a wrapper and a cause chain', () => {
+    expect(isGuardianCanonicalizationError(new Error(CANONICALIZATION_MESSAGE))).toBe(true);
+    expect(isGuardianCanonicalizationError(new Error('incoming nonce 0 is not greater than local nonce 1'))).toBe(true);
+    expect(
+      isGuardianCanonicalizationError(new Error(`Offscreen call 'syncState' failed: ${CANONICALIZATION_MESSAGE}`))
+    ).toBe(true);
+    expect(
+      isGuardianCanonicalizationError(new Error('sync failed', { cause: new Error(CANONICALIZATION_MESSAGE) }))
+    ).toBe(true);
+  });
+
+  it('does not match an unrelated failure', () => {
+    expect(isGuardianCanonicalizationError(new Error('network request failed'))).toBe(false);
+    expect(isGuardianCanonicalizationError(undefined)).toBe(false);
+    expect(isGuardianCanonicalizationError(null)).toBe(false);
+    expect(isGuardianCanonicalizationError({})).toBe(false);
+  });
+
+  it('never reads a lock-recovery poison error as a canonicalization race (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // The stakes here are the highest of the three chain-walking classifiers in
+    // this module: the transaction loop answers a `true` from this one by marking
+    // the row Completed with a success message, for any type. An eviction is an
+    // ABANDONED pipeline that may never have submitted, and its `cause` carries
+    // the raw realm error — which, on the guardian path, can be exactly this
+    // refusal.
+    expect(
+      isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
+    ).toBe(false);
+    expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never reads an error wrapping a lock-recovery eviction as a canonicalization race (#1313)', () => {
+    expect(isGuardianCanonicalizationError(underWrapper(CANONICALIZATION_MESSAGE))).toBe(true);
+    expect(isGuardianCanonicalizationError(underWrappedEviction(CANONICALIZATION_MESSAGE))).toBe(false);
+  });
+});
+
+describe('isAccountNotFoundOnChainError', () => {
+  // web-sdk 0.16.1 renders miden-client's RequestError for a 0.16 node's
+  // uncoded not-found answer as this chain (issue #1127).
+  const NODE_016_MISS =
+    'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+    'code: \'Client specified an invalid argument\', message: "account 0x0e3b5b2d8a1f4c10000000000000ab not found at block 1234"';
+
+  it('matches the uncoded 0.16 node answer', () => {
+    expect(isAccountNotFoundOnChainError(new Error(NODE_016_MISS))).toBe(true);
+  });
+
+  it('matches it after the offscreen bus re-wraps the message', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(`Offscreen call 'importPublicMidenWalletFromSeed' failed: ${NODE_016_MISS}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the code web-sdk sets when the node attaches one', () => {
+    expect(isAccountNotFoundOnChainError(Object.assign(new Error('x'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' }))).toBe(
+      true
+    );
+  });
+
+  it("matches the SDK's typed not-found text when the code was lost", () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'failed to import public account: account with id 0x0e3b5b2d8a1f4c10000000000000ab not found on the network'
+        )
+      )
+    ).toBe(true);
+  });
+
+  it('does not match a real outage', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error('client error: RPC error: Miden node is unavailable; check that the node is running and reachable')
+      )
+    ).toBe(false);
+  });
+
+  it('does not match another get_account rejection', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+            'code: \'Client specified an invalid argument\', message: "account 0xabc is not public"'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not match a not-found on another endpoint', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'RPC error: grpc request failed for sync_notes: invalid request parameters: note not found at block 9'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not assemble a match from two links of the chain', () => {
+    const inner = new Error('state for account 0xabc not found at block 12');
+    const outer = new Error('RPC error: grpc request failed for get_account: invalid request parameters', {
+      cause: inner
+    });
+    expect(isAccountNotFoundOnChainError(outer)).toBe(false);
+  });
+
+  it('never reads a poisoned client as a miss', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    expect(isAccountNotFoundOnChainError(new WasmClientPoisonedError('realm-error', new Error(NODE_016_MISS)))).toBe(
+      false
+    );
+  });
+
+  it('never reads an error wrapping a poisoned client as a miss (#1313)', () => {
+    expect(isAccountNotFoundOnChainError(underWrapper(NODE_016_MISS))).toBe(true);
+    expect(isAccountNotFoundOnChainError(underWrappedEviction(NODE_016_MISS))).toBe(false);
+  });
+});
+
+describe('someInCauseChain (#1313)', () => {
+  const isTarget = (link: object): boolean => 'name' in link && link.name === 'Target';
+  const target = (): Error => Object.assign(new Error('target'), { name: 'Target' });
+  const throwing = (error: Error, key: 'cause' | 'name'): Error =>
+    Object.defineProperty(error, key, {
+      get() {
+        throw new Error('boom');
+      }
+    });
+
+  it('finds a match three causes deep', () => {
+    const outer = new Error('outer', {
+      cause: new Error('first', { cause: new Error('second', { cause: target() }) })
+    });
+    expect(someInCauseChain(outer, isTarget)).toBe(true);
+  });
+
+  it('ends on a two-link cycle', () => {
+    const a: Error & { cause?: unknown } = new Error('a');
+    const b: Error & { cause?: unknown } = new Error('b');
+    a.cause = b;
+    b.cause = a;
+    expect(someInCauseChain(a, isTarget)).toBe(false);
+  });
+
+  it('stops at a cause getter that throws, keeping what the links before it answered', () => {
+    expect(() => someInCauseChain(throwing(new Error('outer'), 'cause'), isTarget)).not.toThrow();
+    expect(someInCauseChain(throwing(new Error('outer'), 'cause'), isTarget)).toBe(false);
+    expect(someInCauseChain(throwing(target(), 'cause'), isTarget)).toBe(true);
+  });
+
+  it('skips a link the predicate cannot read and still finds a match on its cause', () => {
+    expect(someInCauseChain(throwing(new Error('unreadable', { cause: target() }), 'name'), isTarget)).toBe(true);
+  });
+});
+
+describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const abortedInside = () => new Error('x', { cause: new OperationAbortedError('op-1', 'deadline') });
+  const poisonedInside = () => new Error('x', { cause: new WasmClientPoisonedError('watchdog') });
+
+  it('reads either kill anywhere in the chain as a killed pipeline', () => {
+    expect(isKilledPipeline(abortedInside())).toBe(true);
+    expect(isKilledPipeline(poisonedInside())).toBe(true);
+    expect(isKilledPipeline(new Error('x'))).toBe(false);
+  });
+
+  it('reads only a lock-recovery eviction as a poisoned pipeline', () => {
+    expect(isPoisonedPipeline(abortedInside())).toBe(false);
+    expect(isPoisonedPipeline(poisonedInside())).toBe(true);
+  });
+
+  // MidenClient's text and the inner WebClient's: which one a call meets depends only on when it met the terminate.
+  const TERMINATED = ['Client terminated', 'WebClient terminated'];
+
+  it.each(TERMINATED)('reads a terminated client (%p) as a killed pipeline, bare or wrapped', message => {
+    expect(isKilledPipeline(new Error(message))).toBe(true);
+    expect(isKilledPipeline(new Error('x', { cause: new Error(message) }))).toBe(true);
+  });
+
+  it.each(TERMINATED)('reads a terminated client (%p) as neither a poison nor a realm-intact abort', message => {
+    expect(isPoisonedPipeline(new Error(message))).toBe(false);
+    expect(isRealmIntactAbort(new Error(message))).toBe(false);
+    expect(isRealmIntactAbort(new Error('x', { cause: new Error(message) }))).toBe(false);
+  });
+
+  it('keeps a terminated cause under the landed shape landed, and matches only the exact text', () => {
+    expect(isKilledPipeline(new ApplyAfterSubmitError(new Error('Client terminated')))).toBe(false);
+    expect(isKilledPipeline(new Error("Offscreen call 'x' failed: WebClient terminated"))).toBe(false);
+    expect(isKilledPipeline(new Error('WebClient terminated unexpectedly'))).toBe(false);
+  });
+});
+
+describe('pipelineKillIn', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('returns the same lock-recovery eviction', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(pipelineKillIn(poison)).toBe(poison);
+  });
+
+  it('returns the same offscreen abort', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline');
+    expect(pipelineKillIn(abort)).toBe(abort);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])('returns the same terminated client (%p)', message => {
+    const terminated = new Error(message);
+    expect(pipelineKillIn(terminated)).toBe(terminated);
+  });
+
+  it('returns the inner kill rather than its wrapper', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(pipelineKillIn(new Error('wrapper', { cause: poison }))).toBe(poison);
+  });
+
+  it('returns the first kill when the chain holds more than one', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    const terminated = new Error('Client terminated', { cause: poison });
+    expect(pipelineKillIn(new Error('wrapper', { cause: terminated }))).toBe(terminated);
+  });
+
+  it('skips an unreadable link and still returns the kill in its cause', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    const wrapper = Object.defineProperty(new Error('wrapper', { cause: poison }), 'name', {
+      get() {
+        throw new Error('unreadable');
+      }
+    });
+    expect(pipelineKillIn(wrapper)).toBe(poison);
+  });
+
+  it('returns undefined for an ordinary failure', () => {
+    expect(pipelineKillIn(new Error('boom'))).toBeUndefined();
+  });
+
+  it.each([undefined, null, 'Client terminated', 42])('returns undefined for a non-object (%p)', value => {
+    expect(pipelineKillIn(value)).toBeUndefined();
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])(
+    'keeps a terminated cause (%p) under a landed error landed',
+    message => {
+      expect(pipelineKillIn(new ApplyAfterSubmitError(new Error(message)))).toBeUndefined();
+    }
+  );
+});
+
+describe('isClientTerminatedError and isPipelineKillLink', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('reads the value itself, never its cause or anything that is not an object', () => {
+    expect(isClientTerminatedError(new Error('Client terminated'))).toBe(true);
+    expect(isClientTerminatedError({ message: 'WebClient terminated' })).toBe(true);
+    expect(isClientTerminatedError(new Error('x', { cause: new Error('Client terminated') }))).toBe(false);
+    expect(isClientTerminatedError('WebClient terminated')).toBe(false);
+    expect(isClientTerminatedError(null)).toBe(false);
+    expect(isClientTerminatedError(undefined)).toBe(false);
+  });
+
+  it('answers no for a message accessor that throws', () => {
+    const hostile = Object.defineProperty({}, 'message', {
+      get: () => {
+        throw new Error('trap');
+      }
+    });
+    expect(() => isClientTerminatedError(hostile)).not.toThrow();
+    expect(isClientTerminatedError(hostile)).toBe(false);
+  });
+
+  it('names each kill shape on the value itself, and nothing else', () => {
+    expect(isPipelineKillLink(new WasmClientPoisonedError('watchdog'))).toBe(true);
+    expect(isPipelineKillLink(new OperationAbortedError('op-1', 'deadline'))).toBe(true);
+    expect(isPipelineKillLink(new Error('WebClient terminated'))).toBe(true);
+    expect(isPipelineKillLink(new Error('x', { cause: new Error('WebClient terminated') }))).toBe(false);
+    expect(isPipelineKillLink(new Error('x'))).toBe(false);
+    expect(isPipelineKillLink(null)).toBe(false);
+  });
+});
+
+describe('isRunningPipelineKill', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const poisoned = () => new WasmClientPoisonedError('watchdog');
+  const aborted = () => new OperationAbortedError('op-1', 'deadline');
+
+  it('reads an eviction or an abort as still running, bare or wrapped', () => {
+    expect(isRunningPipelineKill(poisoned())).toBe(true);
+    expect(isRunningPipelineKill(aborted())).toBe(true);
+    expect(isRunningPipelineKill(new Error('x', { cause: poisoned() }))).toBe(true);
+    expect(isRunningPipelineKill(new Error('x', { cause: aborted() }))).toBe(true);
+    expect(isRunningPipelineKill(new Error('x'))).toBe(false);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])(
+    'reads a terminated client (%p) as a kill that is not running, bare or wrapped',
+    message => {
+      expect(isRunningPipelineKill(new Error(message))).toBe(false);
+      expect(isRunningPipelineKill(new Error('x', { cause: new Error(message) }))).toBe(false);
+      expect(isKilledPipeline(new Error('x', { cause: new Error(message) }))).toBe(true);
+    }
+  );
+
+  it('reads a terminated client mixed with an eviction or an abort as running, whichever wraps the other', () => {
+    expect(isRunningPipelineKill(new Error('WebClient terminated', { cause: poisoned() }))).toBe(true);
+    expect(isRunningPipelineKill(new WasmClientPoisonedError('realm-error', new Error('Client terminated')))).toBe(
+      true
+    );
+    const abortOverTerminated = aborted();
+    abortOverTerminated.cause = new Error('WebClient terminated');
+    expect(isRunningPipelineKill(new Error('x', { cause: abortOverTerminated }))).toBe(true);
+  });
+});
+
+const ID = `0x${'ab'.repeat(32)}`;
+const OTHER_ID = `0x${'cd'.repeat(32)}`;
+const indefinite = (id: string = ID) =>
+  `submission of transaction ${id} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
+
+describe('isIndefiniteSubmitOutcomeError (#1081)', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('matches the SDK text, bare or wrapped by the offscreen bus', () => {
+    expect(isIndefiniteSubmitOutcomeError(new Error(indefinite()))).toBe(true);
+    expect(isIndefiniteSubmitOutcomeError(new Error(`Offscreen call 'sendTransaction' failed: ${indefinite()}`))).toBe(
+      true
+    );
+    expect(isIndefiniteSubmitOutcomeError(new Error('wrapper', { cause: new Error(indefinite()) }))).toBe(true);
+    expect(isIndefiniteSubmitOutcomeError(new Error('node refused the proven transaction'))).toBe(false);
+  });
+
+  it('is never a kill, whichever kill shape carries the text in its cause chain', () => {
+    expect(isIndefiniteSubmitOutcomeError(new WasmClientPoisonedError('watchdog', new Error(indefinite())))).toBe(
+      false
+    );
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    aborted.cause = new Error(indefinite());
+    expect(isIndefiniteSubmitOutcomeError(aborted)).toBe(false);
+    expect(isIndefiniteSubmitOutcomeError(new Error('outer', { cause: aborted }))).toBe(false);
+  });
+
+  it('still finds the text under a terminated client, where isIndefiniteSubmitOutcomeError names no outcome', () => {
+    const terminated = new Error(indefinite(), { cause: new Error('WebClient terminated') });
+    expect(isIndefiniteSubmitOutcomeError(terminated)).toBe(false);
+    expect(carriesIndefiniteSubmitOutcome(terminated)).toBe(true);
+    expect(carriesIndefiniteSubmitOutcome(new Error('wrapper', { cause: new Error(indefinite()) }))).toBe(true);
+    expect(carriesIndefiniteSubmitOutcome(new Error('node refused the proven transaction'))).toBe(false);
+  });
+
+  it('reads the id from the part that carries the phrase, lower-cased', () => {
+    expect(indefiniteSubmitTransactionId(new Error(indefinite(ID.toUpperCase().replace('0X', '0x'))))).toBe(ID);
+    // A wrapper naming another id without the phrase does not supply it.
+    const wrapped = new Error(`submission of transaction ${OTHER_ID} failed`, { cause: new Error(indefinite()) });
+    expect(indefiniteSubmitTransactionId(wrapped)).toBe(ID);
+    expect(indefiniteSubmitTransactionId(new Error(`submission of transaction ${ID} failed`))).toBeUndefined();
+    expect(
+      indefiniteSubmitTransactionId(new WasmClientPoisonedError('watchdog', new Error(indefinite())))
+    ).toBeUndefined();
+  });
+});
+
+describe('the errorBeforeSubmit tag (#1081)', () => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('tags an ordinary error in place and reads it back', () => {
+    const error = new Error('vault slot missing');
+    expect(markErrorBeforeSubmit(error)).toBe(error);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+
+  it('wraps a thrown non-object so the tag has somewhere to live', () => {
+    const tagged = markErrorBeforeSubmit('bare string');
+    expect(tagged).toBeInstanceOf(Error);
+    expect(hasErrorBeforeSubmit(tagged)).toBe(true);
+  });
+
+  it('never tags a kill, an apply-after-submit failure or the indefinite outcome', () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    markErrorBeforeSubmit(poison);
+    expect(hasErrorBeforeSubmit(poison)).toBe(false);
+    const landed = Object.assign(new Error('landed'), { errorCode: 'ApplyTransactionAfterSubmitFailed' });
+    markErrorBeforeSubmit(landed);
+    expect(hasErrorBeforeSubmit(landed)).toBe(false);
+    const unknown = new Error(indefinite());
+    markErrorBeforeSubmit(unknown);
+    expect(hasErrorBeforeSubmit(unknown)).toBe(false);
+    const terminated = new Error('WebClient terminated');
+    markErrorBeforeSubmit(terminated);
+    expect(hasErrorBeforeSubmit(terminated)).toBe(false);
+  });
+
+  it('reads the thrown value only: a wrapper around a tagged error is not proof', () => {
+    const inner = markErrorBeforeSubmit(new Error('inner'));
+    expect(hasErrorBeforeSubmit(new Error('outer', { cause: inner }))).toBe(false);
+  });
+
+  it('survives a frozen error and a hostile accessor by answering no', () => {
+    const frozen = Object.freeze(new Error('frozen'));
+    expect(markErrorBeforeSubmit(frozen)).toBe(frozen);
+    expect(hasErrorBeforeSubmit(frozen)).toBe(false);
+    const hostile = new Proxy(
+      {},
+      {
+        has: () => {
+          throw new Error('trap');
+        }
+      }
+    );
+    expect(hasErrorBeforeSubmit(hostile)).toBe(false);
+  });
+});

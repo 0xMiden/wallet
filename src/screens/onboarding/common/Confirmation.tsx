@@ -1,14 +1,21 @@
 import React from 'react';
 
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
+import { Spinner } from 'components/ui/Spinner';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { OnboardingType } from 'screens/onboarding/types';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
 
-export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTMLDivElement> {
+export interface ConfirmationScreenProps {
+  'data-testid'?: string;
   isLoading?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
@@ -19,114 +26,157 @@ export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTML
    * leaving the user on a wiped wallet with no explanation (#630).
    */
   recoveryError?: string | null;
+  recoveryErrorId?: UserErrorId | null;
   /**
-   * Side panel handoff (Chrome): the wallet is being created in the background
-   * before the user opens it. While true, show a spinner instead of the
-   * ready-state success message + button.
+   * Side panel handoff (Chrome): the wallet is being registered (created or
+   * restored) in the background before the user opens it. While true, show a
+   * spinner instead of the ready-state success message + button.
    */
   creating?: boolean;
+  /**
+   * A recovery shows its own "restoring" and "finish restoring" copy; the
+   * create-flow daily reminder is armed only for a create (undefined or `Create`).
+   */
+  onboardingType?: OnboardingType;
   onSubmit?: () => void;
   onSwitchToPassword?: () => void;
 }
 
 export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
-  className,
   isLoading,
   biometricAttempts = 0,
   biometricError,
   recoveryError,
+  recoveryErrorId = 'raw_onboarding_recovery_failed',
   creating = false,
+  onboardingType,
   onSubmit,
   onSwitchToPassword,
-  ...props
+  'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
 
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
   const hasError = !!biometricError && biometricAttempts > 0;
   const hasRecoveryError = !!recoveryError;
+  const isRecovery = onboardingType === OnboardingType.Import;
 
-  // Side-panel handoff (Chrome): the wallet is still being created in the
-  // background. Show a spinner rather than the ready-state success message,
-  // otherwise the user sees "Your wallet is ready" before it actually is.
+  // Side-panel handoff (Chrome): the wallet is still being registered
+  // (created or restored) in the background. Show a spinner rather than the
+  // ready-state success message, otherwise the user sees "Your wallet is
+  // ready" before it actually is.
   if (creating) {
     return (
-      <div className="w-full h-full pt-11.5">
-        <div {...props} className="flex flex-col items-center justify-center h-full gap-y-4 bg-app-bg w-full px-6">
-          <Spinner />
-          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
-        </div>
+      <div
+        data-testid={dataTestId}
+        className="flex h-full w-full flex-col items-center justify-center gap-y-4 bg-app-bg px-4 text-center"
+      >
+        <Spinner />
+        <p className="font-sans text-[15px] leading-[22px] text-muted">
+          {t(isRecovery ? 'restoringYourWallet' : 'creatingYourWallet')}
+        </p>
       </div>
     );
   }
 
-  const primaryButtonTitle = hasError || hasRecoveryError ? t('retry') : t('openWallet');
+  const hasFailure = hasError || hasRecoveryError;
+  const primaryButtonTitle = hasFailure ? t('retry') : t('openWallet');
 
   return (
-    <div {...props} className="bg-app-bg max-w-full h-full overflow-hidden" data-testid="onboarding-confirmation">
-      <div className="min-h-full flex flex-col items-center px-6 pb-8">
-        <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
-          <ConfirmationHero style={{ width: 240, height: 'auto' }} />
-          <h1 className="mt-6 text-5xl font-semibold font-heading text-heading-gray leading-[100%] tracking-tight">
-            <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
-          </h1>
-          {/* TODO: Wrap in a single class and then have child components */}
-          <p className="mt-3 text-lg text-heading-gray leading-[130%] font-medium">
-            {t('recoveryPhraseSevenDayReminder')}
-          </p>
-          <p className="mt-4 text-lg text-heading-gray leading-[130%]" font-medium>
-            {t('recoveryPhraseDailyReminder')}
-          </p>
-
-          {hasRecoveryError && (
-            <div className="mt-4">
-              <p className="text-red-500 text-sm mb-2 select-text" data-testid="onboarding-recovery-error">
-                {recoveryError}
-              </p>
-            </div>
-          )}
-          {hasError && (
-            <div className="mt-4">
-              <p className="text-red-500 text-sm mb-2">{t('biometricFailed')}</p>
-              {!showPasswordFallback && (
-                <p className="text-text-muted text-xs">
-                  {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="w-full flex flex-col items-center gap-y-3 shrink-0">
-          {showPasswordFallback ? (
-            <>
-              <Button
-                tabIndex={0}
-                title={t('continueWithPassword')}
-                className="self-center"
-                onClick={onSwitchToPassword}
-              />
-              <Button
-                tabIndex={0}
-                title={t('tryBiometricAgain')}
-                variant={ButtonVariant.Secondary}
-                className="self-center"
-                onClick={onSubmit}
-                isLoading={isLoading}
-              />
-            </>
-          ) : (
+    <SubPageLayout
+      data-testid={dataTestId ?? 'onboarding-confirmation'}
+      footerLayout="stack"
+      footer={
+        showPasswordFallback ? (
+          <>
             <Button
               tabIndex={0}
-              title={primaryButtonTitle}
-              className="self-center w-full text-base"
+              title={t('continueWithPassword')}
+              className="max-w-none"
+              onClick={onSwitchToPassword}
+              disabled={isLoading}
+            />
+            <Button
+              tabIndex={0}
+              title={t('tryBiometricAgain')}
+              variant={ButtonVariant.Secondary}
+              className="max-w-none"
               onClick={onSubmit}
               isLoading={isLoading}
-              data-testid="onboarding-confirmation-submit"
+              disabled={isLoading}
             />
-          )}
-        </div>
+          </>
+        ) : (
+          <Button
+            tabIndex={0}
+            title={primaryButtonTitle}
+            className="max-w-none"
+            onClick={onSubmit}
+            isLoading={isLoading}
+            disabled={isLoading}
+            data-testid="onboarding-confirmation-submit"
+          />
+        )
+      }
+    >
+      {/* Every line of the screen is Nunito: the body styles that read `--font-sans` resolve to the
+          heading face here. */}
+      {/* Bottom-weighted padding lifts the centred block above true centre, so it doesn't read as sitting low. */}
+      <div className="my-auto flex flex-col items-center gap-4 pt-6 pb-24 text-center face-heading">
+        <Hero
+          nameAs="h1"
+          nameSize="lg"
+          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[280px]" />}
+          name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
+          subtitle={
+            hasFailure ? undefined : (
+              // Held to a readable measure and balanced, so the sentence breaks into two even lines.
+              <span className="mx-auto block max-w-[320px] text-body font-semibold text-balance">
+                {t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder')}
+              </span>
+            )
+          }
+        />
+        {/* The daily reminder only makes sense for a create: a recovery isn't newly generated, so there's nothing to remind about. */}
+        {!hasFailure && !isRecovery && (
+          <p
+            className="flex max-w-[320px] items-start justify-center gap-1.5 text-explainer font-semibold text-muted"
+            data-testid="onboarding-confirmation-reminder"
+          >
+            <Icon name={IconName.Calendar} size="xs" className="mt-px shrink-0" />
+            <span className="text-balance">{t('recoveryPhraseDailyReminder')}</span>
+          </p>
+        )}
+
+        {hasFailure && (
+          // E2E drivers read a failed attempt here. Retry keeps the submit id, which passImportConfirmation relies on.
+          <Notice
+            errorId={hasRecoveryError ? recoveryErrorId : 'biometricFailed'}
+            tone="negative"
+            role="alert"
+            className="text-left"
+            data-testid="onboarding-confirmation-failed"
+          >
+            <span className="flex flex-col gap-1">
+              {hasRecoveryError && (
+                <span className="select-text" data-testid="onboarding-recovery-error">
+                  {recoveryError}
+                </span>
+              )}
+              {hasError && (
+                <>
+                  <span>{t('biometricFailed')}</span>
+                  {!showPasswordFallback && (
+                    <span className="text-muted">
+                      {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+          </Notice>
+        )}
       </div>
-    </div>
+    </SubPageLayout>
   );
 };

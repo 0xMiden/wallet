@@ -5,10 +5,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
+import { usePromptSlideActive } from 'components/ui/prompt-slide-active';
 import { useAccount } from 'lib/miden/front';
+import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 interface Props {
   className?: string;
@@ -30,10 +34,12 @@ interface Props {
 export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
   const { t } = useTranslation();
   const account = useAccount();
+  const slideActive = usePromptSlideActive();
   const applyUserGuardianEndpoint = useWalletStore(s => s.applyUserGuardianEndpoint);
   const [urlInput, setUrlInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
 
   // No `submitting`-guard here: the submit `Button` below is `disabled` while
   // submitting, which already makes this unreachable while a request is in
@@ -44,28 +50,69 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
     const sanitized = sanitizeGuardianUrl(urlInput);
     if (!isValidGuardianUrl(sanitized)) {
       setError(t('invalidUrl'));
+      setErrorId('invalidUrl');
       return;
     }
 
     setSubmitting(true);
     setError(null);
     try {
-      const applied = await applyUserGuardianEndpoint(account.publicKey, sanitized);
-      if (!applied) {
+      // Only `'mismatch'` is evidence against the URL the user just typed. An
+      // operator that never answered — cold-starting, self-hosted, briefly down
+      // — is indistinguishable from a correct URL, and telling that user they
+      // named the wrong operator sends them away from the one prompt that can
+      // repair this account. `'no-onchain-guardian'` is not about the URL at
+      // all: the account has no guardian commitment to check anything against.
+      const outcome = await applyUserGuardianEndpoint(account.publicKey, sanitized);
+      if (outcome === 'mismatch') {
         setError(t('guardianUrlMismatch'));
+        setErrorId('guardianUrlMismatch');
+      } else if (outcome === 'unreachable') {
+        setError(t('guardianUrlUnreachable'));
+        setErrorId('guardianUrlUnreachable');
+      } else if (outcome === 'no-onchain-guardian') {
+        setError(t('guardianUrlNoOnChainGuardian'));
+        setErrorId('guardianUrlNoOnChainGuardian');
+      } else if (outcome === 'stale') {
+        // The account's guardian binding changed while the URL was being
+        // verified (a rotation landed, or drift repaired it first). Nothing is
+        // wrong with what the user typed - the evidence just describes a
+        // guardian the account no longer has, so ask for one retry.
+        setError(t('guardianUrlStaleRetry'));
+        setErrorId('guardianUrlStaleRetry');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setErrorId(
+        (typeof e === 'object' && e !== null && 'message' in e && typeof e.message === 'string') ||
+          typeof e === 'string'
+          ? 'raw_guardian_url_save_failed'
+          : 'smthWentWrong'
+      );
+      // Shape-based, then localized — same reasoning as RotateGuardianReview's
+      // catch. `applyUserGuardianEndpoint` crosses the intercom boundary, which
+      // may serialize the rejection and drop its prototype: an `instanceof Error`
+      // gate sends a perfectly good `message` to `String(e)`, and a rejection
+      // with no message at all renders "[object Object]" into the one line the
+      // user has to work out why their recovery attempt failed.
+      setError(
+        typeof e === 'object' && e !== null && 'message' in e && typeof e.message === 'string'
+          ? e.message
+          : typeof e === 'string'
+            ? e
+            : t('smthWentWrong')
+      );
     } finally {
       setSubmitting(false);
     }
   }, [account.publicKey, applyUserGuardianEndpoint, t, urlInput]);
 
-  if (account.guardianSyncStatus !== 'needs-user-input') return null;
+  useUserVisibleError(slideActive && isGuardianDrifted(account) && error ? errorId : null, 'inline');
+
+  if (!isGuardianDrifted(account)) return null;
 
   return (
-    <div className={classNames('w-full bg-surface-input rounded-10 flex flex-col gap-3 px-4 py-3', className)}>
-      <div className="text-black">
+    <div className={classNames('w-full bg-fill rounded-10 flex flex-col gap-3 px-4 py-3', className)}>
+      <div className="text-ink">
         <div className="text-base font-bold font-heading leading-tight">{t('guardianChangedTitle')}</div>
         <div className="text-xs font-normal mt-1">{t('guardianChangedBody')}</div>
       </div>
@@ -84,13 +131,16 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
         }}
         onChange={event => setUrlInput(event.target.value)}
       />
-      {error && <p className="text-red-500 text-xs wrap-break-word">{error}</p>}
-      <Button
-        title={submitting ? t('loading') : t('continue')}
-        onClick={onSubmit}
-        disabled={submitting}
-        className="h-10"
-      />
+      {/* `role="alert"` because this line is the only feedback the recovery path
+          has, and it appears AFTER a submit rather than being present at render:
+          without a live region a screen-reader user gets silence and a button
+          that just re-enabled itself. Matches the rotate-review error block. */}
+      {error && (
+        <p role="alert" className="text-red-500 text-xs wrap-break-word">
+          {error}
+        </p>
+      )}
+      <Button size="sm" title={submitting ? t('loading') : t('continue')} onClick={onSubmit} disabled={submitting} />
     </div>
   );
 };

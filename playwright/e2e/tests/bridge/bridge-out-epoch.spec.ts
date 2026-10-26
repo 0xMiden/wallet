@@ -16,36 +16,35 @@ import { newEvmDestination, sepoliaPublicClient, usdcBalanceOf, waitForUsdcAbove
  * reachability (Miden testnet + the hosted Epoch allocator/solver + a Sepolia
  * RPC), so this suite is testnet/nightly, not a per-PR gate.
  */
-// BLOCKED on an external dependency — re-enable when it is resolved (#627).
+// Opt-in, because it spends a real solver fill and cannot be made hermetic:
+// `yarn e2e:real --suite bridge-out-epoch`, which preflights the solver and sets
+// E2E_REAL_EPOCH. Deliberately out of the unattended main run - a third party
+// declining to quote should not red `main`.
 //
-// The Epoch solver stopped quoting this pair on 2026-08-12. It answers 200 OK and
-// DECLINES: `{"success":false,"error":"A quote isn't available for this intent",
-// "code":"NO_QUOTE_AVAILABLE"}` from POST /checkIfDepositNeeded.
+// The history explains the gate rather than the skip. This was `describe.skip`
+// from 2026-08-13 to 2026-09-18 (#627, #628): Epoch's solver had begun answering
+// 200 OK with `{"success":false,"code":"NO_QUOTE_AVAILABLE"}` from POST
+// /checkIfDepositNeeded for the throwaway `BRDG` faucet this spec mints, and the
+// reading then was that quoting had been restricted to the tokens in Epoch's
+// `testnetGraph` registry (USDC/DAI/USDT/WETH/WBTC/MIDEN on Miden).
 //
-// This is NOT a wallet regression, and that was established rather than assumed:
-// re-running the last green commit (8d82252d, passed 2026-08-12 10:20) against
-// today's environment reproduces the identical failure, so the same bytes pass
-// then and fail now.
+// That no longer reproduces, and the registry reading looks wrong: the allocator
+// prices an intent from its MANDATE, whose `tokenIn` is the zero address for a
+// Miden-sourced leg, so the quote is driven by `tokenOut` and an arbitrary
+// `midenFaucetId` prices identically to a registry one. Re-probed 2026-09-18
+// against testnet-dev.epochprotocol.xyz: 1.0 in -> 0.9917 USDC out via
+// FillerSwapAndBridge, for both the registry USDC faucet and a made-up id.
 //
-// Why: this spec mints a THROWAWAY faucet (`BRDG`) per run, and Epoch's shipped
-// token registry (`testnetGraph` in @epoch-protocol/epoch-commons-sdk, and their
-// "Supported Chains & Tokens" docs) lists only USDC/DAI/USDT/WETH/WBTC/MIDEN on
-// Miden. `BRDG` was never in it. The most consistent reading is that quoting used
-// to accept arbitrary Miden faucets and is now restricted to that set.
-//
-// Un-skipping needs a token the solver actually prices — i.e. a Miden testnet
-// balance of a registry token (e.g. USDC faucet 0xfc90f0f4da30e51168453b60eafed7),
-// sourced from `testnetGraph` rather than hardcoded. Neither Epoch's SDK, their
-// API (/faucet, /mint, /tokens all 404), nor our own faucet-api (single fixed
-// token, no faucet-id parameter) can mint it, so it needs Epoch to fund or drip.
-//
-// Coverage is NOT lost meanwhile: the same bridge-OUT flow runs on every PR
-// against the hermetic FakeEpochAllocator (`pr-e2e-bridge-guardian.yml`,
-// EPOCH_ALLOCATOR_URL=127.0.0.1:8548 → bridge-out-epoch-guardian.spec.ts). What
-// is paused is only the LIVE-solver assertion. `bridge-out-agglayer.spec.ts` is
-// unaffected and still guards the other route on main.
-test.describe.skip('bridge-out Miden to Sepolia (Fast Epoch)', () => {
+// A quote is not a fill, and the fill is what this spec exists to prove - so the
+// runner re-probes the quote before every run, which is what tells a service
+// decline apart from a wallet regression without burning the full 15 minutes.
+test.describe('bridge-out Miden to Sepolia (Fast Epoch)', () => {
   test.describe.configure({ mode: 'serial' });
+
+  test.skip(
+    process.env.E2E_REAL_EPOCH !== 'true',
+    'live-solver run: opt in with `yarn e2e:real --suite bridge-out-epoch` (spends a real Epoch fill)'
+  );
 
   const TOKEN_SYMBOL = 'BRDG';
   const BRIDGE_AMOUNT = '1'; // ~1 USDC out — a small, liquidity-friendly solver fill

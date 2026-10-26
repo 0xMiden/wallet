@@ -4,13 +4,21 @@ import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 import CSSTransition from 'react-transition-group/CSSTransition';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { getTokenPrice } from 'lib/prices';
+import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 
+/** The valued total's move over 24 hours, in dollars and as a percentage of where it started. */
+export interface BalanceChange {
+  absolute: number;
+  percentage: number;
+}
+
 type BalanceProps = {
-  children: (b: BigNumber) => ReactElement;
+  /** The fiat total, or null when the account holds tokens and none can be valued (unquoted or of unknown scale). */
+  children: (b: BigNumber | null, change: BalanceChange | null) => ReactElement;
 };
 
 const Balance = memo<BalanceProps>(({ children }) => {
@@ -18,20 +26,25 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const { isHidden } = useHiddenTokens(account.publicKey);
 
   return useMemo(() => {
-    // A token whose decimals were never resolved contributes a `balance` that was
-    // divided by the placeholder's guessed 6, so it can be off by a factor of a
-    // trillion. Folding that into the portfolio total does not make the total
-    // partly wrong — it makes it meaningless, and unlike a single row there is no
-    // way for the user to see which asset spoiled it. Leaving such an asset out
-    // understates the total; including it can invent one.
-    const totalFiat = allTokenBalances.reduce((sum, token) => {
-      if (!hasKnownScale(token.metadata)) return sum;
-      const { price } = getTokenPrice(tokenPrices, token.metadata.symbol);
-      return sum + token.balance * price;
-    }, 0);
-    const childNode = children(new BigNumber(totalFiat));
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
+    // The card sums what Home lists, and a hidden token is not listed (#813). What counts and what is left out is
+    // `valuedBalanceTotal`'s rule, shared with the bridge-in ceiling.
+    const { totalFiat, previousFiat, holdsAnything, valuedAnything } = valuedBalanceTotal(
+      allTokenBalances,
+      tokenPrices,
+      isHidden
+    );
+    // No change to show without a valued total, or from a starting value of zero.
+    const change =
+      valuedAnything && previousFiat > 0
+        ? { absolute: totalFiat - previousFiat, percentage: ((totalFiat - previousFiat) / previousFiat) * 100 }
+        : null;
+    const childNode = children(holdsAnything && !valuedAnything ? null : new BigNumber(totalFiat), change);
     const exist = true;
 
     return (
@@ -49,7 +62,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
         })}
       </CSSTransition>
     );
-  }, [children, allTokenBalances, tokenPrices]);
+  }, [children, allTokenBalances, isHidden, tokenPrices, bridgeConfig]);
 });
 
 export default Balance;

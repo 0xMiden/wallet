@@ -1,14 +1,19 @@
 import * as React from 'react';
-import { createContext, useCallback, useContext } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
+import { HeaderRule } from 'components/ui/HeaderRule';
+import { IconButton } from 'components/ui/IconButton';
+import { installSheetKeyframes, sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
+import { HOST_MODAL_LAYER, useImperativeModalFocus } from './host-modal';
 import { cn } from './util';
 
 interface DrawerContextValue {
@@ -19,6 +24,8 @@ interface DrawerContextValue {
 const DrawerContext = createContext<DrawerContextValue>({ open: false, onClose: () => {} });
 
 interface DrawerProps {
+  /** A sheet opened inside an existing Drawer uses Vaul's coordinated nested root. */
+  nested?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
@@ -28,22 +35,76 @@ interface DrawerProps {
    * captured, just without a per-drawer label. E2E-only; no visual effect.
    */
   screenKey?: string;
+  /**
+   * `false` makes the sheet close only when the caller sets `open` to false: no drag down, press
+   * outside or Escape closes it on its own. Callers that want Escape handle it on `DrawerContent`.
+   */
+  dismissible?: boolean;
+  /**
+   * Skip vaul's Safari body pin and its black body paint on open. vaul keeps the pinned body's
+   * previous position in one module-level slot and restores it when ANY sheet closes, so a sheet
+   * opened over another sheet passes this to leave the pin of the one beneath in place. That pin
+   * is all it protects: vaul's scale cleanup (`useScaleBackground`) still resets
+   * `body.style.background` 500ms after this sheet closes, with no `noBodyStyles` guard, so on the
+   * extension a sheet closing over an open drawer still clears that drawer's black background.
+   */
+  noBodyStyles?: boolean;
+  /**
+   * Mobile back closes an open sheet, ahead of any page handler. `false` for a sheet its host's page
+   * handler closes instead (the send and swap pickers, which that handler guards); a sheet that is not
+   * dismissible never closes on back by itself either.
+   */
+  closeOnBack?: boolean;
 }
 
-function Drawer({ open = false, onOpenChange, children, screenKey }: DrawerProps) {
+/** Mounted only while an open sheet closes on back, so it registers on top and unregisters on close. */
+function CloseOnBack({ close }: { close: () => void }) {
+  useCloseOnBack(true, close);
+  return null;
+}
+
+export const useIsInDrawer = () => useContext(DrawerContext).open;
+
+function Drawer({
+  nested = false,
+  open = false,
+  onOpenChange,
+  children,
+  screenKey,
+  dismissible,
+  noBodyStyles,
+  closeOnBack = true
+}: DrawerProps) {
+  const Root = nested ? VaulDrawer.NestedRoot : VaulDrawer.Root;
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
+  // Layout, not passive: the sheet's animation must find its @keyframes on the first style pass.
+  useLayoutEffect(() => installSheetKeyframes(), []);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
+      {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
+      <Root
+        open={open}
+        autoFocus
+        onOpenChange={onOpenChange}
+        shouldScaleBackground={isExtension()}
+        direction="bottom"
+        dismissible={dismissible}
+        noBodyStyles={noBodyStyles}
+      >
         {children}
-      </VaulDrawer.Root>
+      </Root>
     </DrawerContext.Provider>
   );
 }
 
+/**
+ * The sheet itself. It must never clip (`overflow-hidden` on it): the open spring overshoots, and
+ * vaul's `::after` skirt under the sheet fills the gap only while the sheet does not cut it off. A
+ * sheet whose content outgrows the cap scrolls an inner `min-h-0` column instead.
+ */
 interface DrawerContentProps extends Omit<
   React.ComponentPropsWithoutRef<typeof VaulDrawer.Content>,
   'children' | 'className'
@@ -57,19 +118,19 @@ interface DrawerContentProps extends Omit<
 }
 
 /**
- * Was the press that Radix is calling "outside the drawer" actually inside the
- * confirmation/alert dialog stacked ABOVE it?
- *
- * react-modal portals into a `div.ReactModalPortal` on <body>, outside the
- * drawer's subtree, so Radix reads a click on the dialog as an outside
- * interaction and dismisses the drawer — pulling it closed underneath the very
- * question it is still asking. Radix dispatches its outside-event on the element
- * that was actually pressed, so the original event's target identifies the
- * dialog.
+ * Rendered inside a closed sheet, which stays on the page only through its exit animation. Its
+ * capture listener records each press there before Radix's bubble-phase one holds it as outside, and
+ * it is a layout effect so no press between the closing commit and a passive flush goes unrecorded.
  */
-function isPressInsideModalPortal(event: { detail: { originalEvent: Event } }): boolean {
-  const target = event.detail.originalEvent.target;
-  return target instanceof Element && target.closest('.ReactModalPortal') !== null;
+function ClosingPressRecorder({ pressRef }: { pressRef: React.MutableRefObject<PointerEvent | null> }) {
+  useLayoutEffect(() => {
+    const record = (event: PointerEvent) => {
+      pressRef.current = event;
+    };
+    document.addEventListener('pointerdown', record, true);
+    return () => document.removeEventListener('pointerdown', record, true);
+  }, [pressRef]);
+  return null;
 }
 
 function DrawerContent({
@@ -77,38 +138,69 @@ function DrawerContent({
   overlayClassName,
   children,
   hideHandle = true,
+  forceMount,
+  style,
   onPointerDownOutside,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: DrawerContentProps) {
+  const { open } = useContext(DrawerContext);
+  const focus = useImperativeModalFocus();
+  // Radix holds a press outside the sheet until its click, and a closing sheet still holds one: when
+  // that click reopens this sheet (the swap's two pills share one picker), the held dismissal closes it
+  // again. A press that began while the sheet was closed is never a press outside the open sheet.
+  const closingPress = useRef<PointerEvent | null>(null);
+  // Once dismissed, the sheet and its `fixed inset-0` overlay stay mounted through the 500ms exit and
+  // would swallow the tap aimed at what they uncover, so they stop taking pointer events. It must be an
+  // inline style spread last: Radix writes inline `pointer-events: auto` on the overlay and on the
+  // content's dismissable layer, and an inline declaration outranks any class.
+  const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
+
   return (
-    <VaulDrawer.Portal>
+    <VaulDrawer.Portal forceMount={forceMount}>
+      {/* A plain scrim, one token in both themes: dimming the page is the whole job, and a frosted
+          blur over it only smears whatever is underneath. */}
       <VaulDrawer.Overlay
-        className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
+        style={{ ...sheetMotionVars, ...inertWhileClosing }}
+        className={cn('fixed inset-0 bg-scrim', HOST_MODAL_LAYER, overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
+        // The tab-bar springs: the durations and easings `main.css` reads off these elements.
+        style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
+        onOpenAutoFocus={event => {
+          focus.remember();
+          onOpenAutoFocus?.(event);
+        }}
+        onCloseAutoFocus={event => {
+          onCloseAutoFocus?.(event);
+          if (!event.defaultPrevented) focus.restore(event);
+        }}
+        onPointerDownOutside={event => {
+          onPointerDownOutside?.(event);
+          if (event.detail.originalEvent === closingPress.current) event.preventDefault();
+        }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
           // Android nav bar / iOS home indicator AND the iOS soft keyboard
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
-          // (env() and the var are 0 on extension/Android). The transition runs
-          // in sync with the native keyboard slide.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
-          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
+          // (env() and the var are 0 on extension/Android). The padding snaps:
+          // only the transform transitions, so main.css's sheet spring, which
+          // lands on every transitioned property, never animates the inset.
+          'fixed inset-x-0 bottom-0 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
+          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
+          HOST_MODAL_LAYER,
           className
         )}
-        onPointerDownOutside={event => {
-          onPointerDownOutside?.(event);
-          // vaul dismisses only if this event comes back un-prevented.
-          if (isPressInsideModalPortal(event)) event.preventDefault();
-        }}
         {...props}
       >
+        {!open && <ClosingPressRecorder pressRef={closingPress} />}
         {!hideHandle && (
           <div className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing">
-            <VaulDrawer.Handle className="h-0.5 w-10 shrink-0 rounded-full bg-primary-500 opacity-100" />
+            <VaulDrawer.Handle className="h-[5px] w-9 shrink-0 rounded-full bg-fill-pressed opacity-100" />
           </div>
         )}
         {children}
@@ -118,28 +210,25 @@ function DrawerContent({
 }
 
 /**
- * Drawer header / top bar: a large left-aligned title (via `DrawerTitle`, 28px
- * semibold) with a circular close button on the right, a bottom divider, and a
- * 16px gap to the content below (`mb-4`). The handle-less default closes through
- * this button — it reads `onClose` from the drawer context, so no extra wiring.
- * Children render in a column on the left (title + optional `DrawerDescription`).
+ * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` and the 32px
+ * circular close on the right, on the 16px sheet margin, then the `HeaderRule` a page header ends
+ * with, so a sheet opens the way a tab root does: its title at the tab title's size. A `DrawerDescription` goes under the header, not
+ * in it: the row centres the close on its content, so a paragraph beside it pushed the close off
+ * the title's line. The close reads `onClose` from the drawer
+ * context, so the handle-less default needs no extra wiring.
  */
 function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const { onClose } = useContext(DrawerContext);
   return (
-    <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
-      <div className="flex w-full items-center justify-between gap-3 p-4">
-        <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t('close')}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100"
-        >
-          <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-heading-gray" />
-        </button>
+    <div data-slot="drawer-header" className={cn('w-full shrink-0 px-4 pt-5 pb-3', className)}>
+      <div className="flex items-center justify-between gap-3 pb-2">
+        {/* A title in the header takes the tab title's size; a `DrawerTitle` outside it (an
+            `AlertSheet`'s question) keeps its own. */}
+        <div className="flex min-w-0 flex-col gap-0.5 [&>[data-slot=drawer-title]]:text-title-tab">{children}</div>
+        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
       </div>
+      <HeaderRule />
     </div>
   );
 }
@@ -152,7 +241,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-3xl font-bold font-heading leading-none text-heading-gray', className)}
+      className={cn('text-left text-title-section text-ink', className)}
       {...props}
     >
       {children}
@@ -164,7 +253,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-sm text-text-muted', className)}
+      className={cn('px-4 pb-2 text-caption-heading text-muted', className)}
       {...props}
     />
   );

@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import ContentContainer from 'app/layouts/ContentContainer';
 import { Button, ButtonVariant } from 'components/Button';
 import { useStorage } from 'lib/miden/front';
+import { MidenSharedStorageKey } from 'lib/miden/types';
 
 import { changelogData, ChangelogItem } from './ChangelogOverlay.data';
 import s from './ChangelogOverlay.module.css';
@@ -18,12 +19,13 @@ export const ChangelogOverlay: FC = () => {
   const { t } = useTranslation();
   const { compact } = useAppEnv();
   const [lastShownVersion, setLastShownVersion] = useStorage<string | undefined | null>(
-    `last_shown_changelog_version`,
+    MidenSharedStorageKey.LastShownChangelogVersion,
     '1.14.8'
   );
 
+  // On a failed save the cache keeps the old version, so the overlay stays and Continue can save again.
   const handleContinue = () => {
-    setLastShownVersion(currentVersion);
+    void setLastShownVersion(currentVersion).catch(() => {});
   };
   const compactClassName = compact ? 'inset-0' : 'top-1/2 left-1/2 transform -translate-y-1/2 -translate-x-1/2 p-12';
 
@@ -36,7 +38,9 @@ export const ChangelogOverlay: FC = () => {
   return lastShownVersion !== currentVersion ? (
     <>
       <div
-        className={'fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 z-50'}
+        className={
+          'fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 [backdrop-filter:blur(24px)_saturate(1.5)] [-webkit-backdrop-filter:blur(24px)_saturate(1.5)] z-50'
+        }
       ></div>
       <ContentContainer className={classNames('fixed z-50', 'max-h-full', compactClassName)} padding={!compact}>
         <div

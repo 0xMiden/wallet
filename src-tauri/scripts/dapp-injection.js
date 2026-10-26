@@ -1,23 +1,66 @@
 /**
  * dApp Browser Injection Script
  *
- * This script is injected into all pages loaded in the dApp browser window.
- * It provides:
+ * Runs at document start in the dApp browser window, and takes effect only in the
+ * TOP-LEVEL document (see the frame check below). It provides:
  * 1. A toolbar with navigation controls (back, forward, refresh, close)
  * 2. window.midenWallet API for dApps to interact with the wallet
  *
- * Communication with Tauri uses window.location.hash changes which are
- * intercepted by the on_navigation handler.
+ * Communication with Tauri is a hidden iframe navigated to
+ * `https://miden-wallet-request/<base64>`, which the `on_navigation` handler
+ * intercepts and cancels; responses arrive by the wallet window calling
+ * `window.__midenWalletResponse` through the `dapp_wallet_response` command.
  */
 (function() {
   'use strict';
+
+  // SECURITY: per-window bridge token, prepended to this script by
+  // `dapp_browser::injection_script_with_token`. Rust drops any wallet request that
+  // does not carry it, which is what stops an embedded third-party frame (an ad
+  // slot, a chat widget, a compromised CDN script) from navigating itself to
+  // `https://miden-wallet-request/…` and having the request attributed to the
+  // TOP-LEVEL dApp's origin and approved session — `on_navigation` fires for
+  // sub-frame navigations and is handed only a URL, so it cannot tell them apart.
+  //
+  // This runs FIRST, before the top-frame check below, because initialization
+  // scripts execute at document-start ahead of every page script: reading the token
+  // into this closure and removing the global here means no script in this document
+  // can ever observe it, in ANY frame. That matters because Tauri injects with
+  // `for_main_frame_only: true` — WebKit-enforced on macOS/WKWebView and
+  // Linux/WebKitGTK — but wry documents that "Windows: scripts are always added to
+  // subframes regardless of the `for_main_frame_only` option", so on WebView2 this
+  // script DOES run in sub-frames and must deny them the token itself.
+  const BRIDGE_TOKEN = globalThis.__MIDEN_BRIDGE_TOKEN__ || '';
+  try {
+    delete globalThis.__MIDEN_BRIDGE_TOKEN__;
+  } catch (e) {
+    globalThis.__MIDEN_BRIDGE_TOKEN__ = undefined;
+  }
+
+  // Only the top-level document gets a wallet bridge (and a toolbar). A sub-frame
+  // that reaches this point on Windows leaves with neither the token nor
+  // `window.midenWallet`. `window.top`/`window.self` are read here, at document
+  // start, before any page script could redefine them.
+  if (window.top !== window.self) return;
 
   // Prevent multiple injections
   if (window.__midenInjected) return;
   window.__midenInjected = true;
 
+  // Desktop has neither presentation nor auth; a page detects Bread by window.bread and each capability by its presence.
+  // Writable and configurable, so a page's own top-level `bread` replaces the marker instead of throwing or being ignored.
+  try {
+    Object.defineProperty(window, 'bread', { value: Object.freeze({}), writable: true, configurable: true });
+  } catch (e) {
+    // An earlier non-configurable `bread`, from another injector, is left in place; the wallet bridge still installs.
+  }
+
   // Pending requests waiting for responses
   const pendingRequests = new Map();
+  // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
+  // match an answer meant for the one before it (#1416).
+  const requestPrefix =
+    'req_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('') + '_';
   let requestId = 0;
 
   // Store original hash to restore after signaling
@@ -25,6 +68,56 @@
 
   // Debug: expose pendingRequests for troubleshooting
   window.__midenPendingRequests = pendingRequests;
+
+  // The extension's provider errors (lib/adapter/client.ts), so a refusal reads the same on every provider.
+  class MidenWalletError {
+    constructor() {
+      this.name = 'MidenWalletError';
+      this.message = 'An unknown error occured. Please try again or report it';
+    }
+  }
+  class NotGrantedMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotGrantedMidenWalletError';
+      this.message = 'Permission Not Granted';
+    }
+  }
+  class NotFoundMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotFoundMidenWalletError';
+      this.message = 'Account Not Found. Try connect again';
+    }
+  }
+  class InvalidParamsMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'InvalidParamsMidenWalletError';
+      this.message = 'Some of the parameters you provided are invalid';
+    }
+  }
+  function createError(value) {
+    const message = Array.isArray(value)
+      ? typeof value[0] === 'string'
+        ? value[0]
+        : String(value[0])
+      : typeof value === 'string'
+        ? value
+        : value && typeof value === 'object' && typeof value.message === 'string'
+          ? value.message
+          : undefined;
+    const has = code => value === code || (typeof message === 'string' && message.includes(code));
+    const error = has('NOT_GRANTED')
+      ? new NotGrantedMidenWalletError()
+      : has('NOT_FOUND')
+        ? new NotFoundMidenWalletError()
+        : has('INVALID_PARAMS')
+          ? new InvalidParamsMidenWalletError()
+          : new MidenWalletError();
+    if (message) error.message = message;
+    return error;
+  }
 
   // Function for Tauri to call to send responses
   window.__midenWalletResponse = function(responseStr) {
@@ -40,7 +133,7 @@
       pendingRequests.delete(reqId);
 
       if (type === 'MIDEN_PAGE_ERROR_RESPONSE' || error) {
-        pending.reject(new Error(error || payload || 'Unknown error'));
+        pending.reject(createError(error || payload || 'Unknown error'));
       } else {
         pending.resolve(payload);
       }
@@ -78,13 +171,16 @@
   // Send a request to the wallet
   function request(payload) {
     return new Promise((resolve, reject) => {
-      const reqId = 'req_' + ++requestId;
+      const reqId = requestPrefix + ++requestId;
       pendingRequests.set(reqId, { resolve, reject });
 
       const message = {
         type: 'MIDEN_PAGE_REQUEST',
         payload,
-        reqId
+        reqId,
+        // Authenticates this as a main-frame bridge request; Rust strips it before
+        // the request reaches the wallet window.
+        token: BRIDGE_TOKEN
       };
 
       sendToWallet(message);
@@ -99,8 +195,53 @@
     });
   }
 
+  // Follows the wallet's current account after connect (#174), the way the extension's window
+  // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
+  // settles, so a slow answer never stacks polls; only disconnect() stops it.
+  const PERMISSION_POLL_MS = 10000;
+  let stopPermissionWatch = function() {};
+  // disconnect() counts itself before its request; a connect() it overlaps then rejects and starts no watch (#1227).
+  let disconnects = 0;
+
+  // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
+  // sees is a key that cannot be decoded, before any field changes.
+  function watchPermission(wallet) {
+    stopPermissionWatch();
+    let stopped = false;
+    let timer;
+    const tick = async function() {
+      try {
+        const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
+        const hasPermission = res && typeof res === 'object' && 'permission' in res;
+        if (!stopped && hasPermission) {
+          // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
+          const account = res.permission === null ? undefined : res.permission.address;
+          if (account !== wallet.address) wallet._applyPermission(res.permission);
+        }
+      } catch (e) {
+        // A refused or timed-out poll, or a key that cannot be decoded, leaves the account as it was; the next one asks again.
+      }
+      if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
+    };
+    timer = setTimeout(tick, PERMISSION_POLL_MS);
+    stopPermissionWatch = function() {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+
   function injectToolbar() {
-    // Create toolbar container
+    // SECURITY: this toolbar is ordinary DOM inside the dApp's own document, and
+    // this script runs in the page's main world — so the page can rewrite, restyle
+    // or remove anything here. It therefore carries NAVIGATION ACTIONS ONLY and
+    // must never display the address the user is on: a `#miden-url` div used to sit
+    // here, and one line of page script (`document.getElementById('miden-url')
+    // .textContent = 'app.uniswap.org'`, re-applied from a MutationObserver) made
+    // the wallet's own chrome vouch for any hostname the page chose. The real
+    // origin is now shown in the OS window title, which Rust sets from
+    // `dapp_request_origin` on every page load (see `dapp_browser.rs`) and the page
+    // cannot reach. Do not "defend" an injected URL element instead — the page runs
+    // in the same realm and wins every such race.
     const toolbar = document.createElement('div');
     toolbar.id = 'miden-dapp-toolbar';
     toolbar.innerHTML = `
@@ -120,7 +261,6 @@
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
         </svg>
       </button>
-      <div id="miden-url">${window.location.hostname}</div>
       <button id="miden-close" title="Close" aria-label="Close browser">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -166,20 +306,6 @@
       #miden-dapp-toolbar button:active {
         background: rgba(255,255,255,0.15);
         transform: scale(0.95);
-      }
-      #miden-url {
-        flex: 1;
-        background: rgba(0,0,0,0.3);
-        border: 1px solid #3a3a3a;
-        border-radius: 6px;
-        padding: 6px 12px;
-        color: #888;
-        font-size: 13px;
-        text-align: center;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin: 0 8px;
       }
       #miden-close {
         margin-left: auto;
@@ -239,6 +365,7 @@
       }
 
       async connect(privateDataPermission, network, allowedPrivateData) {
+        const disconnectsBefore = disconnects;
         const res = await request({
           type: 'PERMISSION_REQUEST',
           appMeta: { name: window.location.hostname },
@@ -247,11 +374,21 @@
           network,
           allowedPrivateData,
         });
+        if (disconnects !== disconnectsBefore) throw new Error('The wallet was disconnected while connecting');
+
+        // The key is decoded before any field is set, as the mobile connect does, so a key that cannot be decoded
+        // leaves the provider, and any watch already running, as it was.
+        let publicKey;
+        try {
+          publicKey = res.publicKey ? base64ToUint8Array(res.publicKey) : undefined;
+        } catch (e) {
+          throw new Error('Invalid publicKey in wallet response');
+        }
 
         // Set public properties matching MidenWindowObject
         this.address = res.accountId;
         this.network = network;
-        this.publicKey = res.publicKey ? base64ToUint8Array(res.publicKey) : undefined;
+        this.publicKey = publicKey;
         this.permission = {
           rpc: res.network,
           address: res.accountId,
@@ -260,25 +397,54 @@
           publicKey: this.publicKey
         };
 
+        // The watch starts first, so a listener that disconnects from this emission stops it.
+        watchPermission(this);
+
         // Emit accountChange event (what the adapter listens for)
         this._emit('accountChange', this.permission);
       }
 
+      // The connection ends whether the request succeeds, is refused or times out, and its error still reaches the
+      // caller. Only the call that clears a connected wallet signals it, so a listener that disconnects on the signal
+      // is refused once and stops, and two overlapping calls signal once (#1227).
       async disconnect() {
-        const res = await request({
-          type: 'DISCONNECT_REQUEST',
-          network: this.network,
-        });
+        stopPermissionWatch();
+        disconnects++;
+        try {
+          return await request({
+            type: 'DISCONNECT_REQUEST',
+            network: this.network,
+          });
+        } finally {
+          // A connect begun after this call is answered first only if this request was dropped; its timeout
+          // then ends that connection too, so the watch stops with the fields.
+          stopPermissionWatch();
+          const connected = !!this.address;
+          this.address = undefined;
+          this.publicKey = undefined;
+          this.permission = undefined;
+          this.network = undefined;
+          if (connected) this._emit('accountChange', null);
+        }
+      }
 
-        this.address = undefined;
-        this.publicKey = undefined;
-        this.permission = undefined;
-        this.network = undefined;
-
-        // Emit accountChange with null
-        this._emit('accountChange', null);
-
-        return res;
+      // Fields follow the new account before listeners hear of it; null clears them. The permission
+      // carries the decoded key, the shape connect gives. A key that cannot be decoded throws before
+      // anything changes.
+      _applyPermission(perm) {
+        if (perm === null) {
+          this.address = undefined;
+          this.publicKey = undefined;
+          this.permission = undefined;
+          this._emit('accountChange', null);
+          return;
+        }
+        const publicKey = perm.publicKey ? base64ToUint8Array(perm.publicKey) : undefined;
+        const permission = { ...perm, publicKey };
+        this.permission = permission;
+        this.address = perm.address;
+        this.publicKey = publicKey;
+        this._emit('accountChange', permission);
       }
 
       async requestSend(transaction) {
@@ -315,6 +481,24 @@
           sourcePublicKey: uint8ArrayToHex(this.publicKey),
           payload: uint8ArrayToBase64(data),
           kind: kind,
+        });
+        return { signature: base64ToUint8Array(res.signature) };
+      }
+
+      async requestLoginKey() {
+        const res = await request({
+          type: 'LOGIN_KEY_REQUEST',
+          sourceAccountId: this.address,
+        });
+        return { loginKey: base64ToUint8Array(res.loginKey) };
+      }
+
+      async signLoginBytes(data, kind) {
+        const res = await request({
+          type: 'LOGIN_SIGN_REQUEST',
+          sourceAccountId: this.address,
+          payload: uint8ArrayToBase64(data),
+          kind,
         });
         return { signature: base64ToUint8Array(res.signature) };
       }
@@ -393,15 +577,16 @@
 
       _emit(event, data) {
         const listeners = this._listeners.get(event);
-        if (listeners) {
-          listeners.forEach(cb => {
-            try {
-              cb(data);
-            } catch (e) {
-              // Silent fail for listener errors
-            }
-          });
-        }
+        if (!listeners) return;
+        // A snapshot, as in the mobile and extension providers: a listener that re-registers itself
+        // is re-appended to the live Set and would be visited again in this emission, without end.
+        Array.from(listeners).forEach(cb => {
+          try {
+            cb(data);
+          } catch (e) {
+            console.error('[MidenWallet] Error in ' + event + ' listener:', e);
+          }
+        });
       }
     }
 

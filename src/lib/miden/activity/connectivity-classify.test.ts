@@ -1,4 +1,9 @@
-import { classifySyncError, isDefinitelyOffline, isLikelyNetworkError } from './connectivity-classify';
+import {
+  classifySyncError,
+  isDefinitelyOffline,
+  isLikelyNetworkError,
+  isPermanentHttpRejection
+} from './connectivity-classify';
 
 describe('isLikelyNetworkError', () => {
   it.each([
@@ -34,6 +39,54 @@ describe('isLikelyNetworkError', () => {
     expect(isLikelyNetworkError(undefined)).toBe(false);
     expect(isLikelyNetworkError('plain string with timeout')).toBe(true);
     expect(isLikelyNetworkError({})).toBe(false);
+  });
+});
+
+// #788 follow-up (its review's F-235): a permanent HTTP rejection must not be
+// allowed to burn the note-import queue's 24h transient budget — ~288 lock-held
+// RPC retries — before it dead-letters. The IMPORT path asks this narrower
+// question; the banner and the restore fund-loss guard keep the broad
+// `isLikelyNetworkError` on purpose (over-inclusion is the safe direction there).
+describe('isPermanentHttpRejection', () => {
+  it.each([
+    // tonic's fallback shape when a gateway answers gRPC-web with a bare HTTP
+    // error and no grpc-status trailer — the exact string is in the shipped wasm.
+    'grpc-status header missing, mapped from HTTP status code 400',
+    'grpc-status header missing, mapped from HTTP status code 404',
+    'prover responded with status code: 400',
+    'unexpected status code 404 from the gateway'
+  ])('returns true for %p', message => {
+    expect(isPermanentHttpRejection(new Error(message))).toBe(true);
+  });
+
+  it.each([
+    // 401 and 403 read as rejections but are not PROVABLY permanent: a WAF or
+    // bot-challenge layer in front of a node answers 403 for a minute, and an
+    // expired gateway credential answers 401 until it refreshes. Both heal with
+    // the note's bytes unchanged, so they keep the 24h budget rather than the
+    // three-lap cap.
+    'grpc-status header missing, mapped from HTTP status code 401',
+    'grpc-status header missing, mapped from HTTP status code 403',
+    // Retryable statuses keep their transient verdict.
+    'grpc-status header missing, mapped from HTTP status code 408',
+    'grpc-status header missing, mapped from HTTP status code 429',
+    'prover responded with status code 502: Bad Gateway',
+    'grpc-status header missing, mapped from HTTP status code 503',
+    // No extractable number → cannot prove permanence; stay transient.
+    'unexpected status code from the gateway',
+    // Non-HTTP shapes are not this predicate's business at all.
+    'Failed to fetch',
+    'transport error: closed stream',
+    'invalid transaction request'
+  ])('returns false for %p', message => {
+    expect(isPermanentHttpRejection(new Error(message))).toBe(false);
+  });
+
+  it('handles null/undefined/non-Error values', () => {
+    expect(isPermanentHttpRejection(null)).toBe(false);
+    expect(isPermanentHttpRejection(undefined)).toBe(false);
+    expect(isPermanentHttpRejection('mapped from HTTP status code 400')).toBe(true);
+    expect(isPermanentHttpRejection({})).toBe(false);
   });
 });
 

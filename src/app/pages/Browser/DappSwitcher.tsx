@@ -27,6 +27,7 @@ import {
   getFallbackColor,
   getFallbackLetter
 } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
@@ -54,8 +55,9 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
   const handleCardTap = useCallback(
     (session: DappSession) => {
       hapticLight();
-      void restore(session.id);
+      // Closed first: a restore while the switcher still blocks the host cannot morph natively.
       onClose();
+      window.requestAnimationFrame(() => void restore(session.id));
     },
     [restore, onClose]
   );
@@ -84,7 +86,12 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
           aria-modal="true"
           aria-label={t('dappSwitcher')}
           className="fixed inset-0 flex flex-col items-center justify-start"
-          style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(24px)' }}
+          style={{
+            zIndex: 80,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)'
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -175,7 +182,10 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
     // entirely from the a11y tree. The tap-to-restore action lives on
     // a child button that fills the card.
     <motion.div
-      layout
+      // Position only: this layout exists for the reflow when a card closes, which only moves the
+      // others (the grid's columns keep their width). A full `layout` would also scale the card, and
+      // draw its class radius, shadow and contents stretched, on any render that changed its size.
+      layout="position"
       initial={{ opacity: 0, y: 24, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 24, scale: 0.96 }}
@@ -189,6 +199,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       <button
         type="button"
         className="absolute inset-0 cursor-pointer"
+        onPointerDown={() => void prepareMorph(session.id)}
         onClick={() => onTap(session)}
         aria-label={t('dappSwitcherCardActivate', { name: displayName })}
         data-testid="dapp-switcher-card"
@@ -235,7 +246,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         <button
           type="button"
           aria-label={t('dappSwitcherCloseCard', { name: displayName })}
-          className="pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40"
+          className="pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-pure-black/40"
           onClick={e => onClose(e, session)}
           onKeyDown={e => {
             // Stop the card's keyboard activation from firing when the
@@ -254,7 +265,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
 
       {/* Loading indicator (bottom-left) */}
       {state.isLoading && (
-        <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-pure-white">
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-pure-black/50 px-2 py-0.5 text-[10px] text-pure-white">
           {t('dappSwitcherLoading')}
         </div>
       )}

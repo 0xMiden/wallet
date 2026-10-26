@@ -1,32 +1,23 @@
-import {
-  AccountId,
-  Note,
-  NoteArray,
-  NoteAssets,
-  NoteAttachment,
-  NoteType,
-  TransactionRequestBuilder
-} from '@miden-sdk/miden-sdk/lazy';
+import { Note, NoteArray, NoteAssets, NoteAttachment, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { accountIdStringToSdk, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  accountRefToSdk,
+  feeAwareRequestBuilder,
+  randomFeeSalt,
+  resolveHeldFungibleAsset
+} from 'lib/miden/sdk/helpers';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
 import { getCurrentMidenBlock } from './chain';
 
 /**
  * Parse a wallet account identifier into an SDK `AccountId`. Accepts the three
  * forms that reach the Epoch flows: bare bech32, composite guardian
- * `<address>_<suffix>` (only the address part is an account id), and 0x hex
- * (the form the Epoch SDK hands to the mint callback).
+ * `<address>_<suffix>` (only the address part is an account id), and hex in
+ * either prefix case (the form the Epoch SDK hands to the mint callback).
  */
-function toAccountId(id: string): AccountId {
-  const address = id.split('_')[0] ?? id;
-  if (address.startsWith('0x')) {
-    return AccountId.fromHex(address);
-  }
-  return accountIdStringToSdk(address);
-}
+const toAccountId = accountRefToSdk;
 
 export interface EpochCollateralNoteArgs {
   /** Sender's Miden account (bech32, composite, or hex). */
@@ -53,6 +44,15 @@ export interface EpochCollateralNoteArgs {
   bindingAttachmentFelts: bigint[];
 }
 
+export interface EpochCollateralRequest {
+  /** The serialized transaction request, submitted verbatim by every path. */
+  requestBytes: Uint8Array;
+  /** Absolute Miden block after which the sender can reclaim the note. */
+  reclaimHeight: number;
+  /** Id of the P2IDE note the request creates. */
+  noteId: string;
+}
+
 /**
  * Build (and serialize) the transaction request that mints an Epoch collateral
  * note — the smallocator PR #38 contract: a PUBLIC, reclaimable P2IDE note
@@ -69,14 +69,21 @@ export interface EpochCollateralNoteArgs {
  * The reclaim height is `current chain head + recallBlocks`. The allocator
  * validates the REMAINING window against its own (later) head; the blocks that
  * elapse during proving/submission (and guardian co-signing) are covered by the
- * ~1000-block buffer the SDK bakes into `recallBlocks`.
+ * ~1000-block buffer the SDK bakes into `recallBlocks`. The height and the note id
+ * come back with the bytes so a bridged-send row can record them (#1250).
  */
-export async function buildEpochCollateralRequestBytes(args: EpochCollateralNoteArgs): Promise<Uint8Array> {
+export async function buildEpochCollateralRequestBytes(args: EpochCollateralNoteArgs): Promise<EpochCollateralRequest> {
   // Fresh RPC head (not the local sync height) so a cold-started wallet can't
   // understate the reclaim height. Also ensures the SDK WASM is initialized
   // before the note classes below are constructed.
   const currentBlock = await getCurrentMidenBlock();
-  return withWasmClientLock(async () => {
+  const reclaimHeight = currentBlock + args.recallBlocks;
+  // A fresh salt per build. miden-client derives the native conversion info from the
+  // anchored block and commits `hash(CONVERSION_INFO || SALT)` itself, so nothing has
+  // to be read off the chain here. The salt is serialized with the request, and these
+  // bytes are persisted and reused, so a rebuild by a co-signer commits the same word.
+  const feeSalt = randomFeeSalt();
+  return withWasmClientLock(async hold => {
     // The collateral asset is REMOVED from the sender's vault, so it has to carry
     // the vault key of the slot it is actually held in — the callback flag is part
     // of that key. Building it from faucet id + amount always yields the default
@@ -91,20 +98,39 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
     // is unlocked by design and this scope already holds the client lock, which is
     // what that contract requires.
     const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
+    // Before touching the returned account: an eviction during the read above
+    // hands the mutex to a successor without stopping this callback, and
+    // `resolveHeldFungibleAsset` reads `vault().fungibleAssets()` — a WASM call
+    // on an object borrowed from the client's RefCell, so continuing would be
+    // the double borrow, not a stale read. Everything in this hold is write
+    // PREP (the request is only built and serialized here, nothing is
+    // submitted), so aborting is always safe.
+    assertWasmHoldCurrent(hold, 'before the collateral vault read');
     const asset = resolveHeldFungibleAsset(senderAccount ?? undefined, args.faucetId, args.amount);
     const attachment = new NoteAttachment(BigUint64Array.from(args.bindingAttachmentFelts));
     const note = Note.createP2IDENote(
       toAccountId(args.senderAccountId),
       toAccountId(args.allocatorId),
       new NoteAssets([asset]),
-      currentBlock + args.recallBlocks,
+      reclaimHeight,
       null,
       NoteType.Public,
       attachment
     );
-    return new TransactionRequestBuilder()
+    // The browser build consumes a Note passed by value, so its id is read before the NoteArray takes it.
+    const noteId = note.id().toString();
+    // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
+    // only on the builder. See `feeAwareRequestBuilder` for why it starts there.
+    const builder = await feeAwareRequestBuilder(
+      (await getMidenClient()).client,
+      toAccountId(args.senderAccountId).toString(),
+      feeSalt
+    );
+    assertWasmHoldCurrent(hold, 'after the fee-aware collateral builder');
+    const requestBytes = builder
       .withOwnOutputNotes(new NoteArray([note]))
       .build()
       .serialize();
+    return { requestBytes, reclaimHeight, noteId };
   });
 }

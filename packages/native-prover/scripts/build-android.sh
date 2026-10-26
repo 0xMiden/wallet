@@ -58,20 +58,49 @@ fi
 # are 64-bit-only at this point and 32-bit would just bloat the AAR.
 cd "$BRIDGE_DIR"
 echo "Building libmiden_native_prover_jni.so (release, lto=true, codegen-units=1) ..."
+
+# Build into a STAGING dir, never straight into jniLibs. Two independent traps
+# made a broken build look successful:
+#   1. cargo-ndk has been observed exiting 0 after the inner `cargo build`
+#      failed to compile (it prints its "rustup target install …" hint and
+#      returns success), so `set -e` alone does not catch it.
+#   2. jniLibs already holds the COMMITTED .so from the previous release, so an
+#      existence check downstream passes against stale binaries.
+# Together those shipped a prover built against the wrong miden-client — the
+# exact on-device "procedure with root digest … could not be found" failure the
+# pin guard (scripts/check-native-prover-pin.mjs) exists to prevent. So: stage,
+# prove the staged files are freshly written, and only then publish them.
+STAGING="$(mktemp -d)"
+trap 'rm -rf "$STAGING"' EXIT
+
+set +e
 cargo ndk \
   -t arm64-v8a \
   -t x86_64 \
-  -o "$JNI_LIBS_DIR" \
+  -o "$STAGING" \
   build --release
+cargo_status=$?
+set -e
 
-# cargo-ndk drops binaries into <out>/<jni-style abi>/. Verify both
-# arches landed.
+if [ "$cargo_status" -ne 0 ]; then
+  echo "Error: cargo ndk build failed (exit $cargo_status). jniLibs left untouched." >&2
+  exit 1
+fi
+
+# cargo-ndk drops binaries into <out>/<jni-style abi>/. Require BOTH arches to
+# exist in the staging dir — which the previous build cannot have populated.
 for abi in arm64-v8a x86_64; do
-  lib="$JNI_LIBS_DIR/$abi/libmiden_native_prover_jni.so"
-  if [ ! -f "$lib" ]; then
-    echo "Error: expected output not produced: $lib" >&2
+  if [ ! -f "$STAGING/$abi/libmiden_native_prover_jni.so" ]; then
+    echo "Error: cargo ndk reported success but produced no $abi library." >&2
+    echo "       jniLibs left untouched." >&2
     exit 1
   fi
+done
+
+for abi in arm64-v8a x86_64; do
+  lib="$JNI_LIBS_DIR/$abi/libmiden_native_prover_jni.so"
+  mkdir -p "$(dirname "$lib")"
+  cp "$STAGING/$abi/libmiden_native_prover_jni.so" "$lib"
   size_bytes=$(stat -f%z "$lib")
   echo "  $abi → $((size_bytes / 1024 / 1024))MB ($size_bytes bytes)"
 done

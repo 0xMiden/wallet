@@ -29,6 +29,7 @@ const mockDoSync = jest.fn(() => Promise.resolve());
 const mockSetupSyncManager = jest.fn();
 const mockSetupTransactionProcessor = jest.fn();
 const mockFailInterruptedTransactions = jest.fn(() => Promise.resolve());
+const mockRegisterChromeUpdateListener = jest.fn();
 
 jest.mock('./xhr-shim', () => ({}));
 
@@ -47,6 +48,10 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 
 jest.mock('lib/miden/transaction', () => ({
   failInterruptedTransactions: (...args: unknown[]) => mockFailInterruptedTransactions(...(args as [])) as Promise<void>
+}));
+
+jest.mock('lib/update/chrome', () => ({
+  registerChromeUpdateListener: (...args: unknown[]) => mockRegisterChromeUpdateListener(...args)
 }));
 
 // ── Listener-capturing `webextension-polyfill` stub ─────────────────────────
@@ -78,9 +83,9 @@ jest.mock('webextension-polyfill', () => {
     reload: jest.fn(),
     getURL: jest.fn((path: string) => `chrome-extension://test-id/${path}`)
   };
-  const tabs = { create: jest.fn() };
+  const tabs = { create: jest.fn(() => Promise.resolve()) };
   const alarms = { onAlarm: makeEvent() };
-  const notifications = { onClicked: makeEvent(), clear: jest.fn() };
+  const notifications = { onClicked: makeEvent(), clear: jest.fn(() => Promise.resolve()) };
   const browserAction = { onClicked: makeEvent() };
 
   const browser = { runtime, tabs, alarms, notifications, browserAction };
@@ -120,6 +125,7 @@ const loadBackground = (opts: { target?: string; chrome?: any } = {}): Polyfill 
   mockSetupSyncManager.mockClear();
   mockSetupTransactionProcessor.mockClear();
   mockFailInterruptedTransactions.mockClear();
+  mockRegisterChromeUpdateListener.mockClear();
 
   if (opts.target === undefined) {
     delete process.env.TARGET_BROWSER;
@@ -143,14 +149,22 @@ const loadBackground = (opts: { target?: string; chrome?: any } = {}): Polyfill 
 };
 
 /** Build a controllable `chrome` global for the side-panel restore branch. */
-const makeChromeStub = (getResult: Record<string, unknown>, panelBehavior: 'resolve' | 'reject') => ({
+const makeChromeStub = (
+  getResult: Record<string, unknown>,
+  panelBehavior: 'resolve' | 'reject',
+  writeBehavior: 'resolve' | 'reject' = 'resolve'
+) => ({
   storage: {
     local: {
       get: jest.fn((_key: string, cb: (result: Record<string, unknown>) => void) => cb(getResult)),
-      set: jest.fn()
+      set: jest.fn(() => (writeBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('set failed'))))
     }
   },
-  action: { setPopup: jest.fn() },
+  action: {
+    setPopup: jest.fn(() =>
+      writeBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('setPopup failed'))
+    )
+  },
   sidePanel: {
     setPanelBehavior: jest.fn(() =>
       panelBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('panel boom'))
@@ -213,6 +227,42 @@ describe('background.ts — Chrome side-panel restore', () => {
       '[Background] Side panel restore failed, reverting to popup:',
       expect.any(Error)
     );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns and keeps the saved mode when clearing the popup rejects', async () => {
+    const chrome = makeChromeStub({ sidepanel_mode: true }, 'resolve', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore could not clear the popup:',
+      expect.any(Error)
+    );
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it('leaves no unhandled rejection when every restore call rejects', async () => {
+    const chrome = makeChromeStub({ sidepanel_mode: true }, 'reject', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+
+    expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore could not clear the popup:',
+      expect.any(Error)
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore failed, reverting to popup:',
+      expect.any(Error)
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore could not restore the popup:',
+      expect.any(Error)
+    );
+    // The revert's storage write stays silent: the saved mode it failed to clear makes the next start retry.
+    expect(warnSpy).toHaveBeenCalledTimes(3);
   });
 
   it('does nothing when sidepanel_mode was not saved', async () => {
@@ -237,13 +287,12 @@ describe('background.ts — Chrome side-panel restore', () => {
 // ── Always-registered listeners (target-independent) ────────────────────────
 
 describe('background.ts — core service-worker listeners', () => {
-  it('reloads the runtime when an update becomes available', () => {
-    const wep = loadBackground({ target: 'firefox' });
-    expect(wep.runtime.reload).not.toHaveBeenCalled();
+  it('registers the passive update listener only for Chrome', () => {
+    loadBackground({ target: 'chrome', chrome: makeChromeStub({}, 'resolve') });
+    expect(mockRegisterChromeUpdateListener).toHaveBeenCalledTimes(1);
 
-    fire(wep.runtime.onUpdateAvailable);
-
-    expect(wep.runtime.reload).toHaveBeenCalledTimes(1);
+    loadBackground({ target: 'firefox' });
+    expect(mockRegisterChromeUpdateListener).not.toHaveBeenCalled();
   });
 
   it('runs a sync when the miden-sync alarm fires', () => {
@@ -315,7 +364,7 @@ describe('background.ts — core service-worker listeners', () => {
     expect(warnSpy).toHaveBeenCalledWith('[Background] Interrupted-transaction sweep error:', err);
   });
 
-  it('opens the pending-notes page when a note notification is clicked', () => {
+  it('opens the Activity pending tab when a note notification is clicked', () => {
     const wep = loadBackground({ target: 'firefox' });
 
     fire(wep.notifications.onClicked, 'note-123');
@@ -323,10 +372,32 @@ describe('background.ts — core service-worker listeners', () => {
     expect(wep.notifications.clear).toHaveBeenCalledWith('note-123');
     // The note-received notification should deep-link to the incoming-notes list
     // (claim actions), matching the mobile handler, not the generic receive page (#467).
-    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/pending-notes');
+    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/history?filter=pending&view=list');
     expect(wep.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test-id/fullpage.html#/pending-notes'
+      url: 'chrome-extension://test-id/fullpage.html#/history?filter=pending&view=list'
     });
+  });
+
+  it('warns when clearing the notification fails', async () => {
+    const wep = loadBackground({ target: 'firefox' });
+    const err = new Error('clear failed');
+    wep.notifications.clear.mockRejectedValueOnce(err);
+
+    fire(wep.notifications.onClicked, 'note-123');
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Could not clear the notification:', err);
+  });
+
+  it('warns when opening the Activity tab fails', async () => {
+    const wep = loadBackground({ target: 'firefox' });
+    const err = new Error('tabs.create failed');
+    wep.tabs.create.mockRejectedValueOnce(err);
+
+    fire(wep.notifications.onClicked, 'note-123');
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Could not open the Activity tab:', err);
   });
 });
 
@@ -351,5 +422,16 @@ describe('background.ts — Safari browser action', () => {
     const wep = loadBackground({ target: 'chrome', chrome: makeChromeStub({}, 'resolve') });
 
     expect(wep.browserAction.onClicked.listeners).toHaveLength(0);
+  });
+
+  it('warns when opening the full page fails', async () => {
+    const wep = loadBackground({ target: 'safari' });
+    const err = new Error('tabs.create failed');
+    wep.tabs.create.mockRejectedValueOnce(err);
+
+    fire(wep.browserAction.onClicked);
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Could not open the full page:', err);
   });
 });

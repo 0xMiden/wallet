@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import { useClaimNotes } from './useClaimNotes';
+import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes } from './useClaimNotes';
 
 // --- Mocked collaborators -------------------------------------------------
 // useClaimNotes fans out to the claimable-notes query, the failed-transaction
@@ -8,13 +8,14 @@ import { useClaimNotes } from './useClaimNotes';
 // the re-run behaviour (#456) without the SDK or IndexedDB.
 
 const mockGetFailedTransactions = jest.fn();
+const mockGetUnconfirmedTransactions = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockGetInputNoteDetails = jest.fn();
-const mockInitiateConsume = jest.fn();
+const mockLockOptions: unknown[] = [];
 
 jest.mock('lib/miden/activity', () => ({
   getFailedTransactions: (...args: unknown[]) => mockGetFailedTransactions(...args),
-  initiateConsumeNotesTransaction: (...args: unknown[]) => mockInitiateConsume(...args),
-  requestSWTransactionProcessing: jest.fn(),
+  getUnconfirmedTransactions: (...args: unknown[]) => mockGetUnconfirmedTransactions(...args),
+  isFailedClaim: jest.requireActual('lib/miden/transaction/verdict-rules').isFailedClaim,
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0)
 }));
 
@@ -25,7 +26,10 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 }));
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: (fn: () => unknown) => fn()
+  withWasmClientLock: (fn: () => unknown, options?: unknown) => {
+    mockLockOptions.push(options);
+    return fn();
+  }
 }));
 
 const mockUseAccount = jest.fn(() => ({ publicKey: 'mtst1account' }));
@@ -55,13 +59,29 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-const note = (id: string) => ({ id, isBeingClaimed: false, amount: '1', faucetId: 'f', metadata: {} });
+const note = (id: string, faucetId = 'f') => ({ id, isBeingClaimed: false, amount: '1', faucetId, metadata: {} });
 
-const failedConsume = (...noteIds: string[]) => ({ type: 'consume', noteIds });
+// Status 3 is Failed: a claim is retriable only when it holds nothing (`isFailedClaim`), and this one carries no evidence.
+const failedConsume = (...noteIds: string[]) => ({ type: 'consume', status: 3, noteIds });
+const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+/** Every field a verdict reads, unjudged: a claim carrying it holds its notes. */
+const checkable = {
+  attemptId: 'a1',
+  capturedAt: Math.floor(Date.now() / 1000),
+  source: 'stage',
+  transactionId: hex(1),
+  initialCommitment: hex(2),
+  finalCommitment: hex(3),
+  initialNonce: '1',
+  outputNoteIds: [],
+  nullifiers: [hex(4)],
+  refBlock: 10,
+  refBlockCommitment: hex(5)
+};
 
 function setNotes(...ids: string[]) {
   mockUseClaimableNotes.mockReturnValue({
-    data: ids.map(note),
+    data: ids.map(id => note(id)),
     mutate: jest.fn().mockResolvedValue([])
   });
 }
@@ -79,6 +99,8 @@ describe('useClaimNotes failed-note check (#456)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetUnconfirmedTransactions.mockReset();
+    mockGetUnconfirmedTransactions.mockResolvedValue([]);
     mockGetInputNoteDetails.mockResolvedValue([]);
     setNotes('a');
   });
@@ -92,6 +114,30 @@ describe('useClaimNotes failed-note check (#456)', () => {
     expect(result.current.invalidNoteIds.has('a')).toBe(false);
   });
 
+  it('leaves the note of a held Failed claim not retriable, since a fresh claim of it is refused (#1081)', async () => {
+    setNotes('a', 'b');
+    mockGetFailedTransactions.mockResolvedValue([
+      { type: 'consume', status: 3, noteIds: ['a'], submitEvidence: [checkable] },
+      failedConsume('b')
+    ]);
+
+    const { result } = renderHook(() => useClaimNotes());
+
+    // 'b' proves the check ran to its end, so the absence of 'a' is the hold, not a check still in flight.
+    await waitFor(() => expect(result.current.retriableNoteIds.has('b')).toBe(true));
+    expect(result.current.retriableNoteIds.has('a')).toBe(false);
+  });
+
+  it('flags the note of an Unconfirmed claim that holds nothing as retriable (#1081)', async () => {
+    mockGetUnconfirmedTransactions.mockResolvedValue([
+      { type: 'consume', status: 4, noteIds: ['a'], submitEvidence: [{ attemptId: 'x', capturedAt: 1, source: 'end' }] }
+    ]);
+
+    const { result } = renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
+  });
+
   it('flags a note the client reports as Invalid as invalid (not retriable), terminally', async () => {
     mockGetInputNoteDetails.mockResolvedValue([{ noteId: 'a', state: 'Invalid' }]);
 
@@ -99,6 +145,14 @@ describe('useClaimNotes failed-note check (#456)', () => {
 
     await waitFor(() => expect(result.current.invalidNoteIds.has('a')).toBe(true));
     expect(result.current.retriableNoteIds.has('a')).toBe(false);
+  });
+
+  it('bounds the note-state read at the sync ceiling, like every other foreground read hold', async () => {
+    mockLockOptions.length = 0;
+    renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalled());
+    expect(mockLockOptions).toContainEqual({ label: 'claim-note-state-check', watchdogMs: 120_000 });
   });
 
   it('re-runs the check on signature change and REPLACES the set so a recovered note clears', async () => {
@@ -167,34 +221,152 @@ describe('useClaimNotes failed-note check (#456)', () => {
     });
   });
 
-  it('keeps a queue-time claim failure retriable across a focus re-run — does not wipe it (#456)', async () => {
-    // A batch claim that throws at queue time rolls back its Dexie transaction,
-    // so NO Failed row is persisted — getFailedTransactions can never re-surface
-    // it. The retriable flag lives only in memory and must survive the
-    // REPLACE-based focus/visibility recheck, or the note silently reverts to a
-    // neutral Claim button (the exact regression #456 must not introduce).
-    mockGetFailedTransactions.mockResolvedValue([]); // no durable Failed row
+  it('reports notes as fetching only while no list has loaded, not during a background refresh', async () => {
+    mockUseClaimableNotes.mockReturnValue({ data: undefined, mutate: jest.fn(), isLoading: true, isValidating: true });
+    const { result, rerender } = renderHook(() => useClaimNotes());
+    expect(result.current.isFetchingNotes).toBe(true);
+
     mockUseClaimableNotes.mockReturnValue({
       data: [note('a')],
-      mutate: jest.fn().mockResolvedValue([note('a')]) // batch must see the note to queue it
+      mutate: jest.fn(),
+      isLoading: false,
+      isValidating: true
     });
-    mockInitiateConsume.mockRejectedValueOnce(new Error('queue failed'));
-
-    const { result } = renderHook(() => useClaimNotes());
+    rerender();
+    expect(result.current.isFetchingNotes).toBe(false);
     await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+  });
 
-    // Queue-time throw flags 'a' retriable in memory.
-    await act(async () => {
-      await result.current.handleClaimAll();
+  it('does not report fetching while the persisted list is on screen during the first live read', async () => {
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ ...note('a'), fromCache: true }],
+      mutate: jest.fn(),
+      isLoading: true,
+      isValidating: true
     });
-    await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
+    const { result } = renderHook(() => useClaimNotes());
+    expect(result.current.isFetchingNotes).toBe(false);
+    await act(async () => {});
+  });
 
-    // Tab-return recheck (getFailedTransactions still empty): the flag must persist.
-    const callsBefore = mockGetFailedTransactions.mock.calls.length;
+  // The batch claimer that used to live here — Claim All and the per-asset group claim — went
+  // with the "Pending notes" pages it belonged to. The one bulk action left is the Activity
+  // Pending list's Accept All, covered by `useActivityClaims`.
+});
+
+describe('useClaimNotes publishes its invalid set per account', () => {
+  const allInvalid = (request: { ids: string[] }) => request.ids.map(noteId => ({ noteId, state: 'Invalid' }));
+
+  /** The published set for `account`, read the way the tab's unread hook reads it. */
+  function readStore(account: string) {
+    return renderHook(() => useClaimCheckInvalidNoteIds(account)).result;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reset, not just cleared: a run a failing case never started would leave its queued gate
+    // for the next case's first call.
+    mockGetFailedTransactions.mockReset();
+    mockGetUnconfirmedTransactions.mockReset();
+    mockGetInputNoteDetails.mockReset();
+    __resetClaimChecksForTest();
+    mockUseAccount.mockReturnValue({ publicKey: 'A' });
+    mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetUnconfirmedTransactions.mockResolvedValue([]);
+    mockGetInputNoteDetails.mockResolvedValue([]);
+    setNotes('a');
+  });
+
+  afterAll(() => {
+    mockUseAccount.mockReturnValue({ publicKey: 'mtst1account' });
+  });
+
+  it('publishes a finished check under the account that started it', async () => {
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    expect(storeB.current.size).toBe(0);
+  });
+
+  it('keeps each account right when B resolves before A after a switch', async () => {
+    const gateA = deferred<unknown[]>();
+    const gateB = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gateA.promise).mockReturnValueOnce(gateB.promise);
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    const { rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+
+    mockUseAccount.mockReturnValue({ publicKey: 'B' });
+    setNotes('b');
+    rerender();
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
+
+    await act(async () => gateB.resolve([]));
+    await waitFor(() => expect([...storeB.current]).toEqual(['b']));
+    await act(async () => gateA.resolve([]));
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    expect([...storeB.current]).toEqual(['b']);
+  });
+
+  it('does not let an older run of one account overwrite the newer set', async () => {
+    const first = deferred<unknown[]>();
+    const second = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    // Whichever run reaches the note-state read first (the newer one) sees the note invalid.
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ noteId: 'a', state: 'Invalid' }]).mockResolvedValueOnce([]);
+    const storeA = readStore('A');
+    renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
     await act(async () => {
       window.dispatchEvent(new Event('focus'));
     });
-    await waitFor(() => expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(callsBefore));
-    expect(result.current.retriableNoteIds.has('a')).toBe(true); // NOT wiped
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
+
+    await act(async () => second.resolve([]));
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    await act(async () => first.resolve([]));
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(2));
+    expect([...storeA.current]).toEqual(['a']);
+  });
+
+  it("starts B's own run on a switch with identical claimable ids and no focus", async () => {
+    const gateA = deferred<unknown[]>();
+    const gateB = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gateA.promise).mockReturnValueOnce(gateB.promise);
+    // B resolves first and reads the note invalid; A's read afterwards finds it fine.
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ noteId: 'a', state: 'Invalid' }]).mockResolvedValueOnce([]);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    const { rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+
+    mockUseAccount.mockReturnValue({ publicKey: 'B' });
+    rerender();
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
+
+    await act(async () => gateB.resolve([]));
+    await waitFor(() => expect([...storeB.current]).toEqual(['a']));
+    await act(async () => gateA.resolve([]));
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(2));
+    expect(storeA.current.size).toBe(0);
+    expect([...storeB.current]).toEqual(['a']);
+  });
+
+  it('re-renders a reader mounted before the publish', async () => {
+    const gate = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gate.promise);
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+    expect(storeA.current.size).toBe(0);
+
+    await act(async () => gate.resolve([]));
+    await waitFor(() => expect(storeA.current.has('a')).toBe(true));
   });
 });

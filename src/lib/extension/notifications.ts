@@ -1,3 +1,4 @@
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { isExtension } from 'lib/platform';
 
 /**
@@ -9,45 +10,50 @@ import { isExtension } from 'lib/platform';
 export async function showExtensionNotification(title: string, message: string): Promise<void> {
   if (!isExtension()) return;
 
-  // Try Web Notifications API first — more reliable across browsers (Brave, etc.)
-  if (typeof Notification !== 'undefined') {
-    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+  try {
+    if (typeof Notification !== 'undefined') {
+      const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
 
-    if (permission === 'granted') {
-      const notif = new Notification(title, {
-        body: message,
-        icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-        requireInteraction: true
-      });
+      if (permission === 'granted') {
+        const notif = new Notification(title, {
+          body: message,
+          icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
+          requireInteraction: true
+        });
 
-      notif.onclick = () => {
-        // Deep-link to the incoming-notes list (claim actions), matching the
-        // mobile handler — not the generic wallet QR/receive page (#467).
-        chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html#/pending-notes') });
-        notif.close();
-      };
-      return;
-    }
-  }
-
-  // Fallback to chrome.notifications API
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chromeNotifications = (globalThis as any).chrome?.notifications;
-  if (!chromeNotifications) return;
-
-  chromeNotifications.create(
-    'miden-note-received',
-    {
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-      title,
-      message,
-      requireInteraction: true
-    },
-    () => {
-      if (chrome.runtime.lastError) {
-        console.error('[ExtensionNotifications] Error:', chrome.runtime.lastError.message);
+        notif.onclick = () => {
+          // Match the mobile handler's incoming-notes claim target (#467).
+          chrome.tabs.create({ url: chrome.runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) });
+          notif.close();
+        };
+        return;
       }
     }
-  );
+  } catch {
+    // An exposed Web API may be unusable while the Chrome fallback is available.
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chromeNotifications = (globalThis as any).chrome?.notifications;
+    if (!chromeNotifications) return;
+
+    chromeNotifications.create(
+      'miden-note-received',
+      {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
+        title,
+        message,
+        requireInteraction: true
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          console.error('[ExtensionNotifications] Error:', chrome.runtime.lastError.message);
+        }
+      }
+    );
+  } catch {
+    // Notification failures must not interrupt incoming-note handling.
+  }
 }

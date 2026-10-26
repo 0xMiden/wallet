@@ -27,6 +27,7 @@
  * "offset", or they are asserting a field that does not exist.
  */
 import type { Page } from '@playwright/test';
+import { IS_LOCALNET } from '../config/environments';
 
 /** ITransactionStatus.Completed — see src/lib/miden/db/types.ts. */
 export const COMPLETED = 2;
@@ -72,8 +73,11 @@ export async function armRecallBlocks(page: Page, blocks: number | null): Promis
   }, blocks);
 }
 
-/** True only on the hermetic local stack, whose block cadence this process configures. */
-export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
+/**
+ * True only on the hermetic local stack, whose block cadence this process
+ * configures. Re-exported, not re-derived: config/environments.ts owns it.
+ */
+export { IS_LOCALNET };
 
 /**
  * Convert a wall-clock recall window into a blocks offset — LOCALNET ONLY.
@@ -81,9 +85,9 @@ export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
  * The conversion needs the chain's block cadence, and the only cadence this
  * process can KNOW is the one it configures: `MIDEN_NODE_BLOCK_INTERVAL`, which
  * docker-compose.local.yml passes to the node as `--block.interval` (defaulting
- * to `3s`; the fast CI leg runs `500ms`). A hard-coded block count would be six
- * times shorter on that fast leg — short enough for prove + submit + commit to
- * outrun it, which fails a perfectly healthy wallet.
+ * to `3s`). A hard-coded block count would be the wrong length on any other
+ * cadence - short enough for prove + submit + commit to outrun it, which fails
+ * a perfectly healthy wallet.
  *
  * On devnet/testnet that variable is unset, configures nothing, and the real
  * cadence is whatever the public network is running. An earlier version of this
@@ -95,20 +99,9 @@ export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
  * hard-fail on main, so that guess reds main for a reason that does not exist.
  *
  * Hence: throw rather than guess, and let the spec skip itself off localnet
- * (`IS_LOCALNET`). Call this INSIDE the test body, never at module scope — a
+ * (`IS_LOCALNET`). Call this INSIDE the test body, never at module scope - a
  * module-scope call would break collection on the very legs that must skip.
  */
-/**
- * True only on the 500ms-block leg of pr-e2e-local.yml.
- *
- * The recall spec waits out a real expiry, so its runtime is set by block
- * cadence. On the default 3s leg the same window costs 6x the blocks AND shares
- * a 45-minute job with the whole core suite; on the fast leg it is bounded and
- * the leg runs almost nothing else. Gating on the cadence rather than on a
- * workflow file keeps the requirement next to the code that depends on it.
- */
-export const IS_FAST_BLOCKS = (process.env.MIDEN_NODE_BLOCK_INTERVAL ?? '').trim() === '500ms';
-
 export function recallBlocksForWindow(windowMs: number): number {
   if (!IS_LOCALNET) {
     throw new Error(

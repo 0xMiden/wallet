@@ -1,11 +1,20 @@
 name: Build Desktop Apps
 
 on:
-  # Build when a GitHub Release is published
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      network:
+        type: string
+        default: both
+      feature_eligibility_url:
+        type: string
+        required: true
+    secrets:
+      APTABASE_APP_KEY:
+        required: false
+      SENTRY_DSN:
+        required: false
 
-  # Also allow manual trigger from Actions tab (on any branch)
   workflow_dispatch:
     inputs:
       network:
@@ -20,27 +29,55 @@ on:
 
 # Minimal permissions for security
 permissions:
-  contents: write   # needed to attach assets to a GitHub Release
-  actions: write    # needed for artifact cleanup
+  contents: write # needed to attach assets to a GitHub Release
+  actions: write # needed for artifact cleanup
+  pull-requests: read # the linked-PR injections read a dispatched branch's pull request
 
 # Cancel in-progress runs for the same branch
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-desktop-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       networks: ${{ steps.set.outputs.networks }}
+      eligibility_url: ${{ steps.eligibility.outputs.endpoint }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - id: set
         shell: bash
+        env:
+          NETWORK_SELECTION: ${{ inputs.network || 'both' }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.network }}" != "both" ]]; then
-            echo 'networks=["${{ inputs.network }}"]' >> "$GITHUB_OUTPUT"
+          case "$NETWORK_SELECTION" in
+            both) echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT" ;;
+            testnet|devnet) printf 'networks=["%s"]\n' "$NETWORK_SELECTION" >> "$GITHUB_OUTPUT" ;;
+            *) echo 'Unsupported build network' >&2; exit 1 ;;
+          esac
+      - name: Check feature eligibility endpoint
+        id: eligibility
+        shell: bash
+        env:
+          FEATURE_ELIGIBILITY_URL: ${{ inputs.feature_eligibility_url || vars.FEATURE_ELIGIBILITY_URL }}
+          FEATURE_ELIGIBILITY_NETWORKS: ${{ steps.set.outputs.networks }}
+          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { validateEndpoint } from './services/feature-eligibility/check-deployment.mjs';
+          const endpoint = validateEndpoint(process.env.FEATURE_ELIGIBILITY_URL).href;
+          appendFileSync(process.env.GITHUB_OUTPUT, `endpoint=${endpoint}\n`);
+          NODE
           else
-            echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT"
+            node services/feature-eligibility/check-deployment.mjs
           fi
 
   build:
@@ -62,12 +99,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'yarn'
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -80,16 +118,52 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: rustup target add x86_64-pc-windows-msvc
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does. Dispatch only, so a release build never runs
+      # them and installs the published packages exactly as before.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      # WiX rejects an rc.N prerelease. Tauri 2.11 uses bundle.windows.wix.version
+      # for the MSI when it is set, and the app version stays the release candidate.
+      - name: Map the release candidate onto a WiX product version
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          node --test .github/scripts/wix-product-version.test.mjs
+          node .github/scripts/wix-product-version.mjs --apply
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MIDEN_NETWORK: ${{ matrix.network }}
+          # Baked into the bundle, so not confidential once shipped -- these are
+          # write-only ingestion ids, and a secret only keeps them out of git.
+          # Absent (a fork) each resolves to '' and turns its feature off.
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          FEATURE_ELIGIBILITY_URL: ${{ needs.setup.outputs.eligibility_url }}
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+
+      - name: Resolve artifact version
+        id: artifact_version
+        uses: ./.github/actions/artifact-version
 
       # --- macOS: rename + stage DMG ---
       - name: Stage macOS artifacts
@@ -97,20 +171,23 @@ jobs:
         id: stage_mac
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION="${{ steps.artifact_version.outputs.version }}"
           NETWORK="${{ matrix.network }}"
           ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           mkdir -p release-output
-          DMG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1 || true)
-          if [ -z "$DMG" ]; then
+          shopt -s nullglob
+          dmg_files=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          if [ "${#dmg_files[@]}" -eq 0 ]; then
             echo "No .dmg produced under src-tauri/target/universal-apple-darwin/release/bundle/dmg/"
             exit 1
           fi
           FILE="MidenWallet-macOS-${VERSION}-${ENV_CAP}.dmg"
-          cp "$DMG" "release-output/${FILE}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "env_cap=${ENV_CAP}" >> "$GITHUB_OUTPUT"
-          echo "file=${FILE}" >> "$GITHUB_OUTPUT"
+          cp "${dmg_files[0]}" "release-output/${FILE}"
+          {
+            echo "version=${VERSION}"
+            echo "env_cap=${ENV_CAP}"
+            echo "file=${FILE}"
+          } >> "$GITHUB_OUTPUT"
 
       # --- Windows: rename + stage MSI + NSIS ---
       - name: Stage Windows artifacts
@@ -118,7 +195,7 @@ jobs:
         id: stage_win
         shell: pwsh
         run: |
-          $Version = (Get-Content package.json | ConvertFrom-Json).version
+          $Version = "${{ steps.artifact_version.outputs.version }}"
           $Network = "${{ matrix.network }}"
           $EnvCap = $Network.Substring(0,1).ToUpper() + $Network.Substring(1)
           New-Item -ItemType Directory -Force -Path release-output | Out-Null
@@ -184,7 +261,7 @@ jobs:
 
   # Cleanup old artifacts, keep only last 10 builds per platform/network
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     needs: build
     steps:
       - name: Delete old artifacts

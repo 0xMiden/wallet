@@ -13,19 +13,28 @@ import { createRoot } from 'react-dom/client';
 import App from 'app/App';
 import { WindowType } from 'app/env';
 import { getMobileIntercomAdapter } from 'lib/intercom/mobile-adapter';
-import { installGuardianCorsBypass } from 'lib/miden/guardian/native-http';
+import { installGuardianFetchBoundary } from 'lib/miden/guardian/native-http';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { initBackgroundTimeTracking } from 'lib/mobile/background-time';
 import { initKeyboardInset } from 'lib/mobile/keyboard-inset';
 import { initTheme } from 'lib/settings/theme';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 initTheme();
 // Must run before the backend starts: guardian fetches CORS-fail in the
-// Capacitor WebView, so they're rerouted through native HTTP (see module doc).
-installGuardianCorsBypass();
+// Capacitor WebView, so they're rerouted through native HTTP, each under the
+// Guardian request deadline (see module doc).
+installGuardianFetchBoundary();
+
+let startupErrorReported = false;
 
 // Show error on screen for debugging
-function showError(message: string, error?: unknown) {
+function showError(id: UserErrorId, message: string, error?: unknown) {
+  if (!startupErrorReported) {
+    startupErrorReported = true;
+    reportUserVisibleError(id, 'startup');
+  }
   console.error('Mobile app error:', message, error);
   const container = document.getElementById('root');
   if (container) {
@@ -71,7 +80,7 @@ async function initMobile() {
     // Render the app
     const container = document.getElementById('root');
     if (!container) {
-      showError('Root container not found');
+      showError('raw_startup_root_missing', 'Root container not found');
       return;
     }
 
@@ -88,12 +97,12 @@ async function initMobile() {
 
     console.log('Mobile app: UI rendered');
   } catch (error) {
-    showError('Failed to initialize', error);
+    showError('raw_startup_init_failed', 'Failed to initialize', error);
     throw error;
   }
 }
 
 // Start the mobile app
 initMobile().catch(error => {
-  showError('Unhandled initialization error', error);
+  showError('raw_startup_init_failed', 'Unhandled initialization error', error);
 });

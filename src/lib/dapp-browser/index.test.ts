@@ -56,10 +56,9 @@ jest.mock('@capacitor/filesystem', () => ({
   }
 }));
 
-import * as categoryData from './category-data';
 import * as dappSession from './dapp-session';
+import * as exploreCatalog from './explore-catalog';
 import * as faviconCache from './favicon-cache';
-import * as featuredDapps from './featured-dapps';
 import * as barrel from './index';
 import * as injectionScript from './injection-script';
 import * as messageHandler from './message-handler';
@@ -101,13 +100,13 @@ describe('dapp-browser barrel — re-export identity', () => {
     ['rectsEqual', webviewRect, 'rectsEqual'],
     // use-dapp-confirmation
     ['useDappConfirmation', useDappConfirmationMod, 'useDappConfirmation'],
-    // featured-dapps
-    ['FEATURED_DAPPS', featuredDapps, 'FEATURED_DAPPS'],
-    ['CAROUSEL_DAPPS', featuredDapps, 'CAROUSEL_DAPPS'],
-    ['EXPLORE_GRID_DAPPS', featuredDapps, 'EXPLORE_GRID_DAPPS'],
-    ['getExploreGridDapps', featuredDapps, 'getExploreGridDapps'],
-    // category-data
-    ['CATEGORIES', categoryData, 'CATEGORIES'],
+    // explore-catalog
+    ['EXPLORE_FILTERS', exploreCatalog, 'EXPLORE_FILTERS'],
+    ['getExploreCategoryGroup', exploreCatalog, 'getExploreCategoryGroup'],
+    ['getExploreCatalog', exploreCatalog, 'getExploreCatalog'],
+    ['localizeExploreCatalog', exploreCatalog, 'localizeExploreCatalog'],
+    ['resolveExploreSections', exploreCatalog, 'resolveExploreSections'],
+    ['searchExploreCatalog', exploreCatalog, 'searchExploreCatalog'],
     // recent-dapps
     ['getRecentDapps', recentDapps, 'getRecentDapps'],
     ['recordRecentDapp', recentDapps, 'recordRecentDapp'],
@@ -156,7 +155,6 @@ describe('dapp-browser barrel — live wiring smoke checks', () => {
       'rectFromDOMRect',
       'rectsEqual',
       'useDappConfirmation',
-      'getExploreGridDapps',
       'getRecentDapps',
       'recordRecentDapp',
       'forgetRecentDapp',
@@ -187,11 +185,5 @@ describe('dapp-browser barrel — live wiring smoke checks', () => {
   it('constant exports carry real data', () => {
     expect(typeof barrel.INJECTION_SCRIPT).toBe('string');
     expect(barrel.INJECTION_SCRIPT.length).toBeGreaterThan(0);
-    expect(Array.isArray(barrel.FEATURED_DAPPS)).toBe(true);
-    expect(barrel.FEATURED_DAPPS.length).toBeGreaterThan(0);
-    expect(Array.isArray(barrel.CAROUSEL_DAPPS)).toBe(true);
-    expect(Array.isArray(barrel.EXPLORE_GRID_DAPPS)).toBe(true);
-    expect(Array.isArray(barrel.CATEGORIES)).toBe(true);
-    expect(barrel.CATEGORIES.length).toBeGreaterThan(0);
   });
 });

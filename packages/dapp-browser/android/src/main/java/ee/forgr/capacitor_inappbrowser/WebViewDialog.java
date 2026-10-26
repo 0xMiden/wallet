@@ -16,6 +16,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -31,6 +32,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.PixelCopy;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -83,6 +86,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONException;
@@ -106,6 +110,127 @@ public class WebViewDialog extends Dialog {
     }
 
     private WebView _webView;
+    private BreadPresentationController presentation;
+    private BreadAuthController auth;
+    private boolean permanentlyClosed;
+    private ManagedHostClose managedClose;
+    boolean managedClosing() { return managedClose != null && managedClose.closing(); }
+    ManagedHostClose managedClose() { return managedClose; }
+    void disableClosingPage() {
+        if (presentation != null) presentation.stopMotion();
+        if (_webView != null) {
+            _webView.setEnabled(false);
+            _webView.onPause();
+        }
+    }
+    void configureManagedClose(String id, JSObject options, java.util.function.Consumer<JSObject> notify) {
+        if (options != null && !options.getString("token", "").isEmpty())
+            managedClose = new ManagedHostClose(id, this, capacitorWebView, options, notify, this::finishDismiss);
+    }
+    void requestClose(Runnable completion) {
+        if (managedClose != null) managedClose.request(completion);
+        else { finishDismiss(); completion.run(); }
+    }
+    void forceClose() { if (managedClose != null) managedClose.force(); else finishDismiss(); }
+    private Runnable closedListener;
+    // Window has no public fitting getter; retain the policy selected during browser setup.
+    private boolean browserDecorFitsSystemWindows = true;
+
+    boolean browserDecorFitsSystemWindows() { return browserDecorFitsSystemWindows; }
+    private void setBrowserDecorFitsSystemWindows(boolean fits) {
+        browserDecorFitsSystemWindows = fits;
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), fits);
+    }
+
+    boolean hasPresentation() { return presentation != null; }
+    public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
+    public void setClosedListener(Runnable listener) { closedListener = listener; }
+    public void presentationForeground(boolean foreground) {
+        if (managedClose != null) managedClose.foreground(foreground);
+        if (!managedClosing() && presentation != null) presentation.foreground(foreground);
+    }
+    void presentationMinimizeRequested(long revision, long sequence, String morphId) {
+        if (permanentlyClosed || managedClosing()) return;
+        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, morphId);
+    }
+
+    boolean presentationMorph(String to, JSObject card, JSObject velocity, String morphId, Integer revision, Integer sequence) {
+        if (permanentlyClosed || managedClosing() || presentation == null) return false;
+        BreadMorphCard host = hostCard(card);
+        float density = getContext().getResources().getDisplayMetrics().density;
+        float vx = velocity == null ? 0 : (float) velocity.optDouble("x", 0) * density;
+        float vy = velocity == null ? 0 : (float) velocity.optDouble("y", 0) * density;
+        if (!Float.isFinite(vx) || !Float.isFinite(vy)) vx = vy = 0;
+        return presentation.morph(to, host == null ? null : hostCardToWindow(host), vx, vy, morphId, revision, sequence);
+    }
+
+    static BreadMorphCard hostCard(JSObject card) {
+        if (card == null) return null;
+        double x = card.optDouble("x", Double.NaN), y = card.optDouble("y", Double.NaN);
+        double width = card.optDouble("width", Double.NaN), height = card.optDouble("height", Double.NaN);
+        double radius = card.optDouble("cornerRadius", 0);
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !(width > 0) || !(height > 0) || !Double.isFinite(width)
+            || !Double.isFinite(height)) return null;
+        return new BreadMorphCard(new android.graphics.RectF((float) x, (float) y, (float) (x + width), (float) (y + height)),
+            (float) (Double.isFinite(radius) ? Math.max(0, radius) : 0));
+    }
+
+    BreadMorphCard hostCardToWindow(BreadMorphCard host) {
+        WindowManager.LayoutParams params = getWindow().getAttributes();
+        return BreadMorphGeometry.hostToWindow(host.rect.left, host.rect.top, host.rect.width(), host.rect.height(),
+            host.cornerRadius, getContext().getResources().getDisplayMetrics().density, statusBarHeightPx(), params.x, params.y);
+    }
+
+    private int statusBarHeightPx() {
+        int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return resourceId > 0 ? getContext().getResources().getDimensionPixelSize(resourceId) : 0;
+    }
+    void presentationChanged(boolean fullscreen, boolean resolved, long revision) {
+        _options.getCallbacks().presentationChanged(fullscreen, resolved, revision,
+            managedClose == null ? null : managedClose.token);
+    }
+    void applyPresentationVisibility(boolean visible) {
+        if (permanentlyClosed || managedClosing()) return;
+        if (visible) super.show();
+        else super.hide();
+    }
+    void presentationVisibility(boolean visible, Integer revision, Integer sequence) {
+        if (permanentlyClosed || managedClosing()) return;
+        if (presentation != null) presentation.visibility(visible, revision, sequence);
+        else if (visible) super.show();
+        else super.hide();
+    }
+    void applyBrowserDimensions() { applyDimensions(); }
+    BreadSnapshotter snapshotter = BreadSnapshotter.PIXEL_COPY;
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    void morphEvent(BreadMorphEvent event) {
+        if (permanentlyClosed || managedClosing()) return;
+        _options.getCallbacks().presentationMorph(event);
+    }
+
+    @Override public void show() {
+        if (permanentlyClosed || managedClosing()) return;
+        if (presentation != null) presentation.visibility(true);
+        else super.show();
+    }
+    @Override public void hide() {
+        if (managedClosing()) return;
+        if (presentation != null) presentation.visibility(false);
+        super.hide();
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        int route = presentation == null ? BreadPresentationController.TOUCH_PASS : presentation.routeTouch(event);
+        if (route == BreadPresentationController.TOUCH_PASS) return super.dispatchTouchEvent(event);
+        if (route == BreadPresentationController.TOUCH_CANCEL) {
+            MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+        }
+        return true;
+    }
+
     private Toolbar _toolbar;
     private Options _options = null;
     private final Context _context;
@@ -151,6 +276,7 @@ public class WebViewDialog extends Dialog {
 
         @JavascriptInterface
         public void postMessage(String message) {
+            if (managedClosing() || permanentlyClosed) return;
             try {
                 // Handle message from JavaScript safely
                 if (message == null || message.isEmpty()) {
@@ -171,6 +297,7 @@ public class WebViewDialog extends Dialog {
 
         @JavascriptInterface
         public void close() {
+            if (_options.getBreadPresentation() != null) return;
             try {
                 // close webview safely
                 if (activity == null) {
@@ -180,12 +307,7 @@ public class WebViewDialog extends Dialog {
 
                 activity.runOnUiThread(() -> {
                     try {
-                        String currentUrl = getUrl();
                         dismiss();
-
-                        if (_options != null && _options.getCallbacks() != null) {
-                            _options.getCallbacks().closeEvent(currentUrl);
-                        }
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
                     }
@@ -310,6 +432,7 @@ public class WebViewDialog extends Dialog {
             getWindow()
                 .getDecorView()
                 .post(() -> {
+                    if (isPresentationFullscreen()) return;
                     // Get status bar height
                     int statusBarHeight = 0;
                     int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
@@ -431,9 +554,9 @@ public class WebViewDialog extends Dialog {
 
                     // DEBUG: Log details about the file chooser request
                     Log.d("InAppBrowser", "onShowFileChooser called");
-                    Log.d("InAppBrowser", "Accept type: " + acceptType);
-                    Log.d("InAppBrowser", "Current URL: " + getUrl());
-                    Log.d("InAppBrowser", "Original URL: " + (webView.getOriginalUrl() != null ? webView.getOriginalUrl() : "null"));
+                    IabLog.d("InAppBrowser", "Accept type: " + acceptType);
+                    IabLog.d("InAppBrowser", "Current URL: " + getUrl());
+                    IabLog.d("InAppBrowser", "Original URL: " + (webView.getOriginalUrl() != null ? webView.getOriginalUrl() : "null"));
                     Log.d(
                         "InAppBrowser",
                         "Has camera permission: " +
@@ -523,7 +646,7 @@ public class WebViewDialog extends Dialog {
                             """;
 
                         webView.evaluateJavascript(js, (value) -> {
-                            Log.d("InAppBrowser", "Capture attribute JS result: " + value);
+                            IabLog.d("InAppBrowser", "Capture attribute JS result: " + value);
 
                             // If we already found capture in URL, use that directly
                             if (isCaptureInUrl) {
@@ -536,7 +659,7 @@ public class WebViewDialog extends Dialog {
                             if (value != null && value.length() > 2) {
                                 // Clean up the value (remove quotes)
                                 String captureValue = value.replace("\"", "");
-                                Log.d("InAppBrowser", "Found capture attribute: " + captureValue);
+                                IabLog.d("InAppBrowser", "Found capture attribute: " + captureValue);
 
                                 if (!captureValue.isEmpty()) {
                                     activity.runOnUiThread(() -> launchCamera(captureValue.equals("user")));
@@ -743,12 +866,15 @@ public class WebViewDialog extends Dialog {
                         currentPermissionRequest.deny();
                         currentPermissionRequest = null;
                     }
+                    if (_options.getCallbacks() != null) {
+                        _options.getCallbacks().permissionDeniedToast();
+                    }
                 }
 
                 // Handle geolocation permission requests
                 @Override
                 public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
-                    Log.i("INAPPBROWSER", "onGeolocationPermissionsShowPrompt for origin: " + origin);
+                    IabLog.i("INAPPBROWSER", "onGeolocationPermissionsShowPrompt for origin: " + origin);
                     // Grant geolocation permission automatically for openWebView
                     // This allows websites to access location when opened with openWebView
                     callback.invoke(origin, true, false);
@@ -785,14 +911,14 @@ public class WebViewDialog extends Dialog {
                             WebView.HitTestResult result = view.getHitTestResult();
                             String data = result.getExtra();
                             if (data != null && !data.isEmpty()) {
-                                Log.d("InAppBrowser", "Opening target=_blank link externally: " + data);
+                                IabLog.d("InAppBrowser", "Opening target=_blank link externally: " + data);
                                 Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(data));
                                 browserIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                                 _webView.getContext().startActivity(browserIntent);
                                 return false;
                             }
                         } catch (Exception e) {
-                            Log.e("InAppBrowser", "Error opening external link: " + e.getMessage());
+                            Log.e("InAppBrowser", "Error opening external link: " + e.getClass().getSimpleName());
                         }
                     }
 
@@ -809,7 +935,7 @@ public class WebViewDialog extends Dialog {
                             new WebViewClient() {
                                 @Override
                                 public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                                    Log.d("InAppBrowser", "Popup WebView loading URL: " + url);
+                                    IabLog.d("InAppBrowser", "Popup WebView loading URL: " + url);
 
                                     // Handle Google Pay result URLs or close conditions
                                     if (url.contains("google.com/pay") || url.contains("close") || url.contains("cancel")) {
@@ -859,6 +985,14 @@ public class WebViewDialog extends Dialog {
             }
         }
 
+        setupToolbar();
+        setWebViewClient();
+        if (_options.getBreadPresentation() != null) {
+            auth = new BreadAuthController(this, _webView);
+            auth.install();
+            presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation(), _options.isInitiallyVisible());
+            presentation.install();
+        }
         _webView.loadUrl(this._options.getUrl(), requestHeaders);
         _webView.requestFocus();
         _webView.requestFocusFromTouch();
@@ -878,11 +1012,8 @@ public class WebViewDialog extends Dialog {
             }
         });
 
-        setupToolbar();
-        setWebViewClient();
-
         if (!this._options.isPresentAfterPageLoad()) {
-            show();
+            if (_options.isInitiallyVisible()) show();
             _options.getPluginCall().resolve();
         }
     }
@@ -932,6 +1063,7 @@ public class WebViewDialog extends Dialog {
                 // Apply fixes for Android 15+ using a delayed post
                 final int finalBgColor = backgroundColor;
                 _webView.post(() -> {
+                    if (isPresentationFullscreen()) return;
                     // Get status bar height
                     int statusBarHeight = 0;
                     int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
@@ -991,19 +1123,19 @@ public class WebViewDialog extends Dialog {
             ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
 
             // Apply safe margin inset to bottom margin if enabled in options or fallback to 0px
-            int navBottom = _options.getEnabledSafeMargin() ? bars.bottom : 0;
+            int navBottom = !isPresentationFullscreen() && _options.getEnabledSafeMargin() ? bars.bottom : 0;
 
             // Apply top inset only if useTopInset option is enabled or fallback to 0px
             int navTop = _options.getUseTopInset() ? bars.top : 0;
 
             // Avoid double-applying top inset; AppBar/status bar handled above on Android 15+
-            mlp.topMargin = isAndroid15Plus ? 0 : navTop;
+            mlp.topMargin = isAndroid15Plus || isPresentationFullscreen() ? 0 : navTop;
 
             // Apply larger of navigation bar or keyboard inset to bottom margin
             mlp.bottomMargin = Math.max(navBottom, ime.bottom);
 
-            mlp.leftMargin = bars.left;
-            mlp.rightMargin = bars.right;
+            mlp.leftMargin = isPresentationFullscreen() ? 0 : bars.left;
+            mlp.rightMargin = isPresentationFullscreen() ? 0 : bars.right;
             v.setLayoutParams(mlp);
 
             return WindowInsetsCompat.CONSUMED;
@@ -1013,7 +1145,7 @@ public class WebViewDialog extends Dialog {
         if (getWindow() != null) {
             if (isAndroid15Plus) {
                 // Android 15+: Use edge-to-edge with proper insets handling
-                getWindow().setDecorFitsSystemWindows(false);
+                setBrowserDecorFitsSystemWindows(false);
                 getWindow().setStatusBarColor(Color.TRANSPARENT);
                 getWindow().setNavigationBarColor(Color.TRANSPARENT);
 
@@ -1139,10 +1271,13 @@ public class WebViewDialog extends Dialog {
                 })();
                 """;
 
+            final String bridgeScript = _options.getBreadPresentation() == null ? script
+                : script.replace("window.AndroidInterface.close();", "return window.bread.presentation.close();")
+                    + "if(window.mobileApp)window.mobileApp.close=()=>window.bread.presentation.close();";
             _webView.post(() -> {
                 if (_webView != null) {
                     try {
-                        _webView.evaluateJavascript(script, null);
+                        _webView.evaluateJavascript(bridgeScript, null);
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error injecting JavaScript interface: " + e.getMessage());
                     }
@@ -1270,7 +1405,7 @@ public class WebViewDialog extends Dialog {
             _options.getPreShowScript()
         );
 
-        Log.i("InjectPreShowScript", String.format("PreShowScript script:\n%s", script));
+        IabLog.i("InjectPreShowScript", String.format("PreShowScript script:\n%s", script));
 
         preShowSemaphore = new Semaphore(0);
         activity.runOnUiThread(
@@ -1295,7 +1430,7 @@ public class WebViewDialog extends Dialog {
                 return;
             }
             if (preShowError != null && !preShowError.isEmpty()) {
-                Log.e("InjectPreShowScript", "Error within the user-provided preShowFunction: " + preShowError);
+                Log.e("InjectPreShowScript", "Error within the user-provided preShowFunction");
             }
         } catch (InterruptedException e) {
             Log.e("InjectPreShowScript", "Error when calling InjectPreShowScript: " + e.getMessage());
@@ -1341,7 +1476,7 @@ public class WebViewDialog extends Dialog {
             }
         }
 
-        Log.d("InAppBrowser", "File picker using MIME type: " + acceptType);
+        IabLog.d("InAppBrowser", "File picker using MIME type: " + acceptType);
         intent.setType(acceptType);
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, isMultiple);
 
@@ -1383,7 +1518,7 @@ public class WebViewDialog extends Dialog {
             }
         } catch (ActivityNotFoundException e) {
             // If no app can handle the specific MIME type, try with a more generic one
-            Log.e("InAppBrowser", "No app available for type: " + acceptType + ", trying with */*");
+            Log.e("InAppBrowser", "No app available for file type, trying with */*: " + e.getClass().getSimpleName());
             intent.setType("*/*");
             try {
                 if (activity instanceof androidx.activity.ComponentActivity) {
@@ -1433,6 +1568,7 @@ public class WebViewDialog extends Dialog {
     }
 
     public void reload() {
+        if (managedClosing() || permanentlyClosed) return;
         if (_webView == null) {
             Log.w("InAppBrowser", "Cannot reload - WebView is null");
             return;
@@ -1447,11 +1583,11 @@ public class WebViewDialog extends Dialog {
             if (currentUrl != null && !currentUrl.equals("about:blank")) {
                 // Reload the current page
                 _webView.reload();
-                Log.d("InAppBrowser", "Reloading page: " + currentUrl);
+                IabLog.d("InAppBrowser", "Reloading page: " + currentUrl);
             } else if (_options != null && _options.getUrl() != null) {
                 // If webView URL is null but we have an initial URL, load that
                 setUrl(_options.getUrl());
-                Log.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
+                IabLog.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
             } else {
                 Log.w("InAppBrowser", "Cannot reload - no valid URL available");
             }
@@ -1498,6 +1634,7 @@ public class WebViewDialog extends Dialog {
     }
 
     public void setUrl(String url) {
+        if (managedClosing() || permanentlyClosed) return;
         if (_webView == null) {
             Log.w("InAppBrowser", "Cannot set URL - WebView is null");
             return;
@@ -1611,7 +1748,6 @@ public class WebViewDialog extends Dialog {
                                         if (_options != null && _options.getCallbacks() != null) {
                                             // Notify that confirm was clicked
                                             _options.getCallbacks().confirmBtnClicked(currentUrl);
-                                            _options.getCallbacks().closeEvent(currentUrl);
                                         }
                                     }
                                 }
@@ -1619,11 +1755,7 @@ public class WebViewDialog extends Dialog {
                             .setNegativeButton(_options.getCloseModalCancel(), null)
                             .show();
                     } else {
-                        String currentUrl = getUrl();
                         dismiss();
-                        if (_options != null && _options.getCallbacks() != null) {
-                            _options.getCallbacks().closeEvent(currentUrl);
-                        }
                     }
                 }
             }
@@ -1650,11 +1782,11 @@ public class WebViewDialog extends Dialog {
                             if (currentUrl != null) {
                                 // Reload the current page
                                 _webView.reload();
-                                Log.d("InAppBrowser", "Reloading page: " + currentUrl);
+                                IabLog.d("InAppBrowser", "Reloading page: " + currentUrl);
                             } else if (_options.getUrl() != null) {
                                 // If webView URL is null but we have an initial URL, load that
                                 setUrl(_options.getUrl());
-                                Log.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
+                                IabLog.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
                             }
                         }
                     }
@@ -1757,7 +1889,7 @@ public class WebViewDialog extends Dialog {
             // setDecorFitsSystemWindows(false) is API 30+ (Android
             // 11+), which matches our minSdk constraints.
             if (Build.VERSION.SDK_INT >= 30 && getWindow() != null) {
-                getWindow().setDecorFitsSystemWindows(false);
+                setBrowserDecorFitsSystemWindows(false);
             }
 
             // Miden patch: the Dialog Window frame extends BELOW the
@@ -2107,7 +2239,7 @@ public class WebViewDialog extends Dialog {
                             }
                         }
                     } catch (URISyntaxException e) {
-                        Log.e("InAppBrowser", "Invalid URI in isUrlAuthorized: " + url, e);
+                        Log.e("InAppBrowser", "Invalid URI in isUrlAuthorized: " + e.getClass().getSimpleName());
                     }
                     return false;
                 }
@@ -2134,7 +2266,7 @@ public class WebViewDialog extends Dialog {
 
                     for (String blockPattern : blockedHosts) {
                         if (blockPattern != null && matchesBlockPattern(normalizedHost, blockPattern.toLowerCase())) {
-                            Log.d("InAppBrowser", "Blocked host detected: " + host);
+                            IabLog.d("InAppBrowser", "Blocked host detected: " + host);
                             return true;
                         }
                     }
@@ -2226,12 +2358,13 @@ public class WebViewDialog extends Dialog {
 
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if (managedClosing() || permanentlyClosed) return true;
                     if (view == null || _webView == null) {
                         return false;
                     }
                     Context context = view.getContext();
                     String url = request.getUrl().toString();
-                    Log.d("InAppBrowser", "shouldOverrideUrlLoading: " + url);
+                    IabLog.d("InAppBrowser", "shouldOverrideUrlLoading: " + url);
 
                     boolean isNotHttpOrHttps = !url.startsWith("https://") && !url.startsWith("http://");
 
@@ -2247,19 +2380,19 @@ public class WebViewDialog extends Dialog {
                     List<String> authorizedLinks = _options.getAuthorizedAppLinks();
                     boolean urlAuthorized = isUrlAuthorized(url, authorizedLinks);
 
-                    Log.d("InAppBrowser", "authorizedLinks: " + authorizedLinks);
+                    IabLog.d("InAppBrowser", "authorizedLinks: " + authorizedLinks);
                     Log.d("InAppBrowser", "urlAuthorized: " + urlAuthorized);
 
                     if (urlAuthorized) {
                         try {
-                            Log.d("InAppBrowser", "Launching intent for authorized link: " + url);
+                            IabLog.d("InAppBrowser", "Launching intent for authorized link: " + url);
                             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             context.startActivity(intent);
-                            Log.i("InAppBrowser", "Intent started for authorized link: " + url);
+                            IabLog.i("InAppBrowser", "Intent started for authorized link: " + url);
                             return true;
                         } catch (ActivityNotFoundException e) {
-                            Log.e("InAppBrowser", "No app found to handle this authorized link", e);
+                            Log.e("InAppBrowser", "No app found to handle this authorized link: " + e.getClass().getSimpleName());
                             return false;
                         }
                     }
@@ -2276,11 +2409,10 @@ public class WebViewDialog extends Dialog {
                             context.startActivity(intent);
                             return true;
                         } catch (ActivityNotFoundException | URISyntaxException e) {
-                            Log.w("InAppBrowser", "No handler for external URL: " + url, e);
-                            // Notify that a page load error occurred
-                            if (_options.getCallbacks() != null && request.isForMainFrame()) {
-                                _options.getCallbacks().pageLoadError();
-                            }
+                            // Miden patch: no app handles this link. It stays blocked, but it is not a
+                            // page load error: the page on screen did not fail, and callers close the
+                            // page on that event.
+                            Log.w("InAppBrowser", "No handler for external URL: " + e.getClass().getSimpleName());
                             return true; // prevent WebView from attempting to load the custom scheme
                         }
                     }
@@ -2294,7 +2426,7 @@ public class WebViewDialog extends Dialog {
                             if (_options.getCallbacks() != null) {
                                 _options.getCallbacks().urlChangeEvent(url);
                             }
-                            Log.d("InAppBrowser", "Navigation blocked for URL: " + url);
+                            IabLog.d("InAppBrowser", "Navigation blocked for URL: " + url);
                             return true; // Block the navigation
                         }
                     }
@@ -2322,10 +2454,10 @@ public class WebViewDialog extends Dialog {
                     }
 
                     try {
-                        Log.i("InAppBrowser", "Host: " + request.getHost());
-                        Log.i("InAppBrowser", "Port: " + request.getPort());
-                        Log.i("InAppBrowser", "Principals: " + java.util.Arrays.toString(request.getPrincipals()));
-                        Log.i("InAppBrowser", "KeyTypes: " + java.util.Arrays.toString(request.getKeyTypes()));
+                        IabLog.i("InAppBrowser", "Host: " + request.getHost());
+                        IabLog.i("InAppBrowser", "Port: " + request.getPort());
+                        IabLog.i("InAppBrowser", "Principals: " + java.util.Arrays.toString(request.getPrincipals()));
+                        IabLog.i("InAppBrowser", "KeyTypes: " + java.util.Arrays.toString(request.getKeyTypes()));
 
                         KeyChain.choosePrivateKeyAlias(
                             activity,
@@ -2410,7 +2542,7 @@ public class WebViewDialog extends Dialog {
                         return null;
                     }
 
-                    Log.i("InAppBrowserProxy", String.format("Proxying request: %s", request.getUrl().toString()));
+                    IabLog.i("InAppBrowserProxy", String.format("Proxying request: %s", request.getUrl().toString()));
 
                     // We need to call a JS function
                     String requestId = randomRequestId();
@@ -2523,7 +2655,7 @@ public class WebViewDialog extends Dialog {
                             if (sourcePort == -1 && Objects.equals(sourceProtocol, "https")) sourcePort = 443;
                             else if (sourcePort == -1 && Objects.equals(sourceProtocol, "http")) sourcePort = 80;
                         } catch (URISyntaxException e) {
-                            e.printStackTrace();
+                            Log.w("InAppBrowser", "Invalid HTTP auth source URI: " + e.getClass().getSimpleName());
                         }
 
                         String protocol = "";
@@ -2535,7 +2667,7 @@ public class WebViewDialog extends Dialog {
                             if (port == -1 && Objects.equals(protocol, "https")) port = 443;
                             else if (port == -1 && Objects.equals(protocol, "http")) port = 80;
                         } catch (URISyntaxException e) {
-                            e.printStackTrace();
+                            Log.w("InAppBrowser", "Invalid HTTP auth page URI: " + e.getClass().getSimpleName());
                         }
 
                         if (Objects.equals(sourceHost, host) && Objects.equals(sourceProtocol, protocol) && sourcePort == port) {
@@ -2560,6 +2692,7 @@ public class WebViewDialog extends Dialog {
                 @Override
                 public void onPageStarted(WebView view, String url, Bitmap favicon) {
                     super.onPageStarted(view, url, favicon);
+                    if (presentation != null) presentation.navigationStarted();
                     if (view == null || _webView == null) {
                         return;
                     }
@@ -2601,7 +2734,7 @@ public class WebViewDialog extends Dialog {
                         if (_options.isPresentAfterPageLoad()) {
                             boolean usePreShowScript = _options.getPreShowScript() != null && !_options.getPreShowScript().isEmpty();
                             if (!usePreShowScript) {
-                                show();
+                                if (_options.isInitiallyVisible()) show();
                                 _options.getPluginCall().resolve();
                             } else {
                                 executorService.execute(
@@ -2616,7 +2749,7 @@ public class WebViewDialog extends Dialog {
                                                 new Runnable() {
                                                     @Override
                                                     public void run() {
-                                                        show();
+                                                        if (_options.isInitiallyVisible()) show();
                                                         _options.getPluginCall().resolve();
                                                     }
                                                 }
@@ -2691,7 +2824,13 @@ public class WebViewDialog extends Dialog {
                 @Override
                 public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                     super.onReceivedError(view, request, error);
+                    if (presentation != null && request.isForMainFrame()) presentation.failed();
                     if (view == null || _webView == null) {
+                        return;
+                    }
+                    // Miden patch: a failed subresource or iframe leaves the page usable, so only
+                    // a main-frame failure is a page load error (callers close the page on it).
+                    if (!request.isForMainFrame()) {
                         return;
                     }
                     _options.getCallbacks().pageLoadError();
@@ -2737,12 +2876,7 @@ public class WebViewDialog extends Dialog {
         ) {
             _webView.goBack();
         } else if (!_options.getDisableGoBackOnNativeApplication()) {
-            String currentUrl = getUrl();
-            _options.getCallbacks().closeEvent(currentUrl);
-            if (_webView != null) {
-                _webView.destroy();
-            }
-            super.onBackPressed();
+            dismiss();
         }
     }
 
@@ -2820,7 +2954,16 @@ public class WebViewDialog extends Dialog {
     }
 
     @Override
-    public void dismiss() {
+    public void dismiss() { requestClose(() -> {}); }
+
+    private void finishDismiss() {
+        if (permanentlyClosed) return;
+        permanentlyClosed = true;
+        String closedUrl = getUrl();
+        if (auth != null) auth.close();
+        if (presentation != null) presentation.close();
+        if (closedListener != null) closedListener.run();
+        if (_options != null && _options.getCallbacks() != null) _options.getCallbacks().closeEvent(closedUrl);
         // First, stop any ongoing operations and disable further interactions
         if (_webView != null) {
             try {
@@ -3068,6 +3211,11 @@ public class WebViewDialog extends Dialog {
      * Apply dimensions to the webview window
      */
     private void applyDimensions() {
+        if (permanentlyClosed || managedClosing()) return;
+        if (isPresentationFullscreen()) {
+            presentation.applyWindow();
+            return;
+        }
         Integer width = _options.getWidth();
         Integer height = _options.getHeight();
         Integer x = _options.getX();
@@ -3108,13 +3256,7 @@ public class WebViewDialog extends Dialog {
         // have to add the status bar inset ourselves or the
         // Dialog ends up ~24dp too high, overlapping the bottom
         // of the React CapsuleBar.
-        int statusBarHeightPx = 0;
-        int resourceId = getContext()
-            .getResources()
-            .getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) {
-            statusBarHeightPx = getContext().getResources().getDimensionPixelSize(resourceId);
-        }
+        int statusBarHeightPx = statusBarHeightPx();
 
         // Miden patch: the Dialog frame is set to match the slot
         // rect passed by the wallet — same y/width/height, just
@@ -3228,30 +3370,80 @@ public class WebViewDialog extends Dialog {
      * base64 data URL. Used by the embedded dApp browser to show frozen
      * previews on minimized bubbles and card-switcher cards.
      *
-     * Must be called on the UI thread (the plugin wrapper enforces this).
+     * The page is read with PixelCopy and encoded off the UI thread; during a
+     * native morph the capture taken when the motion started is used, because
+     * the window shows a scaled page. Must be called on the UI thread; done runs there.
      */
-    public String takeSnapshotData(float scale, float quality) {
-        if (_webView == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
-            return null;
-        }
-        try {
-            float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
-            int width = Math.max(1, (int) (_webView.getWidth() * clampedScale));
-            int height = Math.max(1, (int) (_webView.getHeight() * clampedScale));
-            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
-            android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
-            canvas.scale(clampedScale, clampedScale);
-            _webView.draw(canvas);
+    public void takeSnapshotData(float scale, float quality, Consumer<String> done) {
+        // The controller keeps its capture as the proxy; a standalone capture exists for this request only.
+        if (presentation != null) presentation.snapshot(source -> encodeSnapshot(source, scale, quality, false, done));
+        else captureWebView(source -> encodeSnapshot(source, scale, quality, true, done));
+    }
 
-            int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, qualityPct, baos);
-            bmp.recycle();
-            String b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
-            return "data:image/jpeg;base64," + b64;
-        } catch (Exception e) {
-            Log.e("InAppBrowser", "takeSnapshotData failed: " + e.getMessage());
-            return null;
+    void captureWebView(Consumer<Bitmap> done) {
+        Window window = getWindow();
+        if (_webView == null || window == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
+            done.accept(null);
+            return;
         }
+        int[] at = new int[2];
+        _webView.getLocationInWindow(at);
+        Bitmap bitmap = Bitmap.createBitmap(_webView.getWidth(), _webView.getHeight(), Bitmap.Config.ARGB_8888);
+        Rect rect = new Rect(at[0], at[1], at[0] + bitmap.getWidth(), at[1] + bitmap.getHeight());
+        try {
+            snapshotter.capture(window, rect, bitmap, result -> {
+                if (result == PixelCopy.SUCCESS) {
+                    done.accept(bitmap);
+                    return;
+                }
+                bitmap.recycle();
+                done.accept(null);
+            });
+        } catch (RuntimeException e) {
+            Log.e("InAppBrowser", "snapshot capture failed: " + e.getMessage());
+            bitmap.recycle();
+            done.accept(null);
+        }
+    }
+
+    void hardwareCopy(Bitmap source, Consumer<Bitmap> done) {
+        snapshotter.encode(() -> {
+            Bitmap copy = null;
+            try {
+                copy = source.copy(Bitmap.Config.HARDWARE, false);
+            } catch (RuntimeException e) {
+                Log.w("InAppBrowser", "hardware snapshot copy failed: " + e.getMessage());
+            }
+            Bitmap result = copy;
+            if (result != null) mainHandler.post(() -> done.accept(result));
+        });
+    }
+
+    private void encodeSnapshot(Bitmap source, float scale, float quality, boolean release, Consumer<String> done) {
+        if (source == null) {
+            done.accept(null);
+            return;
+        }
+        float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
+        int width = Math.max(1, (int) (source.getWidth() * clampedScale));
+        int height = Math.max(1, (int) (source.getHeight() * clampedScale));
+        int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
+        snapshotter.encode(() -> {
+            String data = null;
+            Bitmap scaled = null;
+            try {
+                scaled = Bitmap.createScaledBitmap(source, width, height, true);
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.JPEG, qualityPct, bytes);
+                data = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
+            } catch (RuntimeException e) {
+                Log.e("InAppBrowser", "snapshot encode failed: " + e.getMessage());
+            } finally {
+                if (scaled != null && scaled != source) scaled.recycle();
+                if (release) source.recycle();
+            }
+            String result = data;
+            mainHandler.post(() -> done.accept(result));
+        });
     }
 }

@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { Card } from 'components/ui/Card';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
-import { AssetAmount, TxAssetView } from './decode';
+import { AssetAmount, NftAsset, TxAssetView } from './decode';
 import { Icon, IconName } from '../icons/v2';
 
 export interface TransactionAssetViewProps {
@@ -49,9 +50,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
           // ON-CHAIN for its real symbol+decimals, degrading to the "Unknown"
           // default (never native MIDEN) on failure — so an unrecognized
           // faucet is never mislabeled as native MIDEN on this security screen.
-          const md = await fetchTokenMetadata(a.faucetId)
-            .then(r => r.base)
-            .catch(() => undefined);
+          const md = await fetchTokenMetadata(a.faucetId).catch(() => undefined);
           return {
             faucetId: a.faucetId,
             amount: a.amount,
@@ -79,20 +78,62 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
 const quantityOf = (asset: ResolvedAsset): string =>
   asset.scaleIsKnown ? formatAmount(asset.amount, asset.decimals) : '?';
 
+/**
+ * One NFT, named by what the wallet can read: a label, its short asset id and its faucet.
+ * The faucet's own name is not readable through SDK 0.17, so the address stands in for it.
+ */
+const NftRow: React.FC<{ nft: NftAsset; sign: '-' | '+'; isVerified: boolean }> = ({ nft, sign, isVerified }) => {
+  const { t } = useTranslation();
+  const tone = isVerified
+    ? sign === '-'
+      ? 'text-black-500 font-semibold'
+      : 'text-green-500 font-semibold'
+    : 'text-text-muted font-normal';
+  return (
+    <div
+      className="flex flex-col w-full my-2 text-sm"
+      data-testid="tx-nft-row"
+      data-direction={sign === '-' ? 'out' : 'in'}
+    >
+      <div className="flex flex-row items-baseline">
+        {/* eslint-disable i18next/no-literal-string -- Decorative amount sign, aria-hidden. */}
+        <span className={classNames('font-heading text-lg mr-1', tone)} aria-hidden="true">
+          {sign}
+        </span>
+        {/* eslint-enable i18next/no-literal-string */}
+        <span className={classNames('font-heading text-lg', tone)} data-verified={isVerified ? 'true' : 'false'}>
+          {`${t('nft')} ${nft.assetId}`}
+        </span>
+        {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
+      </div>
+      <span className="text-text-muted text-xs ml-4">{`${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`}</span>
+    </div>
+  );
+};
+
 export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload }) => {
   const { t } = useTranslation();
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
-  const hasAssets = view.outgoing.length > 0 || view.incoming.length > 0;
+  // Memoized because `useResolvedAssets` keys its effect on array identity: a literal built
+  // during render would re-resolve, re-render and re-resolve forever.
+  const feeAssets = useMemo(() => (view.fee ? [view.fee] : []), [view.fee]);
+  const [feeAsset] = useResolvedAssets(feeAssets);
+  const hasAssets =
+    view.outgoing.length > 0 ||
+    view.incoming.length > 0 ||
+    view.outgoingNfts.length > 0 ||
+    view.incomingNfts.length > 0 ||
+    view.unlistedAssets > 0;
   const isVerified = mode === 'verified';
 
   return (
-    <div className="flex flex-col items-center justify-center">
+    <div className="flex flex-col items-center justify-center" data-testid="tx-asset-view" data-mode={mode}>
       {mode === 'declared' && (
         <span className="text-text-muted text-xs mb-2 self-start">{t('declaredBySiteVerifying')}</span>
       )}
 
-      <div className="flex flex-col border border-gray-100 rounded-2xl mb-4 w-full p-4">
+      <Card padding="tile" className="mb-4 flex w-full flex-col">
         {view.account && (
           <div
             className={`flex flex-row w-full items-center justify-between border-gray-100 ${
@@ -156,9 +197,21 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                 {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}
+            {view.outgoingNfts.map((a, i) => (
+              <NftRow key={`nft-out-${i}-${a.faucetId}-${a.assetId}`} nft={a} sign="-" isVerified={isVerified} />
+            ))}
+            {view.incomingNfts.map((a, i) => (
+              <NftRow key={`nft-in-${i}-${a.faucetId}-${a.assetId}`} nft={a} sign="+" isVerified={isVerified} />
+            ))}
+            {view.unlistedAssets > 0 && (
+              <div className="flex flex-row items-start gap-x-2 w-full my-2" data-testid="tx-unlisted-assets">
+                <Icon name={IconName.WarningFill} fill="orange" size="md" />
+                <span className="text-sm">{t('unlistedAssetsWarning')}</span>
+              </div>
+            )}
           </div>
         )}
-      </div>
+      </Card>
 
       <div className="flex flex-col w-full border-b border-gray-100 pb-4">
         <div className="flex flex-row w-full items-center justify-between pb-1">
@@ -167,18 +220,34 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         </div>
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('outputNotesCreated')}</span>
-          <span>{view.outputNotesCreated}</span>
+          <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>
         </div>
+        {/*
+          A cost the user pays, so it is shown rather than merely subtracted. It sits here, in
+          the stats block, instead of among the asset rows: it is not an asset the user chose
+          to move, `outgoing` deliberately excludes it on both decode paths, and this block
+          renders even when a transaction moves nothing.
+        */}
+        {view.fee && (
+          <div className="flex flex-row w-full items-center justify-between pb-1">
+            <span className="text-text-muted">{t('networkFee')}</span>
+            <span data-testid="tx-network-fee">
+              {feeAsset ? `${quantityOf(feeAsset)} ${feeAsset.symbol ?? t('unknown')}` : t('loading')}
+            </span>
+          </div>
+        )}
         {mode === 'verified' && (
           <div className="flex flex-row w-full items-center justify-between">
             <span className="text-text-muted">{t('storageChanged')}</span>
             {view.storageChanged ? (
-              <div className="flex flex-row items-center gap-x-2">
+              <div className="flex flex-row items-center gap-x-2" data-testid="tx-storage-changed" data-changed="true">
                 <Icon name={IconName.WarningFill} fill="orange" size="md" />
                 <span>{t('yes')}</span>
               </div>
             ) : (
-              <span>{t('no')}</span>
+              <span data-testid="tx-storage-changed" data-changed="false">
+                {t('no')}
+              </span>
             )}
           </div>
         )}
@@ -192,7 +261,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
             'w-full mt-2',
             'rounded-4xl hover:rounded-4xl',
             'transition-all duration-200 ease-in-out',
-            'hover:bg-gray-100',
+            'hover:bg-fill-pressed',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300',
             'py-4 px-0'
           )}
@@ -200,7 +269,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         >
           <span className="flex flex-row items-center justify-center gap-x-2">
             <Icon name={IconName.Download} fill="currentColor" size="md" />
-            <span className="text-lg text-black font-medium">{t('downloadFullSummary')}</span>
+            <span className="text-lg text-ink font-medium">{t('downloadFullSummary')}</span>
           </span>
         </Button>
       )}

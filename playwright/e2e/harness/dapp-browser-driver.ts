@@ -17,9 +17,37 @@
  */
 
 import { expect } from '@playwright/test';
+import { mkdir, writeFile } from 'fs/promises';
 
-import { fixtureDapp, GENERATION_COLORS, GENERATION_MARKER_PX, type DappFixtureServer } from './dapp-fixture-server';
+import {
+  fixtureDapp,
+  FIXTURE_DAPPS,
+  GENERATION_COLORS,
+  GENERATION_MARKER_PX,
+  type DappFixtureServer,
+  type DappViewportReport
+} from './dapp-fixture-server';
+import type { BrowserMotion } from '../helpers/dapp-mobile-wallet';
 import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
+import { resolveWalletNetwork } from './extension-network';
+import devnetCatalog from '../../../src/lib/explore-config/snapshot/devnet.json';
+import testnetCatalog from '../../../src/lib/explore-config/snapshot/testnet.json';
+
+const BUNDLED_CATALOGS: Record<string, { sections: Array<{ kind: string; itemIds: string[] }> }> = {
+  devnet: devnetCatalog,
+  testnet: testnetCatalog
+};
+
+/**
+ * How many curated grid rows an E2E build draws for the network the suite runs on: one per distinct app the bundled
+ * catalog's list sections name, since such a build reads no other catalog and a featured section draws cards instead.
+ */
+export function bundledGridCardCount(): number {
+  const network = resolveWalletNetwork(process.env.E2E_NETWORK);
+  const catalog = BUNDLED_CATALOGS[network];
+  if (!catalog) throw new Error(`no bundled Explore catalog for ${network}`);
+  return new Set(catalog.sections.filter(section => section.kind === 'list').flatMap(section => section.itemIds)).size;
+}
 
 /** The slice of a mobile page object this driver needs. */
 export interface DappDriverTarget {
@@ -46,7 +74,18 @@ export interface DappBrowserState {
     isCold: boolean;
     error: string | null;
   }>;
+  /** The native morph in flight (#1817); null at rest, absent from a build without it. */
+  motion?: BrowserMotion | null;
 }
+
+/** Fixture reports of a viewport-class event (`?morphlog=1`); a load or a visibility change is not one. */
+const VIEWPORT_EVENT_REASONS: ReadonlyArray<DappViewportReport['reason']> = [
+  'resize',
+  'visual-viewport',
+  'observer',
+  'safe-area',
+  'media'
+];
 
 export interface DappDriverOpts {
   target: DappDriverTarget;
@@ -59,6 +98,8 @@ export interface DappDriverOpts {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 250;
+/** How long a screenshot assertion keeps re-capturing for the frame to settle before it fails. */
+const VISUAL_SETTLE_MS = 5_000;
 
 export class DappBrowserDriver {
   private readonly target: DappDriverTarget;
@@ -135,6 +176,16 @@ export class DappBrowserDriver {
     return this.pollUntil(description, () => this.state(), predicate, timeoutMs);
   }
 
+  /** Wait until no native morph is in flight, so the next step sees a page at rest. */
+  async waitForMotionIdle(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<DappBrowserState> {
+    return this.waitForState('the dApp morph to come to rest', s => !s.motion, timeoutMs);
+  }
+
+  /** The viewport-class events `dappId` reported after its report `seq`: a morph must cause none. */
+  viewportEventsSince(dappId: string, seq: number): DappViewportReport[] {
+    return this.server.reports(dappId).filter(r => r.seq > seq && VIEWPORT_EVENT_REASONS.includes(r.reason));
+  }
+
   /** The session the wallet currently has foregrounded, if any. */
   async foregroundSession(): Promise<DappBrowserState['sessions'][number] | null> {
     const s = await this.state();
@@ -147,7 +198,7 @@ export class DappBrowserDriver {
   /** Go to the browser tab and wait for the launcher to be interactive. */
   async gotoBrowserTab(): Promise<void> {
     await this.target.navigateTo('/browser');
-    await this.target.waitFor('[data-testid="dapp-hero-search"], [data-testid="dapp-capsule"]', {
+    await this.target.waitFor('[data-testid="explore-search-toggle"], [data-testid="dapp-capsule"]', {
       timeoutMs: DEFAULT_TIMEOUT_MS
     });
   }
@@ -170,12 +221,20 @@ export class DappBrowserDriver {
   }
 
   /**
-   * Open a dApp by typing its URL into the launcher's search bar and pressing
+   * Open a dApp by typing its URL into Explore's header search and pressing
    * Enter — the real "custom URL" path a user takes for a dApp that isn't in
-   * the curated grid.
+   * the curated catalog. The field only exists once the header's search
+   * button has opened it, so tap that first when it is closed.
    */
   async openViaUrlBar(dappId: string): Promise<void> {
     const url = this.server.urlFor(dappId);
+    const searchOpen = await this.target.evalJs<boolean>(
+      `return !!document.querySelector('[data-testid="dapp-hero-search"]');`
+    );
+    if (!searchOpen) {
+      await this.target.waitFor('[data-testid="explore-search-toggle"]', { timeoutMs: DEFAULT_TIMEOUT_MS });
+      await this.target.click('[data-testid="explore-search-toggle"]');
+    }
     await this.target.waitFor('[data-testid="dapp-hero-search"]', { timeoutMs: DEFAULT_TIMEOUT_MS });
     // React controls the input, so setting `.value` directly is invisible to it;
     // go through the native setter + an input event, the same way the other
@@ -198,22 +257,22 @@ export class DappBrowserDriver {
     await this.waitForForeground(dappId);
   }
 
-  /** Open a dApp by tapping its tile (curated grid or recents row). */
-  async openViaTile(dappId: string): Promise<void> {
+  /** Open a dApp by tapping its row in Recents. */
+  async openViaRecents(dappId: string): Promise<void> {
     const url = this.server.urlFor(dappId);
-    const selector = `[data-testid="dapp-tile"][data-dapp-url="${url}"]`;
+    const selector = `[data-testid="recent-dapp-row"][data-dapp-url="${url}"]`;
     await this.target.waitFor(selector, { timeoutMs: DEFAULT_TIMEOUT_MS });
     await this.target.click(selector);
     await this.waitForForeground(dappId);
   }
 
   /**
-   * How many cards the curated grid is rendering.
+   * The data-dapp-url of every row the curated lists render (empty for a row without one).
    *
-   * The curated grid (`AppsGrid`) and the recents row (`RecentsRow`) are
-   * DIFFERENT components — only the latter renders `DappTile`. Counting
-   * `dapp-tile` here would report 0 on a fresh wallet (no recents yet) and
-   * silently look like "the grid is broken".
+   * The curated list rows and the Recents rows are the same `AppRow` under
+   * different test ids (`dapp-grid-card`, `recent-dapp-row`), so counting one
+   * never counts the other. Counting `recent-dapp-row` here would report 0 on a
+   * fresh wallet (no recents yet) and silently look like "the grid is broken".
    */
   async gridCardUrls(): Promise<string[]> {
     return this.target.evalJs<string[]>(
@@ -223,9 +282,17 @@ export class DappBrowserDriver {
     );
   }
 
-  /** How many recents tiles are rendered. */
-  async recentTileCount(): Promise<number> {
-    return this.target.evalJs<number>(`return document.querySelectorAll('[data-testid="dapp-tile"]').length;`);
+  /**
+   * The curated grid's card URLs once at least `min` cards render. The grid draws the bundled
+   * catalog's rows only once the network's floor has been read, so the wait covers that read as
+   * well as a network switch replacing those rows while the step reads them.
+   */
+  async waitForGridCards(min: number): Promise<string[]> {
+    return this.pollUntil(
+      `at least ${min} curated grid cards`,
+      () => this.gridCardUrls(),
+      urls => urls.length >= min
+    );
   }
 
   /**
@@ -274,6 +341,7 @@ export class DappBrowserDriver {
       'the foreground dApp to become parked',
       s => s.foregroundId === null && s.sessions.some(x => x.id === before.foregroundId && x.status === 'parked')
     );
+    await this.waitForMotionIdle();
   }
 
   /** Close the foreground dApp via the capsule's close button. */
@@ -310,6 +378,7 @@ export class DappBrowserDriver {
     await this.target.waitFor(selector, { timeoutMs: DEFAULT_TIMEOUT_MS });
     await this.target.click(selector);
     await this.waitForForeground(dappId);
+    await this.waitForMotionIdle();
   }
 
   // ── Switcher ─────────────────────────────────────────────────────────────
@@ -339,6 +408,24 @@ export class DappBrowserDriver {
   }
 
   /**
+   * Run a screenshot check until it holds or the settle budget is spent, and return its last attempt.
+   *
+   * A state change reaches the screen a beat after the state itself: a peek tile paints its snapshot, a webview
+   * brought back from home presents again, and a fixture page paints a generation before its report reaches the
+   * server. One screenshot taken at once can land in that beat, so a check re-captures within a short budget. The
+   * budget stays short, so a frame that never arrives, or arrives seconds late, still fails, and retries keep their
+   * screenshots (suffixed `-settle<n>`), so a slow settle stays visible in the artifacts.
+   */
+  private async settleVisual<T extends { ok: boolean }>(attempt: (tag: string) => Promise<T>): Promise<T> {
+    const deadline = Date.now() + VISUAL_SETTLE_MS;
+    for (let n = 1; ; n += 1) {
+      const result = await attempt(n === 1 ? '' : `-settle${n}`);
+      if (result.ok || Date.now() >= deadline) return result;
+      await this.target.delay(POLL_INTERVAL_MS);
+    }
+  }
+
+  /**
    * Assert the dApp slot is actually showing `dappId`'s page.
    *
    * Checks two independent things, because they fail differently:
@@ -351,12 +438,15 @@ export class DappBrowserDriver {
    */
   async expectDappPainted(dappId: string, label: string): Promise<void> {
     const dapp = fixtureDapp(dappId);
-    const state = await this.state();
-    expect(state.slotRect, `[${label}] the wallet should have a slot rect while a dApp is foreground`).not.toBeNull();
-    const slot = state.slotRect!;
-    const viewport = await this.cssViewport();
-    const shot = await this.capture(label);
-    const stats = await sampleRegion(shot, slot, viewport, dapp.rgb);
+    const { stats, shot } = await this.settleVisual(async tag => {
+      const state = await this.state();
+      expect(state.slotRect, `[${label}] the wallet should have a slot rect while a dApp is foreground`).not.toBeNull();
+      const slot = state.slotRect!;
+      const viewport = await this.cssViewport();
+      const frame = await this.capture(`${label}${tag}`);
+      const sample = await sampleRegion(frame, slot, viewport, dapp.rgb);
+      return { stats: sample, shot: frame, ok: sample.blankFraction < 0.5 && sample.matchFraction > 0.7 };
+    });
 
     expect(
       stats.blankFraction,
@@ -393,7 +483,35 @@ export class DappBrowserDriver {
       async () => this.server.lastReport(dappId),
       r => !!r && Math.abs(r.width - slot.width) <= tolerancePx && Math.abs(r.height - slot.height) <= tolerancePx,
       15_000
-    ).catch(() => this.server.lastReport(dappId));
+    ).catch(async error => {
+      const selectedReport = this.server.lastReport(dappId);
+      let observedStateTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const diagnostic = {
+          capturedAt: Date.now(),
+          dappId,
+          label,
+          pollingError: String(error),
+          selectedReport: selectedReport ?? null,
+          reports: Object.fromEntries(FIXTURE_DAPPS.map(({ id }) => [id, this.server.reports(id)])),
+          expectedState: state,
+          observedState: await Promise.race([
+            this.state().catch(error => ({ error: String(error) })),
+            new Promise<{ error: string }>(resolve => {
+              observedStateTimer = setTimeout(() => resolve({ error: 'observed state timed out after 1000ms' }), 1000);
+            })
+          ]).finally(() => clearTimeout(observedStateTimer))
+        };
+        await mkdir(this.artifactDir, { recursive: true });
+        await writeFile(
+          `${this.artifactDir}/dapp-${this.label}-${label.replace(/[^a-zA-Z0-9_-]+/g, '-')}-reports.json`,
+          JSON.stringify(diagnostic, null, 2)
+        );
+      } catch {
+        // Diagnostics must not replace the geometry failure.
+      }
+      return selectedReport;
+    });
 
     expect(report, `[${label}] dApp '${dappId}' never reported its layout`).toBeTruthy();
     expect(
@@ -435,27 +553,34 @@ export class DappBrowserDriver {
    */
   async expectFreshFrame(dappId: string, label: string): Promise<void> {
     const dapp = fixtureDapp(dappId);
-    const report = this.server.lastReport(dappId);
-    expect(report, `[${label}] ${dappId} has never reported, so no generation is expected yet`).toBeTruthy();
-    const expected = GENERATION_COLORS[(report!.seq - 1) % GENERATION_COLORS.length]!;
+    expect(
+      this.server.lastReport(dappId),
+      `[${label}] ${dappId} has never reported, so no generation is expected yet`
+    ).toBeTruthy();
+    const { stats, shot, report, expected } = await this.settleVisual(async tag => {
+      const state = await this.state();
+      expect(state.slotRect, `[${label}] expected a slot rect`).not.toBeNull();
+      const slot = state.slotRect!;
+      const viewport = await this.cssViewport();
+      const frame = await this.capture(`${label}-generation${tag}`);
+      // Read the report after the capture: the page paints a generation before its report reaches the server, so a
+      // screen that is ahead of the server is retried until the report lands, while a stale screen never matches.
+      const latest = this.server.lastReport(dappId);
+      const colour = GENERATION_COLORS[(latest!.seq - 1) % GENERATION_COLORS.length]!;
 
-    const state = await this.state();
-    expect(state.slotRect, `[${label}] expected a slot rect`).not.toBeNull();
-    const slot = state.slotRect!;
-    const viewport = await this.cssViewport();
-    const shot = await this.capture(`${label}-generation`);
-
-    const offsetY = await measureVerticalOffsetCss(shot, slot, viewport, dapp.rgb);
-    const marker = {
-      x: slot.x,
-      y: slot.y,
-      width: GENERATION_MARKER_PX,
-      height: GENERATION_MARKER_PX
-    };
-    const stats = await sampleRegion(shot, marker, viewport, expected, {
-      tolerance: 70,
-      insetPx: 12,
-      offsetCss: { y: offsetY }
+      const offsetY = await measureVerticalOffsetCss(frame, slot, viewport, dapp.rgb);
+      const marker = {
+        x: slot.x,
+        y: slot.y,
+        width: GENERATION_MARKER_PX,
+        height: GENERATION_MARKER_PX
+      };
+      const sample = await sampleRegion(frame, marker, viewport, colour, {
+        tolerance: 70,
+        insetPx: 12,
+        offsetCss: { y: offsetY }
+      });
+      return { stats: sample, shot: frame, report: latest, expected: colour, ok: sample.matchFraction > 0.6 };
     });
 
     expect(
@@ -472,9 +597,12 @@ export class DappBrowserDriver {
    * A tray of empty white cards is the failure this catches.
    */
   async expectRegionNotBlank(rect: Rect, label: string): Promise<void> {
-    const viewport = await this.cssViewport();
-    const shot = await this.capture(label);
-    const stats = await sampleRegion(shot, rect, viewport);
+    const { stats, shot } = await this.settleVisual(async tag => {
+      const viewport = await this.cssViewport();
+      const frame = await this.capture(`${label}${tag}`);
+      const sample = await sampleRegion(frame, rect, viewport);
+      return { stats: sample, shot: frame, ok: sample.blankFraction < 0.75 };
+    });
     expect(stats.blankFraction, `[${label}] region is blank. ${describeStats(stats)} (${shot})`).toBeLessThan(0.75);
   }
 }

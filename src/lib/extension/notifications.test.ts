@@ -120,7 +120,7 @@ describe('showExtensionNotification', () => {
     errSpy.mockRestore();
   });
 
-  it('Notification onclick opens the pending-notes page and closes the notification', async () => {
+  it('Notification onclick opens the Activity pending tab and closes the notification', async () => {
     FakeNotification.permission = 'granted';
     let createdNotif: FakeNotification | null = null;
     const OrigNotif = FakeNotification;
@@ -138,7 +138,96 @@ describe('showExtensionNotification', () => {
     createdNotif!.onclick!();
     // A received-note notification should land on the incoming-notes list (claim
     // actions), not the generic wallet QR/receive page (#467).
-    expect(mockTabsCreate).toHaveBeenCalledWith({ url: expect.stringContaining('fullpage.html#/pending-notes') });
+    expect(mockTabsCreate).toHaveBeenCalledWith({
+      url: expect.stringContaining('fullpage.html#/history?filter=pending&view=list')
+    });
     expect(createdNotif!.close).toHaveBeenCalled();
   });
+});
+
+class UnsupportedNotification extends FakeNotification {
+  constructor(title: string, opts?: NotificationOptions) {
+    super(title, opts);
+    throw new TypeError(
+      "Failed to construct 'Notification': Illegal constructor. Use ServiceWorkerRegistration.showNotification() instead."
+    );
+  }
+}
+
+describe('showExtensionNotification Web API failure fallback', () => {
+  it('falls back once when a granted Notification constructor throws', async () => {
+    FakeNotification.permission = 'granted';
+    Object.defineProperty(globalThis, 'Notification', { value: UnsupportedNotification });
+
+    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();
+
+    expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledTimes(1);
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledWith(
+      'miden-note-received',
+      {
+        type: 'basic',
+        iconUrl: 'chrome-ext://test/misc/logo-white-bg-128.png',
+        title: 'Hi',
+        message: 'msg',
+        requireInteraction: true
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('falls back once when the Web notification permission request rejects', async () => {
+    FakeNotification.requestPermission.mockRejectedValueOnce(new TypeError('Permission request was rejected'));
+
+    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();
+
+    expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledTimes(1);
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledWith(
+      'miden-note-received',
+      {
+        type: 'basic',
+        iconUrl: 'chrome-ext://test/misc/logo-white-bg-128.png',
+        title: 'Hi',
+        message: 'msg',
+        requireInteraction: true
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('resolves when the Web constructor is unsupported and the Chrome fallback is unavailable', async () => {
+    FakeNotification.permission = 'granted';
+    Object.defineProperty(globalThis, 'Notification', { value: UnsupportedNotification });
+    Reflect.deleteProperty(chrome, 'notifications');
+
+    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();
+
+    expect(mockChromeNotificationsCreate).not.toHaveBeenCalled();
+  });
+
+  it.each(['namespace lookup', 'icon URL resolution', 'creation'] as const)(
+    'resolves when the Web permission request and Chrome %s fail',
+    async boundary => {
+      FakeNotification.requestPermission.mockRejectedValueOnce(new TypeError('Permission request was rejected'));
+      const chromeAttempt = jest.fn(() => {
+        throw new TypeError('Chrome notification fallback unavailable');
+      });
+      if (boundary === 'namespace lookup') {
+        Object.defineProperty(chrome, 'notifications', { configurable: true, get: chromeAttempt });
+      } else if (boundary === 'icon URL resolution') {
+        chrome.runtime.getURL = chromeAttempt;
+      } else {
+        mockChromeNotificationsCreate.mockImplementationOnce(chromeAttempt);
+      }
+
+      const attempt = showExtensionNotification('Hi', 'msg');
+      void attempt.catch(() => undefined);
+      await Promise.resolve();
+
+      expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+      expect(chromeAttempt).toHaveBeenCalledTimes(1);
+      await expect(attempt).resolves.toBeUndefined();
+    }
+  );
 });

@@ -12,6 +12,7 @@ import path from 'path';
 // These guards pin the accuracy fix so it can't silently regress to overpromising.
 
 const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
+const SCREENS_DIR = path.join(__dirname, '../../screens/onboarding/common');
 const EN_DIR = path.join(LOCALES_DIR, 'en');
 
 type Entry = { message: string };
@@ -45,7 +46,19 @@ const SUCCESS_RECEIPT_KEYS = [
   'guardianSwitchSuccessInfo1',
   'guardianSwitchSuccessInfo2',
   'guardianSwitchSuccessInfo3',
-  'guardianSwitchSuccessInfo4'
+  'guardianSwitchSuccessInfo4',
+  // The two bullets the unconfirmed receipt SUBSTITUTES for info1 and info3.
+  // They are the same claims about the same subject, differing only in tense,
+  // so leaving them out of the sweep meant the replacement text was held to a
+  // weaker standard than the text it replaces.
+  'guardianSwitchUnconfirmedInfo1',
+  'guardianSwitchUnconfirmedInfo3',
+  // Each row's title restates its claim in a few words, which is where a short translation goes wrong.
+  'guardianSwitchSuccessInfo1Title',
+  'guardianSwitchUnconfirmedInfo1Title',
+  'guardianSwitchSuccessInfo2Title',
+  'guardianSwitchSuccessInfo3Title',
+  'guardianSwitchSuccessInfo4Title'
 ] as const;
 
 // The whole receipt surface, labels included — every string that tells the user
@@ -79,6 +92,26 @@ const GUARDIAN_RECEIPT_KEYS = [
  * address did not change" bullet has to survive.
  */
 const ROTATION_WARNING_KEYS = ['oldGuardianCantBlockTitle', 'oldGuardianCantBlockBody'] as const;
+const CONNECTIVITY_GUARDIAN_KEYS = [
+  'connectivityGuardianTitle',
+  'connectivityGuardianBody',
+  'connectivityGuardianCta'
+] as const;
+const GUARDIAN_SETUP_WARNING_KEYS = [
+  'guardianSwitchSetupIncompleteTitle',
+  'guardianSwitchEndpointNotSavedBody',
+  'guardianSwitchRegistrationPendingBody',
+  // The unconfirmed variant of the same alert. Omitting these is how the six
+  // strings added in rounds 22-23 reached a release candidate present in
+  // `en.json` and absent from every `messages.json`: the general parity tests
+  // compare each locale against `en/messages.json`, so a key missing from THAT
+  // file is missing from the comparison set as well, and only this list's
+  // explicit per-locale presence check can see it.
+  'guardianSwitchUnconfirmedHeading',
+  'guardianSwitchUnconfirmedTitle',
+  'guardianSwitchUnconfirmedBody',
+  'guardianSwitchUnconfirmedEndpointNotSaved'
+] as const;
 
 /**
  * Per-language wording that misdescribes the Guardian. Two families:
@@ -634,15 +667,16 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     expect(whatItDoes).not.toMatch(/approves or rejects/i);
   });
 
-  it('states plainly that the Guardian co-signs every transaction', () => {
-    expect(whatItDoes).toMatch(/co-?signs?/i);
+  // The product calls the Guardian's signature an acknowledgement; earlier copy said co-signs.
+  it('states plainly that the Guardian acknowledges every transaction', () => {
+    expect(whatItDoes).toMatch(/(co-?signs?|acknowledges) every transaction/i);
   });
 
   it('explains what changes and what stays the same when the Guardian is switched', () => {
     // The issue asks specifically for "what changes when the Guardian provider is
     // switched". Accurate answer: only the co-signer changes; funds/account are
     // untouched.
-    expect(switching).toMatch(/co-?sign|provider/i);
+    expect(switching).toMatch(/co-?sign|acknowledges|provider/i);
     expect(switching).toMatch(/stay the same|unchanged|same/i);
   });
 
@@ -661,6 +695,57 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     for (const key of SUCCESS_RECEIPT_KEYS) {
       expect(message(key)).not.toMatch(/\bremove\b|\bdisable\b|\bdelete\b/i);
     }
+  });
+
+  it('does not promise indefinite background retrying for a pending post-commit registration', () => {
+    // The self-heal for a stuck `/configure` registration is a BOUNDED retry
+    // with backoff, not an unbounded background loop — "the wallet keeps
+    // retrying in the background" overstated that indefinitely. The copy must
+    // both bound the claim and tell the user what to do if the bounded retry
+    // doesn't land.
+    const body = message('guardianSwitchRegistrationPendingBody');
+    expect(body).not.toMatch(/keeps retrying/i);
+    expect(body).toMatch(/limited number of times|a few times/i);
+    expect(body).toMatch(/contact support/i);
+  });
+
+  it('does not steer the user into rotating again to repair an unsaved Guardian endpoint', () => {
+    // "Open Guardian settings and select the new Guardian to finish" starts a
+    // SECOND on-chain `update_guardian` write — Rotate Guardian is the only
+    // Settings affordance and it always initiates a new switch. The verified
+    // pointer-repair path is automatic drift detection + the home "needs your
+    // input" prompt (`GuardianNeedsUrlBanner`), not a Settings selection.
+    const body = message('guardianSwitchEndpointNotSavedBody');
+    expect(body).not.toMatch(/select the new Guardian/i);
+    expect(body).not.toMatch(/open Guardian settings/i);
+    expect(body).toMatch(/won'?t start another switch/i);
+  });
+
+  it('does not offer a Guardian-settings check that cannot detect an unconfirmed switch', () => {
+    // Sibling rule to the one above, and a sharper trap. Completion persists the
+    // new endpoint FIRST and unconditionally (`complete.ts`), Settings renders
+    // the name from exactly that stored value, and drift short-circuits on a
+    // baseline that still matches on chain — so Settings names the new Guardian
+    // and the pill reads Online whether or not the rotation actually landed.
+    // "Check Settings; if it still shows the previous Guardian, retry" therefore
+    // instructs a check that CONFIRMS THE WRONG ANSWER, on the one screen that
+    // exists to warn about that exact silent failure.
+    const body = message('guardianSwitchUnconfirmedBody');
+    expect(body).not.toMatch(/if it still shows/i);
+    expect(body).not.toMatch(/check settings/i);
+    // It has to leave the user something they can actually act on.
+    expect(body).toMatch(/activity|explorer/i);
+    expect(body).toMatch(/run the switch again|try again/i);
+  });
+
+  it('does not claim the old Guardian has no role at all after a direct switch', () => {
+    // The direct-switch path never contacts the outgoing operator, so the
+    // wallet has no way to know whether it retains state from before the
+    // switch — only that its on-chain CO-SIGNING authority is gone. "No longer
+    // has any role" overstated a state the wallet cannot observe.
+    const info1 = message('guardianSwitchSuccessInfo1');
+    expect(info1).not.toMatch(/no longer has any role/i);
+    expect(info1).toMatch(/can no longer (co-sign|acknowledge)/i);
   });
 
   it('ships the whole receipt surface in every locale', () => {
@@ -786,6 +871,53 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     expect([...LOCALES].sort()).toEqual([...EXPECTED_LOCALES].sort());
   });
 
+  // The guardian-unreachable banner. DeepL only re-translates a key when its
+  // ENGLISH source changes, so a bad machine translation is permanent until
+  // someone corrects it by hand — and a hand correction is just as permanent
+  // until someone reverts it by hand. These pin the corrections.
+  describe('connectivity banner translations', () => {
+    it('translates the unreachable title instead of shipping the English source', () => {
+      // de shipped the English string verbatim, which reads as an untranslated
+      // app rather than as a fallback.
+      const de = readMessages('de')['connectivityGuardianTitle']?.message ?? '';
+      expect(de).not.toBe(message('connectivityGuardianTitle'));
+      expect(de).toBe('Guardian nicht erreichbar');
+    });
+
+    it('says "change the Guardian", not "switch to Guardian"', () => {
+      // The CTA's object is the Guardian itself. Several locales rendered it as
+      // navigation TO something called Guardian ("Wechseln Sie zu Guardian",
+      // "Перейти на Guardian") or as a noun phrase ("Guardian de troca"), which
+      // describes a different action than the button performs.
+      const cta = (locale: string) => readMessages(locale)['connectivityGuardianCta']?.message ?? '';
+      expect(cta('de')).toBe('Guardian wechseln');
+      expect(cta('pt')).toBe('Trocar Guardian');
+      // "d’Guardian" elides before a consonant, which is ungrammatical; the
+      // wallet's own "Changer de portefeuille" is the pattern.
+      expect(cta('fr')).toBe('Changer de Guardian');
+      expect(cta('tr')).toBe('Guardian’ı değiştir');
+      expect(cta('uk')).toBe('Змінити Guardian');
+    });
+
+    it('ships and keeps the Guardian connectivity and setup warnings in sync in every locale', () => {
+      // The flat bundle is what the UI renders; messages.json is what the
+      // generator reads. The latter must have an englishSource equal to the
+      // current English so format-locales emits the real translation into the
+      // former rather than silently omitting it as stale.
+      for (const locale of LOCALES) {
+        const localeMessages = readMessages(locale);
+        const flat: Record<string, string> = JSON.parse(
+          fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8')
+        );
+        for (const key of [...CONNECTIVITY_GUARDIAN_KEYS, ...GUARDIAN_SETUP_WARNING_KEYS]) {
+          expect(localeMessages[key]?.message).toBeTruthy();
+          expect(flat[key]).toBeTruthy();
+          expect(flat[key]).toBe(localeMessages[key]?.message);
+        }
+      }
+    });
+  });
+
   it('keeps en/messages.json and en/en.json in sync for the changed keys (generator source of truth)', () => {
     // Every key this suite guards, not just the receipt bullets: `en.json` is
     // what the app reads at runtime and `messages.json` is what the translation
@@ -800,4 +932,83 @@ describe('Guardian explainer copy accuracy (#479)', () => {
       expect(enJson[key]).toBe(message(key));
     }
   });
+});
+
+describe('Meet your Guardian copy survives machine translation', () => {
+  // DeepL reads a `$placeholder$` wedged mid-sentence as a name ("o “$operators$”") or glues it into a
+  // word ("d$operators$s"), and a protected term can land glued to its neighbour ("infraestruturblockchaine").
+  // Only CURRENT translations are checked: an entry whose englishSource no longer matches is stale, is
+  // dropped from the rendered bundle and is re-translated by CI, so it cannot reach a user.
+  const NEW_KEYS = Object.keys(enJson).filter(key =>
+    /^(guardianIntro|meetGuardian|guardianAbout|guardianKind|guardianProviderSheet|guardianFastest$)/.test(key)
+  );
+  const UNSPACED_LOCALES = ['ja', 'ko', 'zh_CN', 'zh_TW'];
+  // A plural or a case ending ("Guardians", Polish "Guardiana", "Guardianem") is part of the word, not a glue:
+  // after a protected term only a run longer than an ending is a glued neighbour.
+  const GLUED =
+    /\p{L}(?:blockchain|Guardian|\$\w+\$)|(?:blockchain|Guardian)(?!\p{L}{1,3}(?!\p{L}))\p{L}|\$\w+\$\p{L}/iu;
+
+  const current = (locale: string, key: string): string | undefined => {
+    const entry = readMessages(locale)[key] as (Entry & { englishSource?: string }) | undefined;
+    return entry && entry.englishSource === enJson[key] ? entry.message : undefined;
+  };
+
+  it('covers the new keys, so the sweep below has a subject', () => {
+    // One key from each screen: the intro, the operator step (with its `$name$` placeholder) and its sheets.
+    expect(NEW_KEYS).toEqual(
+      expect.arrayContaining([
+        'guardianIntroRecoverBody',
+        'guardianIntroMoreAbout',
+        'meetGuardianContinueWith',
+        'meetGuardianChangeProvider',
+        'meetGuardianRegion',
+        'meetGuardianLearnMore',
+        'guardianAboutGateway',
+        'guardianKindGateway',
+        'guardianProviderSheetTitle'
+      ])
+    );
+  });
+
+  // A swept key nothing reads checks copy no user sees: every one is a literal in the screens that render it.
+  it('sweeps only keys the guardian screens read', () => {
+    const screens = [
+      'GuardianIntro.tsx',
+      'MeetGuardian.tsx',
+      'GuardianProviderSheet.tsx',
+      'GuardianProviderDetailsSheet.tsx'
+    ]
+      .map(file => fs.readFileSync(path.join(SCREENS_DIR, file), 'utf8'))
+      .join('\n');
+    expect(NEW_KEYS.filter(key => !screens.includes(`'${key}'`))).toEqual([]);
+  });
+
+  it('catches a glued term or placeholder and leaves an inflected one alone', () => {
+    for (const glued of ['infraestruturblockchaine', 'd$operators$s', 'der Guardianhilft', 'mitGuardian']) {
+      expect({ glued, caught: GLUED.test(glued) }).toEqual({ glued, caught: true });
+    }
+    for (const word of ['two Guardians', 'swojego „Guardiana”', 'z Guardianem', 'the $name$ Guardian']) {
+      expect({ word, caught: GLUED.test(word) }).toEqual({ word, caught: false });
+    }
+  });
+
+  it('keeps en/messages.json on the same English as en.json for every new key', () => {
+    // The generator re-translates from en/messages.json's englishSource; a key reworded in one file only
+    // ships one English and queues every locale against the other.
+    for (const key of NEW_KEYS) {
+      expect({ key, message: message(key) }).toEqual({ key, message: enJson[key] });
+      expect({ key, englishSource: (messages[key] as Entry & { englishSource?: string }).englishSource }).toEqual({
+        key,
+        englishSource: enJson[key]
+      });
+    }
+  });
+
+  it.each(EXPECTED_LOCALES.filter(locale => !UNSPACED_LOCALES.includes(locale)))(
+    '%s: no new string glues a letter to a protected term or placeholder',
+    locale => {
+      const offenders = NEW_KEYS.filter(key => GLUED.test(current(locale, key) ?? ''));
+      expect(offenders).toEqual([]);
+    }
+  );
 });
