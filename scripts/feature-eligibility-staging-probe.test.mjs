@@ -27,7 +27,7 @@ const absent = () =>
 
 function fixture(options = {}) {
   let time = 0;
-  let remote;
+  let remote = options.remote;
   let active = 0;
   let maxActive = 0;
   let timerId = 0;
@@ -911,4 +911,291 @@ test('local account adapter binds exact configured URL and rejects credential-ro
     assert.equal(calls.at(-1)[0], `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}${path}`);
     assert.equal(calls.at(-1)[1].method, method);
   }
+});
+
+async function ownershipFixture(options = {}) {
+  let remote;
+  const seed = fixture({
+    mutateRemote: value => {
+      remote = structuredClone(value);
+    }
+  });
+  assert.equal((await createProbeController(seed.effects).run(identity)).support, 'supported');
+  const f = fixture({ ...options, remote });
+  options.mutate?.(f.remote().settings);
+  return f;
+}
+
+const ownershipCases = [
+  [
+    'settings_bindings',
+    'wrong_type',
+    s => {
+      s.bindings = {};
+    }
+  ],
+  [
+    'settings_binding_count',
+    'different_value',
+    s => {
+      s.bindings.pop();
+    }
+  ],
+  [
+    'compatibility_date',
+    'different_value',
+    s => {
+      s.compatibility_date = '2000-01-01';
+    }
+  ],
+  [
+    'compatibility_flags',
+    'different_value',
+    s => {
+      s.compatibility_flags = ['private-canary'];
+    }
+  ],
+  [
+    'logpush',
+    'missing',
+    s => {
+      delete s.logpush;
+    }
+  ],
+  [
+    'observability',
+    'different_value',
+    s => {
+      s.observability.enabled = true;
+    }
+  ],
+  [
+    'observability_logs',
+    'null',
+    s => {
+      s.observability.logs.enabled = null;
+    }
+  ],
+  [
+    'observability_invocations',
+    'wrong_type',
+    s => {
+      s.observability.logs.invocation_logs = 'private-canary';
+    }
+  ],
+  [
+    'observability_traces',
+    'missing',
+    s => {
+      delete s.observability.traces.enabled;
+    }
+  ],
+  [
+    'tail_consumers',
+    'different_value',
+    s => {
+      s.tail_consumers = [{ service: 'private-canary' }];
+    }
+  ],
+  [
+    'assets',
+    'different_value',
+    s => {
+      s.assets = { private: 'private-canary' };
+    }
+  ],
+  [
+    'migration_tag',
+    'different_value',
+    s => {
+      s.migration_tag = 'private-canary';
+    }
+  ],
+  [
+    'cache_enabled',
+    'different_value',
+    s => {
+      s.cache_options = { enabled: true };
+    }
+  ],
+  [
+    'binding_record',
+    'null',
+    s => {
+      s.bindings[0] = null;
+    }
+  ],
+  [
+    'binding_duplicate',
+    'different_value',
+    s => {
+      s.bindings[1].name = s.bindings[0].name;
+    }
+  ],
+  [
+    'binding_unexpected',
+    'different_value',
+    s => {
+      s.bindings[0].name = 'private-canary';
+    }
+  ],
+  ...[
+    ['PROBE_SOURCE', 'source'],
+    ['PROBE_CONFIG_SHA', 'config'],
+    ['PROBE_OWNER', 'owner']
+  ].flatMap(([name, gate]) => [
+    [
+      `${gate}_type`,
+      'different_value',
+      s => {
+        s.bindings.find(b => b.name === name).type = 'json';
+      }
+    ],
+    [
+      `${gate}_value`,
+      'different_value',
+      s => {
+        s.bindings.find(b => b.name === name).text = 'private-canary';
+      }
+    ]
+  ]),
+  ...[
+    ['PROBE_BEARER', 'bearer_type'],
+    ['PROBE_HASH_SECRET', 'hash_secret_type']
+  ].map(([name, gate]) => [
+    gate,
+    'different_value',
+    s => {
+      s.bindings.find(b => b.name === name).type = 'plain_text';
+    }
+  ]),
+  ...[
+    ['CALLER_PROBE', 'caller'],
+    ['COLO_PROBE', 'colo']
+  ].flatMap(([name, gate]) => [
+    [
+      `${gate}_type`,
+      'different_value',
+      s => {
+        s.bindings.find(b => b.name === name).type = 'plain_text';
+      }
+    ],
+    [
+      `${gate}_namespace`,
+      'wrong_type',
+      s => {
+        s.bindings.find(b => b.name === name).namespace_id = 123;
+      }
+    ],
+    [
+      `${gate}_simple`,
+      'additional_fields',
+      s => {
+        s.bindings.find(b => b.name === name).simple.mitigation_timeout = 0;
+      }
+    ]
+  ])
+];
+for (const [gate, form, mutate] of ownershipCases)
+  test(`cleanup retains only closed ${gate}/${form} at its first failed predicate`, async () => {
+    const f = await ownershipFixture({ mutate });
+    const received = await createProbeController(f.effects).cleanup(manifest());
+    assert.deepEqual(received, { cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    assert.deepEqual(
+      f.events.filter(e => e[0] === 'api').map(e => e[2]),
+      ['/account', '/workers/scripts/miden-elig-probe-40265000001-1/settings']
+    );
+    assert.equal(deployed(f).length, 0);
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    assert.doesNotMatch(JSON.stringify(received), /private-canary|never-publish|40265000001/);
+  });
+
+for (const [gate, api] of [
+  [
+    'subdomain_enabled',
+    path => (path.endsWith('/subdomain') ? envelope({ enabled: false, previews_enabled: false }) : undefined)
+  ],
+  [
+    'subdomain_previews',
+    path => (path.endsWith('/subdomain') ? envelope({ enabled: true, previews_enabled: true }) : undefined)
+  ],
+  ['content_status', path => (path.endsWith('/content/v2') ? new Response('', { status: 403 }) : undefined)],
+  [
+    'content_type',
+    path =>
+      path.endsWith('/content/v2')
+        ? new Response('private-canary', { headers: { 'content-type': 'text/plain' } })
+        : undefined
+  ],
+  [
+    'content_entrypoint',
+    path =>
+      path.endsWith('/content/v2')
+        ? new Response(workerBytes, {
+            headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'private-canary' }
+          })
+        : undefined
+  ],
+  [
+    'content_hash',
+    path =>
+      path.endsWith('/content/v2')
+        ? new Response('private-canary', {
+            headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'staging-probe.mjs' }
+          })
+        : undefined
+  ],
+  [
+    'multipart_count',
+    path => {
+      if (!path.endsWith('/content/v2')) return;
+      const body = new FormData();
+      body.append('staging-probe.mjs', 'private-canary');
+      body.append('extra', 'private-canary');
+      return new Response(body, { headers: { 'cf-entrypoint': 'staging-probe.mjs' } });
+    }
+  ],
+  [
+    'multipart_name',
+    path => {
+      if (!path.endsWith('/content/v2')) return;
+      const body = new FormData();
+      body.append('private-canary', 'private-canary');
+      return new Response(body, { headers: { 'cf-entrypoint': 'staging-probe.mjs' } });
+    }
+  ]
+])
+  test(`cleanup identifies ${gate} without deleting or reading past its failed gate`, async () => {
+    const f = await ownershipFixture({ api });
+    const received = await createProbeController(f.effects).cleanup(manifest());
+    assert.equal(received.reason, 'ownership_mismatch');
+    assert.equal(received.cleanup, 'blocked');
+    assert.equal(received.ownershipCheck?.gate, gate);
+    assert.ok(
+      ['missing', 'null', 'wrong_type', 'different_value', 'additional_fields', 'unavailable'].includes(
+        received.ownershipCheck?.form
+      )
+    );
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
+    assert.equal(paths.length, gate.startsWith('subdomain') ? 3 : 4);
+    assert.doesNotMatch(JSON.stringify(received), /private-canary|never-publish/);
+  });
+
+test('only cleanup captures ownership diagnostics; prior verification preflight remains independent', async () => {
+  const f = fixture({
+    mutateRemote: r => {
+      delete r.settings.logpush;
+    }
+  });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.preflight.stage, 'verification');
+  assert.equal(result.preflight.reason, 'ownership_mismatch');
+  assert.deepEqual(Object.keys(result.preflight).sort(), ['deployment', 'identity', 'manifest', 'reason', 'stage']);
+  assert.deepEqual(result.ownershipCheck, { gate: 'logpush', form: 'missing' });
+  assert.equal(result.counts.requests, 0);
+  assert.equal(result.cleanup, 'blocked');
+  assert.equal(deleted(f).length, 0);
 });
