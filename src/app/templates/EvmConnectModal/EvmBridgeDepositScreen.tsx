@@ -2054,7 +2054,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
               onConfirm={handleContinueToReview}
+              fastFeature="fastBridgeIn"
               fastAvailability={fastAvailability}
+              slowFeature="bridgeIn"
               slowAvailability={slowAvailability}
             />
           );

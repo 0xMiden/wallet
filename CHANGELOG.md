@@ -13,6 +13,8 @@
 - [FIX][extension] Bread uses the sidebar by default, keeps onboarding in a full page, and uses the popup only when sidebar setup is unavailable.
 - [CHANGE][all] Transaction confirmations show the available input and output notes as an account flow, with verified note types, fee notes, named storage-slot changes and explicit gaps for partial note data (#1936).
 
+- [CHANGE][all] Existing unavailable-feature, unanswered-submission, retry and recipient-validation reports retain closed producer decisions without private inputs or inferred outcomes.
+- [CHANGE][all] Failed transaction reports retain closed proposal, inline proving, queue admission, deadline progress, reaper timestamp and proof-wait availability observations without private transaction data.
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
 - [CHANGE][all] Removed the root `screenshots/` folder: the old App Store, iPad and Play marketing images (the canonical store screenshots are in `store-listing/assets/`) and the evidence images and capture fixtures from earlier changes.

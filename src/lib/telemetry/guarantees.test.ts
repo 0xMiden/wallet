@@ -352,7 +352,8 @@ describe('the guard reads the tree it claims to read', () => {
       'src/lib/telemetry/crash.test.ts',
       'src/lib/telemetry/crash.ts',
       'src/lib/telemetry/diagnostic-log.wire.test.ts',
-      'src/lib/telemetry/egress-boundary.test.ts'
+      'src/lib/telemetry/egress-boundary.test.ts',
+      'src/lib/miden/transaction/proof-wait-availability.integration.test.ts'
     ]);
   });
 });
@@ -1135,6 +1136,7 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/bridge-receive-failure.ts',
       'src/lib/telemetry/classify.ts',
+      'src/lib/telemetry/closed-root-diagnostics.ts',
       'src/lib/telemetry/context.ts',
       'src/lib/telemetry/crash-artifacts.ts',
       'src/lib/telemetry/crash-build.ts',
@@ -1143,7 +1145,12 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/crash.ts',
       'src/lib/telemetry/diagnostic-log-contract.ts',
       'src/lib/telemetry/diagnostic-log.ts',
+      'src/lib/telemetry/guardian-proving-diagnostics.ts',
+      'src/lib/telemetry/offscreen-deadline-diagnostics.ts',
+      'src/lib/telemetry/proof-wait-availability-diagnostics.ts',
+      'src/lib/telemetry/proposal-create-diagnostics.ts',
       'src/lib/telemetry/protocol-assertions.json',
+      'src/lib/telemetry/reap-start-diagnostics.ts',
       'src/lib/telemetry/redact.ts',
       // Imports nothing: `crash.ts` classifies relay failures with it, and the pages feed it without the crash client.
       'src/lib/telemetry/relay-diagnostics.ts',
@@ -1152,10 +1159,12 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
       'src/lib/telemetry/sink.ts',
+      'src/lib/telemetry/terminal-report-diagnostics.ts',
       'src/lib/telemetry/transaction-execution-diagnostics.ts',
       'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts',
+      'src/lib/telemetry/ui-producer-diagnostics.ts',
       'src/lib/telemetry/user-visible-error-contract.ts',
       'src/lib/telemetry/user-visible-error.ts',
       'src/lib/telemetry/wasm-startup.ts'

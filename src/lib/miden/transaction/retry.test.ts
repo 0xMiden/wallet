@@ -1,3 +1,5 @@
+import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
+
 import {
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -547,7 +549,10 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     wireRow(row);
     mockVerifySendLanded.mockResolvedValue('unknown');
 
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(TRANSACTION_RETRY_UNSAFE_ERROR);
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(refusal.message).toBe(TRANSACTION_RETRY_UNSAFE_ERROR);
+    expect(snapshotPendingRetry(refusal)).toBe('unsafe_retry');
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -736,7 +741,10 @@ describe('requeueFailedTransaction', () => {
   it('throws for a non-retryable type and leaves the row untouched', async () => {
     const row = failedRow({ type: 'replace-hot-key' });
     wireRow(row);
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow('not retryable');
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(refusal.message).toContain('not retryable');
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -745,7 +753,10 @@ describe('requeueFailedTransaction', () => {
     // collateral note would be locked to the allocator until its reclaim height.
     const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'epoch' } });
     wireRow(row);
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow('not retryable');
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(refusal.message).toContain('not retryable');
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(mockVerifySendLanded).not.toHaveBeenCalled();
   });
@@ -760,7 +771,10 @@ describe('requeueFailedTransaction', () => {
   it('throws for a completed row (never downgrades a landed tx)', async () => {
     const row = failedRow({ status: ITransactionStatus.Completed });
     wireRow(row);
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow('not retryable');
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(refusal.message).toContain('not retryable');
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
 });
@@ -988,4 +1002,13 @@ describe('requeueFailedTransaction — mayHaveSubmitted is sticky', () => {
     expect(row.mayHaveSubmitted).toBeUndefined();
     expect(row.requestBytes).toBe(kept);
   });
+});
+
+it('retains the actual missing-row refusal without replacing its Error or adding a read', async () => {
+  const first = jest.fn(async () => undefined);
+  mockTransactionsWhere.mockReturnValueOnce({ first });
+  const error = await requeueFailedTransaction('private-missing').catch((failure: unknown) => failure);
+  expect(error).toBeInstanceOf(Error);
+  expect(snapshotPendingRetry(error)).toBe('row_missing');
+  expect(first).toHaveBeenCalledTimes(1);
 });

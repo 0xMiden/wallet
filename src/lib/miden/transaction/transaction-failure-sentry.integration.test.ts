@@ -40,6 +40,8 @@ import {
   WALLET_FAILURE_REASONS
 } from './constants';
 import { updateTransactionStatus } from './helper';
+import { generateTransactionsLoop } from './index';
+import { recordQueueAdmission, consumeQueueAdmission, pruneQueueAdmission } from './queue-admission-diagnostics';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
@@ -1022,7 +1024,7 @@ describe('closed queue facts without failure text', () => {
         expect.objectContaining({
           type: 'consume',
           reason: 'stuck_reaped',
-          reap: { age: 'past_limit', attempt: 'started_here' },
+          reap: { age: 'past_limit', attempt: 'started_here', startRelation: 'at_or_after_realm_cutoff' },
           error: TRANSACTION_STUCK_ERROR
         })
       );
@@ -1041,4 +1043,75 @@ describe('closed queue facts without failure text', () => {
       clock.mockRestore();
     }
   });
+});
+
+it('binds the selected stuck start to the committed cancellation report', async () => {
+  await Repo.transactions.put(row({ processingStartedAt: SESSION_STARTED_AT - 3600 }));
+  await cancelStuckTransactions();
+  expect(report).toHaveBeenCalledWith(
+    expect.objectContaining({
+      reason: 'stuck_reaped',
+      reap: expect.objectContaining({ startRelation: 'before_realm_cutoff' })
+    })
+  );
+});
+
+it('publishes only the already queried surviving queue membership after reaping', async () => {
+  const member = row({ status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000), queuedSeq: 7 });
+  await Repo.transactions.put(member);
+  const observed = jest.fn();
+  await Reflect.apply(cancelStaleQueuedTransactions, undefined, [observed]);
+  expect(observed).toHaveBeenCalledTimes(1);
+  expect(observed).toHaveBeenCalledWith([
+    expect.objectContaining({ id: member.id, initiatedAt: member.initiatedAt, queuedSeq: 7 })
+  ]);
+  expect(report).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('uses only earlier exact gate membership at committed expiry (changed=%s)', async changed => {
+  pruneQueueAdmission([]);
+  const now = Math.floor(Date.now() / 1000);
+  const waiting = row({ id: 'queue-member', status: ITransactionStatus.Queued, initiatedAt: now, queuedSeq: 1 });
+  await Repo.transactions.put(waiting);
+  await Repo.transactions.put(row({ id: 'active', processingStartedAt: now }));
+  const queries = jest.spyOn(Repo.transactions, 'filter');
+  try {
+    await generateTransactionsLoop(async () => new Uint8Array(), false, {
+      getAccounts: async () => [],
+      getPublicKeyForCommitment: async () => '',
+      signWord: async () => ''
+    });
+    expect(consumeQueueAdmission({ ...waiting, id: 'missing-member' })).toBe('unavailable');
+    if (changed) await Repo.transactions.update(waiting.id, { queuedSeq: 2 });
+    const clock = jest.spyOn(Date, 'now').mockReturnValue((now + MAX_QUEUED_AGE + 1) * 1000);
+    try {
+      await cancelStaleQueuedTransactions();
+    } finally {
+      clock.mockRestore();
+    }
+    expect(queries).toHaveBeenCalledTimes(4);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'queued_expired',
+        queueAdmissionObservation: changed ? 'unavailable' : 'in_progress_gate'
+      })
+    );
+    expect(consumeQueueAdmission(changed ? { ...waiting, queuedSeq: 2 } : waiting)).toBe('unavailable');
+  } finally {
+    queries.mockRestore();
+  }
+});
+
+it('cleans restored terminal queue history without reporting it', async () => {
+  const waiting = row({
+    status: ITransactionStatus.Queued,
+    initiatedAt: Math.floor(Date.now() / 1000) - MAX_QUEUED_AGE - 1,
+    restoredFromBackup: true
+  });
+  recordQueueAdmission(waiting, 'selected');
+  await Repo.transactions.put(waiting);
+  await cancelStaleQueuedTransactions();
+  expect(report).not.toHaveBeenCalled();
+  expect(consumeQueueAdmission(waiting)).toBe('unavailable');
 });

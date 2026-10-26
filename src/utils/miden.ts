@@ -3,6 +3,7 @@ import { isAddress } from 'viem';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { annotateRecipientValidation } from 'lib/telemetry/ui-producer-diagnostics';
 
 export const isHexAddress = (address: string) => {
   return address.startsWith('0x');
@@ -61,12 +62,16 @@ export class MidenAddressError extends Error {
 export const isValidMidenAddress = (address: string): true => {
   const trimmed = address.trim();
   if (!MIDEN_BECH32_PREFIXES.some(prefix => trimmed.startsWith(prefix))) {
-    throw new MidenAddressError('invalid');
+    const error = new MidenAddressError('invalid');
+    annotateRecipientValidation(error, 'prefix_rejected');
+    throw error;
   }
   try {
     Address.fromBech32(trimmed);
   } catch {
-    throw new MidenAddressError('invalid');
+    const error = new MidenAddressError('invalid');
+    annotateRecipientValidation(error, 'decoder_throw');
+    throw error;
   }
   if (!trimmed.startsWith(NETWORK_ADDRESS_PREFIXES[getEffectiveNetworkName()])) {
     throw new MidenAddressError('wrong-network');

@@ -21,6 +21,7 @@ import {
   type ProposalStep,
   type SecurityChangeAction
 } from 'lib/telemetry/crash-diagnostics';
+import { observeProposalCreateRejection } from 'lib/telemetry/proposal-create-diagnostics';
 
 import {
   assertGuardianKeyCommitment,
@@ -206,9 +207,10 @@ export class MultisigService {
   private proposalStep<T>(
     step: ProposalStep,
     operation: () => Promise<T>,
-    securityChange?: SecurityChangeAction
+    securityChange?: SecurityChangeAction,
+    onReject?: (error: unknown) => void
   ): Promise<T> {
-    return withGuardianAuthFacts(this.authFacts, () => withProposalStep(step, operation, securityChange));
+    return withGuardianAuthFacts(this.authFacts, () => withProposalStep(step, operation, securityChange, onReject));
   }
 
   /**
@@ -449,7 +451,12 @@ export class MultisigService {
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
     return this.withChainSyncedHold('consume proposal', () =>
-      this.proposalStep('proposal_create', () => this.multisig.createConsumeNotesProposal(noteIds))
+      this.proposalStep(
+        'proposal_create',
+        () => this.multisig.createConsumeNotesProposal(noteIds),
+        undefined,
+        observeProposalCreateRejection
+      )
     );
   }
 

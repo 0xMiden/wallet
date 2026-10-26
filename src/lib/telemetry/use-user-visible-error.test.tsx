@@ -183,3 +183,54 @@ describe('retained page activity', () => {
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
   });
 });
+
+it('keeps dwell stable across fresh evidence objects and sends the latest branch', () => {
+  function EvidenceDisplay({ branch }: { branch: string }) {
+    Reflect.apply(useUserVisibleError, undefined, [
+      'submissionUnanswered',
+      'status_screen',
+      undefined,
+      { kind: 'submission_feedback', submissionFeedbackBranch: branch }
+    ]);
+    return null;
+  }
+  const { rerender } = render(<EvidenceDisplay branch="grpc_unknown" />);
+  advance(500);
+  rerender(<EvidenceDisplay branch="guardian_unanswered" />);
+  advance(500);
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {
+    kind: 'submission_feedback',
+    submissionFeedbackBranch: 'guardian_unanswered'
+  });
+});
+
+it('keeps the visible branch when a replacement render suspends before commit', async () => {
+  const never = new Promise<void>(() => {});
+  let replace: (() => void) | undefined;
+  function DisplayEvidence() {
+    const [pending, setPending] = React.useState(false);
+    replace = () => React.startTransition(() => setPending(true));
+    useUserVisibleError('submissionUnanswered', 'status_screen', undefined, {
+      kind: 'submission_feedback',
+      submissionFeedbackBranch: pending ? 'guardian_unanswered' : 'grpc_unknown'
+    });
+    if (pending) throw never;
+    return <span>Committed message</span>;
+  }
+  const view = render(
+    <React.Suspense fallback={<span>Pending</span>}>
+      <DisplayEvidence />
+    </React.Suspense>
+  );
+  advance(999);
+  await act(async () => {
+    replace?.();
+  });
+  expect(view.getByText('Committed message')).toBeVisible();
+  advance(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {
+    kind: 'submission_feedback',
+    submissionFeedbackBranch: 'grpc_unknown'
+  });
+});

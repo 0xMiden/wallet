@@ -18,6 +18,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
@@ -35,7 +36,7 @@ export interface PendingActivityItem {
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
   /** Stable for one producer failure, including when the note's details refresh. */
-  failure?: { id: UserErrorId };
+  failure?: { id: UserErrorId; diagnostics?: UiEvidenceInput };
   /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
   cannotPayFee?: boolean;
   /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
@@ -268,6 +269,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                   <Notice
                     errorId={observedFailure.errorId}
                     errorOccurrence={observedFailure.failure}
+                    errorDiagnostics={observedFailure.failure?.diagnostics}
                     data-testid="pending-activity-hint"
                     tone={negative ? 'negative' : 'neutral'}
                     role={negative ? 'alert' : 'status'}
