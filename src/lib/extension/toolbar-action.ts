@@ -25,5 +25,5 @@ if (process.env.TARGET_BROWSER === 'chrome' && typeof chrome !== 'undefined') {
     void chrome.storage.local.set({ fresh_install: true }).catch(() => {});
     void chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') }).catch(() => {});
   });
-  void initializeToolbarAction(chrome);
+  chrome.storage.local.get('sidepanel_mode', saved => { if (saved.sidepanel_mode) void initializeToolbarAction(chrome); });
 }
