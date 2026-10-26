@@ -42,6 +42,52 @@ jobs:
         run: node --test scripts/store-publishing/*.test.mjs
       - name: Verify store artifact archive inspection
         run: python3 scripts/store-publishing/inspect-artifact.test.py
+      - name: Verify generated probe config with pinned Wrangler (uncredentialed proof only)
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { mkdir, readFile, writeFile, copyFile, unlink } from 'node:fs/promises';
+          import { join } from 'node:path';
+          import { createProbeController } from './scripts/feature-eligibility-staging-probe.mjs';
+          const root = join(process.env.RUNNER_TEMP, 'generated-probe-proof');
+          const privateDir = join(root, 'private');
+          const outputDir = join(root, 'dry-run');
+          await mkdir(root, { mode: 0o700 });
+          await mkdir(outputDir, { mode: 0o700 });
+          const identity = { repository: '0xMiden/wallet', workflowPath: '.github/workflows/probe-feature-eligibility.yml', runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceSha: process.env.GITHUB_SHA };
+          const response = result => Response.json({ success: true, errors: [], result });
+          const controller = createProbeController({
+            context: { ...identity, ref: 'refs/heads/main', eventName: 'workflow_dispatch' },
+            workerBytes: await readFile('services/feature-eligibility/staging-probe.mjs'),
+            environment: { PATH: process.env.PATH },
+            randomSecret: () => 'fake-uncredentialed-probe-secret',
+            privateFiles: {
+              createDirectory: async mode => { await mkdir(privateDir, { mode }); return privateDir; },
+              write: (path, data, mode) => writeFile(path, data, { mode }),
+              remove: async path => { try { await unlink(path); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+            },
+            providerAPI: async path => {
+              if (path === '/user/tokens/verify') return response({ status: 'active' });
+              if (path.startsWith('/workers/scripts?')) return response([]);
+              if (path === '/workers/subdomain') return response({ subdomain: 'fake-uncredentialed' });
+              if (path.endsWith('/settings')) return Response.json({ success: false, errors: [{ code: 10007 }], result: null }, { status: 404 });
+              throw new Error('Unpermitted proof effect');
+            },
+            deploy: async () => {
+              for (const file of ['wrangler.json', 'secrets.json', 'staging-probe.mjs', 'manifest.json']) await copyFile(join(privateDir, file), join(outputDir, file));
+              return { exitCode: 1 };
+            }
+          });
+          const result = await controller.run(identity);
+          assert.equal(result.reason, 'deploy_rejected');
+          assert.equal(result.cleanup, 'absent');
+          const manifest = JSON.parse(await readFile(join(outputDir, 'manifest.json'), 'utf8'));
+          assert.equal(manifest.identity.sourceSha, process.env.GITHUB_SHA);
+          console.log('Generated probe config captured from exact source:', process.env.GITHUB_SHA);
+          NODE
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/generated-probe-proof" TMPDIR="$RUNNER_TEMP" CI=true WRANGLER_SEND_METRICS=false npx --yes wrangler@4.151.3 deploy --dry-run --no-bundle --config "$RUNNER_TEMP/generated-probe-proof/dry-run/wrangler.json" --secrets-file "$RUNNER_TEMP/generated-probe-proof/dry-run/secrets.json"
+          test -s "$RUNNER_TEMP/generated-probe-proof/dry-run/staging-probe.mjs"
       - name: Validate Worker bundle and bindings
         run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
 
