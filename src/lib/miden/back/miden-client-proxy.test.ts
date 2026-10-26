@@ -4038,7 +4038,13 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
   const trBytes = () => new Uint8Array([0xca, 0xfe]);
   const gateReq = (op_id: string, evidence?: unknown) =>
-    ({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id, evidence }) as never;
+    ({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id,
+      evidence,
+      recovery: { requestBytes: [1], notes: [] }
+    }) as never;
 
   it('opens for the in-flight op once its gate recorded the crossing, with the evidence the leaf read', async () => {
     const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
@@ -4060,7 +4066,7 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
     await flush();
     fireReady();
     await p;
-    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 }, { requestBytes: new Uint8Array([1]), notes: [] });
     expect(answer).toEqual({ ok: true });
   });
 

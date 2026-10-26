@@ -194,3 +194,27 @@ it('rejects fields outside the recovery schema before encrypting secret material
   expect(await journal.read()).toEqual(first);
   expect(JSON.stringify(storage.values)).not.toContain('must never');
 });
+
+it('recovers the latest verified generation when only the active pointer is lost', async () => {
+  await journal.update(data);
+  const latest = await journal.update(() => ({
+    ...data(),
+    accounts: [{ accountId: 'account-1', nonce: '4', commitment: 'commitment-4' }]
+  }));
+  delete storage.values.miden_recovery_v1_active;
+  expect(await journal.read()).toEqual(latest);
+});
+
+it('retires only expired debit entries while retaining future charges and private evidence', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  await journal.update(() => ({
+    ...data(),
+    entries: [
+      ...data().entries,
+      { kind: 'debit', id: 'expired', accountId: 'account-1', initiatedAt: now - 86401, spentUsd: 3n },
+      { kind: 'debit', id: 'future', accountId: 'account-1', initiatedAt: now + 86401, spentUsd: 5n }
+    ]
+  }));
+  const next = await journal.update(data);
+  expect(next.entries.map(entry => entry.id)).toEqual(['note-1', 'future']);
+});

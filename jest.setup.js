@@ -1,3 +1,4 @@
+/* global globalThis */
 // `setupFiles: ['dotenv/config']` loads the developer's local `.env`, so a
 // `MIDEN_NETWORK=devnet` there would leak into `DEFAULT_NETWORK` and fail every
 // test that asserts testnet behaviour (address prefixes, RPC endpoints). CI has
@@ -20,6 +21,7 @@ if (typeof globalThis.TextDecoder === 'undefined') {
 }
 
 let { db } = require('lib/miden/repo');
+const cleanupStorageHealth = require('lib/miden/storage-health');
 
 // jsdom installs its own `crypto` as a non-configurable getter on `globalThis`
 // which only exposes `getRandomValues` / `randomUUID` — no `subtle`. We
@@ -42,6 +44,13 @@ global.afterEach(async () => {
   // Some suites leave fake timers enabled. Dexie's IndexedDB cleanup relies on
   // real scheduling and otherwise waits until Jest's hook timeout.
   jest.useRealTimers();
+  // Keep the original Repo realm even when a suite resets the module cache.
+  await cleanupStorageHealth.flushStorageHealth();
+  const { epoch } = cleanupStorageHealth.getStorageHealth();
+  cleanupStorageHealth.adoptStorageHealthRecovery({
+    recoveryFrom: epoch,
+    health: { status: 'healthy', epoch: epoch + 1 }
+  });
   // clear fake indexeddb database
   await Promise.all(db.tables.map(t => t.clear()));
 });

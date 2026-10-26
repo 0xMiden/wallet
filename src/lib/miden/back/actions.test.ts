@@ -107,6 +107,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 const mockVault = {
+  checkpointFinancialRecovery: jest.fn().mockResolvedValue(undefined),
   verifyStorageContinuity: jest.fn().mockResolvedValue(true),
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
   provideRecoverySeed: jest.fn(),

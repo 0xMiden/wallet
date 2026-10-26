@@ -730,6 +730,9 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.SignTransactionResponse,
         signature
       };
+    case WalletMessageType.FinancialRecoveryRequest:
+      await Actions.checkpointFinancialRecovery(req.accountId, req.entry);
+      return { type: WalletMessageType.FinancialRecoveryResponse };
     case WalletMessageType.SignWordRequest:
       const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
       return {

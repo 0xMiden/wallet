@@ -166,6 +166,8 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
+import { captureRecoveryNotes } from '../recovery/capture';
+import { checkpointTransactionRecovery } from '../recovery/checkpoint';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
@@ -568,6 +570,10 @@ const stageStampFor =
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
           : recordSubmitCrossing(txId, detail?.evidence, attempt));
+        if (detail?.reliable !== false) {
+          if (!detail?.recovery) throw new Error('Transaction recovery capture unavailable');
+          await checkpointTransactionRecovery(txId, detail.recovery, detail.evidence, attempt?.attemptId);
+        }
       } catch (err) {
         // A reliable stamp is written in this realm before its submit call, so failing it keeps the write off the
         // network. A replayed one arrives after the fact and can only under-report, which the attempt's catch backs up.
@@ -594,11 +600,11 @@ const stageStampFor =
 const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>) => {
   let opened = false;
   let settled = false;
-  const gate: SubmitGate = async evidence => {
+  const gate: SubmitGate = async (evidence, recovery) => {
     assertStorageHealthy();
     const healthEpoch = getStorageHealth().epoch;
     if (settled) return false;
-    await stamp('submitting', { evidence });
+    await stamp('submitting', { evidence, recovery });
     assertStorageHealthy(healthEpoch);
     if (settled) return false;
     opened = true;
@@ -1916,12 +1922,12 @@ const generateTransactionWithProvider = async (
               reclaimBytes,
               transaction.delegateTransaction,
               signCallback,
-              attempt && stageStampFor(transaction.id, attempt)
+              stageStampFor(transaction.id, attempt)
             )
           : midenClientProxy.consumeNoteId(
               transaction as ConsumeTransaction,
               signCallback,
-              attempt && stageStampFor(transaction.id, attempt)
+              stageStampFor(transaction.id, attempt)
             )
       );
       break;
@@ -1993,11 +1999,15 @@ const generateTransactionWithProvider = async (
             requestBytes,
             transaction.delegateTransaction,
             signCallback,
-            attempt && stageStampFor(transaction.id, attempt)
+            stageStampFor(transaction.id, attempt)
           )
         );
       } else {
-        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+        result = await midenClientProxy.sendTransaction(
+          transaction as SendTransaction,
+          signCallback,
+          stageStampFor(transaction.id, undefined)
+        );
       }
       break;
     case 'execute':
@@ -2522,7 +2532,8 @@ const runGuardianPipeline = async (
     // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
     await setStage('submitting', {
-      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
+      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold),
+      recovery: captureRecoveryNotes(executedTx.result, tr.serialize(), () => getCurrentWasmLockHold() === hold)
     });
     assertStillHoldingLock(hold, 'before submit');
     if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);

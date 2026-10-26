@@ -1,7 +1,7 @@
 import { type MidenClient, NoteFile, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { fromSerializable } from './serialization';
-import { validateJournal } from './validation';
+import { isRecoveryNote, validateJournal } from './validation';
 import { markStorageUnavailable } from '../storage-health';
 import { StorageContinuityError } from './continuity';
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
@@ -94,7 +94,8 @@ export async function readSdkRecoverySnapshot(
   client: RecoverySdkReader,
   accountIds: string[],
   includeNotes: boolean,
-  assertCurrent: () => void
+  assertCurrent: () => void,
+  retainedNotes: RecoveryNoteEntry[] = []
 ): Promise<SdkRecoverySnapshot> {
   if (
     accountIds.length === 0 ||
@@ -152,6 +153,37 @@ export async function readSdkRecoverySnapshot(
       }
     }
   }
+  if (retainedNotes.length > JOURNAL_MAX_ENTRIES) throw new StorageContinuityError();
+  for (const retained of retainedNotes) {
+    if (retained.provenance !== 'input') continue;
+    assertCurrent();
+    const file = NoteFile.deserialize(retained.noteFile);
+    try {
+      const details = file.noteDetails() ?? file.note();
+      if (!details) throw new StorageContinuityError();
+      const commitment = noteDetailsCommitment(details);
+      const id = file.noteId()?.toString();
+      if (id) {
+        const records = await client.notes.list({ ids: [id] });
+        assertCurrent();
+        if (records.length !== 1 || noteDetailsCommitment(records[0]!.details()) !== commitment)
+          throw new StorageContinuityError();
+      } else {
+        const match = notes.some(note => {
+          const candidate = NoteFile.deserialize(note.noteFile);
+          try {
+            const candidateDetails = candidate.noteDetails() ?? candidate.note();
+            return candidateDetails !== undefined && noteDetailsCommitment(candidateDetails) === commitment;
+          } finally {
+            candidate.free();
+          }
+        });
+        if (!match) throw new StorageContinuityError();
+      }
+    } finally {
+      file.free();
+    }
+  }
   assertCurrent();
   return { generation, accounts, notes };
 }
@@ -176,4 +208,17 @@ export function decodeSdkRecoverySnapshot(value: unknown): SdkRecoverySnapshot {
     notes.push(entry);
   }
   return { generation, accounts: decoded.accounts, notes };
+}
+
+export function decodeRetainedRecoveryNotes(value: unknown): RecoveryNoteEntry[] {
+  if (value === undefined) return [];
+  const decoded: unknown = fromSerializable(value);
+  if (
+    !Array.isArray(decoded) ||
+    decoded.length > JOURNAL_MAX_ENTRIES ||
+    !decoded.every(isRecoveryNote) ||
+    decoded.reduce((size, note) => size + note.noteFile.byteLength, 0) > JOURNAL_MAX_BYTES
+  )
+    throw new StorageContinuityError();
+  return decoded;
 }

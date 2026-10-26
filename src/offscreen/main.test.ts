@@ -542,7 +542,10 @@ function resetControl() {
     guardianExecuteRequest: jest.fn(async (_accountId: string, _tr: unknown) => {
       const g2 = globalThis as any;
       return {
-        result: { serialize: () => new Uint8Array([55, 66, 77]) },
+        result: {
+          serialize: () => new Uint8Array([55, 66, 77]),
+          executedTransaction: () => ({ inputNotes: () => ({ notes: () => [] }), userOutputNotes: () => [] })
+        },
         id: { toHex: () => 'guardian-exec-hash' },
         prove: jest.fn(async (options?: any) => {
           g2.__off.guardianProveCalls.push(options);
@@ -3437,7 +3440,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       posted.push(m);
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
     // The offscreen client drives its onStage hook exactly as the SDK's staged
     // execute → prove → submit pipeline does.
@@ -3514,7 +3517,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       posted.push(m);
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
     const leaf = jest.fn(async (...args: unknown[]) => {
       const onStage = args.find(arg => typeof arg === 'function');
@@ -3543,12 +3546,71 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
   });
 
+  it.each(['consumeNoteId', 'sendTransaction', 'swapTransaction', 'newTransaction'])(
+    '%s waits for independent recovery ACK before its network submit',
+    async method => {
+      await loadModule();
+      let acknowledge: ((reply: { ok: boolean }) => void) | undefined;
+      G.chrome.runtime.sendMessage = jest.fn((message: { type?: string }) =>
+        message.type === OFFSCREEN_SUBMIT_GATE
+          ? new Promise<{ ok: boolean }>(resolve => {
+              acknowledge = resolve;
+            })
+          : Promise.resolve(undefined)
+      );
+      const submitted = jest.fn();
+      const leaf = async (...args: unknown[]) => {
+        const onStage = args.find(arg => typeof arg === 'function');
+        if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+        submitted();
+        return { serialize: () => new Uint8Array([1]) };
+      };
+      const leaves: Record<string, string> = {
+        consumeNoteId: 'clientConsumeNoteId',
+        sendTransaction: 'clientSendTransaction',
+        swapTransaction: 'clientSwapTransaction',
+        newTransaction: 'clientNewTransaction'
+      };
+      G.__off[leaves[method]!] = leaf;
+      const dto = {
+        accountId: 'mtst1qacc',
+        secondaryAccountId: 'mtst1qrecipient',
+        noteId: '0xn1',
+        noteIds: ['0xn1'],
+        faucetId: 'mtst1qfaucet',
+        noteType: 'public',
+        amount: '1',
+        extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' },
+        swapFeeContext: {
+          scope: 'testnet|queued-endpoint',
+          nativeAssetId: 'mtst1qfee',
+          feeFaucetId: null,
+          baseFee: '7'
+        }
+      };
+      const argsB64 =
+        method === 'newTransaction'
+          ? [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+          : [encodeArg(dto)];
+      const sendResponse = jest.fn();
+      capturedListener!(callReq({ op_id: 'op-recovery', method, argsB64 }), {}, sendResponse);
+      await flush();
+      expect(submitted).not.toHaveBeenCalled();
+      expect(acknowledge).toBeDefined();
+      acknowledge?.({ ok: false });
+      await waitForReply(sendResponse);
+      expect(submitted).not.toHaveBeenCalled();
+      expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+    }
+  );
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
     // rejected promise (no SW receiver) and a synchronous throw (torn-down port).
     let call = 0;
-    G.chrome.runtime.sendMessage = jest.fn((_m: any) => {
+    G.chrome.runtime.sendMessage = jest.fn((message: { type?: string }) => {
+      if (message.type === OFFSCREEN_SUBMIT_GATE) return Promise.resolve({ ok: true });
       call += 1;
       if (call % 2 === 0) throw new Error('port closed');
       return Promise.reject(new Error('no receiver'));
@@ -4219,7 +4281,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // The prove lives inside the executeRequest handle, so it is parked by
     // substituting the handle rather than by a top-level spy.
     G.__off.guardianExecuteRequest = jest.fn(async () => ({
-      result: { serialize: () => new Uint8Array([55, 66, 77]) },
+      result: {
+        serialize: () => new Uint8Array([55, 66, 77]),
+        executedTransaction: () => ({ inputNotes: () => ({ notes: () => [] }), userOutputNotes: () => [] })
+      },
       id: { toHex: () => 'guardian-exec-hash' },
       prove: jest.fn(async () => {
         await parkedProve;
@@ -4691,6 +4756,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     serialize: () => new Uint8Array([55, 66, 77]),
     executedTransaction: () => ({
       id: () => ({ toHex: () => '0xlanded' }),
+      inputNotes: () => ({ notes: () => [] }),
+      userOutputNotes: () => [],
       accountId: () => 'sdk-guardian',
       initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
     })
@@ -4903,7 +4970,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       const signCb = G.__off.createOptions[0].signCallback;
       signatureSeen = await signCb(new Uint8Array([1, 2]), new Uint8Array([3, 4]));
       return {
-        result: { serialize: () => new Uint8Array([55, 66, 77]) },
+        result: {
+          serialize: () => new Uint8Array([55, 66, 77]),
+          executedTransaction: () => ({ inputNotes: () => ({ notes: () => [] }), userOutputNotes: () => [] })
+        },
         id: { toHex: () => 'h' },
         prove: async () => ({ submit: async () => ({ apply: async () => {} }) })
       };
@@ -4959,7 +5029,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
     G.__off.guardianExecuteRequest = jest.fn(async () => {
       timeline.push('executeRequest');
-      return { result: { serialize: () => new Uint8Array([55, 66, 77]) }, id: { toHex: () => 'h' } };
+      return {
+        result: {
+          serialize: () => new Uint8Array([55, 66, 77]),
+          executedTransaction: () => ({ inputNotes: () => ({ notes: () => [] }), userOutputNotes: () => [] })
+        },
+        id: { toHex: () => 'h' }
+      };
     });
     mockProveTransport.prove.mockImplementationOnce(async () => {
       timeline.push('worker prove');
@@ -5045,7 +5121,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   // put an evicted send's 'submitting' stamp on the successor's row — and
   // `stageStampFor` turns that into `markMayHaveSubmitted`, so the wallet
   // refused to retry a send that had never been broadcast.
-  it('a still-running evicted dispatch stamps under its own op_id, not the successor ambient one', async () => {
+  it('a still-running evicted dispatch cannot submit or stamp for its successor', async () => {
     await loadModule();
     // AFTER loadModule: it resets the module registry, so an earlier import
     // would hand back a different mock instance with its own lock state.
@@ -5057,12 +5133,12 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
 
     // The first send parks mid-flight, holding its onStage hook.
-    let capturedOnStage: ((s: string) => void) | undefined;
+    let capturedOnStage: ((s: string) => Promise<void>) | undefined;
     let releaseFirst!: () => void;
     const firstParked = new Promise<void>(resolve => {
       releaseFirst = resolve;
     });
-    G.__off.clientSendTransaction = jest.fn(async (_tx: unknown, onStage?: (s: string) => void) => {
+    G.__off.clientSendTransaction = jest.fn(async (_tx: unknown, onStage?: (s: string) => Promise<void>) => {
       capturedOnStage = onStage;
       await firstParked;
       return { serialize: () => new Uint8Array([1]) };
@@ -5105,12 +5181,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    capturedOnStage!('submitting');
+    await expect(capturedOnStage!('submitting')).rejects.toThrow(/submit gate/);
     await flush();
 
-    // Its own row — which is genuinely may-have-submitted — and not the
-    // successor's, which has broadcast nothing.
-    expect(posted).toEqual(['submitting|op-displaced']);
+    // The rejected old gate cannot record a crossing for either row.
+    expect(posted).toEqual([]);
 
     releaseFirst();
     finishSuccessor({ serialize: () => new Uint8Array([2]) });
