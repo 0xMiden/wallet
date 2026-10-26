@@ -4,6 +4,8 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { STORE_TARGETS, selectStoreTargets } from './targets.mjs';
+
 const CHROME_ID = 'coajhopfooegmaifelglfboehacldcbo';
 const DEVNET_ID = 'eeghndabgeicdpkbcohgglidpfpiafnb';
 const IOS_ID = 'com.miden.bread';
@@ -27,7 +29,8 @@ export function validateBuildRequest({ releaseTag, sourceSha, platform, network,
     throw new Error('An explicit mobile build number from 1 through 999 is required');
   }
   return { releaseTag, sourceSha: sourceSha.toLowerCase(), platform, network, buildNumber: normalizedBuild,
-    version: releaseTag.slice(1), platforms };
+    version: releaseTag.slice(1), platforms,
+    targets: platform === 'all' ? STORE_TARGETS : selectStoreTargets(`${platform}-${network}`) };
 }
 
 /** Bind published release metadata, the peeled tag, checked-out source, and both package versions. */
