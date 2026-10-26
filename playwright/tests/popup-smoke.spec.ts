@@ -1,6 +1,6 @@
 import type { BrowserContext } from '@playwright/test';
 
-import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { openImportTypeScreen } from '../e2e/helpers/onboarding-entry';
 import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
@@ -36,16 +36,7 @@ const openSeedPhraseImport = async (extensionContext: BrowserContext, extensionI
   const page = await extensionContext.newPage();
   await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
 
-  const welcome = page.getByTestId('onboarding-welcome');
-  await welcome.waitFor({ timeout: 30000 });
-  if (page.isClosed()) {
-    throw new Error('Page closed before onboarding');
-  }
-  await page.locator('#import-link').click();
-
-  await acknowledgeNetworkNotice(page, 15000);
-  // Import now asks WHICH credential first; this flow is the seed-phrase one.
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+  await openImportTypeScreen(page);
   await page.getByTestId('import-type-seed-phrase').click();
   const seedForm = page.getByTestId('import-seed-phrase');
   await seedForm.waitFor({ timeout: 15000 });
@@ -58,8 +49,14 @@ test.describe('Fullpage UI', () => {
   test('loads UI without console errors', async ({ extensionContext, extensionId }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const errors: string[] = [];
+    const missing: string[] = [];
 
     extensionContext.on('page', page => {
+      page.on('response', response => {
+        if (response.status() !== 404) return;
+        const url = new URL(response.url());
+        missing.push(`${url.protocol}//${url.host}${url.pathname}`);
+      });
       page.on('console', message => {
         if (message.type() === 'error' && !isIgnoredConsoleError(message.text())) {
           errors.push(message.text());
@@ -74,7 +71,7 @@ test.describe('Fullpage UI', () => {
     // Wait for React to render content into #root (not just for #root to exist)
     await page.waitForSelector('#root > *', { timeout: 30000 });
 
-    expect(errors).toHaveLength(0);
+    expect(errors, `Missing request paths: ${JSON.stringify(missing)}`).toHaveLength(0);
   });
 
   // SKIPPED for the v0 UI: the create flow is now Guardian-mandatory (no "Fully
