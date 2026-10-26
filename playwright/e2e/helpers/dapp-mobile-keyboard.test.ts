@@ -49,6 +49,17 @@ describe('native dApp keyboard journey', () => {
     expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
   });
 
+  it('waits out the presentation cover that hides the field while the keyboard resizes the WebView', async () => {
+    const covered = { ...visible, fieldFrame: null, webViewFrame: null };
+    const context = setup([covered, visible, visible, covered, visible, hidden]);
+
+    await runNativeKeyboardJourney({ surface: 'android', ...context });
+
+    expect(context.device.keyboardLayout).toHaveBeenCalledTimes(6);
+    expect(context.device.typeText).toHaveBeenCalledWith('A', 'Native typing 1837');
+    expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
+  });
+
   it('waits for typed text that lands after typeText returns', async () => {
     const context = setup([visible, visible, visible, hidden]);
     context.page.send
