@@ -57,7 +57,7 @@ export interface StartupEligibilityDiagnostics {
   startupEligibilityRetry: (typeof STARTUP_ELIGIBILITY_RETRIES)[number];
 }
 
-/** A failed startup decision keeps the wallet closed until the page restarts. */
+/** A failed startup decision keeps geo-gated features off until the page restarts; the wallet stays open. */
 export type GeoLookup =
   | { state: 'loading' }
   | { state: 'failed'; diagnostics?: StartupEligibilityDiagnostics }

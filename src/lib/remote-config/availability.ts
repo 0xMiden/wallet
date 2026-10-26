@@ -20,7 +20,14 @@ export type BridgeFeature =
   | 'bridgeOut'
   | 'usdcxDeposit'
   | 'usdcxWithdrawal';
-export type UnavailableReason = 'off' | 'not-configured' | 'not-deployed' | 'service-down' | 'restricted';
+export type UnavailableReason =
+  | 'off'
+  | 'not-configured'
+  | 'not-deployed'
+  | 'service-down'
+  | 'restricted'
+  // The startup decision has not landed; readers subscribe, so an allowed feature appears when it does.
+  | 'pending';
 export type FeatureAvailability =
   | { state: 'available' }
   | { state: 'loading' }
@@ -41,7 +48,7 @@ function unavailable(reason: UnavailableReason, detail: string): FeatureAvailabi
 /** Reads the startup feature decision without renewing it. */
 export function geoFeatureGate(feature: GeoFeature, geo: GeoLookup | undefined): FeatureAvailability | null {
   if (!geo) return null;
-  if (geo.state === 'loading') return { state: 'loading' };
+  if (geo.state === 'loading') return unavailable('pending', 'startup feature eligibility is pending');
   if (geo.state === 'failed') return unavailable('service-down', 'startup feature eligibility is unavailable');
   return geo.allowed[feature] ? null : unavailable('restricted', 'blocked by a geo rule');
 }
