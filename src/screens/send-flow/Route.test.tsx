@@ -136,7 +136,7 @@ describe('RouteOptions', () => {
     }
   );
 
-  it.each(['off', 'not-configured', 'not-deployed', 'service-down'] as const)(
+  it.each(['off', 'not-configured', 'not-deployed', 'service-down', 'pending'] as const)(
     'describes %s as route availability without claiming a service outage',
     reason => {
       render(
@@ -467,6 +467,22 @@ describe('route availability report', () => {
     );
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+  });
+
+  it('reports nothing for a route held while the startup decision is pending', () => {
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        fastAvailability={{ state: 'unavailable', reason: 'pending', detail: 'startup feature eligibility is pending' }}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    expect(screen.getByTestId('feature-unavailable-notice-fast')).toHaveTextContent('bridgeRouteUnavailableBody');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(mockReport).not.toHaveBeenCalled();
   });
 
   it('reports nothing while both routes are available', () => {

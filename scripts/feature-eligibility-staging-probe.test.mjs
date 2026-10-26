@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   buildProbeManifest,
   createProbeController,
+  createLocalProbeEffects,
   main,
   validatePreflight
 } from './feature-eligibility-staging-probe.mjs';
@@ -89,6 +90,7 @@ function fixture(options = {}) {
       const overridden = await options.api?.(path, method, { remote, files });
       if (overridden) return overridden;
       if (path === '/user/tokens/verify') return envelope({ status: 'active' });
+      if (path === '/account') return envelope({ id: 'account-never-publish', name: 'metadata-never-publish' });
       if (path.startsWith('/workers/scripts?')) {
         const page = Number(new URL(`https://api.invalid${path}`).searchParams.get('page') || 1);
         const pages = options.pages || [[]];
@@ -445,7 +447,7 @@ for (const code of [401, 403, 429, 500])
   test(`provider ${code} is unknown and never inferred unsupported`, async () => {
     const f = fixture({
       api(path) {
-        if (path === '/user/tokens/verify') return envelope({ secret: 'token-never-publish' }, code);
+        if (path === '/account') return envelope({ secret: 'token-never-publish' }, code);
       }
     });
     const result = await createProbeController(f.effects).run(identity);
@@ -493,7 +495,7 @@ test('idempotent absent cleanup authenticates exact trusted manifest without dep
   assert.equal(deployed(f).length, 0);
   assert.equal(deleted(f).length, 0);
   assert.equal(f.calls.length, 0);
-  assert.ok(f.events.some(event => event[2] === '/user/tokens/verify'));
+  assert.ok(f.events.some(event => event[2] === '/account'));
 });
 
 for (const patch of [
@@ -762,7 +764,7 @@ test('staging workflow always attempts current cleanup and publishes only saniti
 });
 
 test('authentication failure records source-bound preflight without deployment', async () => {
-  const f = fixture({ api: path => (path === '/user/tokens/verify' ? envelope({}, 403) : undefined) });
+  const f = fixture({ api: path => (path === '/account' ? envelope({}, 403) : undefined) });
   const received = await createProbeController(f.effects).run(identity);
   assert.deepEqual(received.preflight, {
     identity,
@@ -810,4 +812,103 @@ test('invalid credential settings retain only environment-stage evidence for tru
     reason: 'auth'
   });
   assertClosed(received);
+});
+
+test('account-scoped authorization supports run and cleanup when user introspection is forbidden', async () => {
+  const f = fixture({ api: path => (path === '/user/tokens/verify' ? envelope({}, 403) : undefined) });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.support, 'supported');
+  assert.equal(result.cleanup, 'removed');
+  const cleanup = await createProbeController(f.effects).cleanup(manifest());
+  assert.equal(cleanup.cleanup, 'absent');
+  assert.ok(f.events.some(event => event[2] === '/account'));
+  assert.ok(!f.events.some(event => event[2] === '/user/tokens/verify'));
+  assertClosed(result);
+});
+
+for (const [label, response, reason] of [
+  ['wrong-account', () => envelope({ id: 'foreign-never-publish' }), 'auth'],
+  ['missing-id', () => envelope({ name: 'metadata-never-publish' }), 'auth'],
+  ['null-result', () => envelope(null), 'auth'],
+  ['malformed', () => Response.json(null), 'invalid_response'],
+  ['error-envelope', () => Response.json({ success: false, errors: [], result: {} }), 'invalid_response'],
+  ['auth', () => envelope({}, 403), 'auth'],
+  ['quota', () => envelope({}, 429), 'quota'],
+  [
+    'network',
+    () => {
+      throw new Error('private-never-publish');
+    },
+    'network'
+  ],
+  ['redirect', () => new Response(null, { status: 302 }), 'network'],
+  ['oversize', () => new Response('x'.repeat(2 * 1024 * 1024 + 1)), 'invalid_response']
+])
+  test(`account metadata ${label} blocks run and cleanup effects`, async () => {
+    const f = fixture({ api: path => (path === '/account' ? response() : undefined) });
+    const result = await createProbeController(f.effects).run(identity);
+    assert.equal(result.support, 'unknown');
+    assert.equal(result.reason, reason);
+    assert.equal(result.preflight.stage, 'authentication');
+    const cleanup = await createProbeController(f.effects).cleanup(manifest());
+    assert.equal(cleanup.cleanup, 'blocked');
+    assert.equal(cleanup.reason, 'cleanup_failed');
+    assert.equal(deployed(f).length, 0);
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    assertClosed(result);
+    assert.doesNotMatch(JSON.stringify(cleanup), /never-publish|account|metadata/);
+  });
+
+test('local account adapter binds exact configured URL and rejects credential-routing inputs', async t => {
+  const calls = [];
+  const timeouts = [];
+  t.mock.method(AbortSignal, 'timeout', ms => {
+    timeouts.push(ms);
+    return new AbortController().signal;
+  });
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push([url, init]);
+    return envelope({ id: 'a'.repeat(32) });
+  });
+  const effects = createLocalProbeEffects({
+    RUNNER_TEMP: '/private',
+    CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+    CLOUDFLARE_API_TOKEN: 'private-token'
+  });
+  await effects.providerAPI('/account', { method: 'GET', redirect: 'follow' });
+  assert.equal(calls[0][0], `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}`);
+  assert.equal(calls[0][1].method, 'GET');
+  assert.equal(calls[0][1].headers.Authorization, 'Bearer private-token');
+  assert.equal(calls[0][1].redirect, 'error');
+  assert.ok(calls[0][1].signal instanceof AbortSignal);
+  for (const path of [
+    '/user/tokens/verify',
+    'https://host.invalid',
+    '//host.invalid',
+    '/account/../tokens/verify',
+    '/workers/../../user/tokens/verify'
+  ])
+    await assert.rejects(async () => effects.providerAPI(path, { method: 'GET' }));
+  await assert.rejects(async () => effects.providerAPI('/account', { method: 'DELETE' }));
+  const hostile = createLocalProbeEffects({
+    RUNNER_TEMP: '/private',
+    CLOUDFLARE_ACCOUNT_ID: '../user',
+    CLOUDFLARE_API_TOKEN: 'private-token'
+  });
+  await assert.rejects(async () => hostile.providerAPI('/account', { method: 'GET' }));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(timeouts, [15000]);
+  for (const [path, method] of [
+    ['/workers/subdomain', 'GET'],
+    ['/workers/scripts?page=1&per_page=100', 'GET'],
+    ['/workers/scripts/example/settings', 'GET'],
+    ['/workers/scripts/example/subdomain', 'GET'],
+    ['/workers/scripts/example/content/v2', 'GET'],
+    ['/workers/scripts/example', 'DELETE']
+  ]) {
+    await effects.providerAPI(path, { method });
+    assert.equal(calls.at(-1)[0], `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}${path}`);
+    assert.equal(calls.at(-1)[1].method, method);
+  }
 });
