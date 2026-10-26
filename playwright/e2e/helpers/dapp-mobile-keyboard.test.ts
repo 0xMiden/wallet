@@ -73,6 +73,14 @@ describe('native dApp keyboard journey', () => {
     expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
   });
 
+  it('reports the hidden layout when typing hides the keyboard', async () => {
+    const context = setup([visible, visible, hidden]);
+
+    await expect(runNativeKeyboardJourney({ surface: 'ios', ...context })).rejects.toThrow(
+      /hidden while typing: \{"keyboardVisible":false,"keyboardTop":null/
+    );
+  });
+
   it('fails if typing hides the keyboard', async () => {
     const context = setup([visible, visible, hidden]);
 

@@ -792,6 +792,22 @@ describe('Android native keyboard layout', () => {
     expect(calls.some(call => call.includes('cat') || call.includes('tap'))).toBe(false);
   });
 
+  it('faults a zero-area Android field instead of tapping it', async () => {
+    const calls: string[][] = [];
+    const run: AdbRun = async (serial, args) => {
+      calls.push([serial, ...args]);
+      return args.includes('cat')
+        ? '<hierarchy><node class="android.webkit.WebView" bounds="[0,463][1078,2400]">' +
+            '<node class="android.widget.EditText" hint="Keyboard input" bounds="[42,1090][42,1090]" /></node></hierarchy>'
+        : '';
+    };
+
+    await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'Keyboard input')).rejects.toThrow(
+      'Android accessibility label not found: Keyboard input'
+    );
+    expect(calls.some(call => call.includes('tap'))).toBe(false);
+  });
+
   it('records an empty Android dump as nodes=0', async () => {
     const run: AdbRun = async () => 'UI hierchary dumped to: /dev/tty';
 
@@ -875,6 +891,26 @@ describe('iOS native keyboard field lookup', () => {
     await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow(/nodes=1.*Bread.*bounds=0,0,402,874/);
 
     expect(calls).toEqual([['sim-a', 'ui', 'describe-all', '--udid', 'sim-a', '--api', 'axbridge']]);
+  });
+
+  it('faults a zero-area iOS field instead of tapping it', async () => {
+    const calls: string[][] = [];
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      return JSON.stringify([
+        IOS_SCREEN,
+        {
+          type: 'TextField',
+          AXLabel: 'dApp input',
+          traits: ['TextEntry'],
+          frame: { x: 20, y: 200, width: 0, height: 44 }
+        }
+      ]);
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.tapAccessibilityLabel('A', 'dApp input')).rejects.toThrow('iOS accessibility label not found');
+    expect(calls.some(call => call.includes('tap'))).toBe(false);
   });
 
   it('records the missed iOS tree when the label is absent', async () => {
