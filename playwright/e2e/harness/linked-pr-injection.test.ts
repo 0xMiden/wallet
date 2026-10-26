@@ -746,7 +746,7 @@ describe('technical screenshot eligibility is a narrow published-dependency exce
     ];
     for (const altered of unsafe) {
       expect(technicalScreenshotWorkflow(file, altered)).toBe(false);
-      expect(workflowViolations(file, altered).length).toBeGreaterThan(0);
+      expect(workflowViolations(file, altered)).not.toHaveLength(0);
     }
   });
 });
