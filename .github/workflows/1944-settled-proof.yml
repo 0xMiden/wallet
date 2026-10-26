@@ -1,0 +1,93 @@
+name: PR1944 settled visual proof
+on:
+  push:
+    branches: ['ci/pr1944-visual-*']
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: 4cd8340650dfe463cce1ee581e42ffc9d489bf55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Bind immutable source parent
+        run: test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          ref: '${{ env.SOURCE_SHA }}'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install pinned Chromium
+        timeout-minutes: 12
+        run: yarn playwright install --with-deps chromium
+      - name: Capture settled real-component Arcade sheet
+        run: |
+          yarn vite --config playwright/visual/arcade/vite.config.mts > "$RUNNER_TEMP/arcade-vite.log" 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:5191/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node <<'JS'
+          const { chromium, expect } = require('@playwright/test');
+          const fs = require('node:fs/promises');
+          const sharp = require('sharp');
+          (async () => {
+            const directory = 'test-results/arcade-settled';
+            await fs.mkdir(directory, { recursive: true });
+            const browser = await chromium.launch({ headless: true });
+            const measurements = [];
+            try {
+              for (const width of [320, 360, 402, 440, 768]) {
+                for (const dark of [false, true]) {
+                  for (const long of [false, true]) {
+                    const page = await browser.newPage({ viewport: { width, height: 900 }, deviceScaleFactor: 1 });
+                    await page.goto(`http://127.0.0.1:5191/?${dark ? 'dark&' : ''}${long ? 'long' : ''}`);
+                    await page.getByRole('button', { name: 'Details', exact: true }).click();
+                    const sheet = page.getByRole('dialog');
+                    const button = sheet.getByRole('button', { name: 'Open game', exact: true });
+                    await expect(button).toBeInViewport({ ratio: 1, timeout: 10000 });
+                    await sheet.evaluate(async element => {
+                      await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => undefined)));
+                    });
+                    await expect(button).toBeInViewport({ ratio: 1 });
+                    const [frame, target] = await Promise.all([sheet.boundingBox(), button.boundingBox()]);
+                    expect(frame).not.toBeNull(); expect(target).not.toBeNull();
+                    const left = target.x - frame.x;
+                    const right = frame.x + frame.width - target.x - target.width;
+                    expect(Math.abs(left - right)).toBeLessThan(1);
+                    expect(target.width).toBeCloseTo(Math.min(370, frame.width - 32), 0);
+                    expect(target.height).toBe(48);
+                    expect(target.y + target.height).toBeLessThanOrEqual(900);
+                    const name = `${width}-${dark ? 'dark' : 'light'}-${long ? 'long' : 'short'}`;
+                    const path = `${directory}/${name}.png`;
+                    await page.screenshot({ path });
+                    const resized = await sharp(path).resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true }).toBuffer();
+                    await fs.writeFile(path, resized);
+                    measurements.push({ name, viewport: width, sheet: frame, button: target, left, right });
+                    console.log(`${name}: left=${left} right=${right} button=${target.width}x${target.height}`);
+                    await page.close();
+                  }
+                }
+              }
+              expect(measurements).toHaveLength(20);
+              await fs.writeFile(`${directory}/measurements.json`, JSON.stringify(measurements, null, 2));
+              console.log('20 settled visual cases passed');
+            } finally { await browser.close(); }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arcade-settled-current-source
+          path: test-results/arcade-settled/
+          retention-days: 7
+          if-no-files-found: warn
