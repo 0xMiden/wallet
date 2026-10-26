@@ -269,3 +269,37 @@ test('plan rejects custom identities, unknown targets and malformed source befor
     );
   }
 });
+
+test('iOS submission forwards exact optional release notes without adding them to other targets', () => {
+  const notes = 'Clearer Guardian screens.\nSmoother mobile transitions.\tEnjoy Bread.';
+  const input = plan();
+  input.targets['ios-testnet'].releaseNotes = notes;
+  const intents = coordinator.validateReleasePlan(input, { stage: 'submit' });
+  assert.equal(intents.find(value => value.targetId === 'ios-testnet').inputs.release_notes, notes);
+  assert.equal(intents.filter(value => value.targetId !== 'ios-testnet').some(value => 'release_notes' in value.inputs), false);
+});
+
+test('empty optional release notes are omitted and Unicode length uses code points', () => {
+  const input = plan();
+  input.targets['ios-testnet'].releaseNotes = '';
+  assert.equal('release_notes' in coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs, false);
+  input.targets['ios-testnet'].releaseNotes = '😀'.repeat(4000);
+  assert.equal(coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' })[0].inputs.release_notes, input.targets['ios-testnet'].releaseNotes);
+  input.targets['ios-testnet'].releaseNotes += '😀';
+  assert.throws(() => coordinator.validateReleasePlan(input, { stage: 'submit', target: 'ios-testnet' }), /release|notes|4000/i);
+});
+
+test('release notes are rejected outside iOS submit and invalid content prevents every child dispatch', async () => {
+  for (const invalid of ['  \n', 'private\u0000text', 'private\u001btext', 'private\u0085text', 42, null]) {
+    const input = plan();
+    input.targets['ios-testnet'].releaseNotes = invalid;
+    const h = harness();
+    await assert.rejects(coordinator.executeReleaseStage(input, { stage: 'submit', ...h.deps }), /release|notes/i);
+    assert.equal(h.calls.some(([name]) => name === 'dispatch'), false);
+  }
+  for (const [target, stage] of [['android-testnet', 'submit'], ['chrome-devnet', 'submit'], ['ios-testnet', 'upload'], ['ios-testnet', 'build']]) {
+    const input = plan();
+    input.targets[target].releaseNotes = 'Only iOS submission may carry this text.';
+    assert.throws(() => coordinator.validateReleasePlan(input, { stage, target }), /release|notes|iOS|submit/i);
+  }
+});
