@@ -7,6 +7,7 @@
 ### Changes
 
 - [FIX][extension] Bread uses the sidebar by default, keeps onboarding in a full page, and uses the popup only when sidebar setup is unavailable.
+- [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
