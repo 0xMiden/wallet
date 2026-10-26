@@ -237,11 +237,21 @@ export function createProbeController(effects) {
     if (response.status === 429) fail('quota');
     if (!response.ok) fail('network');
     const body = await jsonBody(response);
-    if (body.success !== true || !Array.isArray(body.errors) || body.errors.length) fail('invalid_response');
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      Array.isArray(body) ||
+      body.success !== true ||
+      !Array.isArray(body.errors) ||
+      body.errors.length
+    )
+      fail('invalid_response');
     return body;
   };
   const authenticate = async () => {
-    if ((await api('/user/tokens/verify')).result?.status !== 'active') fail('auth');
+    const accountId = effects.environment?.CLOUDFLARE_ACCOUNT_ID;
+    const result = (await api('/account')).result;
+    if (typeof accountId !== 'string' || !accountId || result?.id !== accountId) fail('auth');
   };
   const inventory = async expectedName => {
     const scripts = [];
@@ -635,7 +645,17 @@ export function createLocalProbeEffects(env) {
     randomSecret: () => randomBytes(32).toString('hex'),
     fetch,
     providerAPI: (path, init) => {
-      const endpoint = path === '/user/tokens/verify' ? path : `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${path}`;
+      if (!/^[a-f0-9]{32}$/.test(env.CLOUDFLARE_ACCOUNT_ID || '')) fail('auth');
+      const method = init?.method || 'GET';
+      const account = path === '/account' && method === 'GET';
+      const read =
+        method === 'GET' &&
+        (path === '/workers/subdomain' ||
+          /^\/workers\/scripts\?page=[1-9][0-9]*&per_page=100$/.test(path) ||
+          /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}\/(settings|subdomain|content\/v2)$/.test(path));
+      const remove = method === 'DELETE' && /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}$/.test(path);
+      if (!account && !read && !remove) fail('auth');
+      const endpoint = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${account ? '' : path}`;
       return request(`https://api.cloudflare.com/client/v4${endpoint}`, {
         ...init,
         headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` }
