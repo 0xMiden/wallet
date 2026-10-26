@@ -29,3 +29,4 @@ export const ENDPOINT_OVERRIDE_STORAGE_KEY = 'endpoint_overrides';
 export const hapticLight = () => undefined;
 export const hapticSuccess = async (): Promise<void> => undefined;
 export const hapticSelection = () => undefined;
+export const hapticError = async (): Promise<void> => undefined;
