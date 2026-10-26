@@ -7,6 +7,7 @@ import { spendingLimits, transactions } from 'lib/miden/repo';
 import { clearStorage, PENDING_ADMISSION_STORAGE_KEY, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
+import { getStorageHealth, resetStorageHealthForLifecycle } from 'lib/miden/storage-health';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -63,6 +64,7 @@ import {
   estimateUsdcxBurnFee,
   getSpendingLimit,
   saveSpendingLimit,
+  checkpointFinancialRecovery,
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
@@ -107,6 +109,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 const mockVault = {
+  checkpointFinancialRecovery: jest.fn().mockResolvedValue(undefined),
   verifyStorageContinuity: jest.fn().mockResolvedValue(true),
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
   provideRecoverySeed: jest.fn(),
@@ -2767,4 +2770,13 @@ describe('handleReportTelemetryEvent', () => {
       network: expect.any(String)
     });
   });
+});
+
+it('refuses a financial checkpoint captured before reset without selecting the replacement Vault', async () => {
+  const oldEpoch = getStorageHealth().epoch;
+  await resetStorageHealthForLifecycle(oldEpoch);
+  await expect(checkpointFinancialRecovery('account-a', undefined, oldEpoch)).rejects.toThrow(
+    'StorageUnavailableError'
+  );
+  expect(mockVault.checkpointFinancialRecovery).not.toHaveBeenCalled();
 });

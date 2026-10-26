@@ -10,6 +10,8 @@ import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
 
 export enum WalletMessageType {
+  FinancialRecoveryRequest = 'FINANCIAL_RECOVERY_REQUEST',
+  FinancialRecoveryResponse = 'FINANCIAL_RECOVERY_RESPONSE',
   // Aknowledge
   Acknowledge = 'CONNECT_AKNOWLEDGE',
   // Notifications
@@ -955,6 +957,16 @@ export interface SignTransactionResponse extends WalletMessageBase {
   signature: string;
 }
 
+export interface FinancialRecoveryRequest extends WalletMessageBase {
+  expectedEpoch: number;
+  type: WalletMessageType.FinancialRecoveryRequest;
+  accountId: string;
+  entry?: unknown;
+}
+export interface FinancialRecoveryResponse extends WalletMessageBase {
+  type: WalletMessageType.FinancialRecoveryResponse;
+}
+
 export interface SignWordRequest extends WalletMessageBase {
   transactionId?: string;
   type: WalletMessageType.SignWordRequest;
@@ -1367,6 +1379,7 @@ export type WalletRequest =
   | VerifyStrictActionAuthenticationRequest
   | SignDataRequest
   | SignTransactionRequest
+  | FinancialRecoveryRequest
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
@@ -1445,6 +1458,7 @@ export type WalletResponse =
   | VerifyStrictActionAuthenticationResponse
   | SignDataResponse
   | SignTransactionResponse
+  | FinancialRecoveryResponse
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse

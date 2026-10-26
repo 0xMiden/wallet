@@ -106,8 +106,11 @@ import {
   GuardianHistoryFeeLookupError,
   GuardianHistoryFeeUnavailableError
 } from '../guardian/history-errors';
+import { decodeRecoveryCapture } from '../recovery/capture';
 import { StorageContinuityError } from '../recovery/continuity';
 import { decodeSdkRecoverySnapshot, type SdkRecoverySnapshot } from '../recovery/sdk-snapshot';
+import { toSerializable } from '../recovery/serialization';
+import type { RecoveryCapture } from '../recovery/types';
 import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 
@@ -428,7 +431,7 @@ const opStageCallbacks = new Map<string, StageCallback>();
  * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
  * happen.
  */
-export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+export type SubmitGate = (evidence?: SubmitEvidenceFields, recovery?: RecoveryCapture) => Promise<boolean>;
 
 /** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
@@ -838,7 +841,8 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
   try {
-    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
+    if (!(await gate(msg.evidence, decodeRecoveryCapture(msg.recovery))))
+      return { ok: false, error: `op ${op_id} has already settled` };
   } catch (err) {
     return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
   }
@@ -1004,6 +1008,11 @@ async function dispatchOffscreenWrite(
   opSignCallbacks.set(op_id, signCallback);
   if (onStage) opStageCallbacks.set(op_id, onStage);
   if (submitGate) opSubmitGates.set(op_id, submitGate);
+  else if (onStage)
+    opSubmitGates.set(op_id, async (evidence, recovery) => {
+      await onStage('submitting', { evidence, recovery });
+      return true;
+    });
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
@@ -1097,7 +1106,8 @@ export const midenClientProxy = {
   async readStorageContinuity(
     accountIds: string[],
     includeNotes: boolean,
-    capability?: StorageRecoveryCapability
+    capability?: StorageRecoveryCapability,
+    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = []
   ): Promise<SdkRecoverySnapshot> {
     const check = () => {
       if (capability) assertStorageRecoveryAllowed(capability);
@@ -1107,12 +1117,12 @@ export const midenClientProxy = {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       const client = capability ? await getMidenClientForRecovery(capability) : await getMidenClient();
       check();
-      return client.readStorageContinuity(accountIds, includeNotes, check);
+      return client.readStorageContinuity(accountIds, includeNotes, check, retainedNotes);
     }
     const result = await dispatchOp(
       newOpId(),
       'readStorageContinuity',
-      [accountIds, includeNotes],
+      [accountIds, includeNotes, toSerializable(retainedNotes)],
       5000,
       false,
       capability

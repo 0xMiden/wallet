@@ -35,11 +35,17 @@ describe('MidenClientInterface', () => {
     errorSpy.mockRestore();
   });
 
+  async function underWasmHold<T>(operation: () => Promise<T>): Promise<T> {
+    const { withWasmClientLock } = await import('./miden-client');
+    return withWasmClientLock(operation);
+  }
+
   const fakeTransactionResult = {
     executedTransaction: () => ({
       id: () => ({ toHex: () => 'tx-hex' }),
       outputNotes: () => ({ notes: () => [] }),
-      inputNotes: () => ({ notes: () => [] })
+      inputNotes: () => ({ notes: () => [] }),
+      userOutputNotes: () => []
     }),
     serialize: () => new Uint8Array([7])
   };
@@ -150,7 +156,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       ...sdk
     }));
     jest.doMock('./helpers', () => ({
@@ -193,7 +199,7 @@ describe('MidenClientInterface', () => {
       AccountFile: { deserialize: jest.fn(() => ({})) },
       NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
       NoteType: { Private: 'Private', Public: 'Public' },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
@@ -926,7 +932,7 @@ describe('MidenClientInterface', () => {
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       }
@@ -1029,7 +1035,7 @@ describe('MidenClientInterface', () => {
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1083,7 +1089,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 'Private', Public: 'Public' },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1099,28 +1105,30 @@ describe('MidenClientInterface', () => {
 
     try {
       await expect(
-        client.sendTransaction(
-          {
-            accountId: 'sender',
-            secondaryAccountId: 'deposit',
-            faucetId: 'faucet',
-            noteType: 'public' as any,
-            amount: BigInt(1),
-            extraInputs: {
-              oneClick: {
-                fundingDeadline,
-                request: { deadline: fundingDeadline },
-                quote: {
-                  quoteRequest: { deadline: fundingDeadline },
-                  quote: { deadline: providerDeadline }
+        underWasmHold(() =>
+          client.sendTransaction(
+            {
+              accountId: 'sender',
+              secondaryAccountId: 'deposit',
+              faucetId: 'faucet',
+              noteType: 'public' as any,
+              amount: BigInt(1),
+              extraInputs: {
+                oneClick: {
+                  fundingDeadline,
+                  request: { deadline: fundingDeadline },
+                  quote: {
+                    quoteRequest: { deadline: fundingDeadline },
+                    quote: { deadline: providerDeadline }
+                  }
                 }
               }
+            } as any,
+            stage => {
+              stages.push(stage);
+              if (stage === 'submitting') now = Date.parse(fundingDeadline);
             }
-          } as any,
-          stage => {
-            stages.push(stage);
-            if (stage === 'submitting') now = Date.parse(fundingDeadline);
-          }
+          )
         )
       ).rejects.toThrow(/expired/i);
     } finally {
@@ -1145,7 +1153,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1160,18 +1168,20 @@ describe('MidenClientInterface', () => {
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     const stages: string[] = [];
-    await client.sendTransaction(
-      {
-        accountId: 'sender',
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(1),
-        extraInputs: {}
-      } as any,
-      stage => {
-        stages.push(stage);
-      }
+    await underWasmHold(() =>
+      client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(1),
+          extraInputs: {}
+        } as any,
+        stage => {
+          stages.push(stage);
+        }
+      )
     );
 
     expect(stages).toEqual(['executing', 'proving', 'submitting']);
@@ -1204,7 +1214,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1248,7 +1258,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1279,8 +1289,8 @@ describe('MidenClientInterface', () => {
     );
     const crossing = new SubmitCrossingUnrecordedError('row-1', new Error('QuotaExceededError'));
     const thrown = wrapped ? new Error('the stamp failed', { cause: crossing }) : crossing;
-    const rejection = await client
-      .sendTransaction(
+    const rejection = await underWasmHold(() =>
+      client.sendTransaction(
         {
           accountId: 'sender',
           secondaryAccountId: 'recipient',
@@ -1294,7 +1304,7 @@ describe('MidenClientInterface', () => {
           if (stage === 'submitting') throw thrown;
         }
       )
-      .catch((error: unknown) => error);
+    ).catch((error: unknown) => error);
     return { thrown, rejection, executeRequest };
   };
 
@@ -1372,7 +1382,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1439,7 +1449,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
       getWasmOrThrow: async () => ({
         AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
         NoteType: { Public: 'public', Private: 'private' }
@@ -1607,7 +1617,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) }
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) }
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -1635,7 +1645,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
-      TransactionRequest: { deserialize: jest.fn(() => ({})) }
+      TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) }
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -1743,7 +1753,10 @@ describe('MidenClientInterface', () => {
 
     expect(result).toBe(fakeTransactionResult);
     // Staged (#1233): execute, prove, submit and apply, never the SDK's opaque consume.
-    expect(staged.executeRequest).toHaveBeenCalledWith('sdk-acc-id', {});
+    expect(staged.executeRequest).toHaveBeenCalledWith(
+      'sdk-acc-id',
+      expect.objectContaining({ serialize: expect.any(Function) })
+    );
     expect(staged.apply).toHaveBeenCalledTimes(1);
     expect(fakeMidenClient.transactions.consume).not.toHaveBeenCalled();
   });
@@ -2204,7 +2217,7 @@ describe('MidenClientInterface', () => {
         MidenClient: { create: jest.fn(), createMock },
         NoteFile: { deserialize: jest.fn(() => ({})) },
         AccountFile: { deserialize: jest.fn(() => ({})) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         TransactionProver: {
           newRemoteProver: jest.fn(() => 'remote'),
           newLocalProver: jest.fn(() => 'local')
@@ -2259,7 +2272,7 @@ describe('MidenClientInterface', () => {
         MidenClient: { create: createReal, createMock: jest.fn() },
         NoteFile: { deserialize: jest.fn(() => ({})) },
         AccountFile: { deserialize: jest.fn(() => ({})) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         TransactionProver: {
           newRemoteProver: jest.fn(() => 'remote'),
           newLocalProver: jest.fn(() => 'local')
@@ -2303,7 +2316,7 @@ describe('MidenClientInterface', () => {
         MidenClient: { create: createReal, createMock: jest.fn() },
         NoteFile: { deserialize: jest.fn(() => ({})) },
         AccountFile: { deserialize: jest.fn(() => ({})) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         TransactionProver: {
           newRemoteProver: jest.fn(() => 'remote'),
           newLocalProver: jest.fn(() => 'local')
@@ -3306,7 +3319,8 @@ describe('MidenClientInterface', () => {
         });
 
         expect(onStage).toHaveBeenCalledWith('submitting', {
-          evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+          evidence: expect.objectContaining({ transactionId: 'tx-hex' }),
+          recovery: { requestBytes: expect.any(Uint8Array), notes: [] }
         });
         expect(order.indexOf('stamp:submitting')).toBeGreaterThan(-1);
         expect(order.indexOf('stamp:submitting')).toBeLessThan(order.indexOf('submit'));
@@ -3388,7 +3402,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) }
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) }
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -3397,7 +3411,8 @@ describe('MidenClientInterface', () => {
         canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
         buildConsumeTransactionRequest: jest.fn((_notes: unknown[], _expirationDelta: number) => ({
-          kind: 'consume-request'
+          kind: 'consume-request',
+          serialize: () => new Uint8Array([1])
         }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -3420,7 +3435,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3466,7 +3481,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
       const onStage = jest.fn(async (stage: string) => {
@@ -3488,7 +3503,8 @@ describe('MidenClientInterface', () => {
       );
 
       expect(onStage).toHaveBeenCalledWith('submitting', {
-        evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+        evidence: expect.objectContaining({ transactionId: 'tx-hex' }),
+        recovery: { requestBytes: expect.any(Uint8Array), notes: [] }
       });
       expect(order).toEqual(['stamp:executing', 'stamp:proving', 'stamp:submitting', 'submit']);
     });
@@ -3506,7 +3522,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
       // Lock recovery (issue #775) disposes the client BEFORE releasing the
@@ -3523,14 +3539,16 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toThrow(/poisoned/i);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
@@ -3566,7 +3584,7 @@ describe('MidenClientInterface', () => {
         jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
           ...fakeWasm,
           TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-          TransactionRequest: { deserialize: jest.fn(() => ({})) },
+          TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
           getWasmOrThrow: async () => fakeWasm
         }));
 
@@ -3619,7 +3637,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3662,7 +3680,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3696,7 +3714,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3723,7 +3741,7 @@ describe('MidenClientInterface', () => {
       };
       const stubs = buildOffscreenStubs({});
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
-      const txRequestDeserialize = jest.fn(() => ({ kind: 'fresh-request' }));
+      const txRequestDeserialize = jest.fn(() => ({ kind: 'fresh-request', serialize: () => new Uint8Array([1]) }));
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
@@ -3767,7 +3785,7 @@ describe('MidenClientInterface', () => {
             }
           }))
         },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3803,7 +3821,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3836,7 +3854,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         getWasmOrThrow: async () => fakeWasm
       }));
 
@@ -3890,7 +3908,7 @@ describe('MidenClientInterface', () => {
         NoteDetails: NoteDetailsCtor,
         AccountFile: { deserialize: jest.fn(() => ({})) },
         NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })) },
         TransactionProver: { newRemoteProver: jest.fn(), newLocalProver: jest.fn() },
         exportStore: jest.fn(),
         importStore: jest.fn()
