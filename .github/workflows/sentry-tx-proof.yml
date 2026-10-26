@@ -1,0 +1,39 @@
+name: Transaction execution diagnostics final focused
+on:
+  push:
+    branches: [ci/sentry-tx-diagnostics-focused-dce55d447]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bind frozen source
+        run: |
+          git show -s --format='%H %T %P' HEAD
+          git diff --exit-code dce55d447ae9dc238189439a7041ca89464049b7 HEAD -- . ':!.github/workflows/sentry-tx-proof.yml' ':!.github/tx-diagnostic-mutations.py'
+      - uses: ./.github/actions/yarn-install
+        id: install
+      - name: Focused regressions and privacy guards
+        run: yarn jest --maxWorkers=2 src/lib/miden/guardian/index.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/offscreen-codec.test.ts src/lib/miden/sdk/custom-request-diagnostics.test.ts src/lib/miden/sdk/transaction-execution-diagnostics.test.ts src/lib/telemetry/transaction-execution-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/guarantees.test.ts
+      - name: TypeScript
+        if: always() && steps.install.outcome == 'success'
+        run: yarn ts
+      - name: Named lint
+        if: always() && steps.install.outcome == 'success'
+        run: yarn eslint src/lib/telemetry/guarantees.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/miden-client-proxy.ts src/lib/miden/back/offscreen-codec.ts src/lib/miden/guardian/index.test.ts src/lib/miden/guardian/index.ts src/lib/miden/sdk/custom-request-diagnostics.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/transaction-execution-diagnostics.test.ts src/lib/miden/sdk/transaction-execution-diagnostics.ts src/lib/miden/transaction/index.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash-diagnostics.ts src/lib/telemetry/transaction-execution-diagnostics.test.ts src/lib/telemetry/transaction-execution-diagnostics.ts src/lib/telemetry/transaction-failure.ts src/offscreen/main.test.ts src/offscreen/main.ts
+      - name: Mutation proof on actual cancellation and wire paths
+        run: python3 .github/tx-diagnostic-mutations.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tx-final-mutation-proof
+          path: mutation-proof/
+          if-no-files-found: error
