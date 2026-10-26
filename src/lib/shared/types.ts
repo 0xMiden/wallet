@@ -973,7 +973,7 @@ export interface FinancialRecoveryResponse extends WalletMessageBase {
 export interface StorageRecoveryRequest extends WalletMessageBase {
   type: WalletMessageType.StorageRecoveryRequest;
   expectedEpoch: number;
-  operation: 'check' | 'rebuild';
+  operation: 'check' | 'rebuild' | 'reconcile';
 }
 export interface StorageRecoveryResponse extends WalletMessageBase, StorageRecoveryResult {
   type: WalletMessageType.StorageRecoveryResponse;

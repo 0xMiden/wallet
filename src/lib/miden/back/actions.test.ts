@@ -112,6 +112,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 const mockVault = {
   recoverStorage: jest.fn().mockResolvedValue(true),
   checkStorageRecovery: jest.fn().mockResolvedValue(true),
+  reconcileStorageRecovery: jest.fn().mockResolvedValue({ reconciled: 1, retired: 2 }),
   checkpointFinancialRecovery: jest.fn().mockResolvedValue(undefined),
   verifyStorageContinuity: jest.fn().mockResolvedValue(true),
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
@@ -2712,6 +2713,14 @@ describe('actions', () => {
     await resetStorageHealthForLifecycle(epoch);
     await expect(recoverWalletStorage('rebuild', epoch)).rejects.toThrow('StorageUnavailableError');
     expect(mockVault.recoverStorage).not.toHaveBeenCalled();
+  });
+
+  it('keeps evidence reconciliation informational until the complete recovery check resumes health', async () => {
+    Object.assign(mockStoreState, { vault: mockVault });
+    await expect(recoverWalletStorage('reconcile', getStorageHealth().epoch)).resolves.toEqual({
+      recovered: false, reconciled: 1, retired: 2
+    });
+    expect(mockVault.reconcileStorageRecovery).toHaveBeenCalledTimes(1);
   });
 
   // The lazy `getVault()` accessor in actions.ts has a `typeof init_vault === 'function'`
