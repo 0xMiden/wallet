@@ -1,0 +1,495 @@
+{
+  "schemaVersion": 1,
+  "baselineVersion": "1.17.7",
+  "capturedAt": "2026-10-25T22:55:00Z",
+  "sets": [
+    {
+      "platform": "ios",
+      "storeId": "6789341854",
+      "locale": "en-US",
+      "displayType": "APP_IPHONE_67",
+      "images": [
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/01.png",
+          "sha256": "494db78ee59298af58d3652c2ed56c66a65dbd32db0259cb8ff8b777bcffea34",
+          "size": 773987,
+          "width": 1320,
+          "height": 2868,
+          "format": "png"
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/02.png",
+          "sha256": "0d69be050d7ffed30979a29925b9cb798905aaef96be13a47a1c67095ba54d38",
+          "size": 517333,
+          "width": 1320,
+          "height": 2868,
+          "format": "png"
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/03.png",
+          "sha256": "75d90b612043dc721ae5cd2c821c54a72e1397e193bf74e9591bfb0fe9fcbfd6",
+          "size": 973945,
+          "width": 1320,
+          "height": 2868,
+          "format": "png"
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/04.png",
+          "sha256": "5f705c9a4d8f8efa08fc68e52cc4f6a627fbcd32fe753a4631b6c5dbffe3b242",
+          "size": 620974,
+          "width": 1320,
+          "height": 2868,
+          "format": "png"
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/05.png",
+          "sha256": "f95bbd42eb2962e7ee5fda8f793a2ed499180b386ceb8794ca3ea6b1bb0c1c2d",
+          "size": 793081,
+          "width": 1320,
+          "height": 2868,
+          "format": "png"
+        }
+      ]
+    },
+    {
+      "platform": "ios",
+      "storeId": "6789341854",
+      "locale": "en-US",
+      "displayType": "APP_IPHONE_61",
+      "images": [
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_61/01.png",
+          "sha256": "698727d737a81fc570866930e09dc51fdb71b5ec71b277ba900401ffafa5f409",
+          "size": 856653,
+          "width": 1206,
+          "height": 2622,
+          "format": "png",
+          "source": {
+            "assetId": "349d3848-c746-4a35-b863-9a51d01a79ab",
+            "fileName": "Apple App Store - (1_5).png",
+            "checksum": {
+              "algorithm": "md5",
+              "value": "a30003302cbc1c3c04902e3418bdbd3e"
+            },
+            "kind": "original-upload"
+          }
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_61/02.png",
+          "sha256": "6d22091d066058fb41301443076156b16d84096a5e6c0226f114c673428aaeae",
+          "size": 602733,
+          "width": 1206,
+          "height": 2622,
+          "format": "png",
+          "source": {
+            "assetId": "28058f64-43b3-438a-b84a-7a48743334cf",
+            "fileName": "Apple App Store - (2_5).png",
+            "checksum": {
+              "algorithm": "md5",
+              "value": "d0cbb3650483b3dae104df608043fd95"
+            },
+            "kind": "original-upload"
+          }
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_61/03.png",
+          "sha256": "540c793731a9d1ba2b5c6af30a14ef0ca839793290a7740921e9ca4e24b4f07b",
+          "size": 1146439,
+          "width": 1206,
+          "height": 2622,
+          "format": "png",
+          "source": {
+            "assetId": "8478eb11-4724-4881-9dd2-5feed2415a5f",
+            "fileName": "Apple App Store - (3_5).png",
+            "checksum": {
+              "algorithm": "md5",
+              "value": "c7542bdd4dd8c87893d08b61d1c6e148"
+            },
+            "kind": "original-upload"
+          }
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_61/04.png",
+          "sha256": "f9c313d80492d91d4fbdbc41fc78fd43ececf74d02a546f61ed57f5d5979773f",
+          "size": 732713,
+          "width": 1206,
+          "height": 2622,
+          "format": "png",
+          "source": {
+            "assetId": "86657987-59aa-472f-8c5f-c50c6bf6ca54",
+            "fileName": "Apple App Store - (4_5).png",
+            "checksum": {
+              "algorithm": "md5",
+              "value": "d79d3aadd97b61f0453b15ceba5d3ace"
+            },
+            "kind": "original-upload"
+          }
+        },
+        {
+          "path": "store-listing/assets/ios/en-US/APP_IPHONE_61/05.png",
+          "sha256": "a27d73e753dc2f56241bc618fc2e39cc42d2bce03fffee028c23d62a88749526",
+          "size": 864352,
+          "width": 1206,
+          "height": 2622,
+          "format": "png",
+          "source": {
+            "assetId": "59ae304d-8359-49f7-b8e7-a44f763ad973",
+            "fileName": "Apple App Store - (5_5).png",
+            "checksum": {
+              "algorithm": "md5",
+              "value": "132963e7eb974df7a2ef5a4e9a60616f"
+            },
+            "kind": "original-upload"
+          }
+        }
+      ]
+    },
+    {
+      "platform": "android",
+      "storeId": "com.miden.wallet",
+      "locale": "en-US",
+      "displayType": "phoneScreenshots",
+      "images": [
+        {
+          "path": "store-listing/assets/android/en-US/phoneScreenshots/01.png",
+          "sha256": "0ce5e8ae66affef6be7c41c237266b59928cfc60023b886346c948bbf96118b6",
+          "size": 564414,
+          "width": 1080,
+          "height": 2160,
+          "format": "png",
+          "source": {
+            "fileName": "Play Store - (1_5).png",
+            "kind": "original-upload",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "0ce5e8ae66affef6be7c41c237266b59928cfc60023b886346c948bbf96118b6"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/android/en-US/phoneScreenshots/02.png",
+          "sha256": "59963f0f67068422e539ebd2ec7d4efcd7e91ce54d84fd6560b8e1bcdf2cd3a3",
+          "size": 433765,
+          "width": 1080,
+          "height": 2160,
+          "format": "png",
+          "source": {
+            "fileName": "Play Store - (2_5).png",
+            "kind": "original-upload",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "59963f0f67068422e539ebd2ec7d4efcd7e91ce54d84fd6560b8e1bcdf2cd3a3"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/android/en-US/phoneScreenshots/03.png",
+          "sha256": "dfad2d00ae7351da14c1aaf52be61444927b8114030b00177cef397689d7dec5",
+          "size": 772698,
+          "width": 1080,
+          "height": 2160,
+          "format": "png",
+          "source": {
+            "fileName": "Play Store - (3_5).png",
+            "kind": "original-upload",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "dfad2d00ae7351da14c1aaf52be61444927b8114030b00177cef397689d7dec5"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/android/en-US/phoneScreenshots/04.png",
+          "sha256": "da7842ff63805a142ebba47ee5c1e8b07c36c3c91077828132524f9cdae01580",
+          "size": 527886,
+          "width": 1080,
+          "height": 2160,
+          "format": "png",
+          "source": {
+            "fileName": "Play Store - (4_5).png",
+            "kind": "original-upload",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "da7842ff63805a142ebba47ee5c1e8b07c36c3c91077828132524f9cdae01580"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/android/en-US/phoneScreenshots/05.png",
+          "sha256": "b64f1b4ae15e1859c16946de0301bbf2bf37ccccb3cdc4e2228e77949fc75d29",
+          "size": 581690,
+          "width": 1080,
+          "height": 2160,
+          "format": "png",
+          "source": {
+            "fileName": "Play Store - (5_5).png",
+            "kind": "original-upload",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "b64f1b4ae15e1859c16946de0301bbf2bf37ccccb3cdc4e2228e77949fc75d29"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "platform": "chrome",
+      "storeId": "coajhopfooegmaifelglfboehacldcbo",
+      "locale": "en",
+      "displayType": "screenshots",
+      "images": [
+        {
+          "path": "store-listing/assets/chrome/testnet/en/01.png",
+          "sha256": "19b877c71fb5a0e3c3edb5bd968d2bae255e01ec49a53592f364a494d0a95032",
+          "size": 243599,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/coajhopfooegmaifelglfboehacldcbo?hl=en",
+            "importSha256": "19b877c71fb5a0e3c3edb5bd968d2bae255e01ec49a53592f364a494d0a95032",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "19b877c71fb5a0e3c3edb5bd968d2bae255e01ec49a53592f364a494d0a95032"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/testnet/en/02.png",
+          "sha256": "3d36b62e93cd5b8b465bdde4d649442af5c250344d6701c7c951e1f386077eaa",
+          "size": 206686,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/coajhopfooegmaifelglfboehacldcbo?hl=en",
+            "importSha256": "3d36b62e93cd5b8b465bdde4d649442af5c250344d6701c7c951e1f386077eaa",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "3d36b62e93cd5b8b465bdde4d649442af5c250344d6701c7c951e1f386077eaa"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/testnet/en/03.png",
+          "sha256": "69a48cb6861d19fc5e3b114702e992f16a51de11cbd090667521a7dba384ec63",
+          "size": 341001,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/coajhopfooegmaifelglfboehacldcbo?hl=en",
+            "importSha256": "69a48cb6861d19fc5e3b114702e992f16a51de11cbd090667521a7dba384ec63",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "69a48cb6861d19fc5e3b114702e992f16a51de11cbd090667521a7dba384ec63"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/testnet/en/04.png",
+          "sha256": "0e264ef787f7a452d085bd63571921f52e2af517c3413e46e8a1721c6d880261",
+          "size": 231759,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/coajhopfooegmaifelglfboehacldcbo?hl=en",
+            "importSha256": "0e264ef787f7a452d085bd63571921f52e2af517c3413e46e8a1721c6d880261",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "0e264ef787f7a452d085bd63571921f52e2af517c3413e46e8a1721c6d880261"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/testnet/en/05.png",
+          "sha256": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2",
+          "size": 242021,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/coajhopfooegmaifelglfboehacldcbo?hl=en",
+            "importSha256": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "platform": "chrome",
+      "storeId": "eeghndabgeicdpkbcohgglidpfpiafnb",
+      "locale": "en",
+      "displayType": "screenshots",
+      "images": [
+        {
+          "path": "store-listing/assets/chrome/devnet/en/01.png",
+          "sha256": "19b877c71fb5a0e3c3edb5bd968d2bae255e01ec49a53592f364a494d0a95032",
+          "size": 243599,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/eeghndabgeicdpkbcohgglidpfpiafnb?hl=en",
+            "importSha256": "19b877c71fb5a0e3c3edb5bd968d2bae255e01ec49a53592f364a494d0a95032",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "19b877c71fb5a0e3c3edb5bd968d2bae255e01ec49a53592f364a494d0a95032"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/devnet/en/02.png",
+          "sha256": "3d36b62e93cd5b8b465bdde4d649442af5c250344d6701c7c951e1f386077eaa",
+          "size": 206686,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/eeghndabgeicdpkbcohgglidpfpiafnb?hl=en",
+            "importSha256": "3d36b62e93cd5b8b465bdde4d649442af5c250344d6701c7c951e1f386077eaa",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "3d36b62e93cd5b8b465bdde4d649442af5c250344d6701c7c951e1f386077eaa"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/devnet/en/03.png",
+          "sha256": "69a48cb6861d19fc5e3b114702e992f16a51de11cbd090667521a7dba384ec63",
+          "size": 341001,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/eeghndabgeicdpkbcohgglidpfpiafnb?hl=en",
+            "importSha256": "69a48cb6861d19fc5e3b114702e992f16a51de11cbd090667521a7dba384ec63",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "69a48cb6861d19fc5e3b114702e992f16a51de11cbd090667521a7dba384ec63"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/devnet/en/04.png",
+          "sha256": "0e264ef787f7a452d085bd63571921f52e2af517c3413e46e8a1721c6d880261",
+          "size": 231759,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/eeghndabgeicdpkbcohgglidpfpiafnb?hl=en",
+            "importSha256": "0e264ef787f7a452d085bd63571921f52e2af517c3413e46e8a1721c6d880261",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "0e264ef787f7a452d085bd63571921f52e2af517c3413e46e8a1721c6d880261"
+            }
+          }
+        },
+        {
+          "path": "store-listing/assets/chrome/devnet/en/05.png",
+          "sha256": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2",
+          "size": 242021,
+          "width": 1280,
+          "height": 800,
+          "format": "png",
+          "source": {
+            "kind": "store-delivery-rendition",
+            "url": "https://chromewebstore.google.com/detail/eeghndabgeicdpkbcohgglidpfpiafnb?hl=en",
+            "importSha256": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2",
+            "checksum": {
+              "algorithm": "sha256",
+              "value": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "baselineSets": [
+    {
+      "platform": "ios",
+      "storeId": "6789341854",
+      "locale": "en-US",
+      "displayType": "APP_IPHONE_67",
+      "images": [
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "3f0feddb0a80bad628cd83ebfdc3bca1"
+          },
+          "assetId": "990af897-8f4b-4a86-88e1-0b0b47379140"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "e4682ab3333525463813b1a22f408e33"
+          },
+          "assetId": "d185647f-d5f8-4cbf-b3da-90efadde9d85"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "d8c798c183f9be8f4af94cda9e02c345"
+          },
+          "assetId": "6a6459bc-c343-4fdd-b2d6-6eb6fe7d753c"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "ad0f70c79f4ae1dc6d51c73538b34993"
+          },
+          "assetId": "58ce66f9-1b54-458a-ace2-f2826ee99d3b"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "c2214b0f5e059cf714dad970303e9f0b"
+          },
+          "assetId": "a5ab49fb-75ff-4140-94a3-1691816f2866"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "a6d234e3e596f4e4ef69954dd407f17c"
+          },
+          "assetId": "391755e1-61c7-446b-a5f6-e15f5518cfc1"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "9d634b1a3e6a56450f3fc12db15c5f1b"
+          },
+          "assetId": "991981b0-326b-47eb-ace6-2257ce581239"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "e2b5a553c7fcf074059f9d61df027f64"
+          },
+          "assetId": "8806ab41-ab7e-4a4f-a8b3-649a0d23fc7c"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "39708670ea1bd0b27d8eabfda7860eff"
+          },
+          "assetId": "3c8c14b8-7989-45a1-b6aa-e7200ce6fdfa"
+        }
+      ]
+    }
+  ]
+}
