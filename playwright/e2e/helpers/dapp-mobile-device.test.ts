@@ -405,6 +405,38 @@ describe('iOS native typing', () => {
     });
   });
 
+  it('re-reads a keyboard that is still switching to lowercase before it gives up on a key', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      if (!args.includes('describe-all')) return '';
+      reads += 1;
+      // Read 2 is the keyboard mid-transition: uppercase labels with shift no longer selected.
+      const tree = JSON.stringify([
+        IOS_SCREEN,
+        iosEditing('Keyboard input', { x: 16, y: 302, width: 370, height: 33 }),
+        IOS_HOST,
+        IOS_KEYBOARD,
+        ...(reads === 2
+          ? iosKeys('upper').map(key =>
+              key.AXLabel === 'shift' ? { ...key, traits: ['PlaysSound', 'KeyboardKey', 'Button'] } : key
+            )
+          : iosKeys(reads === 1 ? 'upper' : 'lower'))
+      ]);
+      return tree;
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.typeText('A', 'Na')).resolves.toBeUndefined();
+
+    const lowerA = iosKeys('lower').find(key => key.AXLabel === 'a');
+    expect(calls.filter(call => call[2] === 'tap').map(call => call.slice(5))).toEqual([
+      ['281', '725'],
+      center(lowerA?.frame)
+    ]);
+  });
+
   it('fails closed when shift does not reveal the lowercase key', async () => {
     const keyboard = simulatedKeyboard(mode => mode);
 
