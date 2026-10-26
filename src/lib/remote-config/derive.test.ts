@@ -374,6 +374,18 @@ describe('deriveBridgeConfig', () => {
     expect(down.epoch.allocator).toEqual({ state: 'error', message: 'Remote JSON request failed with HTTP 503' });
   });
 
+  it.each([
+    ['status only', { status: 'healthy' }],
+    ['legacy allocator configuration', ALLOCATOR_HEALTH]
+  ])('rejects a healthy allocator with %s instead of SDK 2 configuration', async (_name, body) => {
+    const derived = await deriveBridgeConfig(
+      TESTNET,
+      deps({ fetch: healthFetch({ ...HEALTH, 'https://testnet-dev.epochprotocol.xyz/health': body }) })
+    );
+
+    expect(derived.epoch.allocator.state).toBe('error');
+  });
+
   it('starts every probe before any of them answers', async () => {
     let releaseRegistry: (value: { rollupId: number; tokens: BridgeToken[] }) => void = () => undefined;
     const io = deps({
