@@ -85,6 +85,18 @@ describe('native dApp keyboard journey', () => {
     await expect(runNativeKeyboardJourney({ surface: 'ios', ...context })).rejects.toThrow(/after dismissal/);
   });
 
+  it('does not read a zero-area layout after dismissal as a dismissed keyboard', async () => {
+    const degenerate: NativeKeyboardLayout = {
+      keyboardVisible: false,
+      keyboardTop: null,
+      fieldFrame: { x: 20, y: 120, width: 0, height: 48 },
+      webViewFrame: { x: 0, y: 0, width: 390, height: 0 }
+    };
+    const context = setup([visible, visible, visible, ...Array.from({ length: 12 }, () => degenerate)]);
+
+    await expect(runNativeKeyboardJourney({ surface: 'android', ...context })).rejects.toThrow(/after dismissal/);
+  });
+
   it('reports the hidden layout when typing hides the keyboard', async () => {
     const context = setup([visible, visible, hidden]);
 
