@@ -297,6 +297,7 @@ export async function main(args, env = process.env) {
     return result;
   }
   let manifest = null;
+  let manifestAbsent = false;
   let workerBytes = await readFile(new URL('../services/feature-eligibility/staging-probe.mjs', import.meta.url));
   try {
     try {
@@ -305,6 +306,7 @@ export async function main(args, env = process.env) {
           manifest = await readJson(join(root, 'feature-eligibility-probe/manifest.json'));
         } catch (error) {
           if (error.code !== 'ENOENT') throw error;
+          manifestAbsent = true;
         }
         if (manifest) requireValue(isDeepStrictEqual(manifest.identity, contextIdentity(effects.context)));
       } else {
@@ -334,6 +336,7 @@ export async function main(args, env = process.env) {
         result = { ...result, cleanup: cleanup.cleanup };
       } catch {
         const early =
+          manifestAbsent &&
           manifest === null &&
           result.preflight?.manifest === 'absent' &&
           result.preflight?.deployment === 'not_attempted' &&
