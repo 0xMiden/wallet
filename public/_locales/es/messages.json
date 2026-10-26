@@ -1352,7 +1352,7 @@
     "englishSource": "Syncing with Guardian"
   },
   "transactionStepDeliveringNote": {
-    "message": "Entrega al destinatario",
+    "message": "Entregando al destinatario",
     "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
@@ -1465,7 +1465,7 @@
     "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
-    "message": "Confirmación en la cadena",
+    "message": "Confirmando en la cadena",
     "englishSource": "Confirming on chain"
   },
   "transactionStageConfirmingDescription": {
@@ -1820,7 +1820,7 @@
     "englishSource": "Remove"
   },
   "ifYouWantToRevealPrivateKeyFromOtherAccount": {
-    "message": "Para mostrar la clave de privada de otra cuenta, selecciónala en el menú desplegable superior derecho.",
+    "message": "Para mostrar la clave privada de otra cuenta, selecciónala en el menú desplegable superior derecho.",
     "englishSource": "If you want to reveal a view key from another account - you should select it in the top-right dropdown."
   },
   "privateKeyFieldDescription": {
@@ -2269,7 +2269,7 @@
     "englishSource": "~30s"
   },
   "expires": {
-    "message": "Caduca en",
+    "message": "Caduca",
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
@@ -3098,11 +3098,11 @@
     "englishSource": "Creating your wallet…"
   },
   "restoringYourWallet": {
-    "message": "Restaurar tu monedero…",
+    "message": "Restaurando tu cartera…",
     "englishSource": "Restoring your wallet…"
   },
   "settingUpYourWallet": {
-    "message": "Configuración de tu monedero…",
+    "message": "Configurando tu cartera…",
     "englishSource": "Setting up your wallet…"
   },
   "finishRestoringOnOpen": {
@@ -3238,7 +3238,7 @@
     "englishSource": "We’re sorry for the inconvenience."
   },
   "reset": {
-    "message": "Restablecer monedero",
+    "message": "Restablecer cartera",
     "englishSource": "Reset wallet"
   },
   "forgotPassword": {
