@@ -6,15 +6,15 @@
  *   2. `initTheme()`,
  *   3. `createRoot(#root).render(<App env={{ windowType: WindowType.Popup }} />)`,
  *   4. a popup-context guard:
- *        `if (!popups.includes(window) || !isPopupModeEnabled()) { openInFullPage(); window.close(); }`
+ *        `if (!popups.includes(window)) { openInFullPage(); window.close(); }`
  *
  * The whole testable surface is therefore reached by importing the module with
  * a real `#root` present (so the real `createRoot` mounts the tree) while
- * controlling the two guard inputs — `browser.extension.getViews(...)` and
- * `isPopupModeEnabled()` — to walk every branch of the `||`.
+ * controlling popup-view membership through `browser.extension.getViews(...)`
+ * to walk both branches of the guard.
  *
  * We keep the REAL `react-dom/client` so the render executes real JSX, and
- * replace only the heavy leaf deps (App, app/env, popup-mode, theme, css,
+ * replace only the heavy leaf deps (App, app/env, theme, css,
  * lock-up checks, webextension-polyfill).
  *
  * Because the guard runs at import time, each scenario re-imports the module in
@@ -35,7 +35,6 @@ import { join } from 'path';
 // ---------------------------------------------------------------------------
 const mockInitTheme = jest.fn();
 const mockOpenInFullPage = jest.fn();
-const mockIsPopupModeEnabled = jest.fn();
 const mockGetViews = jest.fn();
 const mockAppRender = jest.fn();
 
@@ -64,17 +63,13 @@ jest.mock('app/env', () => ({
   openInFullPage: (...args: unknown[]) => mockOpenInFullPage(...args)
 }));
 
-jest.mock('lib/popup-mode', () => ({
-  isPopupModeEnabled: (...args: unknown[]) => mockIsPopupModeEnabled(...args)
-}));
-
 jest.mock('lib/settings/theme', () => ({
   initTheme: (...args: unknown[]) => mockInitTheme(...args)
 }));
 
 // webextension-polyfill: control `browser.extension.getViews` per test. (There
 // is an auto-applied manual mock under __mocks__ whose getViews returns [];
-// this factory overrides it so we can drive the guard's first operand.)
+// this factory overrides it so we can drive popup-view membership.)
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
@@ -118,7 +113,6 @@ let closeSpy: jest.SpyInstance;
 beforeEach(() => {
   mockInitTheme.mockReset();
   mockOpenInFullPage.mockReset();
-  mockIsPopupModeEnabled.mockReset();
   mockGetViews.mockReset();
   mockAppRender.mockReset();
   // jsdom's window.close is a no-op that logs "Not implemented"; spy to both
@@ -134,7 +128,6 @@ describe('src/popup.tsx', () => {
   it('initialises the theme and mounts <App> (popup env) into #root', async () => {
     // Stay in popup context so the guard does NOT fire and tear things down.
     mockGetViews.mockReturnValue([window]);
-    mockIsPopupModeEnabled.mockReturnValue(true);
 
     await loadPopup();
 
@@ -147,50 +140,46 @@ describe('src/popup.tsx', () => {
     expect(mockGetViews).toHaveBeenCalledWith({ type: 'popup' });
   });
 
-  it('does nothing when in a real popup view AND popup mode is enabled', async () => {
-    // Guard: !includes(false) || !enabled(false) => false — no redirect.
+  it('keeps a real popup view mounted without redirecting or closing', async () => {
     mockGetViews.mockReturnValue([window]);
-    mockIsPopupModeEnabled.mockReturnValue(true);
 
     await loadPopup();
 
-    expect(mockIsPopupModeEnabled).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-testid="popup-app"]')).not.toBeNull();
     expect(mockOpenInFullPage).not.toHaveBeenCalled();
     expect(closeSpy).not.toHaveBeenCalled();
   });
 
   it('opens full page and closes when this window is NOT a popup view', async () => {
-    // First operand true: !popups.includes(window) === true (short-circuits ||),
-    // so isPopupModeEnabled is never consulted.
     mockGetViews.mockReturnValue([]);
-    mockIsPopupModeEnabled.mockReturnValue(true);
 
     await loadPopup();
 
     expect(mockOpenInFullPage).toHaveBeenCalledTimes(1);
     expect(closeSpy).toHaveBeenCalledTimes(1);
-    // Short-circuited: second operand not evaluated.
-    expect(mockIsPopupModeEnabled).not.toHaveBeenCalled();
   });
 
-  it('opens full page and closes when popup mode is disabled', async () => {
-    // First operand false (window is a popup view), second operand true
-    // (!isPopupModeEnabled()) => redirect.
+  it('keeps a real popup view mounted with legacy popup_mode set to false', async () => {
     mockGetViews.mockReturnValue([window]);
-    mockIsPopupModeEnabled.mockReturnValue(false);
 
-    await loadPopup();
+    const saved = localStorage.getItem('popup_mode');
+    try {
+      localStorage.setItem('popup_mode', 'false');
+      await loadPopup();
 
-    expect(mockIsPopupModeEnabled).toHaveBeenCalledTimes(1);
-    expect(mockOpenInFullPage).toHaveBeenCalledTimes(1);
-    expect(closeSpy).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('[data-testid="popup-app"]')).not.toBeNull();
+      expect(mockOpenInFullPage).not.toHaveBeenCalled();
+      expect(closeSpy).not.toHaveBeenCalled();
+    } finally {
+      if (saved === null) localStorage.removeItem('popup_mode');
+      else localStorage.setItem('popup_mode', saved);
+    }
   });
 
   it('installs the Buffer polyfill when globalThis.Buffer is absent', async () => {
     // Exercise the right-hand side of `globalThis.Buffer || Buffer` by
     // re-evaluating the module with Buffer unset. Keep the guard inert.
     mockGetViews.mockReturnValue([window]);
-    mockIsPopupModeEnabled.mockReturnValue(true);
 
     const saved = (globalThis as unknown as { Buffer?: unknown }).Buffer;
     try {
@@ -206,7 +195,6 @@ describe('src/popup.tsx', () => {
     // The entry keeps any global Buffer it finds, so a Buffer-shaped stub in globals.js would win over the
     // real polyfill. The old one encoded every string as zero bytes and broke the WalletConnect relay token.
     mockGetViews.mockReturnValue([window]);
-    mockIsPopupModeEnabled.mockReturnValue(true);
 
     const saved = (globalThis as unknown as { Buffer?: unknown }).Buffer;
     try {

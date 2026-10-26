@@ -60,6 +60,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_NETWORKS: testnet,mainnet
 
       - name: Build chrome
         uses: borales/actions-yarn@v4
@@ -67,9 +69,13 @@ jobs:
           cmd: build:chrome
         env:
           MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
 
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
+
+      - name: Install native action and screenshot tools
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 gsettings-desktop-schemas
 
       - name: Install Playwright Browsers
         # `--with-deps` shells out to apt, and the browser download itself has
@@ -79,3 +85,28 @@ jobs:
 
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
+
+      - name: Run native toolbar regressions
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8551/testnet.json > "$RUNNER_TEMP/toolbar-fixture-config.json"
+          trap 'curl --fail --silent --show-error -X POST -H "Content-Type: application/json" --data-binary @"$RUNNER_TEMP/toolbar-fixture-config.json" http://127.0.0.1:8551/_fixture/config' EXIT
+          node --input-type=module <<'JS'
+          const response = await fetch('http://127.0.0.1:8551/testnet.json');
+          if (!response.ok) throw new Error('Fixture config unavailable');
+          const document = await response.json();
+          document.mainnetCountdown = { enabled: true, launchAt: '2099-01-01T00:00:00Z' };
+          const saved = await fetch('http://127.0.0.1:8551/_fixture/config', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document)
+          });
+          if (!saved.ok) throw new Error('Fixture config refused');
+          JS
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn test:e2e:toolbar'
+
+      - name: Upload native toolbar evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-toolbar-evidence
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
