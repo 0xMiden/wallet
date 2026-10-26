@@ -22,6 +22,7 @@ test('all-target build delegates to independent existing child producers instead
   assert.match(workflow, /platform:[\s\S]*?default: all/);
   assert.match(workflow, /request_token:/);
   assert.match(workflow, /actions: write/);
+  assert.match(workflow, /GITHUB_RUN_ATTEMPT !== '1'/);
   assert.match(workflow, /inputs\.platform != 'all'/);
 });
 
