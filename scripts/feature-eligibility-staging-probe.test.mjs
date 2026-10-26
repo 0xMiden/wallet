@@ -396,3 +396,57 @@ test('cancellation aborts exercise and still performs authenticated exact cleanu
   assert.equal(f.calls.length, 1);
   assert.equal(deleted(f).length, 1);
 });
+
+test('documented multipart string module hashes its content rather than rejecting MIME representation', async () => {
+  const f = fixture({ api(path, method, { remote }) {
+    if (remote && path.endsWith('/content/v2')) {
+      const body = new FormData();
+      body.append('staging-probe.mjs', remote.bytes);
+      return new Response(body, { headers: { 'cf-entrypoint': 'staging-probe.mjs' } });
+    }
+  } });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.support, 'supported');
+  assert.equal(result.cleanup, 'removed');
+  assert.equal(f.calls.length, 34);
+});
+
+test('structured deploy rejection persists only HTTP status and numeric provider code, never labels unsupported', async () => {
+  const f = fixture({ deployError: Object.assign(new Error('token-never-publish'), { httpStatus: 403, providerCode: 10042 }) });
+  const result = await createProbeController(f.effects).run(identity);
+  const evidence = f.events.find(event => event[0] === 'write' && event[1].endsWith('/deploy-evidence.json'));
+  assert.ok(evidence);
+  assert.deepEqual(JSON.parse(evidence[3]), { httpStatus: 403, providerCode: 10042 });
+  assert.equal(result.support, 'unknown');
+  assert.equal(result.reason, 'deploy_rejected');
+  assertClosed(result);
+});
+
+test('a failed deployment with a foreign marker never inherits deletion permission from preflight absence', async () => {
+  const f = fixture({ deployError: new Error('timeout'), mutateRemote(remote) {
+    remote.settings.bindings.find(binding => binding.name === 'PROBE_OWNER').text = 'different-owner';
+  } });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.cleanup, 'blocked');
+  assert.equal(deleted(f).length, 0);
+  assert.equal(f.calls.length, 0);
+});
+
+test('cleanup can use a separately authenticated prior-run identity and trusted source', async () => {
+  const f = fixture({ context: { runId: '40265000002' }, recovery: true });
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.equal(result.cleanup, 'absent');
+  assert.equal(deployed(f).length, 0);
+  assert.equal(f.calls.length, 0);
+  assert.ok(f.events.some(event => event[0] === 'provenance'));
+});
+
+test('an already cancelled run creates no private files and never deploys', async () => {
+  const aborter = new AbortController();
+  aborter.abort();
+  const f = fixture({ signal: aborter.signal });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.reason, 'bounds_reached');
+  assert.equal(deployed(f).length, 0);
+  assert.equal(f.events.filter(event => event[0] === 'mkdir').length, 0);
+});
