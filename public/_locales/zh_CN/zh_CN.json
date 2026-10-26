@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "提现详情",
   "depositIntentLabel": "存款意向",
   "redeemIntentLabel": "兑换意图",
+  "earnDepositRowTitle": "已存入 Earn",
   "earnWithdrawRowTitle": "从“Earn”中提现",
   "earnWithdrawRowVia": "经由 Epoch → Miden",
   "earnWithdrawStatusRedeeming": "赎回",

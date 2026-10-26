@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Деталі виведення коштів",
   "depositIntentLabel": "Намір внести депозит",
   "redeemIntentLabel": "Намір погашення",
+  "earnDepositRowTitle": "Внесено в Earn",
   "earnWithdrawRowTitle": "Виведення коштів з Earn",
   "earnWithdrawRowVia": "Через Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Викуп",

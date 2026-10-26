@@ -5972,6 +5972,10 @@
     "message": "Intention de rachat",
     "englishSource": "Redeem intent"
   },
+  "earnDepositRowTitle": {
+    "message": "Déposé sur Earn",
+    "englishSource": "Deposited to Earn"
+  },
   "earnWithdrawRowTitle": {
     "message": "Retrait depuis Earn",
     "englishSource": "Withdraw from Earn"

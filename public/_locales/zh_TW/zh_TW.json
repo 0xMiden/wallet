@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "提領詳情",
   "depositIntentLabel": "存款意向",
   "redeemIntentLabel": "兌換意圖",
+  "earnDepositRowTitle": "已存入 Earn",
   "earnWithdrawRowTitle": "從「Earn」提領",
   "earnWithdrawRowVia": "經由 Epoch → Miden",
   "earnWithdrawStatusRedeeming": "贖回",

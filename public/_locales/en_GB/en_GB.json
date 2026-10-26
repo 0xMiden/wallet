@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Withdrawal details",
   "depositIntentLabel": "Deposit intent",
   "redeemIntentLabel": "Redeem intent",
+  "earnDepositRowTitle": "Deposited to Earn",
   "earnWithdrawRowTitle": "Withdraw from Earn",
   "earnWithdrawRowVia": "Via Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Redeeming",

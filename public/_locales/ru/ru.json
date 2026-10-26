@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Детали вывода средств",
   "depositIntentLabel": "Намерение о внесении депозита",
   "redeemIntentLabel": "Намерение погашения",
+  "earnDepositRowTitle": "Внесено в Earn",
   "earnWithdrawRowTitle": "Вывод средств из Earn",
   "earnWithdrawRowVia": "Через Эпоху → Миден",
   "earnWithdrawStatusRedeeming": "Погашение",

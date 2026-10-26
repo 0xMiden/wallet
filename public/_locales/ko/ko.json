@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "인출 세부 정보",
   "depositIntentLabel": "예치 의향",
   "redeemIntentLabel": "사용 의도",
+  "earnDepositRowTitle": "Earn에 입금됨",
   "earnWithdrawRowTitle": "Earn에서 출금",
   "earnWithdrawRowVia": "Epoch 경유 → Miden",
   "earnWithdrawStatusRedeeming": "상환",

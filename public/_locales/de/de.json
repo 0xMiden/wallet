@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Details zur Auszahlung",
   "depositIntentLabel": "Absichtserklärung zur Einzahlung",
   "redeemIntentLabel": "Einlösungsabsicht",
+  "earnDepositRowTitle": "In Earn eingezahlt",
   "earnWithdrawRowTitle": "Auszahlung aus „Earn“",
   "earnWithdrawRowVia": "Über Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Einlösen",

@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Para çekme ayrıntıları",
   "depositIntentLabel": "Mevduat taahhüdü",
   "redeemIntentLabel": "Kullanım niyeti",
+  "earnDepositRowTitle": "Earn’e yatırıldı",
   "earnWithdrawRowTitle": "Earn'den Para Çekme",
   "earnWithdrawRowVia": "Epoch üzerinden → Miden",
   "earnWithdrawStatusRedeeming": "Kullanma",
