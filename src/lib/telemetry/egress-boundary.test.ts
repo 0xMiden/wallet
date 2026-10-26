@@ -675,17 +675,15 @@ function everySettledShape(): TelemetryEvent[] {
     verdicts.flatMap(result =>
       [...ERROR_KINDS, undefined].flatMap(errorKind =>
         [8.4, undefined].flatMap(durationMs =>
-          (['sending', undefined] as const).map(
-            (step): TelemetryEvent => ({
-              phase: 'settled',
-              operation,
-              runId: 'sweep-run',
-              result,
-              ...(errorKind !== undefined ? { errorKind } : {}),
-              ...(durationMs !== undefined ? { durationMs } : {}),
-              ...(step !== undefined ? { step } : {})
-            })
-          )
+          (['sending', undefined] as const).map((step): TelemetryEvent => ({
+            phase: 'settled',
+            operation,
+            runId: 'sweep-run',
+            result,
+            ...(errorKind !== undefined ? { errorKind } : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
+            ...(step !== undefined ? { step } : {})
+          }))
         )
       )
     )
@@ -695,17 +693,15 @@ function everySettledShape(): TelemetryEvent[] {
   // twenty-four for no extra coverage: nothing downstream branches on WHICH step
   // it is, only on whether there is one. One pass over the union is what the
   // closed-union value check needs.
-  const perStep = STEPS.map(
-    (step): TelemetryEvent => ({
-      phase: 'settled',
-      operation: 'tx_send',
-      runId: 'sweep-run',
-      result: 'errored',
-      errorKind: 'unknown',
-      durationMs: 3.3,
-      step
-    })
-  );
+  const perStep = STEPS.map((step): TelemetryEvent => ({
+    phase: 'settled',
+    operation: 'tx_send',
+    runId: 'sweep-run',
+    result: 'errored',
+    errorKind: 'unknown',
+    durationMs: 3.3,
+    step
+  }));
 
   return [...crossed, ...perStep];
 }
@@ -1152,27 +1148,23 @@ describe('product-event egress', () => {
 
     const events: TelemetryEvent[] = FLOWS.flatMap(flow => [
       { phase: 'started', flow, flowId: 'sweep', runId: 'sweep-run' },
-      ...RESULTS.map(
-        (result): TelemetryEvent => ({
-          phase: 'ended',
-          flow,
-          flowId: 'sweep',
-          runId: 'sweep-run',
-          result,
-          durationMs: 12.7
-        })
-      ),
-      ...ERROR_KINDS.map(
-        (errorKind): TelemetryEvent => ({
-          phase: 'ended',
-          flow,
-          flowId: 'sweep',
-          runId: 'sweep-run',
-          result: 'errored',
-          errorKind,
-          durationMs: 3.2
-        })
-      )
+      ...RESULTS.map((result): TelemetryEvent => ({
+        phase: 'ended',
+        flow,
+        flowId: 'sweep',
+        runId: 'sweep-run',
+        result,
+        durationMs: 12.7
+      })),
+      ...ERROR_KINDS.map((errorKind): TelemetryEvent => ({
+        phase: 'ended',
+        flow,
+        flowId: 'sweep',
+        runId: 'sweep-run',
+        result: 'errored',
+        errorKind,
+        durationMs: 3.2
+      }))
     ]);
 
     events.push(...everySettledShape());
@@ -2282,14 +2274,18 @@ describe('user-visible error reports', () => {
     consentOn();
     const reporter = reportUserVisibleError as (...args: unknown[]) => void;
     reporter('walletAccessUnavailableBody', 'startup', {
-      startupEligibilityStage: 'eligibility_retry', startupEligibilityReason: 'version_mismatch',
-      startupEligibilityRetry: 'retry_failed', raw: POISON.mnemonic12, account: POISON.compositePublicKey
+      startupEligibilityStage: 'eligibility_retry',
+      startupEligibilityReason: 'version_mismatch',
+      startupEligibilityRetry: 'retry_failed',
+      raw: POISON.mnemonic12,
+      account: POISON.compositePublicKey
     });
     await flushEgress();
     expect(captured).toHaveLength(1);
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
-      startupEligibilityStage: 'eligibility_retry', startupEligibilityReason: 'version_mismatch',
+      startupEligibilityStage: 'eligibility_retry',
+      startupEligibilityReason: 'version_mismatch',
       startupEligibilityRetry: 'retry_failed'
     });
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('raw');

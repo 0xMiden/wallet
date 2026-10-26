@@ -237,10 +237,18 @@ describe('lookupFeatureEligibility', () => {
 
   it('records request failure without forwarding a hostile transport error', async () => {
     const onFailure = jest.fn();
-    const fetchImpl = jest.fn().mockRejectedValue(new Error('seed alpha bravo https://private.example amount=123 account=0x123456'));
+    const fetchImpl = jest
+      .fn()
+      .mockRejectedValue(new Error('seed alpha bravo https://private.example amount=123 account=0x123456'));
     await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl, onFailure })).resolves.toBeNull();
     expect(onFailure.mock.calls).toEqual([['request_failed']]);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
-
+  it('ignores a diagnostic observer failure while preserving the failed decision', async () => {
+    delete process.env.FEATURE_ELIGIBILITY_URL;
+    const onFailure = () => {
+      throw new Error('observer failed');
+    };
+    await expect(lookupFeatureEligibility('testnet', 13, { onFailure })).resolves.toBeNull();
+  });
 });

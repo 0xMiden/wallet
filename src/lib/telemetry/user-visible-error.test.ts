@@ -172,10 +172,12 @@ describe('user-visible error reports', () => {
   });
 });
 
-
 test('startup warning retains closed attempt diagnostics without attaching them to unrelated reports', () => {
-  const diagnostics = { startupEligibilityStage: 'eligibility_lookup', startupEligibilityReason: 'version_mismatch',
-    startupEligibilityRetry: 'config_not_advanced' };
+  const diagnostics = {
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'config_not_advanced'
+  };
   const reportWithDiagnostics = reportUserVisibleError as (...args: unknown[]) => void;
   reportWithDiagnostics('walletAccessUnavailableBody', 'startup', diagnostics);
   const error = jest.mocked(captureCrash).mock.calls[0]?.[0];

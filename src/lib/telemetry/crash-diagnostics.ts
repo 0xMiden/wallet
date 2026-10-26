@@ -1,3 +1,10 @@
+import {
+  STARTUP_ELIGIBILITY_STAGES,
+  STARTUP_ELIGIBILITY_REASONS,
+  STARTUP_ELIGIBILITY_RETRIES,
+  type StartupEligibilityDiagnostics
+} from 'lib/remote-config/geo';
+
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 import {
@@ -137,40 +144,41 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
 ];
 export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
-export type CrashDiagnostics = WasmStartupEvidence & {
-  operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
-  requestType?: WalletMessageType | MidenMessageType;
-  confirmationId?: 'missing' | 'empty';
-  stage?: 'wasm_ready' | 'mock_import' | 'mock_create' | 'client_create';
-  workerMode?: 'enabled' | 'disabled';
-  confirmationHandler?: ConfirmationHandlerState;
-  confirmationRequestShape?: ConfirmationRequestShape;
-  confirmationRegistry?: ConfirmationRegistryState;
-  backgroundAge?: BackgroundAge;
-  pageNavigation?: PageNavigation;
-  consumeVerdict?: ConsumeVerdict;
-  portReconnected?: boolean;
-  reownNativeOrigin?: ReownNativeOrigin;
-  reownWalletResponseCode?: ReownWalletResponseCode;
-  reownRequestAge?: ReownRequestAge;
-  reownPublished?: ReownPublication;
-  reownBackgrounded?: ReownBackgroundAnswer;
-  storageOwner?: StorageOwner;
-  storageOperation?: StorageOperation;
-  userErrorId?: UserErrorId;
-  userErrorSurface?: UserErrorSurface;
-  proposalStep?: ProposalStep;
-  proposalGuard?: ProposalGuard;
-  securityChange?: SecurityChangeAction;
-  completionStep?: CompletionStep;
-  completionGuard?: CompletionGuard;
-  bridgeBalanceCheck?: BridgeBalanceCheck;
-  bridgeOrphanCheck?: BridgeOrphanCheck;
-  bridgeSourceRoute?: BridgeSourceRoute;
-  guardianSignerInSet?: GuardianSignerInSet;
-  guardianSigningKey?: GuardianSigningKey;
-  hotKeyRotationPending?: HotKeyRotationPending;
-};
+export type CrashDiagnostics = WasmStartupEvidence &
+  Partial<StartupEligibilityDiagnostics> & {
+    operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
+    requestType?: WalletMessageType | MidenMessageType;
+    confirmationId?: 'missing' | 'empty';
+    stage?: 'wasm_ready' | 'mock_import' | 'mock_create' | 'client_create';
+    workerMode?: 'enabled' | 'disabled';
+    confirmationHandler?: ConfirmationHandlerState;
+    confirmationRequestShape?: ConfirmationRequestShape;
+    confirmationRegistry?: ConfirmationRegistryState;
+    backgroundAge?: BackgroundAge;
+    pageNavigation?: PageNavigation;
+    consumeVerdict?: ConsumeVerdict;
+    portReconnected?: boolean;
+    reownNativeOrigin?: ReownNativeOrigin;
+    reownWalletResponseCode?: ReownWalletResponseCode;
+    reownRequestAge?: ReownRequestAge;
+    reownPublished?: ReownPublication;
+    reownBackgrounded?: ReownBackgroundAnswer;
+    storageOwner?: StorageOwner;
+    storageOperation?: StorageOperation;
+    userErrorId?: UserErrorId;
+    userErrorSurface?: UserErrorSurface;
+    proposalStep?: ProposalStep;
+    proposalGuard?: ProposalGuard;
+    securityChange?: SecurityChangeAction;
+    completionStep?: CompletionStep;
+    completionGuard?: CompletionGuard;
+    bridgeBalanceCheck?: BridgeBalanceCheck;
+    bridgeOrphanCheck?: BridgeOrphanCheck;
+    bridgeSourceRoute?: BridgeSourceRoute;
+    guardianSignerInSet?: GuardianSignerInSet;
+    guardianSigningKey?: GuardianSigningKey;
+    hotKeyRotationPending?: HotKeyRotationPending;
+  };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
   'reownNativeOrigin',
@@ -317,6 +325,30 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       delete previous.storageOperation;
       safe.storageOwner = storageOwner;
       safe.storageOperation = storageOperation;
+    }
+    const startupKeys = ['startupEligibilityStage', 'startupEligibilityReason', 'startupEligibilityRetry'] as const;
+    if (startupKeys.some(key => key in diagnostics) || userErrorId !== undefined || suppliedSurface !== undefined) {
+      startupKeys.forEach(key => {
+        delete previous[key];
+      });
+      const startupEligibilityStage = STARTUP_ELIGIBILITY_STAGES.find(
+        value => value === diagnostics.startupEligibilityStage
+      );
+      const startupEligibilityReason = STARTUP_ELIGIBILITY_REASONS.find(
+        value => value === diagnostics.startupEligibilityReason
+      );
+      const startupEligibilityRetry = STARTUP_ELIGIBILITY_RETRIES.find(
+        value => value === diagnostics.startupEligibilityRetry
+      );
+      if (
+        userErrorId === 'walletAccessUnavailableBody' &&
+        userErrorSurface === 'startup' &&
+        startupEligibilityStage &&
+        startupEligibilityReason &&
+        startupEligibilityRetry
+      ) {
+        Object.assign(safe, { startupEligibilityStage, startupEligibilityReason, startupEligibilityRetry });
+      }
     }
     // The innermost boundary names the step first; an outer one it propagates through only knows a broader one.
     const proposalStep = PROPOSAL_STEPS.find(step => step === suppliedStep);
