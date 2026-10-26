@@ -225,6 +225,9 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
     ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
     ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
     ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface }),
+    ...(diagnostics.eligibilityFailure === undefined
+      ? {}
+      : { eligibility_failure: diagnostics.eligibilityFailure, platform: diagnostics.platform }),
     ...(diagnostics.reownNativeOrigin === undefined ? {} : { reown_native_origin: diagnostics.reownNativeOrigin }),
     ...(diagnostics.reownWalletResponseCode === undefined
       ? {}

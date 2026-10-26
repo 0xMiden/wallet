@@ -5,16 +5,21 @@ import { act, render } from '@testing-library/react';
 import { PageActiveContext } from 'app/layouts/page-active';
 
 import { useUserVisibleError } from './use-user-visible-error';
-import { reportUserVisibleError, UserErrorId, UserErrorSurface } from './user-visible-error';
+import { reportUserVisibleError, UserErrorDiagnostics, UserErrorId, UserErrorSurface } from './user-visible-error';
 
 jest.mock('./user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 function Display({
   id,
   surface = 'inline',
+  diagnostics,
   children
-}: React.PropsWithChildren<{ id?: UserErrorId | null; surface?: UserErrorSurface }>) {
-  useUserVisibleError(id, surface);
+}: React.PropsWithChildren<{
+  id?: UserErrorId | null;
+  surface?: UserErrorSurface;
+  diagnostics?: UserErrorDiagnostics;
+}>) {
+  useUserVisibleError(id, surface, undefined, diagnostics);
   return <>{children}</>;
 }
 
@@ -32,6 +37,37 @@ it('reports once after the message has shown for 1000 ms', () => {
   advance(1);
   expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'inline');
+  advance(5000);
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+});
+
+it('passes the diagnostics on its dwell report', () => {
+  render(
+    <Display id="walletAccessUnavailableBody" surface="startup" diagnostics={{ eligibilityFailure: 'timeout' }} />
+  );
+  advance(1000);
+  expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+    ['walletAccessUnavailableBody', 'startup', { eligibilityFailure: 'timeout' }]
+  ]);
+});
+
+it('keeps one dwell when only the diagnostics change, and reports the latest ones', () => {
+  const { rerender } = render(
+    <Display id="walletAccessUnavailableBody" surface="startup" diagnostics={{ eligibilityFailure: 'timeout' }} />
+  );
+  advance(500);
+  rerender(
+    <Display id="walletAccessUnavailableBody" surface="startup" diagnostics={{ eligibilityFailure: 'http_5xx' }} />
+  );
+  advance(499);
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  advance(1);
+  expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+    ['walletAccessUnavailableBody', 'startup', { eligibilityFailure: 'http_5xx' }]
+  ]);
+  rerender(
+    <Display id="walletAccessUnavailableBody" surface="startup" diagnostics={{ eligibilityFailure: 'network' }} />
+  );
   advance(5000);
   expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
 });

@@ -1,4 +1,5 @@
 import { MidenMessageType } from 'lib/miden/types';
+import { ELIGIBILITY_FAILURES, type EligibilityFailure } from 'lib/remote-config/eligibility-failure';
 import { WalletMessageType } from 'lib/shared/types';
 import {
   validateReownNativeFailure,
@@ -159,6 +160,7 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   storageOperation?: StorageOperation;
   userErrorId?: UserErrorId;
   userErrorSurface?: UserErrorSurface;
+  eligibilityFailure?: EligibilityFailure;
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
   securityChange?: SecurityChangeAction;
@@ -270,6 +272,7 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       storageOperation: suppliedStorageOperation,
       userErrorId,
       userErrorSurface: suppliedSurface,
+      eligibilityFailure: suppliedEligibilityFailure,
       proposalStep: suppliedStep,
       proposalGuard: suppliedGuard,
       securityChange: suppliedChange,
@@ -304,6 +307,8 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
     if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
+    const eligibilityFailure = ELIGIBILITY_FAILURES.find(value => value === suppliedEligibilityFailure);
+    if (eligibilityFailure !== undefined) safe.eligibilityFailure = eligibilityFailure;
     const storageOwner = STORAGE_OWNERS.find(value => value === suppliedOwner);
     const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
     const previous = { ...diagnosticsByError.get(error) };

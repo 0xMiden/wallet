@@ -47,6 +47,33 @@ describe('user-visible error reports', () => {
     });
   });
 
+  it('carries a listed startup eligibility failure reason', () => {
+    reportUserVisibleError('walletAccessUnavailableBody', 'startup', { eligibilityFailure: 'timeout' });
+
+    const error = jest.mocked(captureCrash).mock.calls[0]?.[0];
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      userErrorId: 'walletAccessUnavailableBody',
+      userErrorSurface: 'startup',
+      eligibilityFailure: 'timeout'
+    });
+    expect(error).toHaveProperty('message', 'User-visible error: walletAccessUnavailableBody; surface startup');
+  });
+
+  it.each(['colo_FRA', 'HTTP 503', 503, null, { toString: (): string => 'timeout' }])(
+    'drops an unlisted startup eligibility failure reason: %p',
+    eligibilityFailure => {
+      const reporter: unknown = reportUserVisibleError;
+      if (typeof reporter !== 'function') throw new Error('Missing reporter');
+      reporter('walletAccessUnavailableBody', 'startup', { eligibilityFailure });
+
+      expect(captureCrash).toHaveBeenCalledTimes(1);
+      expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls[0]?.[0])).toEqual({
+        userErrorId: 'walletAccessUnavailableBody',
+        userErrorSurface: 'startup'
+      });
+    }
+  );
+
   it.each([
     ['Unable to read 0x12ab', 'review'],
     ['usdcxFaucetUnavailable', 'toast'],

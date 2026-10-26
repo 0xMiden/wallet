@@ -2,6 +2,7 @@ import { runInNewContext } from 'node:vm';
 
 import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 import { MidenMessageType } from 'lib/miden/types';
+import { ELIGIBILITY_FAILURES } from 'lib/remote-config/eligibility-failure';
 import { WalletMessageType } from 'lib/shared/types';
 
 import {
@@ -582,6 +583,19 @@ describe('source-bound crash diagnostics', () => {
     const invalid = new Error('failure');
     annotateCrash(invalid, { userErrorId: { toString: () => 'usdcxFaucetUnavailable' }, userErrorSurface: null });
     expect(snapshotCrashDiagnostics(invalid)).toEqual({});
+  });
+
+  it('accepts every listed startup eligibility failure reason and drops anything else', () => {
+    for (const eligibilityFailure of ELIGIBILITY_FAILURES) {
+      const error = new Error('failure');
+      annotateCrash(error, { eligibilityFailure });
+      expect(snapshotCrashDiagnostics(error)).toEqual({ eligibilityFailure });
+    }
+    for (const eligibilityFailure of ['colo_FRA', 'TIMEOUT', 503, { toString: () => 'timeout' }]) {
+      const error = new Error('failure');
+      annotateCrash(error, { eligibilityFailure });
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
   });
 
   it('keeps diagnostics on the exact failure rather than the latest operation', () => {

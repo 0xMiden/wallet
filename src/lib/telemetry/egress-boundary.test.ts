@@ -20,6 +20,7 @@ import { MidenMessageType } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { ELIGIBILITY_FAILURES } from 'lib/remote-config/eligibility-failure';
 import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
@@ -2348,6 +2349,56 @@ describe('user-visible error reports', () => {
     });
     expect(wireText()).not.toContain('"filename"');
     expect(wireText()).not.toContain('"cause"');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('tags a startup report with why the eligibility check failed and the platform, under the same fingerprint', async () => {
+    consentOn();
+    reportUserVisibleError('walletAccessUnavailableBody', 'startup', { eligibilityFailure: 'http_5xx' });
+    reportUserVisibleError('walletAccessUnavailableBody', 'inline');
+    await flushEgress();
+
+    expect(captured).toHaveLength(2);
+    const tagged = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(tagged.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'walletAccessUnavailableBody',
+      'user_error.surface': 'startup',
+      eligibility_failure: 'http_5xx',
+      platform: 'extension'
+    });
+    expect(tagged.fingerprint).toEqual(['WalletUserVisibleError', 'walletAccessUnavailableBody', 'startup']);
+    expect(objectAt(objectAt(tagged, 'extra'), 'walletDiagnostics')).toEqual({
+      ...resolveTelemetryContext(),
+      ...getCrashBuildIdentity(),
+      pageVisibility: 'visible',
+      userErrorId: 'walletAccessUnavailableBody',
+      userErrorSurface: 'startup',
+      eligibilityFailure: 'http_5xx'
+    });
+    const untagged = parsePayload(captured[1]?.body.split('\n')[2] ?? '');
+    expect(untagged.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'walletAccessUnavailableBody',
+      'user_error.surface': 'inline'
+    });
+    expect(untagged.fingerprint).toEqual(['WalletUserVisibleError', 'walletAccessUnavailableBody', 'inline']);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('preserves every startup eligibility failure reason through crash scrubbing', async () => {
+    consentOn();
+    for (const eligibilityFailure of ELIGIBILITY_FAILURES) {
+      _resetUserVisibleErrorLimitsForTest();
+      reportUserVisibleError('walletAccessUnavailableBody', 'startup', { eligibilityFailure });
+      await flushEgress();
+    }
+    expect(captured).toHaveLength(ELIGIBILITY_FAILURES.length);
+    for (const [index, eligibilityFailure] of ELIGIBILITY_FAILURES.entries()) {
+      const event = parsePayload(captured[index]?.body.split('\n')[2] ?? '');
+      expect(objectAt(event, 'tags').eligibility_failure).toBe(eligibilityFailure);
+      expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics').eligibilityFailure).toBe(eligibilityFailure);
+    }
     expect(leaksIn(wireText())).toEqual([]);
   });
 

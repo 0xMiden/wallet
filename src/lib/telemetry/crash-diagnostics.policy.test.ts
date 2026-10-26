@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { ELIGIBILITY_FAILURES } from 'lib/remote-config/eligibility-failure';
 import {
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
@@ -71,6 +72,7 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['page visibility', PAGE_VISIBILITY],
   ['which message it was', USER_ERROR_IDS],
   ['which kind of display showed it', USER_ERROR_SURFACES],
+  ['why the startup eligibility check failed', ELIGIBILITY_FAILURES],
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
