@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -8,7 +11,8 @@ import {
   createProbeController,
   createLocalProbeEffects,
   main,
-  validatePreflight
+  validatePreflight,
+  validateOwnershipCheck
 } from './feature-eligibility-staging-probe.mjs';
 
 const identity = {
@@ -181,7 +185,12 @@ const deployed = f => f.events.filter(event => event[0] === 'deploy');
 const deleted = f => f.events.filter(event => event[0] === 'api' && event[1] === 'DELETE');
 
 function assertClosed(result) {
-  const { preflight, ...verdict } = result;
+  const { preflight, ownershipCheck, ...verdict } = result;
+  if (ownershipCheck) {
+    assert.deepEqual(validateOwnershipCheck(ownershipCheck), ownershipCheck);
+    assert.equal(result.cleanup, 'blocked');
+    assert.equal(result.support, 'unknown');
+  }
   if (preflight) {
     validatePreflight(preflight);
     assert.deepEqual(preflight.identity, identity);
@@ -1198,4 +1207,70 @@ test('only cleanup captures ownership diagnostics; prior verification preflight 
   assert.equal(result.counts.requests, 0);
   assert.equal(result.cleanup, 'blocked');
   assert.equal(deleted(f).length, 0);
+});
+
+test('ownership validator never invokes supplied getters or accepts inherited, symbolic or extra data', () => {
+  let reads = 0;
+  const accessor = Object.defineProperty({ form: 'missing' }, 'gate', {
+    enumerable: true,
+    get() {
+      reads++;
+      throw new Error('private-canary');
+    }
+  });
+  for (const value of [
+    accessor,
+    Object.create({ gate: 'logpush', form: 'missing' }),
+    { gate: 'logpush', form: 'missing', [Symbol('private-canary')]: true },
+    new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('private-canary');
+        }
+      }
+    )
+  ])
+    assert.throws(() => validateOwnershipCheck(value));
+  assert.equal(reads, 0);
+});
+
+test('CLI exact-manifest cleanup retains the closed failure without exercising or deleting', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-cli-owned-'));
+  const account = 'a'.repeat(32);
+  const paths = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    paths.push(new URL(url).pathname);
+    assert.equal(init.method, 'GET');
+    if (new URL(url).pathname === `/client/v4/accounts/${account}`) return envelope({ id: account });
+    assert.equal(
+      new URL(url).pathname,
+      `/client/v4/accounts/${account}/workers/scripts/miden-elig-probe-40265000001-1/settings`
+    );
+    return envelope({ bindings: [] });
+  });
+  try {
+    await mkdir(join(root, 'feature-eligibility-probe'));
+    await writeFile(join(root, 'feature-eligibility-probe/manifest.json'), JSON.stringify(manifest()));
+    const received = await main(['cleanup'], {
+      RUNNER_TEMP: root,
+      GITHUB_REPOSITORY: identity.repository,
+      GITHUB_WORKFLOW_REF: `${identity.repository}/${identity.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: identity.runId,
+      GITHUB_RUN_ATTEMPT: identity.runAttempt,
+      GITHUB_SHA: identity.sourceSha,
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      CLOUDFLARE_ACCOUNT_ID: account,
+      CLOUDFLARE_API_TOKEN: 'private-canary'
+    });
+    assert.deepEqual(received.ownershipCheck, { gate: 'settings_binding_count', form: 'different_value' });
+    assert.equal(received.cleanup, 'blocked');
+    assert.equal(received.reason, 'ownership_mismatch');
+    assert.equal(received.counts.requests, 0);
+    assert.equal(paths.length, 2);
+    assert.doesNotMatch(JSON.stringify(received), /private-canary|aaaaaaaa/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

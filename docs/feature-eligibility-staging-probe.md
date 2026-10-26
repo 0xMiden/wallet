@@ -58,6 +58,14 @@ The credential step validates every deterministic manifest field against those p
 
 If the artifact is missing, expired or rejected, stop with cleanup blocked. Do not delete by prefix, account inventory, guessed name or a freshly generated replacement manifest. A privileged operator must recover the original exact manifest from trusted retained job state, bind its repository/workflow/run/attempt/source to independently fetched GitHub metadata, retrieve the exact prior Worker bytes and compare all deterministic hashes/namespace IDs. For this one manifest, confirm the exact script `miden-elig-probe-<run-id>-<attempt>` has the matching standalone content, `PROBE_SOURCE`, `PROBE_CONFIG_SHA`, `PROBE_OWNER`, exactly the two expected ratelimit bindings and the expected secret bindings, with previews/logging disabled. Reuse the controller's manifest-bound cleanup only after a separately reviewed provenance verifier supplies that exact prior identity and source. It must authenticate and prove exact-script absence after deletion with the documented not-found code. If any evidence is unavailable or differs, leave it blocked for operator investigation; no broad cleanup is authorized.
 
+## Closed ownership diagnostics during cleanup
+
+A failed manifest-bound cleanup may retain `ownershipCheck: { gate, form }` in the existing result artifact. `gate` names the first existing ownership predicate that refused the resource; it never comes from a provider-supplied binding name. `form` is only `missing`, `null`, `wrong_type`, `different_value`, `additional_fields` or `unavailable`. No observed value, metadata, URL, namespace, account, content or credential is retained. The original probe preflight remains independent from a later cleanup observation.
+
+This adds evidence, not authorization: every comparison, short-circuit, source/provenance check, content hash and deletion/absence guard stays unchanged. Missing logging fields and additional rate-limit fields still refuse cleanup. If an API/read fails before a predicate is evaluated, no failed ownership predicate is invented. If later evidence is unavailable, the earlier probe's failure does not become a successful cleanup.
+
+Use only the reviewed exact-original-manifest recovery described above. Its receipt describes that recovery's first failed check, not necessarily the original verification failure or any later unexamined gate. It never authorizes normalization, a guessed deletion, a new deployment, more exercise traffic or a support conclusion.
+
 ## Remaining #1894 acceptance
 
 Account-binding proof is the first phase only. Native-Origin witness and supported-shell verification, production topology, load/cache/budget/lease tests, production shedding changes and any production deployment remain separate deliverables. This workflow implies no customer load test, Paid/domain decision or financial-policy change.

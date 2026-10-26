@@ -510,3 +510,49 @@ test('failed exact recovery ownership check survives sanitizer and final retaine
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('blocked always-cleanup check survives consolidation without changing original verification preflight', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-first-gate-'));
+  const bound = contextIdentityForTest(current);
+  const preflight = {
+    identity: bound,
+    stage: 'verification',
+    manifest: 'registered',
+    deployment: 'attempted',
+    reason: 'ownership_mismatch'
+  };
+  const check = { gate: 'observability_traces', form: 'missing' };
+  try {
+    await mkdir(join(root, 'feature-eligibility-probe'));
+    await writeFile(
+      join(root, 'feature-eligibility-probe/manifest.json'),
+      JSON.stringify(buildProbeManifest(bound, workerBytes, []))
+    );
+    await writeFile(
+      join(root, 'probe-result.json'),
+      JSON.stringify({ ...result(), cleanup: 'blocked', reason: 'ownership_mismatch', preflight })
+    );
+    await writeFile(
+      join(root, 'probe-cleanup-result.json'),
+      JSON.stringify({ ...result(), cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: check })
+    );
+    const saved = await main(['evidence'], {
+      RUNNER_TEMP: root,
+      PROBE_OPERATION: 'probe',
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName
+    });
+    assert.deepEqual(saved.preflight, preflight);
+    assert.deepEqual(saved.ownershipCheck, check);
+    assert.equal(saved.reason, 'cleanup_failed');
+    assert.equal(saved.support, 'unknown');
+    assert.equal(saved.cleanup, 'blocked');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -6,7 +6,8 @@ import {
   buildProbeManifest,
   createLocalProbeEffects,
   createProbeController,
-  validatePreflight
+  validatePreflight,
+  validateOwnershipCheck
 } from './feature-eligibility-staging-probe.mjs';
 
 const WORKFLOW = '.github/workflows/probe-feature-eligibility.yml';
@@ -191,7 +192,8 @@ export function sanitizeEvidence(manifest, result, workerBytes) {
       'cleanup',
       'counts',
       'reason',
-      ...(Object.hasOwn(result || {}, 'preflight') ? ['preflight'] : [])
+      ...(Object.hasOwn(result || {}, 'preflight') ? ['preflight'] : []),
+      ...(Object.hasOwn(result || {}, 'ownershipCheck') ? ['ownershipCheck'] : [])
     ]) &&
       ['supported', 'unknown'].includes(result.support) &&
       ['refused', 'unknown'].includes(result.caller) &&
@@ -199,6 +201,14 @@ export function sanitizeEvidence(manifest, result, workerBytes) {
       ['absent', 'removed', 'blocked'].includes(result.cleanup) &&
       REASONS.includes(result.reason)
   );
+  if (Object.hasOwn(result, 'ownershipCheck')) {
+    validateOwnershipCheck(result.ownershipCheck);
+    requireValue(
+      result.support === 'unknown' &&
+        result.cleanup === 'blocked' &&
+        ['ownership_mismatch', 'cleanup_failed'].includes(result.reason)
+    );
+  }
   if (Object.hasOwn(result, 'preflight')) {
     validatePreflight(result.preflight);
     requireValue(result.support === 'unknown');
@@ -329,9 +339,12 @@ export async function main(args, env = process.env) {
       result = { ...blocked(), reason: 'invalid_response' };
     }
     if (env.PROBE_OPERATION === 'probe') {
+      let ownershipCheck;
+      delete result.ownershipCheck;
       try {
         const cleanup = await readJson(join(root, 'probe-cleanup-result.json'));
         sanitizeEvidence(null, cleanup, workerBytes);
+        ownershipCheck = cleanup.ownershipCheck;
         requireValue(cleanup.reason === 'complete' && cleanup.cleanup !== 'blocked');
         result = { ...result, cleanup: cleanup.cleanup };
       } catch {
@@ -345,7 +358,8 @@ export async function main(args, env = process.env) {
           ...result,
           support: 'unknown',
           cleanup: 'blocked',
-          reason: early ? result.preflight.reason : 'cleanup_failed'
+          reason: early ? result.preflight.reason : 'cleanup_failed',
+          ...(ownershipCheck ? { ownershipCheck } : {})
         };
       }
     }
