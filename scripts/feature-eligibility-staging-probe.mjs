@@ -37,6 +37,112 @@ const REASONS = [
   'inventory_incomplete',
   'bounds_reached'
 ];
+
+const OWNERSHIP_GATES = Object.freeze([
+  'settings_bindings',
+  'settings_binding_count',
+  'compatibility_date',
+  'compatibility_flags',
+  'logpush',
+  'observability',
+  'observability_logs',
+  'observability_invocations',
+  'observability_traces',
+  'tail_consumers',
+  'assets',
+  'migration_tag',
+  'cache_enabled',
+  'binding_record',
+  'binding_duplicate',
+  'binding_unexpected',
+  'source_type',
+  'source_value',
+  'config_type',
+  'config_value',
+  'owner_type',
+  'owner_value',
+  'bearer_type',
+  'hash_secret_type',
+  'caller_type',
+  'caller_namespace',
+  'caller_simple',
+  'colo_type',
+  'colo_namespace',
+  'colo_simple',
+  'binding_names',
+  'subdomain_enabled',
+  'subdomain_previews',
+  'content_status',
+  'multipart_count',
+  'multipart_name',
+  'content_entrypoint',
+  'content_type',
+  'content_hash'
+]);
+const OWNERSHIP_FORMS = Object.freeze([
+  'missing',
+  'null',
+  'wrong_type',
+  'different_value',
+  'additional_fields',
+  'unavailable'
+]);
+const UNAVAILABLE = Symbol('unavailable');
+
+function ownershipData(value, ...path) {
+  try {
+    for (const key of path) {
+      if (value === null || value === undefined) return value;
+      if (typeof value !== 'object') return UNAVAILABLE;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor) return undefined;
+      if (!Object.hasOwn(descriptor, 'value')) return UNAVAILABLE;
+      value = descriptor.value;
+    }
+    return value;
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+function ownershipForm(read, expected) {
+  try {
+    const value = read();
+    if (value === UNAVAILABLE) return 'unavailable';
+    if (value === undefined) return 'missing';
+    if (value === null) return 'null';
+    if (
+      expected !== undefined &&
+      (typeof value !== typeof expected || Array.isArray(value) !== Array.isArray(expected))
+    )
+      return 'wrong_type';
+    if (
+      expected &&
+      typeof expected === 'object' &&
+      !Array.isArray(expected) &&
+      Reflect.ownKeys(value).some(key => !Object.hasOwn(expected, key))
+    )
+      return 'additional_fields';
+    return 'different_value';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+export function validateOwnershipCheck(value) {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail('invalid_response');
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== 2 || !keys.includes('gate') || !keys.includes('form')) fail('invalid_response');
+    const gate = ownershipData(value, 'gate'),
+      form = ownershipData(value, 'form');
+    if (!OWNERSHIP_GATES.includes(gate) || !OWNERSHIP_FORMS.includes(form)) fail('invalid_response');
+    return { gate, form };
+  } catch {
+    fail('invalid_response');
+  }
+}
+
 const reasonOf = error => (REASONS.includes(error?.reason) ? error.reason : 'network');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const canonical = value =>
@@ -292,46 +398,77 @@ export function createProbeController(effects) {
     if (totalCount !== undefined && scripts.length !== totalCount) fail('inventory_incomplete');
     return scripts;
   };
-  const owned = async manifest => {
+  const owned = async (manifest, onMismatch) => {
+    const mismatch = (gate, read = () => UNAVAILABLE, expected) => {
+      try {
+        onMismatch?.({ gate, form: ownershipForm(read, expected) });
+      } catch {}
+      fail('ownership_mismatch');
+    };
     const prefix = `/workers/scripts/${manifest.scriptName}`;
     const response = await api(`${prefix}/settings`, 'GET', true);
     if (response === null) return false;
     const settings = response.result;
     const config = configFor(manifest);
     const bindings = settings?.bindings;
-    if (
-      !Array.isArray(bindings) ||
-      bindings.length !== 7 ||
-      settings.compatibility_date !== config.compatibility_date ||
-      (settings.compatibility_flags?.length || 0) !== 0 ||
-      settings.logpush !== false ||
-      settings.observability?.enabled !== false ||
-      settings.observability?.logs?.enabled !== false ||
-      settings.observability?.logs?.invocation_logs !== false ||
-      settings.observability?.traces?.enabled !== false ||
-      (settings.tail_consumers?.length || 0) !== 0 ||
-      settings.assets ||
-      settings.migration_tag ||
-      settings.cache_options?.enabled
-    )
-      fail('ownership_mismatch');
+    if (!Array.isArray(bindings)) mismatch('settings_bindings', () => ownershipData(settings, 'bindings'), []);
+    if (bindings.length !== 7) mismatch('settings_binding_count', () => ownershipData(bindings, 'length'), 7);
+    if (settings.compatibility_date !== config.compatibility_date)
+      mismatch('compatibility_date', () => ownershipData(settings, 'compatibility_date'), config.compatibility_date);
+    if ((settings.compatibility_flags?.length || 0) !== 0)
+      mismatch('compatibility_flags', () => ownershipData(settings, 'compatibility_flags'), []);
+    if (settings.logpush !== false) mismatch('logpush', () => ownershipData(settings, 'logpush'), false);
+    if (settings.observability?.enabled !== false)
+      mismatch('observability', () => ownershipData(settings, 'observability', 'enabled'), false);
+    if (settings.observability?.logs?.enabled !== false)
+      mismatch('observability_logs', () => ownershipData(settings, 'observability', 'logs', 'enabled'), false);
+    if (settings.observability?.logs?.invocation_logs !== false)
+      mismatch(
+        'observability_invocations',
+        () => ownershipData(settings, 'observability', 'logs', 'invocation_logs'),
+        false
+      );
+    if (settings.observability?.traces?.enabled !== false)
+      mismatch('observability_traces', () => ownershipData(settings, 'observability', 'traces', 'enabled'), false);
+    if ((settings.tail_consumers?.length || 0) !== 0)
+      mismatch('tail_consumers', () => ownershipData(settings, 'tail_consumers'), []);
+    if (settings.assets) mismatch('assets', () => ownershipData(settings, 'assets'));
+    if (settings.migration_tag) mismatch('migration_tag', () => ownershipData(settings, 'migration_tag'));
+    if (settings.cache_options?.enabled)
+      mismatch('cache_enabled', () => ownershipData(settings, 'cache_options', 'enabled'), false);
     const names = new Set();
     for (const binding of bindings) {
-      if (!binding || names.has(binding.name)) fail('ownership_mismatch');
+      if (!binding) mismatch('binding_record', () => binding, {});
+      if (names.has(binding.name)) mismatch('binding_duplicate', () => ownershipData(binding, 'name'));
       names.add(binding.name);
       if (['PROBE_BEARER', 'PROBE_HASH_SECRET'].includes(binding.name)) {
-        if (binding.type !== 'secret_text') fail('ownership_mismatch');
+        if (binding.type !== 'secret_text')
+          mismatch(
+            binding.name === 'PROBE_BEARER' ? 'bearer_type' : 'hash_secret_type',
+            () => ownershipData(binding, 'type'),
+            'secret_text'
+          );
       } else if (Object.hasOwn(config.vars, binding.name)) {
-        if (binding.type !== 'plain_text' || binding.text !== config.vars[binding.name]) fail('ownership_mismatch');
+        const gates = {
+          PROBE_SOURCE: ['source_type', 'source_value'],
+          PROBE_CONFIG_SHA: ['config_type', 'config_value'],
+          PROBE_OWNER: ['owner_type', 'owner_value']
+        }[binding.name];
+        if (binding.type !== 'plain_text') mismatch(gates[0], () => ownershipData(binding, 'type'), 'plain_text');
+        if (binding.text !== config.vars[binding.name])
+          mismatch(gates[1], () => ownershipData(binding, 'text'), config.vars[binding.name]);
       } else {
         const expected = config.ratelimits.find(candidate => candidate.name === binding.name);
-        if (
-          !expected ||
-          binding.type !== 'ratelimit' ||
-          binding.namespace_id !== expected.namespace_id ||
-          !same(binding.simple, expected.simple)
-        )
-          fail('ownership_mismatch');
+        if (!expected) mismatch('binding_unexpected', () => ownershipData(binding, 'name'));
+        const gates =
+          expected.name === 'CALLER_PROBE'
+            ? ['caller_type', 'caller_namespace', 'caller_simple']
+            : ['colo_type', 'colo_namespace', 'colo_simple'];
+        if (binding.type !== 'ratelimit') mismatch(gates[0], () => ownershipData(binding, 'type'), 'ratelimit');
+        if (binding.namespace_id !== expected.namespace_id)
+          mismatch(gates[1], () => ownershipData(binding, 'namespace_id'), expected.namespace_id);
+        if (!same(binding.simple, expected.simple))
+          mismatch(gates[2], () => ownershipData(binding, 'simple'), expected.simple);
       }
     }
     if (
@@ -345,11 +482,13 @@ export function createProbeController(effects) {
         'PROBE_SOURCE'
       ])
     )
-      fail('ownership_mismatch');
+      mismatch('binding_names');
     const subdomain = (await api(`${prefix}/subdomain`)).result;
-    if (subdomain?.enabled !== true || subdomain.previews_enabled !== false) fail('ownership_mismatch');
+    if (subdomain?.enabled !== true) mismatch('subdomain_enabled', () => ownershipData(subdomain, 'enabled'), true);
+    if (subdomain.previews_enabled !== false)
+      mismatch('subdomain_previews', () => ownershipData(subdomain, 'previews_enabled'), false);
     const content = await effects.providerAPI(`${prefix}/content/v2`, { method: 'GET' });
-    if (!content.ok) fail('ownership_mismatch');
+    if (!content.ok) mismatch('content_status');
     const bytes = await boundedBytes(content, 256 * 1024);
     let moduleBytes;
     if (content.headers.get('content-type')?.startsWith('multipart/form-data;')) {
@@ -357,23 +496,18 @@ export function createProbeController(effects) {
         headers: { 'content-type': content.headers.get('content-type') }
       }).formData();
       const parts = [...form.entries()];
-      if (
-        parts.length !== 1 ||
-        parts[0][0] !== 'staging-probe.mjs' ||
-        content.headers.get('cf-entrypoint') !== 'staging-probe.mjs'
-      )
-        fail('ownership_mismatch');
+      if (parts.length !== 1) mismatch('multipart_count', () => parts.length, 1);
+      if (parts[0][0] !== 'staging-probe.mjs') mismatch('multipart_name');
+      if (content.headers.get('cf-entrypoint') !== 'staging-probe.mjs') mismatch('content_entrypoint');
       moduleBytes =
         typeof parts[0][1] === 'string' ? Buffer.from(parts[0][1]) : Buffer.from(await parts[0][1].arrayBuffer());
     } else {
-      if (
-        !/^application\/(javascript|javascript\+module)(;|$)/.test(content.headers.get('content-type') || '') ||
-        content.headers.get('cf-entrypoint') !== 'staging-probe.mjs'
-      )
-        fail('ownership_mismatch');
+      if (!/^application\/(javascript|javascript\+module)(;|$)/.test(content.headers.get('content-type') || ''))
+        mismatch('content_type');
+      if (content.headers.get('cf-entrypoint') !== 'staging-probe.mjs') mismatch('content_entrypoint');
       moduleBytes = bytes;
     }
-    if (hash(moduleBytes) !== manifest.workerSha256) fail('ownership_mismatch');
+    if (hash(moduleBytes) !== manifest.workerSha256) mismatch('content_hash');
     return true;
   };
   const validManifest = async manifest => {
@@ -388,17 +522,24 @@ export function createProbeController(effects) {
       fail('ownership_mismatch');
   };
   const cleanup = async manifest => {
+    let ownershipCheck;
     try {
       await validManifest(manifest);
       await authenticate();
-      if (!(await owned(manifest))) return { cleanup: 'absent', reason: 'complete' };
+      if (
+        !(await owned(manifest, check => {
+          ownershipCheck = check;
+        }))
+      )
+        return { cleanup: 'absent', reason: 'complete' };
       await api(`/workers/scripts/${manifest.scriptName}`, 'DELETE');
       if ((await api(`/workers/scripts/${manifest.scriptName}/settings`, 'GET', true)) !== null) fail('cleanup_failed');
       return { cleanup: 'removed', reason: 'complete' };
     } catch (error) {
       return {
         cleanup: 'blocked',
-        reason: error?.reason === 'ownership_mismatch' ? 'ownership_mismatch' : 'cleanup_failed'
+        reason: error?.reason === 'ownership_mismatch' ? 'ownership_mismatch' : 'cleanup_failed',
+        ...(ownershipCheck ? { ownershipCheck } : {})
       };
     }
   };
@@ -583,6 +724,7 @@ export function createProbeController(effects) {
         if (attempted) {
           const outcome = await cleanup(manifest);
           result.cleanup = outcome.cleanup;
+          if (outcome.ownershipCheck) result.ownershipCheck = outcome.ownershipCheck;
           manifest.deploymentState = outcome.cleanup === 'blocked' ? 'cleanup_blocked' : 'cleaned';
           if (outcome.cleanup === 'blocked') {
             result.support = 'unknown';
@@ -773,7 +915,11 @@ export async function main(args, env = process.env) {
           await readFile(join(env.RUNNER_TEMP, 'feature-eligibility-probe/manifest.json'), 'utf8')
         );
         const outcome = await controller.cleanup(manifest);
-        result = { ...emptyResult(outcome.reason), cleanup: outcome.cleanup };
+        result = {
+          ...emptyResult(outcome.reason),
+          cleanup: outcome.cleanup,
+          ...(outcome.ownershipCheck ? { ownershipCheck: outcome.ownershipCheck } : {})
+        };
       } catch {
         result = { ...emptyResult('cleanup_failed'), cleanup: 'blocked' };
       }
