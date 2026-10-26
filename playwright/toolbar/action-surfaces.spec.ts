@@ -200,12 +200,18 @@ for (const theme of ['light', 'dark'] as const) {
       activate();
       await expect.poll(panelCount).toBe(0);
       const id = new URL(worker.url()).host;
-      const stopped = new Promise<void>(resolve => worker.once('close', () => resolve()));
-      const restarted = context.waitForEvent('serviceworker', { timeout: 30000 });
       const protocol = await context.newCDPSession(ordinary);
+      let runningStatus = '';
+      protocol.on('ServiceWorker.workerVersionUpdated', event => {
+        for (const version of event.versions) {
+          if (version.scriptURL === worker.url()) runningStatus = version.runningStatus;
+        }
+      });
       await protocol.send('ServiceWorker.enable');
+      await expect.poll(() => runningStatus).toBe('running');
       await protocol.send('ServiceWorker.stopAllWorkers');
-      await stopped;
+      await expect.poll(() => runningStatus).toBe('stopped');
+      const restarted = context.waitForEvent('serviceworker', { timeout: 30000 });
       const control = await context.newPage();
       await control.goto(`chrome-extension://${id}/fullpage.html`);
       worker = await restarted;
