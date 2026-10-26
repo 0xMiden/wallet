@@ -83,3 +83,10 @@ it('leaves the hash absent when the RPC fails', async () => {
   await act(async () => {});
   expect(result.current).toBeUndefined();
 });
+
+it('does not search a row whose payout mint is recorded', () => {
+  const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '1000000' } as const;
+  const { result } = renderHook(() => useUsdcxDestinationTransaction(row({ payout })));
+  expect(result.current).toBeUndefined();
+  expect(find).not.toHaveBeenCalled();
+});

@@ -12,17 +12,43 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const [geo, setGeo] = useState<GeoLookup>({ state: 'loading' });
-  useUserVisibleError(geo.state === 'failed' ? 'walletAccessUnavailableBody' : null, 'startup');
+  useUserVisibleError(
+    geo.state === 'failed' ? 'walletAccessUnavailableBody' : null,
+    'startup',
+    geo,
+    geo.state === 'failed' ? geo.diagnostics : undefined
+  );
 
   useEffect(() => {
     let mounted = true;
     void loadEndpointOverrides()
-      .then(() => initFeatureEligibility())
+      .then(async (): Promise<GeoLookup> => {
+        try {
+          return await initFeatureEligibility();
+        } catch {
+          return {
+            state: 'failed',
+            diagnostics: {
+              startupEligibilityStage: 'config_initialization',
+              startupEligibilityReason: 'config_initialization_failed',
+              startupEligibilityRetry: 'not_attempted'
+            }
+          };
+        }
+      })
       .then(result => {
         if (mounted) setGeo(result);
       })
       .catch(() => {
-        if (mounted) setGeo({ state: 'failed' });
+        if (mounted)
+          setGeo({
+            state: 'failed',
+            diagnostics: {
+              startupEligibilityStage: 'endpoint_overrides',
+              startupEligibilityReason: 'override_load_failed',
+              startupEligibilityRetry: 'not_attempted'
+            }
+          });
       });
     return () => {
       mounted = false;

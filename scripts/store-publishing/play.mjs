@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { safeStoreFailure } from './auth.mjs';
+
 const api = '/androidpublisher/v3/applications';
 
 function identity(options) {
@@ -56,12 +58,26 @@ function exactRelease(releases, code, requiredStatus) {
   return matches[0];
 }
 
+async function stageRequest(client, stage, ...args) {
+  try {
+    return await client.request(...args);
+  } catch (error) {
+    if (error instanceof Error) error.stage = stage;
+    throw error;
+  }
+}
+
 // The lifecycle endpoint needs no edit and cannot invalidate an in-flight upload.
 // It returns at most 20 non-obsolete releases, not complete release history.
 // https://developers.google.com/android-publisher/api-ref/rest/v3/applications.tracks.releases/list
 export async function status(client, options) {
   const { packageName, track, appPath } = identity(options);
-  const response = await client.request('GET', `${appPath}/tracks/${encodeURIComponent(track)}/releases`);
+  const response = await stageRequest(
+    client,
+    'play-status-releases',
+    'GET',
+    `${appPath}/tracks/${encodeURIComponent(track)}/releases`
+  );
   if (!response || (response.releases !== undefined && !Array.isArray(response.releases))) {
     throw new Error('Play returned an invalid release lifecycle response');
   }
@@ -69,7 +85,29 @@ export async function status(client, options) {
   if (releases.some(item => !item || (item.track !== undefined && item.track !== track))) {
     throw new Error('Play returned a release for an unexpected track');
   }
-  return { platform: 'android', packageName, track, releases };
+  const result = { platform: 'android', packageName, track, releases };
+  if (options.inspectEdit === true) {
+    const editPath = editIdentity(options, appPath);
+    try {
+      const edit = await stageRequest(client, 'play-inspect-edit', 'GET', editPath);
+      if (edit?.id !== options.editId || !/^[0-9]+$/.test(String(edit.expiryTimeSeconds ?? '')))
+        throw new Error('Play returned an unexpected edit identity or expiry');
+      const current = await stageRequest(
+        client,
+        'play-inspect-track',
+        'GET',
+        `${editPath}/tracks/${encodeURIComponent(track)}`
+      );
+      result.editInspection = {
+        id: edit.id,
+        expiryTimeSeconds: String(edit.expiryTimeSeconds),
+        releases: releasesForTrack(current, track)
+      };
+    } catch (error) {
+      result.editInspection = safeStoreFailure(error);
+    }
+  }
+  return result;
 }
 
 export async function upload(client, options) {
@@ -132,19 +170,35 @@ export async function submit(client, options) {
   // Play exposes no reliable API inventory of all pending console changes.
   // The caller must inspect Publishing overview before authorizing this commit.
   const path = `${editPath}/tracks/${encodeURIComponent(track)}`;
-  const current = await client.request('GET', path);
+  const current = await stageRequest(client, 'play-submit-track-read', 'GET', path);
   const releases = releasesForTrack(current, track);
   const target = exactRelease(releases, code, 'draft');
   if (target.userFraction !== undefined) throw new Error('A single draft without staged rollout targeting is required');
+  const siblings = releases.filter(item => item !== target);
+  if (
+    siblings.length > 1 ||
+    siblings.some(
+      item =>
+        item.status !== 'completed' ||
+        item.versionCodes.length !== 1 ||
+        BigInt(item.versionCodes[0]) >= BigInt(code) ||
+        item.userFraction !== undefined ||
+        item.countryTargeting !== undefined
+    )
+  )
+    throw new Error('Unexpected sibling release; inspect the prior track before full rollout');
   const completed = { ...target, status: 'completed' };
-  const updated = await client.request('PUT', path, {
-    body: { ...current, releases: releases.map(item => (item === target ? completed : item)) }
+  const updated = await stageRequest(client, 'play-submit-track-update', 'PUT', path, {
+    // Track updates describe the desired rollout, not the historical GET inventory.
+    body: { ...current, releases: [completed] }
   });
   exactRelease(releasesForTrack(updated, track), code, 'completed');
-  await client.request('POST', `${editPath}:validate`);
+  await stageRequest(client, 'play-submit-validate', 'POST', `${editPath}:validate`);
   // The API default cancels an existing review; never accept that default.
   // https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit
-  await client.request(
+  await stageRequest(
+    client,
+    'play-submit-commit',
     'POST',
     `${editPath}:commit?changesNotSentForReview=false&changesInReviewBehavior=ERROR_IF_IN_REVIEW`
   );

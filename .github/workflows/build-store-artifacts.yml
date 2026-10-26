@@ -1,8 +1,13 @@
 name: Build Signed Store Artifacts
+run-name: ${{ inputs.request_token && format('Store request {0}', inputs.request_token) || 'Build Signed Store Artifacts' }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_token:
+        description: Optional coordinator dispatch correlation token
+        required: false
+        type: string
       release_tag:
         description: 'Published stable release tag (vX.Y.Z)'
         required: true
@@ -15,7 +20,7 @@ on:
         description: 'Explicit store artifact selection'
         required: true
         type: choice
-        default: chrome
+        default: all
         options:
           - chrome
           - ios
@@ -52,8 +57,52 @@ env:
   NODE_ENV: production
 
 jobs:
+  all-targets:
+    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform == 'all' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate all-target build plan
+        run: |
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/store-all-targets"
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { validateBuildRequest } from './scripts/store-publishing/create-receipt.mjs';
+          if (process.env.GITHUB_RUN_ATTEMPT !== '1') throw new Error('All-target reruns require inspection and explicit recovery with the preserved coordinator journal');
+          const plan = validateBuildRequest({ releaseTag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA,
+            platform: process.env.PLATFORM, network: process.env.NETWORK, buildNumber: process.env.BUILD_NUMBER });
+          writeFileSync(process.env.RUNNER_TEMP + '/store-all-targets/store-build-plan.json', JSON.stringify({ schemaVersion: 1,
+            releaseTag: plan.releaseTag, sourceSha: plan.sourceSha, buildNumber: plan.buildNumber, targets: {} }));
+          NODE
+      - name: Build separate trusted producers in store priority order
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/store-publishing/release-plan.mjs --stage build --plan "$RUNNER_TEMP/store-all-targets/store-build-plan.json" --journal "$RUNNER_TEMP/store-all-targets/store-build-journal.json"
+      - name: Preserve independent producer run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WalletStoreBuildPlan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/store-all-targets/store-build-plan.json
+            ${{ runner.temp }}/store-all-targets/store-build-journal.json
+          if-no-files-found: warn
+          retention-days: 90
+
   prepare:
-    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform != 'all' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -338,6 +387,7 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
           APP_STORE_CONNECT_KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -360,7 +410,11 @@ jobs:
           subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', os.environ['KEYCHAIN_PATH'], *original], check=True)
           PY
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" > "$RUNNER_TEMP/wallet-store-signing/identities.txt"
+          security find-certificate -a -Z "$KEYCHAIN_PATH" > "$RUNNER_TEMP/wallet-store-signing/certificate-fingerprints.txt"
           grep 'Apple Distribution:' "$RUNNER_TEMP/wallet-store-signing/identities.txt" | grep -q '(LHU7B7J5WL)'
+          python3 automation/scripts/store-publishing/apple-profile.py install \
+            --directory "$RUNNER_TEMP/wallet-store-signing" \
+            --profiles-directory "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
       - name: Archive and export a signed device IPA without store upload
         working-directory: source
         env:
@@ -368,13 +422,13 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           KEY_PATH="$RUNNER_TEMP/wallet-store-signing/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          # Archive signing is automatic per target; App Store distribution signing happens during export.
           xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -jobs 2 -archivePath "$RUNNER_TEMP/Wallet.xcarchive" \
             -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
             -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
-            CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=LHU7B7J5WL \
+            CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=LHU7B7J5WL \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/wallet-store-signing.keychain-db" \
             2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
           if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-archive.log"; then
             echo 'iOS archive log contains errors' >&2; exit 1
@@ -383,8 +437,10 @@ jobs:
           python3 <<'PY'
           import os, plistlib
           from pathlib import Path
+          # The installed Store profile is Xcode-managed and must use automatic export signing.
           options = {'method': 'app-store-connect', 'destination': 'export', 'teamID': 'LHU7B7J5WL',
-                     'signingStyle': 'automatic', 'manageAppVersionAndBuildNumber': False}
+                     'signingStyle': 'automatic',
+                     'manageAppVersionAndBuildNumber': False}
           with Path(os.environ['RUNNER_TEMP'], 'wallet-store-export.plist').open('wb') as target:
               plistlib.dump(options, target)
           PY
@@ -400,6 +456,9 @@ jobs:
         if: ${{ always() }}
         run: |
           cleanup_status=0
+          python3 automation/scripts/store-publishing/apple-profile.py remove \
+            --directory "$RUNNER_TEMP/wallet-store-signing" \
+            --profiles-directory "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" || cleanup_status=$?
           if [[ -f "$RUNNER_TEMP/wallet-store-signing/original-keychains.txt" ]]; then
             python3 <<'PY' || cleanup_status=$?
           import os, shlex, subprocess

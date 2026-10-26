@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createApiClient, createAppleToken, googleAccessToken, loadPrivateJson } from './auth.mjs';
+import { createApiClient, createAppleToken, googleAccessToken, loadPrivateJson, safeStoreFailure } from './auth.mjs';
 
 const appleKeys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 const googleKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -368,4 +368,107 @@ test('response redirect metadata and malformed URLs cannot leak provider details
     });
     assert.equal(queue.calls.length, 1);
   }
+});
+
+test('Play failures retain only closed status and reason metadata, never provider messages', async () => {
+  const client = createApiClient({
+    origin: 'https://androidpublisher.googleapis.com',
+    token: 'secret-token',
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            status: 'PERMISSION_DENIED',
+            message: 'secret-token private content',
+            errors: [{ reason: 'forbidden' }, { reason: 'secret-token' }]
+          }
+        }),
+        { status: 403 }
+      )
+  });
+  await assert.rejects(client.request('GET', '/androidpublisher/v3/applications/app'), error => {
+    assert.equal(error.status, 403);
+    assert.equal(error.apiStatus, 'PERMISSION_DENIED');
+    assert.deepEqual(error.apiReasons, ['forbidden']);
+    assert.doesNotMatch(JSON.stringify(error), /secret-token|private content/);
+    return true;
+  });
+});
+
+test('Play in-review ErrorInfo retains the exact known reason without arbitrary details', async () => {
+  const client = createApiClient({
+    origin: 'https://androidpublisher.googleapis.com',
+    token: 'secret-token',
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            status: 'FAILED_PRECONDITION',
+            message: 'secret-message',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                reason: 'CHANGES_ALREADY_IN_REVIEW',
+                metadata: { token: 'secret-token' }
+              },
+              { reason: 'secret-token' }
+            ]
+          }
+        }),
+        { status: 400 }
+      )
+  });
+  await assert.rejects(client.request('POST', '/androidpublisher/v3/applications/app/edits/one:commit'), error => {
+    assert.deepEqual(error.apiReasons, ['CHANGES_ALREADY_IN_REVIEW']);
+    assert.doesNotMatch(JSON.stringify(error), /secret-token|secret-message/);
+    return true;
+  });
+});
+
+test('only the exact known one-completed-release message receives a closed classifier', async () => {
+  for (const [message, expected] of [
+    ['Only one completed release is allowed.', ['ONLY_ONE_COMPLETED_RELEASE']],
+    ['Only one completed release is allowed. secret-token', []]
+  ]) {
+    const client = createApiClient({
+      origin: 'https://androidpublisher.googleapis.com',
+      token: 'secret-token',
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message } }), { status: 400 })
+    });
+    await assert.rejects(
+      client.request('PUT', '/androidpublisher/v3/applications/app/edits/one/tracks/production'),
+      error => {
+        assert.deepEqual(error.apiReasons, expected);
+        assert.doesNotMatch(JSON.stringify(error), /secret-token|Only one completed/);
+        return true;
+      }
+    );
+  }
+});
+
+test('Apple errors expose only known codes and a closed operation stage', async () => {
+  const queue = fetchQueue(
+    new Response(
+      JSON.stringify({
+        errors: [
+          { code: 'ENTITY_ERROR.ATTRIBUTE.REQUIRED', title: 'private', detail: 'private-secret' },
+          { code: 'PRIVATE-UNRECOGNIZED-CODE', detail: 'private-secret' }
+        ]
+      }),
+      { status: 409 }
+    )
+  );
+  const client = createApiClient({
+    origin: 'https://api.appstoreconnect.apple.com',
+    token: 'test-token',
+    fetchImpl: queue.fetchImpl
+  });
+  await assert.rejects(client.request('POST', '/v1/reviewSubmissionItems', { body: {} }), error => {
+    error.stage = 'apple-review-item-create';
+    assert.deepEqual(safeStoreFailure(error).appleCodes, ['ENTITY_ERROR.ATTRIBUTE.REQUIRED']);
+    assert.equal(safeStoreFailure(error).stage, 'apple-review-item-create');
+    assert.doesNotMatch(JSON.stringify(safeStoreFailure(error)), /private/i);
+    return true;
+  });
 });

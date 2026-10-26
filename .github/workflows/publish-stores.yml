@@ -1,8 +1,13 @@
 name: Publish Store Release
+run-name: ${{ inputs.request_token && format('Store request {0}', inputs.request_token) || 'Publish Store Release' }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_token:
+        description: Optional coordinator dispatch correlation token
+        required: false
+        type: string
       release_tag:
         description: Published stable release tag (vX.Y.Z)
         required: true
@@ -27,11 +32,11 @@ on:
         type: choice
         options: [testnet, mainnet, devnet]
       producer_run_id:
-        description: Successful build-store-artifacts.yml run (upload/submit/release)
+        description: Successful producer run (also required for Android edit inspection)
         required: false
         type: string
       state_run_id:
-        description: Previous state run (submit/release/Android upload/sync/Chrome resume)
+        description: Previous state run (submit/release/Android upload/sync/edit inspection/Chrome resume)
         required: false
         type: string
       build_number:
@@ -39,8 +44,13 @@ on:
         required: false
         type: string
       edit_id:
-        description: Exact caller-owned Play edit (Android upload/submit)
+        description: Exact caller-owned Play edit (Android upload/submit or read-only status)
         required: false
+        type: string
+      release_notes:
+        description: Optional iOS submit notes, used only when existing en-US What's New is empty
+        required: false
+        default: ''
         type: string
       acknowledgement:
         description: Play edit creation or account pending changes acknowledgement
@@ -77,6 +87,7 @@ jobs:
       BUILD_NUMBER: ${{ inputs.build_number }}
       EDIT_ID: ${{ inputs.edit_id }}
       ACKNOWLEDGEMENT: ${{ inputs.acknowledgement }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
       AUTOMATION_SHA: ${{ github.workflow_sha }}
       SOURCE_DIR: source
       CHROME_WEB_STORE_PUBLISHER_ID: ${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}

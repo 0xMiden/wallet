@@ -1,6 +1,6 @@
 # Bread store publishing
 
-Build, upload, submit for review, and release an exact stable version from an approved source commit. These are separate actions. A successful upload or submission does not mean the version is public.
+Build, upload and submit an exact stable version from an approved source commit. Standard submission requests automatic publication after store approval. The standard workflow finishes once review submission is accepted; no later release job or session is required. A successful upload or submission does not mean the version is public yet.
 
 ## Targets
 
@@ -12,6 +12,57 @@ Build, upload, submit for review, and release an exact stable version from an ap
 | Android  | testnet or mainnet | Package `com.miden.wallet`                      |
 
 The current artifact builder supports native testnet builds and Chrome testnet/devnet builds. It refuses mainnet artifacts until the exact source's eligibility support is verified. The mobile CLI targets below can accept a future mainnet artifact only after that build guard is satisfied. Chrome mainnet has no approved mapping. Mobile devnet publishing is refused. The CLI enforces these targets and accepts no app identity override.
+
+## Standard four-target route
+
+Standard store builds and each explicit publication stage use this fixed order:
+
+1. Chrome Testnet: Bread (`coajhopfooegmaifelglfboehacldcbo`).
+2. iOS Testnet: `com.miden.bread`.
+3. Android Testnet: `com.miden.wallet`.
+4. Chrome Devnet: Bread Devnet (`eeghndabgeicdpkbcohgglidpfpiafnb`).
+
+`build-store-artifacts.yml` with `platform=all`, `network=testnet` and an explicit native build suffix dispatches four separate single-target producer runs. Devnet starts last. The parent run's journal identifies the successful producer for each target; the parent itself is not artifact producer evidence. A later Devnet failure leaves earlier successful producers usable. Existing individual platform/network dispatches remain available. A GitHub rerun of the all-target parent stops before dispatch: inspect the original children and resume with the preserved private coordinator journal instead of starting fresh child requests.
+
+`yarn build-all` also appends explicit Chrome Testnet and Devnet builds, preserves the existing platform outputs and leaves `dist/chrome-testnet.zip` and `dist/chrome-devnet.zip`. The default `chrome.zip` and unpacked Chrome output remain Testnet. These local build outputs do not replace signed store producer receipts.
+
+For staged publication, keep a private release plan and a separate durable journal. Set the directory to mode `700` and both files to `600`. For example:
+
+```json
+{
+  "schemaVersion": 1,
+  "releaseTag": "vX.Y.Z",
+  "sourceSha": "<exact 40-hex published release source>",
+  "buildNumber": "<native suffix 1-999>",
+  "targets": {
+    "chrome-testnet": { "producerRunId": "<successful producer>", "stateRunId": "<latest state>" },
+    "ios-testnet": { "producerRunId": "<successful producer>", "stateRunId": "<latest state>" },
+    "android-testnet": {
+      "producerRunId": "<successful producer>",
+      "stateRunId": "<caller-owned edit state>",
+      "editId": "<caller-owned edit>",
+      "acknowledgement": "submit-pending-play-changes"
+    },
+    "chrome-devnet": { "producerRunId": "<successful producer>", "stateRunId": "<latest state>" }
+  }
+}
+```
+
+For iOS submission, omitted or empty notes default to the exact text `Various Fixes & Improvements`. An optional `releaseNotes` string in `targets.ios-testnet` overrides that default for a missing What's New field; existing nonempty store text is preserved. Notes are accepted only for iOS submit, never forwarded to Chrome, Android, builds or other actions. No generated release summary or manual text input is required.
+
+Supply only evidence required by the selected stage. For `build`, use `targets: {}`. Upload needs producers and Android's prior edit state; submit needs the exact prior state for every target. Use `acknowledgement=none` for Android upload and retain `submit-pending-play-changes` only when submitting the inspected full pending set.
+
+```sh
+yarn store:build --plan "$PRIVATE_PLAN" --journal "$BUILD_JOURNAL"
+yarn store:publish --stage upload --plan "$PRIVATE_PLAN" --journal "$UPLOAD_JOURNAL"
+yarn store:publish --stage submit --plan "$PRIVATE_PLAN" --journal "$SUBMIT_JOURNAL"
+```
+
+Each command runs only its named stage, waits through `gh run watch --interval 30`, and preserves independent child run IDs. The existing trusted single-target workflows still validate exact source, receipts, identities, prior state and acknowledgements. Update the plan with those exact producer/state IDs before the next stage. Status can be requested with `--stage status`; it does not establish upload or public release proof.
+
+A journal is bound to the exact stage, source and target intent. Resume the same command with the same journal after inspection; successful children are verified and skipped. An uncertain dispatch, failed operation, changed intent or conflicting correlation stops before another send. Never delete a journal to retry a mutation. Preserve its request token and inspect the exact child run/store state. The optional workflow request token correlates dispatches; it does not replace receipt verification.
+
+`prepare` and `begin-edit` remain explicit individual-target operations, never all-store prerequisites created silently. Android still requires exclusive edit ownership and explicit acknowledgement of the inspected pending change set. The standard flow ends at accepted review submission, and all stores publish automatically after approval. The existing `release` action is for explicit recovery of older deferred/manual releases only. Store processing, review and verified public distribution remain distinct facts; submission does not claim all four items are public.
 
 ## Build and preserve evidence
 
@@ -112,6 +163,7 @@ node scripts/store-publishing/cli.mjs chrome upload \
 node scripts/store-publishing/cli.mjs chrome submit \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
   --artifact "$ZIP" --receipt "$RECEIPT" --confirm "$VERSION"
+# Legacy deferred-release recovery only:
 node scripts/store-publishing/cli.mjs chrome release \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" --confirm "$VERSION"
 ```
@@ -124,7 +176,7 @@ Keep exclusive ownership of the item from the first upload until submission is v
 
 Async status is available only for 24 hours. A missing, failed, expired, future-dated or conflicting status stops without another upload. The journal is written before the media POST; if its response is lost, `request-started` remains uncertain and requires store inspection and explicit recovery rather than retrying the upload. Likewise, an uncertain review request is never repeated automatically. Preserve the state artifact even when the workflow fails, and inspect the item before making further changes.
 
-Submission requests review with deferred publication and verifies the submitted revision's exact version through `fetchStatus` before reporting success. Release requires the exact approved staged version; status must confirm the requested version is published before declaring completion.
+Submission requests review with automatic publication after approval and verifies the submitted revision's exact version through `fetchStatus` before reporting acceptance. No later Chrome release command is part of the standard flow. The legacy release action requires the exact approved deferred version and is reserved for recovery. Status must confirm the requested version is public before claiming publication.
 
 ### iOS
 
@@ -137,17 +189,17 @@ node scripts/store-publishing/cli.mjs ios upload \
 node scripts/store-publishing/cli.mjs ios submit \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
   --build-number "$BUILD_NUMBER" --confirm "$VERSION"
-# For an approved MANUAL-release version only:
+# Legacy recovery for an approved MANUAL-release version only:
 node scripts/store-publishing/cli.mjs ios release \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
   --build-number "$BUILD_NUMBER" --confirm "$VERSION"
 ```
 
-`prepare` reuses an existing matching version without editing its metadata. In particular, reuse the existing `1.17.7` draft and its screenshots untouched. For a future missing version, it creates a manual-release draft skeleton only if no other unreleased version conflicts. Complete and verify required metadata, screenshots, privacy, export compliance and review information in App Store Connect before submission. Preparation does not copy or invent those fields.
+`prepare` reuses an existing matching version without editing its metadata. In particular, reuse the existing `1.17.7` draft and its screenshots untouched. For a future missing version, it creates an automatic-after-approval draft only if no other unreleased version conflicts. Complete and verify required screenshots, privacy, export compliance and review information before submission. Submission fills a missing What's New field with `Various Fixes & Improvements` or the explicit optional notes, preserving existing nonempty text.
 
-Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to `--release-policy preserve-existing`. The existing `1.17.7` draft uses `AFTER_APPROVAL`, so submitting it preserves automatic publication after Apple's approval. It does not require a separate release command. Future skeletons created by `prepare` use `MANUAL`, so their approved versions require `release`. Continue monitoring until the store reports public distribution.
+Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to `--release-policy after-approval`. The existing `1.17.7` draft uses `AFTER_APPROVAL`, and future standard drafts use the same policy. Accepted review submission completes the standard command; Apple publishes after approval without a later release command. Public distribution is claimed only after a read-only store status confirms it.
 
-Only iOS submit accepts `--release-policy manual` or `--release-policy after-approval` to explicitly change that behavior. Do not override the existing draft policy unless that policy change is authorized. The publishing workflow uses the preserve-existing default.
+iOS submit retains explicit `--release-policy manual` and `--release-policy preserve-existing` opt-ins for authorized legacy recovery. The standard workflow uses automatic publication after approval. Optional `--release-notes` (workflow `release_notes`) fills only an empty existing en-US What's New field; existing nonempty text is preserved. Omitted or empty notes use exactly `Various Fixes & Improvements` for iOS submit; other operations receive no notes default. A unique empty review draft may be resumed only after its app relationship, target build and exclusive contents are verified.
 
 ### Android
 
@@ -166,6 +218,7 @@ node scripts/store-publishing/cli.mjs android submit \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
   --version-code "$VERSION_CODE" --edit-id "$EDIT_ID" \
   --allow-pending-changes --confirm "$VERSION"
+# Legacy managed-release recovery only:
 node scripts/store-publishing/cli.mjs android release \
   --version "$VERSION" --source-sha "$SOURCE_SHA" --network "$NETWORK" \
   --version-code "$VERSION_CODE" --confirm "$VERSION"
@@ -173,11 +226,11 @@ node scripts/store-publishing/cli.mjs android release \
 
 Upload leaves the exact code as an uncommitted production draft. Submit commits the edit and sends changes for review. **Commit can include all pending console changes**, not only the requested binary. `--allow-pending-changes` acknowledges that the complete pending set has been inspected and approved. An existing review causes an error rather than automatic cancellation.
 
-Enable and verify managed publishing in Play Console when review and public release must be separate. The API does not provide the final managed-publishing "Publish changes" action. When `release` reports that console action is required, the publishing agent opens Play Console's Publishing overview through browser automation, inspects the complete ready-to-publish change set, and executes "Publish changes" when its whole scope is authorized. This browser step completes the end-to-end release. Do not promote a testing track as a substitute. A published lifecycle alone does not prove a full rollout; verify the production rollout and requested version code in the console.
+Keep managed publishing OFF in Play Console for the standard automatic-after-approval flow. Submit commits the inspected pending set and sends it for review; Play publishes approved changes automatically. No later release command or console Publish changes step is part of the standard flow. The legacy release action is only for explicitly authorized recovery of an older managed release; the API cannot perform that console-only publication step. Do not promote a testing track as a substitute, and verify the production rollout and requested version code before claiming public availability.
 
 ## Monitor each transition
 
-After each action, inspect its structured result and repeat read-only status for the exact version and build or code. Keep an active monitor while processing or review is pending, with its owner, expected source SHA, run ID where applicable, and next check recorded. An error, expired edit, review rejection, missing attestation or ambiguous store state needs inspection before another mutation. Verify all three public store results independently before calling a cross-store release complete.
+After each action, inspect its structured result and preserve the exact version, build or code, source SHA and run IDs. Standard submission finishes once the store accepts review; the store handles automatic publication after approval. Read-only status checks may track processing and review, but no later session is needed to execute a publication mutation. An error, expired edit, review rejection, missing attestation or ambiguous store state needs inspection before another mutation. Verify all four public target results independently before calling a cross-store release complete.
 
 ## Versioned screenshots
 

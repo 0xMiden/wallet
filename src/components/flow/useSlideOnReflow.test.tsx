@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 
 import { act, render } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { springKeyframes, springs } from 'lib/animation';
 
@@ -329,4 +331,56 @@ describe('the linear() predicate other motion sites ask', () => {
     expect(predicate()).toBe(expected);
     expect(supports.calls).toEqual(calls);
   });
+});
+
+it('states the WebKit rAF cap as lifted by AppViewController', () => {
+  const files = ['../../lib/mobile/high-refresh-rate.ts', '../../lib/animation/spring-easing.ts'];
+  const required = ['PreferPageRenderingUpdatesNear60FPSEnabled', 'AppViewController', '#1864'];
+  const forbidden = [
+    'capped at 60Hz by WebKit regardless',
+    'is itself capped at 60Hz',
+    'Apple caps at 60Hz',
+    'caps at 60Hz',
+    '60Hz rAF cap'
+  ];
+  const offenders = files
+    .map(file => path.join(__dirname, file))
+    .filter(file => {
+      const comments = fs
+        .readFileSync(file, 'utf8')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('*') || line.startsWith('//'))
+        .join(' ');
+      return required.some(token => !comments.includes(token)) || forbidden.some(text => comments.includes(text));
+    })
+    .map(file => path.relative(path.join(__dirname, '../../..'), file));
+  expect(offenders).toEqual([]);
+});
+
+it('exports only disablePreferNear60FPS from WebKitFeature', () => {
+  const root = path.join(__dirname, '../../..');
+  const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
+  const feature = read('packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WebKitFeature.swift');
+  const publicLines = feature
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('public '));
+  expect(publicLines).toEqual([
+    'public enum WebKitFeature {',
+    'public static func disablePreferNear60FPS(in preferences: WKPreferences) {'
+  ]);
+  expect(feature.includes('func disable(')).toBe(true);
+  expect(feature.includes('featureSource: AnyObject = WKPreferences.self')).toBe(true);
+  for (const file of [
+    'ios/App/App/AppViewController.swift',
+    'packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift'
+  ]) {
+    const source = read(file);
+    expect([file, source.includes('WebKitFeature.disablePreferNear60FPS(in:')]).toEqual([file, true]);
+    expect([file, source.includes('WebKitFeature.disable(')]).toEqual([file, false]);
+  }
+  expect(read('ios/App/AppTests/AppViewControllerTests.swift').includes('@testable import InappbrowserPlugin')).toBe(
+    true
+  );
 });

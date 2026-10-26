@@ -158,11 +158,11 @@ test('submit requires acknowledgement that commit can include all pending consol
   assert.equal(client.calls.length, 0);
 });
 
-test('submit preserves existing releases and commits the exact draft without canceling an active review', async () => {
+test('submit requests only the desired completed release without canceling an active review', async () => {
   const completed = { ...draft, status: 'completed' };
   const client = transport([
     { method: 'GET', path: trackPath, response: track([live, draft]) },
-    { method: 'PUT', path: trackPath, options: { body: track([live, completed]) }, response: track([live, completed]) },
+    { method: 'PUT', path: trackPath, options: { body: track([completed]) }, response: track([completed]) },
     { method: 'POST', path: `${edit}:validate`, response: { id: 'edit-1' } },
     {
       method: 'POST',
@@ -272,3 +272,79 @@ test('track identity mismatches fail before uploads or modifications', async () 
   await assert.rejects(() => play.upload(client, { ...options, artifact }), /track identity/);
   client.done();
 });
+
+test('submit failure names its stage without retrying or exposing provider content', async () => {
+  const failure = Object.assign(new Error('private provider content'), { status: 400 });
+  const client = transport([
+    { method: 'GET', path: trackPath, response: track([draft]) },
+    { method: 'PUT', path: trackPath, error: failure }
+  ]);
+  await assert.rejects(play.submit(client, { ...options, allowPendingChanges: true }), error => {
+    assert.equal(error, failure);
+    assert.equal(error.stage, 'play-submit-track-update');
+    return true;
+  });
+  client.done();
+});
+
+test('explicit edit inspection uses only GETs and reports expired edit separately from live releases', async () => {
+  const expired = Object.assign(new Error('private body'), { status: 404 });
+  const client = transport([
+    { method: 'GET', path: `${app}/tracks/production/releases`, response: { releases: [] } },
+    { method: 'GET', path: edit, error: expired }
+  ]);
+  const result = await play.status(client, { ...options, inspectEdit: true });
+  assert.deepEqual(result.editInspection, { stage: 'play-inspect-edit', httpStatus: 404 });
+  assert.deepEqual(result.releases, []);
+  assert.doesNotMatch(JSON.stringify(result), /private body/);
+  client.done();
+});
+
+test('explicit edit inspection reads exact caller edit and track without changing either', async () => {
+  const client = transport([
+    { method: 'GET', path: `${app}/tracks/production/releases`, response: { releases: [] } },
+    { method: 'GET', path: edit, response: { id: 'edit-1', expiryTimeSeconds: '1', secret: 'hidden' } },
+    { method: 'GET', path: trackPath, response: track([draft]) }
+  ]);
+  const result = await play.status(client, { ...options, inspectEdit: true });
+  assert.equal(result.editInspection.id, 'edit-1');
+  assert.equal(result.editInspection.expiryTimeSeconds, '1');
+  assert.deepEqual(result.editInspection.releases, [draft]);
+  assert.equal(client.calls.length, 3);
+  client.done();
+});
+
+test('recorded prior completed release and new draft produce only the approved new full rollout', async () => {
+  const prior = { name: '1.17.6', versionCodes: ['11706001'], status: 'completed' };
+  const target = { name: '1.17.7', versionCodes: ['11707019'], status: 'draft' };
+  const completed = { ...target, status: 'completed' };
+  const client = transport([
+    { method: 'GET', path: trackPath, response: track([prior, target]) },
+    { method: 'PUT', path: trackPath, options: { body: track([completed]) }, response: track([completed]) },
+    { method: 'POST', path: `${edit}:validate`, response: { id: 'edit-1' } },
+    {
+      method: 'POST',
+      path: `${edit}:commit?changesNotSentForReview=false&changesInReviewBehavior=ERROR_IF_IN_REVIEW`,
+      response: { id: 'edit-1' }
+    }
+  ]);
+  const result = await play.submit(client, { ...options, versionCode: 11707019, allowPendingChanges: true });
+  assert.equal(result.versionCode, 11707019);
+  assert.equal(result.state, 'committed');
+  client.done();
+});
+
+for (const sibling of [
+  { ...live, status: 'inProgress', userFraction: 0.25 },
+  { ...live, status: 'halted' },
+  { ...live, status: 'draft' },
+  { ...live, versionCodes: ['11706001', '11706002'] },
+  { ...live, versionCodes: ['99999999'] }
+]) {
+  test(`full rollout refuses unexpected sibling ${JSON.stringify(sibling)} without a write`, async () => {
+    const client = transport([{ method: 'GET', path: trackPath, response: track([sibling, draft]) }]);
+    await assert.rejects(play.submit(client, { ...options, allowPendingChanges: true }), /sibling|prior/);
+    assert.equal(client.calls.length, 1);
+    client.done();
+  });
+}

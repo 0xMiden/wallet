@@ -163,8 +163,32 @@ test('submit reuploads the selected artifact to prove the unsubmitted draft vers
     ]
   );
   assert.deepEqual(client.calls[2][2], {
-    body: { publishType: 'STAGED_PUBLISH', skipReview: false, blockOnWarnings: true }
+    body: { publishType: 'DEFAULT_PUBLISH', skipReview: false, blockOnWarnings: true }
   });
+});
+
+test('submit confirms automatic publication when approval finishes before the status read', async () => {
+  const client = transport(
+    snapshot(),
+    uploaded(),
+    published('PENDING_REVIEW'),
+    snapshot({ publishedItemRevisionStatus: revision('PUBLISHED', options.version) })
+  );
+  const result = await submit(client, options);
+  assert.equal(result.state, 'PUBLISHED');
+  assert.equal(result.submittedRevisionVerified, true);
+  assert.equal(client.calls.length, 4);
+});
+
+test('submit accepts an immediately published response and does not request another release', async () => {
+  const client = transport(
+    snapshot(),
+    uploaded(),
+    published('PUBLISHED'),
+    snapshot({ publishedItemRevisionStatus: revision('PUBLISHED', options.version) })
+  );
+  assert.equal((await submit(client, options)).state, 'PUBLISHED');
+  assert.equal(client.calls.filter(([method, path]) => method === 'POST' && path.endsWith(':publish')).length, 1);
 });
 
 test('submit refuses an unproved draft even when an async upload has succeeded', async () => {
@@ -256,9 +280,9 @@ test('replacing a rejected package uploads without cancelling or publishing it',
   assert.ok(client.calls.every(([, path]) => !path.endsWith(':cancelSubmission') && !path.endsWith(':publish')));
 });
 
-test('submit does not report success for a wrong-identity or unexpectedly public response', async () => {
+test('submit does not report success for a wrong-identity or unexpectedly deferred response', async () => {
   for (const response of [
-    published('PUBLISHED'),
+    published('STAGED'),
     { ...published('PENDING_REVIEW'), name: 'publishers/other/items/other' }
   ]) {
     const client = transport(snapshot(), uploaded(), response);

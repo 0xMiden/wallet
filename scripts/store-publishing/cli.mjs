@@ -36,6 +36,7 @@ const values = new Map(
     'edit-id',
     'release-policy',
     'screenshots-root',
+    'release-notes',
     'confirm'
   ].map(name => [name, name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())])
 );
@@ -72,7 +73,8 @@ export function parseArgs(argv) {
     if (flags.has(name)) result[flags.get(name)] = true;
     else if (values.has(name)) {
       const value = rest[++index];
-      if (!value || value.startsWith('--')) throw new Error('A publishing option is missing its value');
+      if (value === undefined || (!value && name !== 'release-notes') || value.startsWith('--'))
+        throw new Error('A publishing option is missing its value');
       result[values.get(name)] = value;
     } else throw new Error('Unknown publishing option; store identities can only come from private configuration');
   }
@@ -82,6 +84,9 @@ export function parseArgs(argv) {
 function planFor(args, config) {
   const { platform, action } = args;
   const mutation = action !== 'status';
+  const releaseNotes = apple.validateReleaseNotes(args.releaseNotes);
+  if (releaseNotes !== undefined && (platform !== 'ios' || action !== 'submit'))
+    throw new Error('Release notes are only supported for iOS submit');
   if (args.preserveLegacyScreenshots && (args.version !== '1.17.7' || action === 'sync-screenshots'))
     throw new Error('Legacy screenshot preservation applies only to existing 1.17.7 publishing, never synchronization');
   if ((action === 'begin-edit' && platform !== 'android') || (action === 'prepare' && platform !== 'ios')) {
@@ -140,7 +145,10 @@ function planFor(args, config) {
     identity = section.bundleId;
     storeId = section.appId;
     Object.assign(options, { appId: section.appId, bundleId: identity });
-    if (action === 'submit') options.releasePolicy = args.releasePolicy ?? 'preserve-existing';
+    if (action === 'submit') {
+      options.releasePolicy = args.releasePolicy ?? 'after-approval';
+      options.releaseNotes = releaseNotes ?? apple.DEFAULT_RELEASE_NOTES;
+    }
     if ((mutation && !['prepare', 'sync-screenshots'].includes(action)) || args.buildNumber !== undefined) {
       if (!/^\d+(?:\.\d+){0,2}$/.test(args.buildNumber ?? ''))
         throw new Error('An explicit Apple build number is required');
@@ -157,10 +165,14 @@ function planFor(args, config) {
         throw new Error('An explicit positive Android version code is required');
       options.versionCode = Number(args.versionCode);
     }
-    if (['upload', 'submit', 'sync-screenshots'].includes(action)) {
+    if (
+      ['upload', 'submit', 'sync-screenshots'].includes(action) ||
+      (action === 'status' && args.editId !== undefined)
+    ) {
       if (!/^[A-Za-z0-9_-]+$/.test(args.editId ?? ''))
         throw new Error('An explicit caller-owned Play edit ID is required');
       options.editId = args.editId;
+      if (action === 'status') options.inspectEdit = true;
     }
     if (args.allowPendingChanges) options.allowPendingChanges = true;
   }

@@ -25,8 +25,43 @@ export interface FeatureEligibility {
   allowed: Record<GeoFeature, boolean>;
 }
 
+export const STARTUP_ELIGIBILITY_STAGES = [
+  'endpoint_overrides',
+  'config_initialization',
+  'eligibility_lookup',
+  'config_refresh',
+  'eligibility_retry'
+] as const;
+export const STARTUP_ELIGIBILITY_REASONS = [
+  'override_load_failed',
+  'config_unavailable',
+  'config_initialization_failed',
+  'endpoint_missing',
+  'endpoint_invalid',
+  'request_failed',
+  'response_invalid',
+  'network_mismatch',
+  'version_mismatch',
+  'unexpected'
+] as const;
+export const STARTUP_ELIGIBILITY_RETRIES = [
+  'not_attempted',
+  'config_not_advanced',
+  'refresh_failed',
+  'retry_failed'
+] as const;
+export type StartupEligibilityReason = (typeof STARTUP_ELIGIBILITY_REASONS)[number];
+export interface StartupEligibilityDiagnostics {
+  startupEligibilityStage: (typeof STARTUP_ELIGIBILITY_STAGES)[number];
+  startupEligibilityReason: StartupEligibilityReason;
+  startupEligibilityRetry: (typeof STARTUP_ELIGIBILITY_RETRIES)[number];
+}
+
 /** A failed startup decision keeps the wallet closed until the page restarts. */
-export type GeoLookup = { state: 'loading' } | { state: 'failed' } | ({ state: 'ready' } & FeatureEligibility);
+export type GeoLookup =
+  | { state: 'loading' }
+  | { state: 'failed'; diagnostics?: StartupEligibilityDiagnostics }
+  | ({ state: 'ready' } & FeatureEligibility);
 
 /** Structural feature availability; live route and market probes remain separate. */
 export function geoFeatureEnabled(

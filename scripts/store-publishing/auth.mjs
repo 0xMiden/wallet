@@ -17,6 +17,120 @@ function failure(message, status) {
   return error;
 }
 
+const apiStatuses = new Set([
+  'INVALID_ARGUMENT',
+  'NOT_FOUND',
+  'ALREADY_EXISTS',
+  'PERMISSION_DENIED',
+  'UNAUTHENTICATED',
+  'FAILED_PRECONDITION',
+  'ABORTED',
+  'RESOURCE_EXHAUSTED',
+  'INTERNAL',
+  'UNAVAILABLE',
+  'DEADLINE_EXCEEDED'
+]);
+const apiReasons = new Set([
+  'forbidden',
+  'insufficientPermissions',
+  'badRequest',
+  'invalidArgument',
+  'editExpired',
+  'editNotFound',
+  'invalidEdit',
+  'changesInReview',
+  'notFound',
+  'rateLimitExceeded',
+  'CHANGES_ALREADY_IN_REVIEW',
+  'ONLY_ONE_COMPLETED_RELEASE'
+]);
+const appleCodes = new Set([
+  'ENTITY_ERROR',
+  'ENTITY_ERROR.ATTRIBUTE.REQUIRED',
+  'ENTITY_ERROR.ATTRIBUTE.INVALID',
+  'ENTITY_ERROR.RELATIONSHIP.INVALID',
+  'ENTITY_ERROR.RELATIONSHIP.REQUIRED',
+  'STATE_ERROR',
+  'STATE_ERROR.INVALID',
+  'PARAMETER_ERROR.INVALID',
+  'FORBIDDEN_ERROR',
+  'NOT_FOUND',
+  'UNAUTHORIZED',
+  'RATE_LIMIT_EXCEEDED'
+]);
+const failureStages = new Set([
+  'apple-submit-preflight',
+  'apple-release-notes-update',
+  'apple-build-link',
+  'apple-review-create',
+  'apple-review-item-create',
+  'apple-review-submit',
+  'store-operation',
+  'play-submit-track-read',
+  'play-submit-track-update',
+  'play-submit-validate',
+  'play-submit-commit',
+  'play-status-releases',
+  'play-inspect-edit',
+  'play-inspect-track'
+]);
+
+export function safeStoreFailure(error) {
+  return {
+    stage: failureStages.has(error?.stage) ? error.stage : 'store-operation',
+    ...(Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599
+      ? { httpStatus: error.status }
+      : {}),
+    ...(Array.isArray(error?.appleCodes)
+      ? { appleCodes: [...new Set(error.appleCodes.filter(code => appleCodes.has(code)))] }
+      : {}),
+    ...(apiStatuses.has(error?.apiStatus) ? { apiStatus: error.apiStatus } : {}),
+    ...(Array.isArray(error?.apiReasons)
+      ? { apiReasons: [...new Set(error.apiReasons.filter(reason => apiReasons.has(reason)))] }
+      : {})
+  };
+}
+
+async function apiFailure(response, label) {
+  const error = failure(`${label} failed`, response.status);
+  if (label !== 'Store API request' || !response.body?.getReader) return error;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > 8192) return error;
+      chunks.push(value);
+    }
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const body = parsed?.error;
+    if (Array.isArray(parsed?.errors))
+      error.appleCodes = [...new Set(parsed.errors.map(item => item?.code).filter(code => appleCodes.has(code)))];
+    if (apiStatuses.has(body?.status)) error.apiStatus = body.status;
+    const reasons = [
+      ...(Array.isArray(body?.errors) ? body.errors.map(item => item?.reason) : []),
+      ...(Array.isArray(body?.details)
+        ? body.details
+            .filter(item => item?.['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo')
+            .map(item => item?.reason)
+        : [])
+    ];
+    if (response.status === 400 && body?.message === 'Only one completed release is allowed.') {
+      reasons.push('ONLY_ONE_COMPLETED_RELEASE');
+    }
+    error.apiReasons = [...new Set(reasons.filter(reason => apiReasons.has(reason)))];
+  } catch {
+    // Bodies and parse errors may contain credentials; keep only the HTTP status.
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  return error;
+}
+
 function requiredString(value, label) {
   if (typeof value !== 'string' || !value || /[\r\n\0]/.test(value)) throw failure(`${label} is required`);
   return value;
@@ -102,7 +216,7 @@ async function responseFor(fetchImpl, url, init, label) {
   if (redirected) {
     throw failure(`${label} refused a redirect`);
   }
-  if (!response.ok) throw failure(`${label} failed`, response.status);
+  if (!response.ok) throw await apiFailure(response, label);
   return response;
 }
 

@@ -687,3 +687,139 @@ test('Android metadata sync restores only its edit without requiring a native bu
     'edit-1'
   );
 });
+
+test('Android read-only edit status requires exact producer and prior state even after expiry', () => {
+  const intent = {
+    ...input,
+    platform: 'android',
+    action: 'status',
+    buildNumber: '19',
+    editId: 'edit-1',
+    stateRunId: '80'
+  };
+  const plan = validatePublishRequest(intent);
+  assert.equal(plan.needsProducer, true);
+  assert.equal(plan.needsState, true);
+  assert.throws(() => validatePublishRequest({ ...intent, producerRunId: '' }));
+  assert.throws(() => validatePublishRequest({ ...intent, stateRunId: '' }));
+  const edit = {
+    packageName: 'com.miden.wallet',
+    editId: 'edit-1',
+    version: plan.version,
+    network: plan.network,
+    sourceSha: sha,
+    expiryTimeSeconds: '1'
+  };
+  const previous = snapshot(plan, { edit, extraManifest: { outcome: 'failure' } });
+  assert.equal(
+    validateStateSnapshot(plan, previous, {
+      run: run('state', { conclusion: 'failure' }),
+      receipt: receipt({ platform: 'android', identity: 'com.miden.wallet', versionCode: plan.versionCode }),
+      nowSeconds: 999
+    })['android-edit.json'].editId,
+    'edit-1'
+  );
+});
+
+test('workflow persists only safe stage/status failure metadata before rejecting', async t => {
+  const { env, root } = await workspace(t);
+  await main('prepare', env);
+  const failure = Object.assign(new Error('secret provider body'), {
+    stage: 'play-submit-track-update',
+    status: 403,
+    apiStatus: 'PERMISSION_DENIED',
+    apiReasons: ['forbidden', 'secret-body']
+  });
+  await assert.rejects(
+    main('execute', env, {
+      run: async () => {
+        throw failure;
+      }
+    })
+  );
+  const result = JSON.parse(await readFile(join(root, 'result.json')));
+  assert.deepEqual(result.failure, {
+    stage: 'play-submit-track-update',
+    httpStatus: 403,
+    apiStatus: 'PERMISSION_DENIED',
+    apiReasons: ['forbidden']
+  });
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+});
+
+test('edit inspection execute/export retains exact bounded numeric version codes', async t => {
+  const { env, root } = await workspace(t);
+  await main('prepare', env);
+  await main('execute', env, {
+    run: async () => ({
+      editInspection: {
+        id: 'edit-1',
+        expiryTimeSeconds: '1',
+        releases: [{ name: '1.17.7', status: 'completed', versionCodes: ['11707019', 'secret-token', 11707020] }]
+      }
+    })
+  });
+  await main('export', { ...env, OPERATION_OUTCOME: 'success' });
+  const result = JSON.parse(await readFile(join(root, 'export/result.json')));
+  const manifest = JSON.parse(await readFile(join(root, 'export/manifest.json')));
+  assert.deepEqual(result.editInspection.releases[0].versionCodes, ['11707019']);
+  assert.deepEqual(manifest.result, result);
+  assert.doesNotMatch(JSON.stringify(result), /secret-token/);
+});
+
+test('release notes are optional exact text for iOS submit only', () => {
+  const request = {
+    ...input,
+    platform: 'ios',
+    action: 'submit',
+    producerRunId: '42',
+    stateRunId: '80',
+    buildNumber: '19'
+  };
+  assert.equal(validatePublishRequest({ ...request, releaseNotes: '' }).releaseNotes, 'Various Fixes & Improvements');
+  const releaseNotes = 'Recovery improvements.\nBug fixes.';
+  assert.equal(validatePublishRequest({ ...request, releaseNotes }).releaseNotes, releaseNotes);
+  for (const change of [
+    { platform: 'chrome', buildNumber: '' },
+    { action: 'upload' },
+    { releaseNotes: ' ' },
+    { releaseNotes: 'x'.repeat(4001) },
+    { releaseNotes: 'a\0b' }
+  ]) {
+    assert.throws(() => validatePublishRequest({ ...request, releaseNotes, ...change }), /release notes/i);
+  }
+});
+
+test('workflow forwards iOS submit release notes as one exact argument', async t => {
+  const { env } = await workspace(t);
+  Object.assign(env, {
+    PLATFORM: 'ios',
+    STORE_ACTION: 'submit',
+    STATE_RUN_ID: '80',
+    BUILD_NUMBER: '19',
+    RELEASE_NOTES: 'Guardian improvements.\nBug fixes.'
+  });
+  let args;
+  await main('execute', env, {
+    run: async value => {
+      args = value;
+      return { platform: 'ios', state: 'WAITING_FOR_REVIEW' };
+    }
+  });
+  const index = args.indexOf('--release-notes');
+  assert.ok(index >= 0);
+  assert.equal(args[index + 1], env.RELEASE_NOTES);
+});
+
+test('the notes fallback is scoped to iOS submit and leaves other default actions untouched', () => {
+  for (const change of [
+    {},
+    { action: 'status', producerRunId: '' },
+    { platform: 'android', action: 'status', producerRunId: '' },
+    { platform: 'ios', action: 'prepare', producerRunId: '' },
+    { platform: 'ios', action: 'upload', buildNumber: '19' }
+  ]) {
+    const plan = validatePublishRequest({ ...input, ...change, releaseNotes: '' });
+    assert.equal(plan.releaseNotes, undefined);
+  }
+});

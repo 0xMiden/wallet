@@ -4,6 +4,8 @@ import { appendFile, mkdir, open, readdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DEFAULT_RELEASE_NOTES, validateReleaseNotes } from './apple.mjs';
+import { safeStoreFailure } from './auth.mjs';
 import { validateRolloverSession, validateUploadSession } from './chrome.mjs';
 import { androidVersionCode, verifyReleaseSource } from './create-receipt.mjs';
 
@@ -23,6 +25,9 @@ const stateName = (plan, runId, attempt) =>
   `WalletStoreState-${plan.platform}-${plan.version}-${plan.network}-${runId}-${attempt}`;
 
 export function validatePublishRequest(input) {
+  const releaseNotes = validateReleaseNotes(input.releaseNotes);
+  if (releaseNotes !== undefined && (input.platform !== 'ios' || input.action !== 'submit'))
+    throw new Error('Release notes are only supported for iOS submit');
   const { releaseTag, platform, action, network } = input;
   if (!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(releaseTag ?? ''))
     throw new Error('A stable release tag is required');
@@ -41,10 +46,12 @@ export function validatePublishRequest(input) {
     throw new Error('Unsupported store network');
   if ((action === 'prepare' && platform !== 'ios') || (action === 'begin-edit' && platform !== 'android'))
     throw new Error('Action does not match platform');
-  const needsProducer = ['upload', 'submit', 'release'].includes(action);
+  const inspectEdit = platform === 'android' && action === 'status' && Boolean(input.editId);
+  const needsProducer = ['upload', 'submit', 'release'].includes(action) || inspectEdit;
   const needsState =
     ['submit', 'release'].includes(action) ||
-    (platform === 'android' && ['upload', 'sync-screenshots'].includes(action));
+    (platform === 'android' && ['upload', 'sync-screenshots'].includes(action)) ||
+    inspectEdit;
   const producerRunId = input.producerRunId || undefined;
   const stateRunId = input.stateRunId || undefined;
   for (const value of [producerRunId, stateRunId])
@@ -59,11 +66,16 @@ export function validatePublishRequest(input) {
   const buildNumber = input.buildNumber || undefined;
   if (buildNumber !== undefined && !/^[1-9][0-9]{0,2}$/.test(buildNumber))
     throw new Error('Mobile build number must be 1 through 999');
-  if (platform !== 'chrome' && !['status', 'prepare', 'sync-screenshots'].includes(action) && !buildNumber)
+  if (
+    platform !== 'chrome' &&
+    (!['status', 'prepare', 'sync-screenshots'].includes(action) || inspectEdit) &&
+    !buildNumber
+  )
     throw new Error('An explicit mobile build number is required');
   if (platform === 'chrome' && buildNumber) throw new Error('Chrome does not use a native build number');
   const editId = input.editId || undefined;
-  const needsEdit = platform === 'android' && ['upload', 'submit', 'sync-screenshots'].includes(action);
+  const needsEdit =
+    platform === 'android' && (['upload', 'submit', 'sync-screenshots'].includes(action) || inspectEdit);
   if ((needsEdit && !editId) || (!needsEdit && editId) || (editId && !/^[A-Za-z0-9_-]+$/.test(editId)))
     throw new Error('Explicit Play edit does not match the action');
   const acknowledgement = input.acknowledgement || 'none';
@@ -87,6 +99,7 @@ export function validatePublishRequest(input) {
     buildNumber,
     editId,
     acknowledgement,
+    ...(platform === 'ios' && action === 'submit' ? { releaseNotes: releaseNotes ?? DEFAULT_RELEASE_NOTES } : {}),
     needsProducer,
     needsState,
     ...(platform === 'android' && buildNumber ? { versionCode: androidVersionCode(version, buildNumber) } : {})
@@ -161,7 +174,7 @@ function validateAttestation(plan, record, receipt, publisherId) {
     (plan.platform === 'ios' && record.buildNumber !== plan.buildNumber) ||
     (plan.platform === 'android' && record.versionCode !== plan.versionCode) ||
     (plan.platform === 'chrome' && (!publisherId || record.publisherId !== publisherId)) ||
-    (plan.platform === 'android' && plan.action === 'submit' && record.editId !== plan.editId)
+    (plan.platform === 'android' && ['submit', 'status'].includes(plan.action) && record.editId !== plan.editId)
   )
     throw new Error('Prior upload attestation does not match the exact artifact and target');
 }
@@ -318,7 +331,11 @@ export function validateStateSnapshot(
       { itemId: identity(plan), publisherId, version: plan.version, network: plan.network },
       nowSeconds
     );
-  if (run.conclusion === 'failure' && !journal)
+  if (
+    run.conclusion === 'failure' &&
+    !journal &&
+    !(plan.platform === 'android' && plan.action === 'status' && plan.editId)
+  )
     throw new Error('A failed state run requires a validated Chrome pending journal');
   const attestation = records[recordName(evidencePlan)];
   if (attestation) validateAttestation(evidencePlan, attestation, evidenceReceipt, publisherId);
@@ -327,9 +344,17 @@ export function validateStateSnapshot(
     validateEdit(plan, records['android-edit.json'], nowSeconds);
     return { 'android-edit.json': records['android-edit.json'] };
   }
-  if (['submit', 'release'].includes(plan.action) && !attestation && !(plan.action === 'submit' && journal))
+  if (
+    (['submit', 'release'].includes(plan.action) ||
+      (plan.platform === 'android' && plan.action === 'status' && plan.editId)) &&
+    !attestation &&
+    !(plan.action === 'submit' && journal)
+  )
     throw new Error('Prior upload attestation is required');
-  if (plan.platform === 'android' && ['upload', 'submit'].includes(plan.action))
+  if (
+    plan.platform === 'android' &&
+    (['upload', 'submit'].includes(plan.action) || (plan.action === 'status' && plan.editId))
+  )
     validateEdit(plan, records['android-edit.json'], nowSeconds);
   return records;
 }
@@ -374,7 +399,8 @@ function fromEnv(env) {
     stateRunId: env.STATE_RUN_ID,
     buildNumber: env.BUILD_NUMBER,
     editId: env.EDIT_ID,
-    acknowledgement: env.ACKNOWLEDGEMENT
+    acknowledgement: env.ACKNOWLEDGEMENT,
+    releaseNotes: env.RELEASE_NOTES
   });
 }
 function paths(env) {
@@ -461,6 +487,17 @@ function safeResult(result) {
     'assets'
   ]) {
     if (result?.[key] && typeof result[key] === 'object') clean[key] = safeResult(result[key]);
+  }
+  if (Array.isArray(result?.versionCodes)) {
+    clean.versionCodes = result.versionCodes
+      .slice(0, 100)
+      .filter(value => typeof value === 'string' && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= 2100000000);
+  }
+  if (result?.failure) clean.failure = safeStoreFailure({ ...result.failure, status: result.failure.httpStatus });
+  if (result?.editInspection) {
+    clean.editInspection = result.editInspection.id
+      ? safeResult(result.editInspection)
+      : safeStoreFailure({ ...result.editInspection, status: result.editInspection.httpStatus });
   }
   return clean;
 }
@@ -589,6 +626,7 @@ export async function main(command, env = process.env, dependencies = {}) {
     }
     if (plan.buildNumber) args.push('--build-number', plan.buildNumber);
     if (plan.platform === 'android' && plan.versionCode) args.push('--version-code', String(plan.versionCode));
+    if (plan.releaseNotes !== undefined) args.push('--release-notes', plan.releaseNotes);
     if (plan.editId) args.push('--edit-id', plan.editId);
     if (plan.action === 'begin-edit') args.push('--confirm-new-edit');
     if (plan.platform === 'android' && plan.action === 'submit') args.push('--allow-pending-changes');
@@ -600,7 +638,15 @@ export async function main(command, env = process.env, dependencies = {}) {
         resolve(env.PRODUCER_DIR, artifact.receiptFile)
       );
     const run = dependencies.run ?? (await import('./cli.mjs')).run;
-    const result = safeResult(await run(args));
+    let result;
+    try {
+      result = safeResult(await run(args));
+    } catch (error) {
+      const failure = safeStoreFailure(error);
+      await privateWrite(path.result, { failure });
+      console.error(JSON.stringify({ failure }));
+      throw error;
+    }
     await privateWrite(path.result, result);
     console.log(JSON.stringify(result));
   } else if (command === 'export') {
