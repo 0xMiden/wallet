@@ -18,6 +18,10 @@ const draftStates = new Set([
   'METADATA_REJECTED',
   'DEVELOPER_REJECTED'
 ]);
+// Apple processing can take minutes; 5 s spacing keeps an hour-long wait well inside the hourly API quota.
+const applePollMs = 5000;
+const applePollsDefault = 120;
+const applePollsMax = 720;
 const hash = (algorithm, bytes) => createHash(algorithm).update(bytes).digest('hex');
 const groupKey = set => `${set.locale}/${set.displayType}`;
 const encode = value => encodeURIComponent(value);
@@ -435,8 +439,8 @@ async function uploadApple(client, options, setId, image) {
       data: { type: 'appScreenshots', id: reserved.id, attributes: { uploaded: true, sourceFileChecksum: image.md5 } }
     }
   });
-  const maxPolls = options.maxPolls ?? 20;
-  if (!Number.isInteger(maxPolls) || maxPolls < 1 || maxPolls > 30)
+  const maxPolls = options.maxPolls ?? applePollsDefault;
+  if (!Number.isInteger(maxPolls) || maxPolls < 1 || maxPolls > applePollsMax)
     throw new ScreenshotError('Screenshot processing poll bound is invalid');
   for (let poll = 0; poll < maxPolls; poll++) {
     const { data } = await client.request('GET', `/v1/appScreenshots/${reserved.id}`);
@@ -450,7 +454,8 @@ async function uploadApple(client, options, setId, image) {
     if (actual.state === 'FAILED') throw new ScreenshotError('Apple screenshot processing FAILED');
     if (!['AWAITING_UPLOAD', 'UPLOAD_COMPLETE'].includes(actual.state))
       throw new ScreenshotError('Unknown Apple screenshot processing state');
-    if (poll + 1 < maxPolls) await (options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(1000);
+    if (poll + 1 < maxPolls)
+      await (options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(applePollMs);
   }
   throw new ScreenshotError('Apple screenshot processing timeout; inspect the reserved asset before another action');
 }
@@ -464,7 +469,7 @@ export async function syncScreenshots(client, options) {
   const desired = groups(options.sets, selected, true);
   if (
     options.maxPolls !== undefined &&
-    (!Number.isInteger(options.maxPolls) || options.maxPolls < 1 || options.maxPolls > 30)
+    (!Number.isInteger(options.maxPolls) || options.maxPolls < 1 || options.maxPolls > applePollsMax)
   ) {
     throw new ScreenshotError('Screenshot processing poll bound is invalid');
   }

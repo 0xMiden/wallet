@@ -386,6 +386,30 @@ test('invalid polling bounds fail before any API calls', async () => {
   await assert.rejects(() => syncScreenshots(c.client, { ...ios(), allowWrites: true, maxPolls: 1000 }), /poll bound/i);
   assert.equal(c.calls.length, 0);
 });
+test('Apple screenshot processing waits out the old twenty-poll ceiling by default', async () => {
+  const c = appleClient({ shots: [], pollStates: [...Array(20).fill('UPLOAD_COMPLETE'), 'COMPLETE'] });
+  const sleeps = [];
+  const result = await syncScreenshots(c.client, {
+    ...ios(),
+    allowWrites: true,
+    sleep: async ms => sleeps.push(ms),
+    fetchImpl: async url => ({ ok: true, redirected: false, url })
+  });
+  assert.equal(result.changed, true);
+  assert.equal(c.calls.filter(call => call.method === 'GET' && call.path === '/v1/appScreenshots/new').length, 21);
+  assert.deepEqual(sleeps, Array(20).fill(5000));
+});
+test('an explicit poll count above the old cap of 30 is a legal bounded wait', async () => {
+  const c = appleClient({ shots: [] });
+  const result = await syncScreenshots(c.client, {
+    ...ios(),
+    allowWrites: true,
+    maxPolls: 31,
+    sleep: async () => {},
+    fetchImpl: async url => ({ ok: true, redirected: false, url })
+  });
+  assert.equal(result.changed, true);
+});
 
 test('equal image counts with reversed checksums fail complete ordered verification', async () => {
   const second = Buffer.from('different approved screenshot');
