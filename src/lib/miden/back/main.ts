@@ -54,6 +54,7 @@ import { logger } from 'shared/logger';
 
 import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from './offscreen-codec';
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
+import { installFinancialRecoveryBackend } from '../recovery/financial-backend';
 import { NoteExportType } from '../sdk/constants';
 import {
   assertWasmHoldCurrent,
@@ -72,6 +73,9 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 let startupHydration: Promise<void> = Promise.resolve();
 
 export async function start() {
+  installFinancialRecoveryBackend((accountId, entry, expectedEpoch) =>
+    Actions.checkpointFinancialRecovery(accountId, entry, expectedEpoch)
+  );
   console.log('Miden background script started');
   let hydrated: () => void = () => undefined;
   startupHydration = new Promise<void>(resolve => {
@@ -730,6 +734,9 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.SignTransactionResponse,
         signature
       };
+    case WalletMessageType.FinancialRecoveryRequest:
+      await Actions.checkpointFinancialRecovery(req.accountId, req.entry, req.expectedEpoch);
+      return { type: WalletMessageType.FinancialRecoveryResponse };
     case WalletMessageType.SignWordRequest:
       const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
       return {

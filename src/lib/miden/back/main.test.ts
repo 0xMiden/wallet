@@ -200,6 +200,7 @@ jest.mock('lib/miden/back/actions', () => ({
   updateSettings: jest.fn(),
   getSpendingLimit: jest.fn(),
   saveSpendingLimit: jest.fn(),
+  checkpointFinancialRecovery: jest.fn().mockResolvedValue(undefined),
   assessOutgoingSpendingLimit: jest.fn(),
   getStrictAuthenticationProtectors: jest.fn(),
   verifyStrictActionAuthentication: jest.fn(),
@@ -227,11 +228,12 @@ import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { WalletMessageType } from 'lib/shared/types';
 
+import { start } from './main';
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
 import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
+import { getFinancialRecoveryBackend } from '../recovery/financial-backend';
 import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { MidenMessageType, NoteTypeEnum } from '../types';
-import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
 
@@ -284,6 +286,13 @@ beforeEach(async () => {
 });
 
 describe('main.start', () => {
+  it('installs the backend financial checkpoint before serving requests', async () => {
+    const checkpoint = getFinancialRecoveryBackend();
+    expect(checkpoint).toEqual(expect.any(Function));
+    await checkpoint?.('account-a', undefined, 17);
+    expect(Actions.checkpointFinancialRecovery).toHaveBeenCalledWith('account-a', undefined, 17);
+  });
+
   it('hydrates the remote config after the endpoint override and before any handler can run', () => {
     expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
     expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(

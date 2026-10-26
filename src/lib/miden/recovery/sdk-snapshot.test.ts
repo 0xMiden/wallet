@@ -10,6 +10,11 @@ import {
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteType: { Private: 0, Public: 1 },
   NoteFile: {
+    deserialize: () => ({
+      noteDetails: () => ({}),
+      noteId: () => ({ toString: () => 'missing-input' }),
+      free: () => {}
+    }),
     fromInputNote: () => ({ serialize: () => new Uint8Array([1, 2]), free: () => {} }),
     fromNoteDetails: () => ({ serialize: () => new Uint8Array([3, 4]), free: () => {} })
   }
@@ -102,4 +107,13 @@ it('verifies a newly initialized marker before returning success', async () => {
   const client = reader();
   jest.mocked(client.settings.get).mockResolvedValueOnce(null).mockResolvedValueOnce('wrong');
   await expect(initializeSdkGeneration(client, 'new', null, () => {})).rejects.toThrow();
+});
+
+it('refuses recovery when a retained private input body has disappeared', async () => {
+  const client = reader();
+  await expect(
+    readSdkRecoverySnapshot(client, ['retained'], false, () => {}, [
+      { kind: 'note', id: 'missing-input', noteFile: new Uint8Array([1, 2]), provenance: 'input', format: 'full' }
+    ])
+  ).rejects.toThrow('Storage continuity unavailable');
 });

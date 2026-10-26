@@ -52,7 +52,7 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
-import { initializeStorageHealth } from 'lib/miden/storage-health';
+import { assertStorageHealthy, initializeStorageHealth, StorageUnavailableError } from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
   getEffectiveNetworkName,
@@ -723,6 +723,16 @@ export function updateSettings(settings: Partial<WalletSettings>) {
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+}
+
+export async function checkpointFinancialRecovery(
+  accountId: string,
+  entry: unknown,
+  expectedEpoch: number
+): Promise<void> {
+  if (!Number.isSafeInteger(expectedEpoch)) throw new StorageUnavailableError();
+  assertStorageHealthy(expectedEpoch);
+  return withUnlocked(({ vault }) => vault.checkpointFinancialRecovery(accountId, entry));
 }
 
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {

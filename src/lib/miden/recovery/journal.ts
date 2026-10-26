@@ -3,6 +3,7 @@ import { withRecoveryStorageLock } from './lock';
 import { fromSerializable, toSerializable } from './serialization';
 import type { RecoveryJournalData, RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
+import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
 
 export interface RecoveryStorage {
   get(keys: string[]): Promise<Record<string, unknown>>;
@@ -76,17 +77,21 @@ export class RecoveryJournal {
         this.onFailure(error);
       }
     }
-    // A lower verified generation remains useful for export, but cannot authorize mutation.
+    // A damaged pointer cannot choose between the slots. Keep the newest authenticated copy for recovery only.
+    const candidates: { snapshot: RecoveryJournalSnapshot; slot: number; degraded: true }[] = [];
     for (let index = 0; index < SLOT_KEYS.length; index++) {
       if (index === slot || values[SLOT_KEYS[index]!] === undefined) continue;
       try {
         const snapshot = await this.decrypt(values[SLOT_KEYS[index]!]);
         if (sequence >= 0 && snapshot.sequence >= sequence) continue;
-        this.onFailure(new Error('Recovery journal active generation unavailable'));
-        return { snapshot, slot: index, degraded: true };
+        candidates.push({ snapshot, slot: index, degraded: true });
       } catch {
         /* Try the other independent slot. */
       }
+    }
+    if (candidates.length > 0) {
+      this.onFailure(new Error('Recovery journal active generation unavailable'));
+      return candidates.sort((left, right) => right.snapshot.sequence - left.snapshot.sequence)[0]!;
     }
     throw new Error('Recovery journal unavailable');
   }
@@ -116,8 +121,13 @@ export class RecoveryJournal {
           )
         )
           throw new Error('Recovery account floor decreased');
-        const entries = new Map(previous?.entries.map(entry => [`${entry.kind}:${entry.id}`, entry]));
+        const cutoff = Math.floor(Date.now() / 1000) - MAX_WINDOW_SECONDS;
+        const retainedEntries = previous?.entries.filter(
+          entry => entry.kind !== 'debit' || entry.initiatedAt >= cutoff
+        );
+        const entries = new Map(retainedEntries?.map(entry => [`${entry.kind}:${entry.id}`, entry]));
         for (const entry of proposed.entries) {
+          if (entry.kind === 'debit' && entry.initiatedAt < cutoff) continue;
           const id = `${entry.kind}:${entry.id}`;
           const retained = entries.get(id);
           // A details fallback has default hints; it must not replace an imported file with its real tag and hint.
