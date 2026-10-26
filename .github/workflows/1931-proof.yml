@@ -1,0 +1,79 @@
+name: Issue1931 current-source native proof
+on:
+  push:
+    branches: ['ci/issue-1931-*']
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: c3e8fbcb8792f2474014cfa2d89a61700feadd16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Bind proof to frozen source parent
+        run: test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          ref: '${{ env.SOURCE_SHA }}'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - name: Parse changed workflow YAML
+        run: |
+          node <<'JS'
+          const { readFileSync } = require('node:fs');
+          const { parseDocument } = require('yaml');
+          for (const path of ['.github/workflows/ci.yml', '.github/workflows/pr.yml']) {
+            const document = parseDocument(readFileSync(path, 'utf8'));
+            if (document.errors.length) throw new Error(document.errors.map(error => error.message).join('\n'));
+            console.log(`${path} parsed`);
+          }
+          JS
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install native action and screenshot tools
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 gsettings-desktop-schemas
+
+      - name: Install pinned Chromium
+        run: yarn playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Build fixture-backed extension
+        run: yarn build:chrome
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_NETWORK: 'testnet'
+          MIDEN_E2E_TEST: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+      - name: Verify built manifest
+        run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+      - name: Run native toolbar regressions
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8551/testnet.json > "$RUNNER_TEMP/toolbar-fixture-config.json"
+          trap 'curl --fail --silent --show-error -X POST -H "Content-Type: application/json" --data-binary @"$RUNNER_TEMP/toolbar-fixture-config.json" http://127.0.0.1:8551/_fixture/config' EXIT
+          node --input-type=module <<'JS'
+          const response = await fetch('http://127.0.0.1:8551/testnet.json');
+          if (!response.ok) throw new Error('Fixture config unavailable');
+          const document = await response.json();
+          document.mainnetCountdown = { enabled: true, launchAt: '2099-01-01T00:00:00Z' };
+          const saved = await fetch('http://127.0.0.1:8551/_fixture/config', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document)
+          });
+          if (!saved.ok) throw new Error('Fixture config refused');
+          JS
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1100x24' bash -c 'gsettings set org.gnome.desktop.interface toolkit-accessibility true; GTK_MODULES=atk-bridge NO_AT_BRIDGE=0 yarn test:e2e:toolbar'
+
+      - name: Upload native toolbar evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue1931-current-native-evidence
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
