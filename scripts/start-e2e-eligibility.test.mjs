@@ -39,3 +39,15 @@ test('invalid or injected network names cannot reach the fixture command', () =>
   assert.throws(() => fixtureEnvironment({ E2E_NETWORK: 'constructor' }));
   assert.throws(() => fixtureEnvironment({ E2E_NETWORK: 'testnet\nOTHER=value' }));
 });
+
+test('mock and smoothness jobs explicitly request a prelaunch testnet policy', () => {
+  const plan = fixtureEnvironment({ E2E_FIXTURE_PRELAUNCH_TESTNET: 'true' });
+  assert.deepEqual(plan.args, ['--port', '8551', '--networks', 'testnet', '--prelaunch-testnet']);
+});
+
+test('prelaunch fixture mode cannot be selected for Mainnet or another network', () => {
+  for (const network of ['mainnet', 'devnet', 'localhost']) {
+    assert.throws(() => fixtureEnvironment({ E2E_NETWORK: network, E2E_FIXTURE_PRELAUNCH_TESTNET: 'true' }));
+  }
+  assert.throws(() => fixtureEnvironment({ E2E_FIXTURE_PRELAUNCH_TESTNET: 'yes' }));
+});

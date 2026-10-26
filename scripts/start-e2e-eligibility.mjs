@@ -14,6 +14,14 @@ export function fixtureEnvironment(env) {
   const network = requested === 'localhost' ? 'localnet' : requested;
   if (!NETWORKS.has(network)) throw new Error('Unsupported E2E fixture network');
   const args = ['--port', '8551', '--networks', network];
+  const prelaunch = env.E2E_FIXTURE_PRELAUNCH_TESTNET;
+  if (prelaunch !== undefined && prelaunch !== 'true' && prelaunch !== 'false') {
+    throw new Error('Unsupported E2E prelaunch fixture setting');
+  }
+  if (prelaunch === 'true') {
+    if (network !== 'testnet') throw new Error('Prelaunch fixture requires testnet');
+    args.push('--prelaunch-testnet');
+  }
   let configUrl = BASE_URL;
   if (env.MIDEN_REMOTE_CONFIG_URL) {
     const source = new URL(env.MIDEN_REMOTE_CONFIG_URL);

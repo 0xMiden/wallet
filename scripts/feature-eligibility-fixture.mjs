@@ -103,10 +103,21 @@ export async function createEligibilityFixture({
   networks = ['mainnet', 'testnet', 'devnet'],
   source = PUBLISHED_SOURCE,
   lazySource = false,
+  prelaunchTestnet = false,
   fetchImpl = fetch,
   onRequestWaiting
 } = {}) {
   if (!networks.length || networks.some(network => !NETWORKS.has(network))) throw new Error('invalid fixture networks');
+  if (prelaunchTestnet && (networks.length !== 1 || networks[0] !== 'testnet')) {
+    throw new Error('Prelaunch fixture requires testnet only');
+  }
+  // General onboarding tests and the Home benchmark need a stable testnet scenario,
+  // independent of the published launch clock. This is explicit fixture data, never
+  // an eligibility override or a Mainnet access-code exemption.
+  const prepare = (document, network) => {
+    const policy = enrich(document, network);
+    return prelaunchTestnet ? { ...policy, mainnetCountdown: { ...policy.mainnetCountdown, enabled: false } } : policy;
+  };
   const selected = new Set(networks);
   const documents = new Map();
   const waiting = new Set();
@@ -116,7 +127,7 @@ export async function createEligibilityFixture({
       signal: AbortSignal.timeout(10_000)
     });
     if (!response.ok) throw new Error('fixture policy source failed');
-    return enrich(await response.json(), network);
+    return prepare(await response.json(), network);
   };
   if (!lazySource) {
     await Promise.all(
@@ -184,7 +195,7 @@ export async function createEligibilityFixture({
       if (request.method === 'POST' && url.pathname === '/_fixture/config') {
         const document = await readBody(request);
         if (!selected.has(document.network)) return send(response, 400, { error: 'invalid_network' });
-        documents.set(document.network, enrich(document, document.network));
+        documents.set(document.network, prepare(document, document.network));
         return send(response, 200, { network: document.network, version: document.version });
       }
       const configNetwork = /^\/(mainnet|testnet|devnet|localnet)\.json$/.exec(url.pathname)?.[1];
@@ -227,7 +238,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const fixture = await createEligibilityFixture({
     networks: args.includes('--networks') ? value('--networks').split(',') : undefined,
     source: args.includes('--source') ? value('--source') : undefined,
-    lazySource: args.includes('--lazy-source')
+    lazySource: args.includes('--lazy-source'),
+    prelaunchTestnet: args.includes('--prelaunch-testnet')
   });
   await fixture.listen(args.includes('--port') ? Number(value('--port')) : 8551);
   process.stdout.write(`Eligibility fixture listening at ${fixture.url}\n`);
