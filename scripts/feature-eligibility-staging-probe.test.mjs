@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { buildProbeManifest, createProbeController } from './feature-eligibility-staging-probe.mjs';
+import { buildProbeManifest, createProbeController, main } from './feature-eligibility-staging-probe.mjs';
 
 const identity = {
   repository: '0xMiden/wallet',
@@ -449,4 +449,30 @@ test('an already cancelled run creates no private files and never deploys', asyn
   assert.equal(result.reason, 'bounds_reached');
   assert.equal(deployed(f).length, 0);
   assert.equal(f.events.filter(event => event[0] === 'mkdir').length, 0);
+});
+
+for (const patch of [{ runId: 40265000001 }, { runAttempt: 1 }]) test(`identity requires string ${Object.keys(patch)[0]}`, () => {
+  assert.throws(() => buildProbeManifest({ ...identity, ...patch }, workerBytes, []));
+});
+
+for (const binding of [{ type: 'ratelimit', name: 'production' }, { type: 'ratelimit', name: 'production', namespace_id: 'unknown' }, { name: 'production' }]) test(`incomplete inventory binding ${JSON.stringify(binding)} cannot authorize deploy`, async () => {
+  const f = fixture({ pages: [[{ id: 'production-worker' }]], api(path) {
+    if (path.endsWith('/production-worker/settings')) return envelope({ bindings: [binding] });
+  } });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.reason, 'inventory_incomplete');
+  assert.equal(deployed(f).length, 0);
+});
+
+test('arbitrary thrown reason values never escape the closed result taxonomy', async () => {
+  const f = fixture({ fetch() { throw Object.assign(new Error('secret'), { reason: 'token-never-publish' }); } });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.reason, 'network');
+  assertClosed(result);
+});
+
+for (const args of [['cleanup', '--name', 'production'], ['cleanup', '1'], ['cleanup', '--config', 'foreign']]) test(`CLI rejects arbitrary cleanup arguments ${JSON.stringify(args)}`, async () => {
+  const result = await main(args, {});
+  assert.equal(result.reason, 'auth');
+  assert.equal(result.cleanup, 'blocked');
 });
