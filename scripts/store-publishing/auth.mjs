@@ -41,7 +41,8 @@ const apiReasons = new Set([
   'changesInReview',
   'notFound',
   'rateLimitExceeded',
-  'CHANGES_ALREADY_IN_REVIEW'
+  'CHANGES_ALREADY_IN_REVIEW',
+  'ONLY_ONE_COMPLETED_RELEASE'
 ]);
 const failureStages = new Set([
   'store-operation',
@@ -91,6 +92,9 @@ async function apiFailure(response, label) {
             .map(item => item?.reason)
         : [])
     ];
+    if (response.status === 400 && body?.message === 'Only one completed release is allowed.') {
+      reasons.push('ONLY_ONE_COMPLETED_RELEASE');
+    }
     error.apiReasons = [...new Set(reasons.filter(reason => apiReasons.has(reason)))];
   } catch {
     // Bodies and parse errors may contain credentials; keep only the HTTP status.
