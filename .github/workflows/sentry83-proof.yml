@@ -1,0 +1,17 @@
+name: Startup eligibility diagnostics proof
+on:
+  push:
+    branches: [sentry/83-startup-eligibility-diagnostics]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: ./.github/actions/yarn-install
+      - run: yarn jest --runInBand src/lib/remote-config/geo-lookup.test.ts src/lib/remote-config/runtime.test.ts src/app/WalletAccessGate.test.tsx src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts

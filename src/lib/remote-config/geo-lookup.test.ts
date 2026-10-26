@@ -219,4 +219,28 @@ describe('lookupFeatureEligibility', () => {
     expect(json).not.toHaveBeenCalled();
     expect(requestSignal?.aborted).toBe(true);
   });
+  it.each([
+    ['endpoint_missing', '', answer],
+    ['endpoint_invalid', 'not a URL', answer],
+    ['response_invalid', 'https://eligibility.example', { allowed: {} }],
+    ['network_mismatch', 'https://eligibility.example', { ...answer, network: 'other' }],
+    ['version_mismatch', 'https://eligibility.example', { ...answer, version: 14 }]
+  ])('records only the closed %s cause without changing the failed decision', async (reason, endpoint, body) => {
+    process.env.FEATURE_ELIGIBILITY_URL = String(endpoint);
+    const onFailure = jest.fn();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(body));
+    const options = { fetchImpl, onFailure };
+    await expect(lookupFeatureEligibility('testnet', 13, options)).resolves.toBeNull();
+    expect(onFailure).toHaveBeenCalledWith(reason);
+    expect(fetchImpl).toHaveBeenCalledTimes(String(reason).startsWith('endpoint_') ? 0 : 1);
+  });
+
+  it('records request failure without forwarding a hostile transport error', async () => {
+    const onFailure = jest.fn();
+    const fetchImpl = jest.fn().mockRejectedValue(new Error('seed alpha bravo https://private.example amount=123 account=0x123456'));
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl, onFailure })).resolves.toBeNull();
+    expect(onFailure.mock.calls).toEqual([['request_failed']]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
 });

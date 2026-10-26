@@ -1427,4 +1427,13 @@ describe('startup eligibility', () => {
     expect(await initFeatureEligibility()).toEqual({ state: 'failed' });
     expect(mockLookup).toHaveBeenCalledTimes(1);
   });
+  it('binds an unavailable-config failure to the startup attempt without guessing a parse cause', async () => {
+    failFetch();
+    expect(await initFeatureEligibility()).toEqual({ state: 'failed', diagnostics: {
+      startupEligibilityStage: 'config_initialization', startupEligibilityReason: 'config_unavailable',
+      startupEligibilityRetry: 'not_attempted'
+    } });
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
 });

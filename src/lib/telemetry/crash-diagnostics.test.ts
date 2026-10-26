@@ -1015,3 +1015,18 @@ it('reannotationNeverMixesNativeGroups', () => {
   });
   expect(snapshotCrashDiagnostics(outer)).toEqual(publicationGroup);
 });
+
+
+test('startup evidence is closed and bound to the eligibility startup identity', () => {
+  const error = new Error('private seed alpha bravo account=0x123 amount=12 https://private.example');
+  annotateCrash(error, { userErrorId: 'walletAccessUnavailableBody', userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_retry', startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'retry_failed' });
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({ startupEligibilityStage: 'eligibility_retry',
+    startupEligibilityReason: 'version_mismatch', startupEligibilityRetry: 'retry_failed' });
+  const hostile = new Error('other');
+  annotateCrash(hostile, { userErrorId: 'walletAccessUnavailableBody', userErrorSurface: 'startup',
+    startupEligibilityStage: 'https://private.example', startupEligibilityReason: '0x123',
+    startupEligibilityRetry: 'seed alpha bravo' });
+  expect(snapshotCrashDiagnostics(hostile)).toEqual({ userErrorId: 'walletAccessUnavailableBody', userErrorSurface: 'startup' });
+});
