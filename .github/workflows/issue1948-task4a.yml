@@ -1,0 +1,58 @@
+name: Issue1948 financial checkpoint diagnostic
+on:
+  push:
+    branches:
+      - 'ci/1948-task4a-*'
+permissions:
+  contents: read
+jobs:
+  affected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        id: bind
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 06c06e7da94986446d0961e66cafc4a9f924b36a | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 06c06e7da94986446d0961e66cafc4a9f924b36a
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Exact refused TypeScript check
+        if: ${{ !cancelled() && steps.bind.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          yarn tsc --noEmit 2>&1 | tee proof/types.log
+      - name: Exact refused named lint
+        if: ${{ !cancelled() && steps.bind.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          yarn eslint jest.setup.js src/lib/intercom/in-process-request-handler.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/actions.ts src/lib/miden/back/main.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/miden-client-proxy.ts src/lib/miden/back/offscreen-codec.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/db/types.ts src/lib/miden/recovery/__mocks__/financial-writer.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/capture.ts src/lib/miden/recovery/checkpoint.ts src/lib/miden/recovery/financial-writer.ts src/lib/miden/recovery/financial.test.ts src/lib/miden/recovery/financial.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/restore.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/recovery/sdk-snapshot.ts src/lib/miden/recovery/transaction-continuity.ts src/lib/miden/recovery/transaction-record.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/repo.test.ts src/lib/miden/repo.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/spending-limits/config.test.ts src/lib/miden/spending-limits/config.ts src/lib/miden/spending-limits/policy.ts src/lib/miden/spending-limits/queue.recovery.test.ts src/lib/miden/spending-limits/queue.test.ts src/lib/miden/spending-limits/queue.ts src/lib/miden/spending-limits/window.ts src/lib/miden/transaction/index.ts src/lib/shared/types.ts src/offscreen/main.test.ts src/offscreen/main.ts --max-warnings=0 2>&1 | tee proof/lint.log
+      - name: Affected suites including full Vault and schema consumers
+        if: ${{ !cancelled() && steps.bind.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          yarn jest src/lib/miden/repo.test.ts src/lib/miden/repo.storage-loss.test.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/actions.test.ts src/lib/miden/back/safe-storage.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.test.ts src/lib/miden/sdk/miden-client.storage-recovery.test.ts src/lib/miden/spending-limits/config.test.ts src/lib/miden/spending-limits/policy.test.ts src/lib/miden/spending-limits/queue.test.ts src/lib/miden/spending-limits/queue.recovery.test.ts src/offscreen/main.test.ts src/lib/miden/reset.test.ts src/lib/miden/reset-and-reload.test.ts src/lib/miden/back/main.test.ts src/lib/miden/recovery/access.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/continuity.test.ts src/lib/miden/recovery/financial.test.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/sdk-snapshot.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Assert executed tests
+        if: always()
+        run: |
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('proof/results.json'));console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites,suites:x.numTotalTestSuites}));if(x.numPassedTests+x.numFailedTests<1||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: task4a-checkpoint-v2
+          path: proof/
