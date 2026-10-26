@@ -41,6 +41,7 @@ import {
   DIAGNOSTIC_STEP_OUTCOMES,
   DIAGNOSTIC_STEPS
 } from './diagnostic-log-contract';
+import { PROOF_WAIT_AVAILABILITIES } from './proof-wait-availability-diagnostics';
 import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
@@ -79,6 +80,7 @@ const listedAfter = (text: string, phrase: string): string[] => {
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['the execution route', EXECUTION_ROUTES],
+  ['Proof-wait availability', PROOF_WAIT_AVAILABILITIES],
   ['the authentication observation', AUTH_OBSERVATIONS],
   ['auth argument presence', AUTH_ARG_PRESENCE],
   ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],

@@ -29,6 +29,7 @@ import {
   type GuardianProvingDiagnostics
 } from './guardian-proving-diagnostics';
 import { snapshotOffscreenDeadlineForCrash, type OffscreenDeadlineDiagnostics } from './offscreen-deadline-diagnostics';
+import { snapshotProofWaitAvailability, type ProofWaitAvailability } from './proof-wait-availability-diagnostics';
 import {
   clearProposalCreateDiagnostics,
   snapshotProposalCreateDiagnostics,
@@ -173,7 +174,10 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
 export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
 export type CrashDiagnostics = Partial<
-  ProposalCreateDiagnostics & GuardianProvingDiagnostics & OffscreenDeadlineDiagnostics & TerminalReportDiagnostics
+  ProposalCreateDiagnostics &
+    GuardianProvingDiagnostics &
+    OffscreenDeadlineDiagnostics &
+    TerminalReportDiagnostics & { proofWaitAvailability: ProofWaitAvailability }
 > &
   Partial<TransactionExecutionDiagnostics> &
   UiProducerDiagnostics &
@@ -616,6 +620,7 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
   for (const key of [
+    'proofWaitAvailability',
     'proposalCreateApi',
     'proposalCreateFamily',
     'guardianProvingSubstep',
@@ -632,6 +637,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   for (const key of UI_PRODUCER_KEYS) delete snapshot[key];
   const own = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
   Object.assign(snapshot, snapshotUiProducer(error, own?.userErrorId, own?.userErrorSurface));
+  const proofWaitAvailability = snapshotProofWaitAvailability(error);
+  if (proofWaitAvailability !== undefined) snapshot.proofWaitAvailability = proofWaitAvailability;
   return snapshot;
 }
 
