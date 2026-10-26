@@ -1,4 +1,5 @@
 import { addEventProcessor, getCurrentScope } from '@sentry/browser';
+import type { UpdatingHookContext } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 import { isCrashReportingEnabledAsync } from 'lib/settings/helpers';
@@ -298,10 +299,22 @@ it.each([
     if (recording) reads.push(label);
     return value;
   };
-  const updating = function (this: { onsuccess?: () => void }, modifications: Partial<ITransaction>) {
-    if (modifications.error === undefined || modifications.submitEvidence === undefined) return;
-    for (const observed of modifications.submitEvidence) {
-      if (observed.attemptId !== 'private-current-attempt') continue;
+  const updating = function (this: UpdatingHookContext<ITransaction, string>, modifications: unknown) {
+    if (
+      typeof modifications !== 'object' ||
+      modifications === null ||
+      Reflect.get(modifications, 'error') === undefined
+    )
+      return;
+    const entries: unknown = Reflect.get(modifications, 'submitEvidence');
+    if (!Array.isArray(entries)) return;
+    for (const observed of entries) {
+      if (
+        typeof observed !== 'object' ||
+        observed === null ||
+        Reflect.get(observed, 'attemptId') !== 'private-current-attempt'
+      )
+        continue;
       for (const [field, label] of [
         ['refBlock', 'reference'],
         ['expirationBlock', 'expiration']
@@ -315,11 +328,10 @@ it.each([
         });
       }
     }
-    const entries = modifications.submitEvidence;
     const originalFind = entries.find.bind(entries);
     Object.defineProperty(entries, 'find', {
       configurable: true,
-      value: (predicate: (value: ISubmitEvidence, index: number, members: ISubmitEvidence[]) => unknown) => {
+      value: (predicate: (value: unknown, index: number, members: unknown[]) => unknown) => {
         if (recording) reads.push('find');
         return originalFind((value, index, members) => {
           if (recording) reads.push('candidate');
@@ -377,8 +389,8 @@ it('keeps the committed verdict and original report when the weak observation ca
   await Repo.transactions.put(row());
   const originalSet = WeakMap.prototype.set;
   const set = jest.spyOn(WeakMap.prototype, 'set').mockImplementation(function (
-    this: WeakMap<object, unknown>,
-    key: object,
+    this: WeakMap<WeakKey, unknown>,
+    key: WeakKey,
     value: unknown
   ) {
     if (value === 'available') throw new Error('private observation failure');
