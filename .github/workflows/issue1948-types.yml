@@ -1,0 +1,41 @@
+name: Issue1948 frozen type diagnostic
+on:
+  push:
+    branches:
+      - 'ci/1948-types-*'
+permissions:
+  contents: read
+jobs:
+  types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 896f40411bc007cb574a53c90b285c35580cb377 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 896f40411bc007cb574a53c90b285c35580cb377
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Exact refused TypeScript check
+        run: |
+          set -o pipefail
+          yarn tsc --noEmit 2>&1 | tee proof/types.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: task4-types-v1
+          path: proof/
