@@ -948,15 +948,15 @@ it.each(['local_prover_build', 'prove_local', 'proof_evidence'] as const)(
     else if (step === 'prove_local') mockExecute.mockResolvedValueOnce({ result, prove });
     else
       mockExecute.mockResolvedValueOnce({
-        get result() {
+        get result(): typeof result {
           throw error;
         },
         prove: async () => ({
           proof: {
             nullifiers: () => [],
-            refBlockNumber: () => 1,
+            refBlockNumber: () => 100,
             refBlockCommitment: () => accountRef('private'),
-            expirationBlockNumber: () => 2
+            expirationBlockNumber: () => 120
           },
           submit: () => mockSubmit()
         })
@@ -979,9 +979,9 @@ it('does not promote a swallowed proof accessor failure to terminal proving evid
     prove: async () => ({
       proof: {
         nullifiers: getter,
-        refBlockNumber: () => 1,
+        refBlockNumber: () => 100,
         refBlockCommitment: () => accountRef('private'),
-        expirationBlockNumber: () => 2
+        expirationBlockNumber: () => 120
       },
       submit: () => mockSubmit()
     })

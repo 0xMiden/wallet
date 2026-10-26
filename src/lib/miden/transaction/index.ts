@@ -2580,7 +2580,10 @@ const runGuardianPipeline = async (
   try {
     return await withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
   } catch (error) {
-    annotateGuardianProving(error, escaped?.error === error ? { guardianProvingSubstep: escaped.step } : undefined);
+    annotateGuardianProving(
+      error,
+      escaped !== undefined && escaped.error === error ? { guardianProvingSubstep: escaped.step } : undefined
+    );
     annotateTransactionExecution(error, execution);
     throw error;
   }

@@ -285,6 +285,15 @@ const requestTypes = [
 ];
 
 export function annotateCrash(error: unknown, diagnostics: Record<string, unknown>): void {
+  annotateCrashAtBoundary(error, diagnostics);
+}
+
+function annotateCrashAtBoundary(
+  error: unknown,
+  diagnostics: Record<string, unknown>,
+  preserveInner = false,
+  refreshProposal = false
+): void {
   try {
     if (!(error instanceof Error)) return;
     const safe: CrashDiagnostics = {};
@@ -317,8 +326,14 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       guardianSigningKey: suppliedSigningKey,
       hotKeyRotationPending: suppliedRotationPending
     } = diagnostics;
-    if (suppliedStep !== undefined || suppliedCompletionStep !== undefined) annotateGuardianProving(error, undefined);
-    if ((suppliedStep !== undefined && suppliedStep !== 'proposal_create') || suppliedCompletionStep !== undefined)
+    if (!preserveInner && (suppliedStep !== undefined || suppliedCompletionStep !== undefined))
+      annotateGuardianProving(error, undefined);
+    if (
+      !preserveInner &&
+      (refreshProposal ||
+        (suppliedStep !== undefined && suppliedStep !== 'proposal_create') ||
+        suppliedCompletionStep !== undefined)
+    )
       clearProposalCreateDiagnostics(error);
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -345,6 +360,11 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const storageOwner = STORAGE_OWNERS.find(value => value === suppliedOwner);
     const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
     const previous = { ...diagnosticsByError.get(error) };
+    if (refreshProposal) {
+      delete previous.proposalStep;
+      delete previous.proposalGuard;
+      delete previous.securityChange;
+    }
     if (
       storageOwner !== undefined &&
       storageOperation !== undefined &&
@@ -417,18 +437,35 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
+let proposalInvocation = 0n;
+const proposalInvocationByError = new WeakMap<Error, bigint>();
+
 async function annotatingRejection<T>(
   diagnostics: CrashDiagnostics,
   operation: () => Promise<T>,
-  onReject?: (error: unknown) => void
+  onReject?: (error: unknown) => void,
+  invocation?: bigint
 ): Promise<T> {
   try {
     return await operation();
   } catch (error) {
+    let preserveInner = false;
+    let refreshProposal = false;
     try {
-      onReject?.(error);
+      if (invocation !== undefined && error instanceof Error) {
+        const previousInvocation = proposalInvocationByError.get(error);
+        // An enclosing invocation starts earlier than the leaf that already observed this rejection.
+        preserveInner = previousInvocation !== undefined && previousInvocation > invocation;
+        if (!preserveInner) {
+          proposalInvocationByError.set(error, invocation);
+          refreshProposal = onReject !== undefined || snapshotProposalCreateDiagnostics(error) !== undefined;
+        }
+      }
     } catch {}
-    annotateCrash(error, diagnostics);
+    annotateCrashAtBoundary(error, diagnostics, preserveInner, refreshProposal);
+    try {
+      if (!preserveInner) onReject?.(error);
+    } catch {}
     throw error;
   }
 }
@@ -446,7 +483,8 @@ export function withProposalStep<T>(
   return annotatingRejection(
     securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange },
     operation,
-    onReject
+    onReject,
+    ++proposalInvocation
   );
 }
 

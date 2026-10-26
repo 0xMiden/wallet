@@ -2,7 +2,7 @@ import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { snapshotCrashDiagnostics, withProposalStep } from 'lib/telemetry/crash-diagnostics';
+import { annotateCrash, snapshotCrashDiagnostics, withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import { MultisigService, ProposalChainSyncError } from './index';
 
@@ -404,3 +404,22 @@ it('keeps current innermost creation evidence while an older outer boundary prop
   });
   expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
 });
+
+it.each(['proposal_sign', 'proposal_create'] as const)(
+  'replaces the complete stale %s group when a new consume rejection is observed',
+  async proposalStep => {
+    const loaded = await service();
+    const error = new Error('failed to get account: private');
+    annotateCrash(error, { proposalStep, proposalGuard: 'hot_key_missing', securityChange: 'switch-guardian' });
+    mockConsumeProposal.mockRejectedValueOnce(error);
+    await expect(
+      withProposalStep('sign_lock', () => loaded.createConsumeNotesProposal(['private-note']), 'replace-hot-key')
+    ).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      proposalStep: 'proposal_create',
+      proposalCreateApi: 'consume_notes',
+      proposalCreateFamily: 'sdk_account_read'
+    });
+    expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+  }
+);

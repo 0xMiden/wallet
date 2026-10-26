@@ -1014,7 +1014,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     annotateCrash(report, inherited);
     if (inherited.proposalStep === 'proposal_create') transferProposalCreateDiagnostics(failure.error, report);
     annotateGuardianProving(report, snapshotGuardianProving(failure.error));
-    transferOffscreenDeadline(failure.error, report);
+    if (identity.startsWith('offscreen_aborted_deadline;')) transferOffscreenDeadline(failure.error, report);
     annotateTerminalReport(report, {
       queueAdmissionObservation:
         reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueAdmissionObservation') : undefined,
