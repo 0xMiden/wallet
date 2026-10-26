@@ -45,11 +45,11 @@
     "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
   },
   "bridgeRouteEpoch": {
-    "message": "Rápido · Epoch",
+    "message": "Rápida · Epoch",
     "englishSource": "Fast · Epoch"
   },
   "bridgeRouteAgglayer": {
-    "message": "Lento · Agglayer",
+    "message": "Lenta · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
   "bridgeRouteUnavailableBody": {
@@ -4402,11 +4402,11 @@
     "englishSource": "No swap tokens are configured for this network yet."
   },
   "agglayerCheckingToken": {
-    "message": "Comprobando si este token es compatible con la ruta Slow…",
+    "message": "Comprobando si este token es compatible con la ruta Lenta…",
     "englishSource": "Checking whether this token supports the Slow route…"
   },
   "agglayerTokenUnsupported": {
-    "message": "Este token no es compatible con la ruta «Slow».",
+    "message": "Este token no es compatible con la ruta «Lenta».",
     "englishSource": "This token does not support the Slow route."
   },
   "agglayerTokenCheckFailed": {
