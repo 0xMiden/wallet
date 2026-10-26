@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test';
 
 import { openTelemetryImportType } from '../telemetry/onboarding';
 
+jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
+
 function fakePage(inviteOnly: boolean) {
   const clicks: string[] = [];
   const visible = new Set(inviteOnly ? ['onboarding-no-code'] : ['#import-link']);
