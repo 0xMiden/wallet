@@ -1,0 +1,45 @@
+name: Issue1948 frozen storage proof
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 1278180633a74863d119cbf978c7085dd162239d | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 1278180633a74863d119cbf978c7085dd162239d
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Run functional storage regressions (red-task4b-rebuild)
+        run: |
+          set -o pipefail
+          yarn jest --runInBand --runTestsByPath src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/account-restore.test.ts src/lib/miden/storage-health.test.ts src/lib/miden/recovery/guardian-state.test.ts src/lib/miden/recovery/restore.test.ts --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Report executed counts
+        if: always()
+        run: |
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('proof/results.json')); console.log(JSON.stringify({tests:x.numTotalTests,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests})); if(x.numPassedTests+x.numFailedTests!==64||x.numFailedTests!==9||x.numPassedTests!==55||x.numRuntimeErrorTestSuites)process.exit(1); for(const s of x.testResults)for(const a of s.assertionResults)if(a.status!=='pending')console.log(a.status+': '+a.fullName)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-proof-red-task4b-rebuild
+          path: proof/
