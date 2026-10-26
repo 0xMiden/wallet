@@ -9,26 +9,25 @@ import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`native action shortcut toggles sidebar after full-page onboarding (${theme})`, async ({}, testInfo) => {
+  test(`native toolbar click toggles sidebar after full-page onboarding (${theme})`, async ({}, testInfo) => {
     const root = mkdtempSync(join(tmpdir(), 'bread-toolbar-'));
     const extension = join(root, 'extension');
     cpSync(resolve('dist/chrome_unpacked'), extension, { recursive: true });
     const manifestPath = join(extension, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.action.default_popup).toBeUndefined();
-    // Only the activation chord is a fixture; Chrome dispatches the real action.
-    manifest.commands = {
-      ...manifest.commands,
-      _execute_action: { suggested_key: { default: 'Ctrl+Shift+Y' } }
-    };
-    writeFileSync(manifestPath, JSON.stringify(manifest));
     const profile = join(root, 'profile');
     const launch = () =>
       chromium.launchPersistentContext(profile, {
         headless: false,
         colorScheme: theme,
         viewport: null,
-        args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--window-size=1400,1000'],
+        args: [
+          `--disable-extensions-except=${extension}`,
+          `--load-extension=${extension}`,
+          '--window-size=1400,1000',
+          '--force-renderer-accessibility'
+        ],
         ignoreDefaultArgs: ['--disable-extensions']
       });
     let context = await launch();
@@ -40,14 +39,16 @@ for (const theme of ['light', 'dark'] as const) {
       await testInfo.attach(name, { path, contentType: 'image/png' });
     };
     const activate = () => {
-      const windows = execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'chromium'])
-        .toString()
-        .trim()
-        .split('\n');
-      const window = windows[0];
-      if (!window) throw new Error('Native Chromium window unavailable');
-      execFileSync('xdotool', ['windowfocus', '--sync', window]);
-      execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+      const value: unknown = JSON.parse(
+        execFileSync('/usr/bin/python3', [resolve('playwright/toolbar/native-bread-button.py')], {
+          timeout: 15000
+        }).toString()
+      );
+      if (!Array.isArray(value) || value.length !== 2 || !value.every(item => Number.isInteger(item)))
+        throw new Error('Native toolbar bounds invalid');
+      execFileSync('xdotool', ['mousemove', '--sync', String(value[0]), String(value[1]), 'click', '1'], {
+        timeout: 10000
+      });
     };
     try {
       let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
@@ -82,7 +83,7 @@ for (const theme of ['light', 'dark'] as const) {
         });
       await observePanel();
       await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
-      const page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
+      let page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
       await page.waitForSelector('[data-testid="onboarding-welcome"]', { timeout: 45000 });
       expect(context.pages().filter(p => p.url().includes('/fullpage.html'))).toHaveLength(1);
       await page.evaluate(value => {
@@ -92,6 +93,21 @@ for (const theme of ['light', 'dark'] as const) {
       await page.reload();
       await page.waitForSelector('[data-testid="onboarding-welcome"]');
       await page.bringToFront();
+      await capture('fresh-install-fullpage-onboarding');
+      const extensionId = new URL(worker.url()).host;
+      await context.close();
+      const preferencesPath = join(profile, 'Default', 'Preferences');
+      const preferences = JSON.parse(readFileSync(preferencesPath, 'utf8'));
+      preferences.extensions ??= {};
+      preferences.extensions.pinned_extensions = [extensionId];
+      writeFileSync(preferencesPath, JSON.stringify(preferences));
+      context = await launch();
+      worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      await observePanel();
+      activate();
+      await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
+      page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
+      await page.waitForSelector('[data-testid="onboarding-welcome"]');
       await capture('fullpage-onboarding');
       activate();
       await expect
@@ -193,8 +209,10 @@ for (const theme of ['light', 'dark'] as const) {
       activate();
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-after-worker-stop-and-wake');
+    } catch (error) {
+      await capture('failure-browser');
+      throw error;
     } finally {
-      if (testInfo.status !== testInfo.expectedStatus) await capture('failure-browser');
       await context.close();
       rmSync(root, { recursive: true, force: true });
     }
