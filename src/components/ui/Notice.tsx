@@ -48,6 +48,8 @@ export interface NoticeProps {
   /** Lets a control point at the notice with `aria-describedby`. */
   id?: string;
   'data-testid'?: string;
+  /** Why a feature notice shows, for the e2e harness. */
+  'data-reason'?: string;
 }
 
 // The tinted card's own box; `inline` drops the surface and the padding and is a caption line.
@@ -124,7 +126,8 @@ export const Notice: React.FC<NoticeProps> = ({
   role = 'note',
   className,
   id,
-  'data-testid': dataTestId
+  'data-testid': dataTestId,
+  'data-reason': dataReason
 }) => {
   useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence);
   return (
@@ -134,6 +137,7 @@ export const Notice: React.FC<NoticeProps> = ({
       data-tone={tone}
       data-variant={variant}
       data-testid={dataTestId}
+      data-reason={dataReason}
       className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
     >
       {icon && (

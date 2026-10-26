@@ -31,7 +31,7 @@ export function FeatureUnavailableNotice({
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
   useUserVisibleError(
-    availability.state === 'unavailable' && availability.reason !== 'restricted'
+    availability.state === 'unavailable' && availability.reason !== 'restricted' && availability.reason !== 'pending'
       ? 'bridgeFeatureUnavailableBody'
       : null,
     'notice'
@@ -47,6 +47,7 @@ export function FeatureUnavailableNotice({
       className={className}
       id={id}
       data-testid={dataTestId}
+      data-reason={availability.reason}
     >
       {t(restricted ? 'geoRestrictedBody' : 'bridgeFeatureUnavailableBody')}
     </Notice>

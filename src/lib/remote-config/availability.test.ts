@@ -304,8 +304,12 @@ describe('startup feature eligibility', () => {
     expect(featureAvailability('earnDeposit', withDecision(undefined))).toEqual(AVAILABLE);
   });
 
-  it('waits for the startup decision and reports a failed lookup', () => {
-    expect(featureAvailability('earnDeposit', withDecision({ state: 'loading' }))).toEqual({ state: 'loading' });
+  it('keeps Earn off while the startup decision is pending and reports a failed lookup', () => {
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'loading' }))).toEqual({
+      state: 'unavailable',
+      reason: 'pending',
+      detail: 'startup feature eligibility is pending'
+    });
     expect(featureAvailability('earnDeposit', withDecision({ state: 'failed' }))).toMatchObject({
       reason: 'service-down'
     });
