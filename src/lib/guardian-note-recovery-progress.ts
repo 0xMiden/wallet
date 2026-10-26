@@ -222,7 +222,7 @@ export async function dismissGuardianNoteRecoveryProgress(accountId: string, upd
 }
 
 /** Drop one account's record, leaving every other account's untouched. */
-export async function clearGuardianNoteRecoveryProgress(accountId: string): Promise<void> {
+export async function clearGuardianNoteRecoveryProgress(accountId: string, assertCurrent?: () => void): Promise<void> {
   try {
     const entries = await fetchMap();
     if (!(accountId in entries)) return;

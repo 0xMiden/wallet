@@ -66,7 +66,7 @@ export async function saveGuardianHistoryCheckpoint(
   return true;
 }
 
-export async function clearGuardianHistoryCheckpoints(): Promise<void> {
+export async function clearGuardianHistoryCheckpoints(assertCurrent?: () => void): Promise<void> {
   const generation = uuid();
   // A late cursor write cannot change this separate import marker.
   await putToStorage(GUARDIAN_HISTORY_GENERATION_KEY, generation);
