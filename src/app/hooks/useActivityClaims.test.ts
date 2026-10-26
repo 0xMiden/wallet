@@ -1,3 +1,4 @@
+import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import React from 'react';
 
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
@@ -1636,6 +1637,17 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     settle([{ id: 'tx-held', status: 4, held: true }]);
     return view;
   };
+  it('carries an exact root guard through the held retry card and notice', async () => {
+    const error = new Error('private guard text');
+    annotatePendingRetry(error, 'guardian_hold');
+    mockRequeue.mockRejectedValueOnce(error);
+    held();
+    await click('retry');
+    advance(1000);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_pending_activity_retry_failed', 'notice', {kind: 'pending_retry', pendingRetryReason: 'guardian_hold'});
+    expect(mockRequeue).toHaveBeenCalledTimes(1);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
   const expectRawReport = () =>
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_pending_activity_retry_failed', 'notice']]);
   const observeHeldCard = () => {

@@ -1675,6 +1675,12 @@ describe('user-visible transaction errors', () => {
       root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
   };
+  it('carries the current unanswered branch through the status screen', async () => {
+    mockRowState = { row: makeTx({status: ITransactionStatus.Unconfirmed, stage: 'submitting', error: 'Guardian request to https://private.invalid timed out after 10 ms'}), loaded: true };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {kind: 'submission_feedback', submissionFeedbackBranch: 'guardian_unanswered'});
+  });
   const failRow = () => {
     mockRowState = {
       row: makeTx({
