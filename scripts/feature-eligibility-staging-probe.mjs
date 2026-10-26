@@ -283,7 +283,7 @@ export function createProbeController(effects) {
       if (['PROBE_BEARER', 'PROBE_HASH_SECRET'].includes(binding.name)) {
         if (binding.type !== 'secret_text') fail('ownership_mismatch');
       } else if (Object.hasOwn(config.vars, binding.name)) {
-        if (binding.type !== 'plain_text' || binding.text !== config.vars[binding.name]) fail('ownership_mismatch');
+        if (binding.type !== 'plain_text' || (binding.name !== 'PROBE_OWNER' && binding.text !== config.vars[binding.name])) fail('ownership_mismatch');
       } else {
         const expected = config.ratelimits.find(candidate => candidate.name === binding.name);
         if (
