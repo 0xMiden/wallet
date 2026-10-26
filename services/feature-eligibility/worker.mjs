@@ -246,7 +246,18 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             if (length > maxBytes) throw new Error('Upstream unavailable');
             text += decoder.decode(value, { stream: true });
           }
-          return JSON.parse(text + decoder.decode());
+          const decoded = text + decoder.decode();
+          if (!leaseOverload) return JSON.parse(decoded);
+          let body;
+          try {
+            body = JSON.parse(decoded);
+          } catch {
+            throw new Error('Upstream unavailable');
+          }
+          if (record(body) && Object.keys(body).length === 1 && body.error === 'overloaded') {
+            throw Object.assign(new Error('Upstream unavailable'), { overloaded: true });
+          }
+          throw new Error('Upstream unavailable');
         })()
       ]);
     } finally {
