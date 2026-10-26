@@ -544,7 +544,17 @@ async function verifyScreenshotSource({ root, version, sourceSha, paths }) {
     if ((await realpath(top)) !== (await realpath(root)) || revision !== sourceSha) throw new Error('Source mismatch');
     const status = await execute(
       'git',
-      ['-C', root, 'status', '--porcelain', '--untracked-files=all', '--', 'store-listing'],
+      [
+        '-C',
+        root,
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--',
+        'store-listing',
+        'package.json',
+        'public/manifest.json'
+      ],
       { timeout: 10000, maxBuffer: 1024 * 1024 }
     );
     if (status.stdout.trim()) throw new Error('Screenshot source has local changes');
