@@ -139,7 +139,7 @@ test('signing file preparation rejects corrupt base64 and invalid Apple key meta
   assert.deepEqual(decodeSigningBase64(' YWJj\n'), Buffer.from('abc'));
   for (const value of ['', 'abc', '%%%=', 'YWJj!']) assert.throws(() => decodeSigningBase64(value), /base64/i);
   const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
-  const valid = { certificateBase64: 'YWJj', certificatePassword: 'test-password', keyId: 'ABCDEFGHIJ', issuerId: '12345678-1234-1234-1234-123456789abc', privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }) };
+  const valid = { certificateBase64: 'YWJj', profileBase64: 'YWJj', certificatePassword: 'test-password', keyId: 'ABCDEFGHIJ', issuerId: '12345678-1234-1234-1234-123456789abc', privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }) };
   assert.equal(validateAppleSigningMaterial(valid).keyId, valid.keyId);
   for (const change of [{ keyId: '../key' }, { issuerId: 'invalid' }, { privateKey: 'invalid' }, { certificatePassword: '' }]) {
     assert.throws(() => validateAppleSigningMaterial({ ...valid, ...change }), /invalid|required/i);
@@ -214,4 +214,14 @@ test('manual build choices expose only verified testnet and Chrome Devnet networ
   assert.match(choices, /- testnet/);
   assert.match(choices, /- devnet/);
   assert.doesNotMatch(choices, /- mainnet/);
+});
+
+test('Apple signing requires the existing provisioning profile as private decoded material', async () => {
+  const { validateAppleSigningMaterial } = await implementation();
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const valid = { certificateBase64: 'YWJj', profileBase64: 'cHJvZmlsZQ==', certificatePassword: 'test', keyId: 'ABCDEFGHIJ', issuerId: '12345678-1234-1234-1234-123456789abc', privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }) };
+  assert.deepEqual(validateAppleSigningMaterial(valid).profile, Buffer.from('profile'));
+  for (const profileBase64 of [undefined, '', 'invalid', '%%%=', 'cHJvZmlsZQ=!']) {
+    assert.throws(() => validateAppleSigningMaterial({ ...valid, profileBase64 }), /base64|profile/i);
+  }
 });
