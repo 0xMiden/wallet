@@ -1,9 +1,18 @@
 import React from 'react';
 
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
+import type { GcSale } from 'lib/miden/arcade/gc-sale';
 import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import {
+  SpendingLimitAuthorizationRequiredError,
+  SpendingLimitPriceUnavailableError,
+  type SpendingLimitAuthorization
+} from 'lib/miden/spending-limits/types';
+import { initiateGcPurchaseTransaction } from 'lib/miden/transaction/initiate';
+import { navigate } from 'lib/woozie';
 
 import { ArcadeAllowance } from './ArcadeAllowance';
 
@@ -30,13 +39,38 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   canonicalWalletAccountId: (id: string) => id,
   sameWalletAccountId: (a: string, b: string) => a === b
 }));
-let mockPurchase: { sale: null; state: 'unavailable' | 'checking' | 'ready'; refresh: () => Promise<null> } = {
+let mockPurchase: { sale: GcSale | null; state: 'unavailable' | 'checking' | 'ready'; refresh: () => Promise<null> } = {
   sale: null,
   state: 'unavailable',
   refresh: async () => null
 };
 jest.mock('./arcade/useGcPurchaseQuote', () => ({ useGcPurchaseQuote: () => mockPurchase }));
-jest.mock('./arcade/ArcadeGcPurchaseDrawer', () => ({ ArcadeGcPurchaseDrawer: () => null }));
+jest.mock('./arcade/ArcadeGcPurchaseDrawer', () => ({
+  ArcadeGcPurchaseDrawer: ({
+    open,
+    onConfirm,
+    error
+  }: {
+    open: boolean;
+    onConfirm: (quote: typeof mockQuote) => void;
+    error: string | null;
+  }) => (
+    <>
+      {open && <button onClick={() => onConfirm(mockQuote)}>confirm purchase</button>}
+      {error && <div role="alert">{error}</div>}
+    </>
+  )
+}));
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: jest.fn(({ onResult }: SpendingLimitChallengeProps) => (
+    <button onClick={() => onResult(mockAuthorization)}>authorize purchase</button>
+  ))
+}));
+const mockReadLimit = jest.fn();
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { readSpendingLimit: typeof mockReadLimit }) => unknown) =>
+    selector({ readSpendingLimit: mockReadLimit })
+}));
 jest.mock('lib/miden/activity', () => ({ requestSWTransactionProcessing: jest.fn() }));
 jest.mock('lib/miden/transaction/initiate', () => ({ initiateGcPurchaseTransaction: jest.fn() }));
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
@@ -72,6 +106,10 @@ const row = (tokenId: string, balance: number): TokenBalanceData => ({
   metadata: { name: 'Game Coin', symbol: 'GC', decimals: 6 }
 });
 beforeEach(() => {
+  jest.clearAllMocks();
+  jest.mocked(initiateGcPurchaseTransaction).mockReset();
+  mockReadLimit.mockResolvedValue({ accountId: 'account-a', revision: 'gc-policy-1', limit: 50_000_000n });
+  mockPurchase = { sale: null, state: 'unavailable', refresh: async () => null };
   mockNetwork = 'testnet';
   mockAccount = 'account-a';
   mockLoading = false;
@@ -139,4 +177,104 @@ it('offers only the fixed package and no amount or package selector', () => {
   expect(screen.queryByRole('spinbutton')).toBeNull();
   expect(screen.queryByRole('combobox')).toBeNull();
   expect(screen.getByRole('button', { name: 'arcadeBuyMoreGc' })).toBeDisabled();
+});
+
+const mockQuote = {
+  saleNoteId: 'public-sale',
+  sellerAccountId: 'seller',
+  payFaucetId: 'native-faucet',
+  fillAmount: 60_000_000n,
+  gcFaucetId: gc,
+  expectedAmount: 60_000_000_000n
+};
+const mockAuthorization: SpendingLimitAuthorization = {
+  kind: 'usd',
+  id: 'authorized-purchase',
+  accountId: 'account-a',
+  revision: 'gc-policy-1',
+  usdAmount: 60_000_000n,
+  spendsDigest: 'native-faucet:60000000',
+  issuedAt: 1,
+  expiresAt: 61
+};
+const enablePurchase = () => {
+  mockPurchase = {
+    sale: {
+      saleNoteId: mockQuote.saleNoteId,
+      sellerAccountId: mockQuote.sellerAccountId,
+      payFaucetId: mockQuote.payFaucetId,
+      gcFaucetId: gc,
+      offeredAmount: 100_000_000_000n,
+      requestedAmount: 100_000_000n,
+      fillFloor: 0n
+    },
+    state: 'ready',
+    refresh: async () => null
+  };
+  mockRows = [row(gc, 10), { ...row('native-faucet', 100), balanceBaseUnits: '100000000' }];
+  tagBalanceSnapshot(mockRows, { network: 'testnet', accountNonce: '12' });
+  const view = render(<ArcadeAllowance />);
+  fireEvent.click(screen.getByRole('button', { name: 'arcadeBuyMoreGc' }));
+  fireEvent.click(screen.getByRole('button', { name: 'confirm purchase' }));
+  return view;
+};
+
+it('redeems an exact pay-leg authorization after a purchase exceeds the cap', async () => {
+  jest
+    .mocked(initiateGcPurchaseTransaction)
+    .mockRejectedValueOnce(
+      new SpendingLimitAuthorizationRequiredError({
+        accountId: 'account-a',
+        usdAmount: 60_000_000n,
+        revision: 'gc-policy-1',
+        assessedAt: 1,
+        breach: { spent: 0n, proposedTotal: 60_000_000n, limit: 50_000_000n, overBy: 10_000_000n, resetAt: null }
+      })
+    )
+    .mockResolvedValueOnce('authorized-transaction');
+  enablePurchase();
+  await screen.findByRole('button', { name: 'authorize purchase' });
+  expect(jest.mocked(SpendingLimitChallenge).mock.calls.at(-1)?.[0]).toMatchObject({
+    spends: [{ faucetId: 'native-faucet', amount: 60_000_000n }]
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'authorize purchase' }));
+  await waitFor(() => expect(initiateGcPurchaseTransaction).toHaveBeenCalledTimes(2));
+  expect(initiateGcPurchaseTransaction).toHaveBeenLastCalledWith('account-a', mockQuote, false, mockAuthorization);
+  await waitFor(() =>
+    expect(navigate).toHaveBeenCalledWith('/generating-transaction/authorized-transaction', 'replace')
+  );
+});
+
+it('offers an unpriced challenge bound to the purchase pay leg and current policy revision', async () => {
+  jest.mocked(initiateGcPurchaseTransaction).mockRejectedValueOnce(new SpendingLimitPriceUnavailableError('USDCx'));
+  enablePurchase();
+  await screen.findByRole('button', { name: 'authorize purchase' });
+  expect(jest.mocked(SpendingLimitChallenge).mock.calls.at(-1)?.[0]).toMatchObject({
+    unpriced: {
+      accountId: 'account-a',
+      spends: [{ faucetId: 'native-faucet', amount: 60_000_000n }],
+      revision: 'gc-policy-1'
+    }
+  });
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+it('closes a stale purchase authorization challenge when the account changes', async () => {
+  jest.mocked(initiateGcPurchaseTransaction).mockRejectedValueOnce(
+    new SpendingLimitAuthorizationRequiredError({
+      accountId: 'account-a',
+      usdAmount: 60_000_000n,
+      revision: 'gc-policy-1',
+      assessedAt: 1,
+      breach: { spent: 0n, proposedTotal: 60_000_000n, limit: 50_000_000n, overBy: 10_000_000n, resetAt: null }
+    })
+  );
+  const view = enablePurchase();
+  await screen.findByRole('button', { name: 'authorize purchase' });
+  mockAccount = 'account-b';
+  view.rerender(<ArcadeAllowance />);
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'authorize purchase' })).toBeNull());
+  expect(initiateGcPurchaseTransaction).toHaveBeenCalledTimes(1);
+  expect(navigate).not.toHaveBeenCalled();
 });

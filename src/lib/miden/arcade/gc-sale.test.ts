@@ -6,6 +6,7 @@ import {
   DEFAULT_GC_PURCHASE_AMOUNT,
   GC_SALES,
   getGcSaleConfig,
+  findLiveGcSale,
   isGcSaleNote,
   pswapFillPayout,
   quoteGcPurchase,
@@ -18,8 +19,20 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   walletAccountIdToSdk: (id: string) => id,
   getBech32AddressFromAccountId: (id: string) => id
 }));
-jest.mock('lib/miden/sdk/pswap-order-note', () => ({}));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'mainnet' }));
+jest.mock('lib/miden/sdk/pswap-order-note', () => ({
+  listCommittedNoteIdsByTag: jest.fn(),
+  readPublicPswapNote: jest.fn(),
+  readChainTip: async () => 1_000,
+  pswapNoteTag: () => 123
+}));
+const mockDiscovery = jest.requireMock('lib/miden/sdk/pswap-order-note') as {
+  listCommittedNoteIdsByTag: jest.Mock;
+  readPublicPswapNote: jest.Mock;
+};
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'mainnet',
+  getEffectiveRpcUrl: () => 'https://node-a'
+}));
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => '0xusdcx' }));
 let mockSnapshot: Pick<BridgeConfigSnapshot, 'network' | 'config'> = { network: 'mainnet', config: null };
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockSnapshot }));
@@ -153,5 +166,49 @@ describe('quoteGcPurchase', () => {
     expect(quoteGcPurchase(sale({ fillFloor: 5_000n }), DEFAULT_GC_PURCHASE_AMOUNT)).toEqual({
       refusal: 'below_fill_floor'
     });
+  });
+});
+
+describe('findLiveGcSale', () => {
+  const seller = '0xseller';
+  const fields = () => liveNote({ offeredFaucet: GC_SALES.mainnet!.gcFaucetId });
+  const open = (noteId: string, creator = seller) => ({
+    kind: 'open',
+    note: { id: () => ({ toString: () => noteId }) },
+    noteId,
+    block: 100,
+    fields: { ...fields(), creator }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSnapshot = documentWith({ arcadeGcPurchase: true }, { sale: { seller } });
+  });
+
+  it('makes progress past nine unrelated tagged notes to the valid sale', async () => {
+    const unrelated = Array.from({ length: 9 }, (_, index) => ({
+      noteId: `unrelated-${index}`,
+      block: 200 + index
+    }));
+    mockDiscovery.listCommittedNoteIdsByTag.mockResolvedValue([...unrelated, { noteId: 'real-origin', block: 100 }]);
+    mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) =>
+      open(id, id.startsWith('unrelated') ? '0xother' : seller)
+    );
+
+    let discovered = await findLiveGcSale(MIDEN_NETWORK_NAME.MAINNET);
+    if (discovered === null) discovered = await findLiveGcSale(MIDEN_NETWORK_NAME.MAINNET);
+    expect(discovered).toMatchObject({ saleNoteId: 'real-origin' });
+  });
+
+  it('keeps a buyer-created note with valid seller terms eligible', async () => {
+    mockDiscovery.listCommittedNoteIdsByTag.mockResolvedValue([
+      { noteId: 'buyer-remainder', block: 150 },
+      { noteId: 'seller-origin', block: 100 }
+    ]);
+    mockDiscovery.readPublicPswapNote.mockImplementation(async (id: string) =>
+      id === 'seller-origin' ? { kind: 'spent' } : open(id)
+    );
+
+    await expect(findLiveGcSale(MIDEN_NETWORK_NAME.MAINNET)).resolves.toMatchObject({ saleNoteId: 'buyer-remainder' });
   });
 });
