@@ -106,7 +106,10 @@ function harness(options = {}) {
     idFromName: name => name,
     get: name => {
       globalTargets.push(name);
-      return { fetch: request => options.globalFetch ? options.globalFetch(request, value => guard.fetch(value)) : guard.fetch(request) };
+      return {
+        fetch: request =>
+          options.globalFetch ? options.globalFetch(request, value => guard.fetch(value)) : guard.fetch(request)
+      };
     }
   };
   env.CALLER_GUARD = {
@@ -157,7 +160,11 @@ test('returns only decisions and accepted policy version, using the edge caller 
   const h = harness();
   const response = await h.request({ headers: { 'X-Forwarded-For': '198.51.100.8', 'X-Real-IP': '198.51.100.9' } });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } });
+  assert.deepEqual(await response.json(), {
+    network: 'testnet',
+    version: 13,
+    allowed: { wallet: true, earn: true, swap: true }
+  });
   assert.equal(h.paidCalls()[0].url, 'https://geoip.maxmind.com/geoip/v2.1/city/203.0.113.7');
   assert.equal(h.paidCalls()[0].init.headers.Authorization, `Basic ${btoa('example-account:example-license')}`);
   assert.equal(h.paidCalls()[0].init.redirect, 'manual');
@@ -166,6 +173,10 @@ test('returns only decisions and accepted policy version, using the edge caller 
   assert.equal(response.headers.get('Vary'), 'Origin');
   assert.ok(!JSON.stringify([...h.storage.values]).includes('203.0.113.7'));
   assert.ok(!JSON.stringify([...h.storage.values]).includes('country'));
+  for (const entry of h.callerStates.values()) {
+    assert.ok(!JSON.stringify([...entry.storage.values]).includes('203.0.113.7'));
+    assert.ok(!JSON.stringify([...entry.storage.values]).includes('country'));
+  }
 });
 
 test('enables swap for explicitly enabled Near Intents with a usable 1Click mapping', async () => {
@@ -183,11 +194,46 @@ for (const [name, features, swap] of [
   ['disabled switch', { earn: false, nearIntents: false }, { oneClick }],
   ['missing 1Click config', { earn: false, nearIntents: true }, {}],
   ['missing asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [] } }],
-  ['invalid service URL', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, serviceUrl: 'http://one-click.example' } }],
-  ['invalid asset mapping', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [{ assetId: 'miden:usdc', faucetId: 'bad', decimals: 6 }] } }],
-  ['invalid additional mapping', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 }] } }],
-  ['duplicate asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }] } }],
-  ['duplicate faucet mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }] } }]
+  [
+    'invalid service URL',
+    { earn: false, nearIntents: true },
+    { oneClick: { ...oneClick, serviceUrl: 'http://one-click.example' } }
+  ],
+  [
+    'invalid asset mapping',
+    { earn: false, nearIntents: true },
+    { oneClick: { ...oneClick, midenAssets: [{ assetId: 'miden:usdc', faucetId: 'bad', decimals: 6 }] } }
+  ],
+  [
+    'invalid additional mapping',
+    { earn: false, nearIntents: true },
+    {
+      oneClick: {
+        ...oneClick,
+        midenAssets: [...oneClick.midenAssets, { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 }]
+      }
+    }
+  ],
+  [
+    'duplicate asset mappings',
+    { earn: false, nearIntents: true },
+    {
+      oneClick: {
+        ...oneClick,
+        midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }]
+      }
+    }
+  ],
+  [
+    'duplicate faucet mappings',
+    { earn: false, nearIntents: true },
+    {
+      oneClick: {
+        ...oneClick,
+        midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }]
+      }
+    }
+  ]
 ]) {
   test(`does not enable Near Intents for ${name}`, async () => {
     const response = await harness({ policy: policy({ features, swap }) }).request();
@@ -220,7 +266,11 @@ test('applies swap geo restrictions to OneClick-enabled Near Intents', async () 
 });
 
 for (const [name, place, allowed] of [
-  ['New York', { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] }, { wallet: true, earn: false, swap: true }],
+  [
+    'New York',
+    { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] },
+    { wallet: true, earn: false, swap: true }
+  ],
   ['United Kingdom', { country: { iso_code: 'GB' } }, { wallet: true, earn: false, swap: true }],
   ['US without state', { country: { iso_code: 'US' } }, { wallet: true, earn: false, swap: true }],
   ['Germany', { country: { iso_code: 'DE' } }, { wallet: true, earn: true, swap: true }]
@@ -232,7 +282,9 @@ for (const [name, place, allowed] of [
 }
 
 test('evaluates independent Swap and ISO subdivision rules with one paid query', async () => {
-  const h = harness({ policy: policy({ geo: { wallet: {}, earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } }) });
+  const h = harness({
+    policy: policy({ geo: { wallet: {}, earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } })
+  });
   assert.deepEqual((await (await h.request()).json()).allowed, { wallet: true, earn: true, swap: false });
   assert.equal(h.paidCalls().length, 1);
 });
@@ -297,7 +349,10 @@ test('an exhausted lookup budget cannot open the wallet merely because products 
 
 for (const [name, document] of [
   ['explicit empty wallet policy', policy({ geo: { wallet: {} } })],
-  ['disabled-only rules', policy({ geo: { wallet: { 'block CU': 'no' }, earn: { 'block NY state': 'no', 'block UK': 'no' } } })],
+  [
+    'disabled-only rules',
+    policy({ geo: { wallet: { 'block CU': 'no' }, earn: { 'block NY state': 'no', 'block UK': 'no' } } })
+  ],
   ['globally disabled Earn', policy({ features: { earn: false } })]
 ]) {
   test(`${name} needs no MaxMind credential or paid lookup`, async () => {
@@ -361,7 +416,11 @@ test('unknown prototype-like feature names cannot create eligibility rules', asy
 
 test('disabled products skip paid lookups only when the explicit wallet policy has no enabled rules', async () => {
   const h = harness({
-    policy: policy({ features: { earn: false }, swap: {}, geo: { wallet: {}, earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } } })
+    policy: policy({
+      features: { earn: false },
+      swap: {},
+      geo: { wallet: {}, earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } }
+    })
   });
   const response = await h.request();
   assert.deepEqual((await response.json()).allowed, { wallet: true, earn: false, swap: false });
@@ -397,7 +456,10 @@ for (const [name, options] of [
   ['invalid daily budget', { env: { MAXMIND_DAILY_QUERY_LIMIT: '-1' } }],
   ['missing caller hash secret', { env: { CALLER_HASH_SECRET: '' } }],
   ['lookup HTTP failure', { lookupResponse: () => new Response('private error', { status: 401 }) }],
-  ['lookup redirect', { lookupResponse: () => new Response(null, { status: 302, headers: { Location: 'https://other.example' } }) }],
+  [
+    'lookup redirect',
+    { lookupResponse: () => new Response(null, { status: 302, headers: { Location: 'https://other.example' } }) }
+  ],
   ['malformed lookup body', { place: { country: { iso_code: 'not-a-country' }, private: 'private detail' } }],
   ['oversized lookup body', { lookupResponse: () => new Response('x'.repeat(70_000)) }]
 ]) {
@@ -428,7 +490,9 @@ test('applies the deadline before upstream response headers arrive', async () =>
 
 test('a policy fetch failure after expiry cannot fall back to an old cached allow decision', async () => {
   let unavailable = false;
-  const h = harness({ policyResponse: () => unavailable ? new Response('', { status: 502 }) : Response.json(policy()) });
+  const h = harness({
+    policyResponse: () => (unavailable ? new Response('', { status: 502 }) : Response.json(policy()))
+  });
   assert.equal((await h.request()).status, 200);
   h.advance(60_001);
   unavailable = true;
@@ -462,7 +526,11 @@ test('a new authoritative policy version invalidates a cached decision', async (
   h.advance(60_001);
   h.setPolicy(policy({ version: 14, geo: { wallet: {}, earn: { 'block US': 'yes' } } }));
   const response = await h.request();
-  assert.deepEqual(await response.json(), { network: 'testnet', version: 14, allowed: { wallet: true, earn: false, swap: true } });
+  assert.deepEqual(await response.json(), {
+    network: 'testnet',
+    version: 14,
+    allowed: { wallet: true, earn: false, swap: true }
+  });
   assert.equal(h.paidCalls().length, 2);
 });
 
@@ -483,10 +551,11 @@ test('a changed global policy invalidates a cached wallet allow before its five-
 test('old two-decision cache entries cannot authorize wallet access even with a matching policy identity', async () => {
   const h = harness();
   await h.request();
-  const callerKey = [...h.storage.values.keys()].find(key => key.startsWith('caller:'));
-  const caller = h.storage.values.get(callerKey);
+  const callerStorage = [...h.callerStates.values()][0].storage;
+  const callerKey = [...callerStorage.values.keys()].find(key => key.startsWith('caller:'));
+  const caller = callerStorage.values.get(callerKey);
   caller.cache.testnet.allowed = { earn: true, swap: true };
-  h.storage.values.set(callerKey, caller);
+  callerStorage.values.set(callerKey, caller);
   const response = await h.request();
   assert.deepEqual((await response.json()).allowed, { wallet: true, earn: true, swap: true });
   assert.equal(h.paidCalls().length, 2);
@@ -579,14 +648,22 @@ test('published release tag selection accepts output-safe tags and rejects unsaf
     }),
     { mode: 'published-release', ref: 'refs/tags/v1.2.3', message: 'Wallet release v1.2.3' }
   );
-  for (const releaseTag of ['', 'v1.2.3\rDEPLOYMENT_SOURCE=main', 'v1.2.3\nDEPLOYMENT_SOURCE=main', 'x'.repeat(256), undefined, 123]) {
+  for (const releaseTag of [
+    '',
+    'v1.2.3\rDEPLOYMENT_SOURCE=main',
+    'v1.2.3\nDEPLOYMENT_SOURCE=main',
+    'x'.repeat(256),
+    undefined,
+    123
+  ]) {
     assert.throws(() => resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }));
   }
   for (const releaseTag of ['v1[unsafe]', 'release with spaces', 'x'.repeat(255)]) {
-    assert.deepEqual(
-      resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }),
-      { mode: 'published-release', ref: `refs/tags/${releaseTag}`, message: `Wallet release ${releaseTag}` }
-    );
+    assert.deepEqual(resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }), {
+      mode: 'published-release',
+      ref: `refs/tags/${releaseTag}`,
+      message: `Wallet release ${releaseTag}`
+    });
   }
 
   const workflow = readFileSync(
@@ -612,7 +689,10 @@ test('reusable deployment inputs omit source while manual deployment retains its
   assert.doesNotMatch(callInputs, /deployment_source:/);
   assert.match(callInputs, /release_tag:\n        type: string\n        required: true/);
   assert.ok(dispatchInputs);
-  assert.match(dispatchInputs, /deployment_source:\n[\s\S]*?type: choice\n[\s\S]*?options:\n          - published-release\n          - main/);
+  assert.match(
+    dispatchInputs,
+    /deployment_source:\n[\s\S]*?type: choice\n[\s\S]*?options:\n          - published-release\n          - main/
+  );
   assert.match(dispatchInputs, /release_tag:\n[\s\S]*?required: false/);
   const releaseWallet = readFileSync(new URL('../../.github/workflows/release-wallet.yml', import.meta.url), 'utf8');
   const eligibilityCaller = releaseWallet.match(/  eligibility:\n([\s\S]*?)\n\n  chrome:/)?.[1];
@@ -625,7 +705,9 @@ test('deployment resolver step maps each workflow input and context value exactl
     new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
     'utf8'
   );
-  const sourceStep = workflow.match(/      - name: Resolve deployment source\n([\s\S]*?)\n      - name: Require a published release/);
+  const sourceStep = workflow.match(
+    /      - name: Resolve deployment source\n([\s\S]*?)\n      - name: Require a published release/
+  );
   assert.ok(sourceStep);
   for (const mapping of [
     /DEPLOYMENT_SOURCE: \$\{\{ inputs\.deployment_source \|\| 'published-release' \}\}/,
@@ -633,7 +715,8 @@ test('deployment resolver step maps each workflow input and context value exactl
     /DEPLOY_EVENT_NAME: \$\{\{ github\.event_name \}\}/,
     /DEPLOY_WORKFLOW_REF: \$\{\{ github\.ref \}\}/,
     /DEPLOY_WORKFLOW_SHA: \$\{\{ github\.sha \}\}/
-  ]) assert.match(sourceStep[1], mapping);
+  ])
+    assert.match(sourceStep[1], mapping);
 });
 
 test('deployment resolver CLI writes exact outputs and rejects untrusted manual inputs', () => {
@@ -682,7 +765,6 @@ test('deployment resolver CLI writes exact outputs and rejects untrusted manual 
   }
 });
 
-
 test('warm cache and per-caller rejection do not enter the global reservation object', async () => {
   const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
   assert.equal((await h.request()).status, 200);
@@ -700,21 +782,28 @@ test('one caller storage queue cannot block another caller warm cache', async ()
   const first = [...h.callerStates.values()][0];
   let release;
   const originalQueue = first.storage.queue;
-  first.storage.queue = new Promise(resolve => { release = resolve; });
+  first.storage.queue = new Promise(resolve => {
+    release = resolve;
+  });
   try {
     const held = h.request();
     const healthy = await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } });
     assert.equal(healthy.status, 200);
     release();
     assert.equal((await held).status, 200);
-  } finally { release(); first.storage.queue = originalQueue; }
+  } finally {
+    release();
+    first.storage.queue = originalQueue;
+  }
   assert.equal(h.globalTargets.length, 2);
 });
 
 test('all caller objects share the existing nearly exhausted persisted global budget', async () => {
   const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '10000' } });
   h.storage.values.set('budget', { day: '2026-10-20', count: 9999 });
-  const responses = await Promise.all(['203.0.113.7', '203.0.113.8', '203.0.113.9'].map(ip => h.request({ headers: { 'CF-Connecting-IP': ip } })));
+  const responses = await Promise.all(
+    ['203.0.113.7', '203.0.113.8', '203.0.113.9'].map(ip => h.request({ headers: { 'CF-Connecting-IP': ip } }))
+  );
   assert.equal(responses.filter(r => r.status === 200).length, 1);
   assert.equal(h.paidCalls().length, 1);
   assert.equal(h.storage.values.get('budget').count, 10000);
@@ -726,11 +815,14 @@ test('all caller objects share the existing nearly exhausted persisted global bu
 
 test('queued reservation expiry fails closed without starting a late paid lookup or retry', async () => {
   let h;
-  h = harness({ timeoutMs: 10, globalFetch: async (request, proceed) => {
-    await new Promise(resolve => setTimeout(resolve, 40));
-    h.advance(21);
-    return proceed(request);
-  }});
+  h = harness({
+    timeoutMs: 10,
+    globalFetch: async (request, proceed) => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      h.advance(21);
+      return proceed(request);
+    }
+  });
   const response = await h.request();
   assert.equal(response.status, 503);
   await new Promise(resolve => setTimeout(resolve, 60));
@@ -749,8 +841,13 @@ test('readiness and requests fail closed when the caller namespace binding is un
 
 test('caller migration appends a class without recreating the original budget namespace', () => {
   const config = JSON.parse(readFileSync(new URL('./wrangler.jsonc', import.meta.url), 'utf8'));
-  assert.deepEqual(config.durable_objects.bindings.find(b => b.name === 'ELIGIBILITY_GUARD'), { name: 'ELIGIBILITY_GUARD', class_name: 'EligibilityGuard' });
+  assert.deepEqual(
+    config.durable_objects.bindings.find(b => b.name === 'ELIGIBILITY_GUARD'),
+    { name: 'ELIGIBILITY_GUARD', class_name: 'EligibilityGuard' }
+  );
   assert.deepEqual(config.migrations[0], { tag: 'v1', new_sqlite_classes: ['EligibilityGuard'] });
-  assert.ok(config.durable_objects.bindings.some(b => b.name === 'CALLER_GUARD' && b.class_name === 'CallerEligibilityGuard'));
+  assert.ok(
+    config.durable_objects.bindings.some(b => b.name === 'CALLER_GUARD' && b.class_name === 'CallerEligibilityGuard')
+  );
   assert.deepEqual(config.migrations.slice(1), [{ tag: 'v2', new_sqlite_classes: ['CallerEligibilityGuard'] }]);
 });
