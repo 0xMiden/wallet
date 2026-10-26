@@ -297,6 +297,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Run Arcade sheet layout regression
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.arcade-visual.config.ts
+
+      - name: Upload Arcade sheet layout regression
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arcade-sheet-layout
+          path: test-results/arcade-visual/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Run 1Click visual acceptance
         timeout-minutes: 5
         run: yarn playwright test --config playwright.one-click-visual.config.ts
