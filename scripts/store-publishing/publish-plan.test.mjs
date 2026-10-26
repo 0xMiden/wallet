@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { run as runCli } from './cli.mjs';
 
 import {
   main,
@@ -944,4 +945,79 @@ test('iOS metadata recovery restores a submit journal across the absent build nu
   missingAttestation.files = { [name]: previous.files[name] };
   missingAttestation.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
   assert.throws(() => validateStateSnapshot(submit, missingAttestation, context), /attestation/);
+});
+
+test('workflow prepare restores an intact private screenshot journal consumed by the real CLI', async t => {
+  const { env, root, directory } = await workspace(t);
+  Object.assign(env, {
+    PLATFORM: 'ios',
+    STORE_ACTION: 'sync-screenshots',
+    PRODUCER_RUN_ID: '',
+    STATE_RUN_ID: '80',
+    RELEASE_TAG: 'v1.17.8',
+    PRIOR_STATE_DIR: join(directory, 'prior'),
+    STATE_RUN_FILE: join(directory, 'state-run.json'),
+    APP_STORE_CONNECT_KEY_ID: 'ABCDE12345',
+    APP_STORE_CONNECT_ISSUER_ID: 'fixture-issuer',
+    APP_STORE_CONNECT_KEY_P8: 'inert-test-key'
+  });
+  const plan = validatePublishRequest({
+    ...input,
+    platform: 'ios',
+    action: 'sync-screenshots',
+    producerRunId: '',
+    stateRunId: '80',
+    releaseTag: 'v1.17.8'
+  });
+  const journal = iosScreenshotJournal('1.17.8');
+  journal.pending = {
+    kind: 'reserve',
+    group: 0,
+    imageIndex: 0,
+    fileName: `bread-${sha}-${'d'.repeat(64)}-0.png`,
+    fileSize: 123
+  };
+  const name = 'ios-6789341854-1.17.8-screenshots.json';
+  const previous = snapshot(plan, { extraManifest: { action: 'sync-screenshots', outcome: 'failure' } });
+  previous.files = { [name]: bytes(journal) };
+  previous.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+  await mkdir(env.PRIOR_STATE_DIR);
+  await writeFile(join(env.PRIOR_STATE_DIR, 'manifest.json'), bytes(previous.manifest));
+  await writeFile(join(env.PRIOR_STATE_DIR, name), previous.files[name]);
+  await writeFile(env.STATE_RUN_FILE, bytes(run('state', { conclusion: 'failure' })));
+  await main('prepare', env);
+  const restored = join(root, 'state', name);
+  let synchronized = 0;
+  await main('execute', env, {
+    run: argv =>
+      runCli(argv, {
+        verifyScreenshotSource: async () => {},
+        loadScreenshotManifest: async () => ({
+          manifestSha256: journal.binding.manifestSha256,
+          sets: [
+            {
+              platform: 'ios',
+              storeId: journal.binding.appId,
+              locale: 'en-US',
+              displayType: 'APP_IPHONE_67',
+              images: [{ path: 'fixture.png' }]
+            }
+          ]
+        }),
+        auth: { createAppleToken: () => 'fixture-token', createApiClient: () => ({}) },
+        screenshotOperations: {
+          syncScreenshots: async (client, options) => {
+            assert.deepEqual(options.screenshotJournal, journal);
+            await options.persistScreenshotJournal(options.screenshotJournal);
+            synchronized++;
+            return { changed: false, matches: true };
+          }
+        }
+      })
+  });
+  assert.equal(synchronized, 1);
+  assert.deepEqual(JSON.parse(await readFile(restored)), journal);
+  assert.equal((await stat(restored)).mode & 0o777, 0o600);
+  assert.equal((await stat(join(root, 'state'))).mode & 0o777, 0o700);
+  assert.deepEqual(await readdir(join(root, 'state')), [name]);
 });
