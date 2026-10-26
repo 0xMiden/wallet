@@ -17,6 +17,10 @@ const ios = () => ({
   appId: '6789341854',
   bundleId: 'com.miden.bread',
   version: '1.17.7',
+  sourceSha: 'a'.repeat(40),
+  network: 'testnet',
+  manifestSha256: 'b'.repeat(64),
+  persistScreenshotJournal: async () => {},
   sets: [{ platform: 'ios', storeId: '6789341854', locale: 'en-US', displayType: 'APP_IPHONE_65', images: [image()] }]
 });
 const android = () => ({
@@ -53,7 +57,8 @@ function appleClient({
   operations
 } = {}) {
   const calls = [];
-  let pending = false;
+  let reserved;
+  let committed = false;
   const client = {
     request: async (method, path, options) => {
       calls.push({ method, path, options });
@@ -75,32 +80,39 @@ function appleClient({
         return {
           data: [{ type: 'appScreenshotSets', id: 'set', attributes: { screenshotDisplayType: 'APP_IPHONE_65' } }]
         };
-      if (method === 'GET' && path.includes('/set/appScreenshots')) return { data: pending ? [remote('new')] : shots };
-      if (method === 'POST' && path === '/v1/appScreenshots')
-        return {
-          data: {
-            ...remote('new', null, 'AWAITING_UPLOAD'),
-            attributes: {
-              uploadOperations: operations ?? [
-                {
-                  method: 'PUT',
-                  url: 'https://store-030.blobstore.apple.com/upload',
-                  offset: 0,
-                  length: bytes.length,
-                  requestHeaders: [{ name: 'Content-Type', value: 'image/png' }]
-                }
-              ]
+      if (method === 'GET' && path.includes('/set/appScreenshots'))
+        return { data: [...shots, ...(reserved ? [reserved] : [])] };
+      if (method === 'POST' && path === '/v1/appScreenshots') {
+        reserved = remote('new', null, 'AWAITING_UPLOAD');
+        Object.assign(reserved.attributes, options.body.data.attributes, {
+          uploadOperations: operations ?? [
+            {
+              method: 'PUT',
+              url: 'https://store-030.blobstore.apple.com/upload',
+              offset: 0,
+              length: bytes.length,
+              requestHeaders: [{ name: 'Content-Type', value: 'image/png' }]
             }
-          }
-        };
-      if (method === 'PATCH' && path === '/v1/appScreenshots/new') {
-        pending = true;
-        return { data: remote('new', digest('md5'), 'UPLOAD_COMPLETE') };
+          ]
+        });
+        return { data: reserved };
       }
-      if (method === 'GET' && path === '/v1/appScreenshots/new')
-        return { data: remote('new', digest('md5'), pollStates.length > 1 ? pollStates.shift() : pollStates[0]) };
+      if (method === 'PATCH' && path === '/v1/appScreenshots/new') {
+        committed = true;
+        reserved.attributes.sourceFileChecksum = digest('md5');
+        reserved.attributes.assetDeliveryState.state = 'UPLOAD_COMPLETE';
+        return { data: reserved };
+      }
+      if (method === 'GET' && path === '/v1/appScreenshots/new') {
+        if (committed)
+          reserved.attributes.assetDeliveryState.state = pollStates.length > 1 ? pollStates.shift() : pollStates[0];
+        return { data: reserved };
+      }
       if (method === 'PATCH' && path.includes('/relationships/appScreenshots')) return {};
-      if (method === 'DELETE' && path.startsWith('/v1/appScreenshots/')) return {};
+      if (method === 'DELETE' && path.startsWith('/v1/appScreenshots/')) {
+        shots = shots.filter(x => path !== `/v1/appScreenshots/${x.id}`);
+        return {};
+      }
       throw new Error(`Unexpected request ${method} ${path}`);
     }
   };
@@ -396,7 +408,7 @@ test('Apple screenshot processing waits out the old twenty-poll ceiling by defau
     fetchImpl: async url => ({ ok: true, redirected: false, url })
   });
   assert.equal(result.changed, true);
-  assert.equal(c.calls.filter(call => call.method === 'GET' && call.path === '/v1/appScreenshots/new').length, 21);
+  assert.equal(c.calls.filter(call => call.method === 'GET' && call.path === '/v1/appScreenshots/new').length, 22);
   assert.deepEqual(sleeps, Array(20).fill(5000));
 });
 test('an Apple screenshot with no delivery state cannot verify by checksum', async () => {
@@ -445,7 +457,7 @@ test('equal image counts with reversed checksums fail complete ordered verificat
   });
   assert.equal((await verifyScreenshots(c.client, options)).matches, false);
 });
-test('full Apple groups refuse replacement without deleting originals to make reservation space', async () => {
+test('full Apple groups release only required capacity before canonical replacement', async () => {
   const old = 'a'.repeat(32);
   const c = appleClient({ shots: Array.from({ length: 10 }, (_, index) => remote(`old-${index}`, old)) });
   const baselineSets = [
@@ -455,6 +467,12 @@ test('full Apple groups refuse replacement without deleting originals to make re
       images: Array.from({ length: 10 }, () => ({ checksum: { algorithm: 'md5', value: old } }))
     }
   ];
-  await assert.rejects(() => syncScreenshots(c.client, { ...ios(), allowWrites: true, baselineSets }), /capacity/i);
-  assert.equal(mutations(c.calls).length, 0);
+  await syncScreenshots(c.client, {
+    ...ios(),
+    allowWrites: true,
+    baselineSets,
+    fetchImpl: async url => ({ ok: true, redirected: false, url })
+  });
+  assert.equal(mutations(c.calls)[0].method, 'DELETE');
+  assert.equal(mutations(c.calls).filter(x => x.method === 'DELETE').length, 10);
 });

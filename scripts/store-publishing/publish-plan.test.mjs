@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { run as runCli } from './cli.mjs';
 
 import {
   main,
@@ -822,4 +823,201 @@ test('the notes fallback is scoped to iOS submit and leaves other default action
     const plan = validatePublishRequest({ ...input, ...change, releaseNotes: '' });
     assert.equal(plan.releaseNotes, undefined);
   }
+});
+
+test('iOS prepare and screenshot sync optionally restore an exact prior state run', () => {
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const request = { ...input, platform: 'ios', action, producerRunId: '', stateRunId: '80' };
+    assert.equal(validatePublishRequest(request).needsState, true);
+    assert.equal(validatePublishRequest({ ...request, stateRunId: '' }).needsState, false);
+  }
+});
+
+function iosScreenshotJournal(version = '1.17.7') {
+  return {
+    schemaVersion: 1,
+    binding: {
+      appId: '6789341854',
+      bundleId: 'com.miden.bread',
+      version,
+      network: 'testnet',
+      sourceSha: sha,
+      manifestSha256: 'b'.repeat(64)
+    },
+    versionId: 'draft',
+    pending: null,
+    groups: [
+      {
+        locale: 'en-US',
+        displayType: 'APP_IPHONE_67',
+        localizationId: 'locale',
+        setId: 'large',
+        desired: ['d'.repeat(64)],
+        original: [],
+        images: [],
+        owned: []
+      }
+    ]
+  };
+}
+test('failed iOS screenshot state restores exact journal without fabricating binary upload evidence', () => {
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const plan = validatePublishRequest({ ...input, platform: 'ios', action, producerRunId: '', stateRunId: '80' });
+    const previous = snapshot(plan, { extraManifest: { action, outcome: 'failure' } });
+    const name = 'ios-6789341854-1.17.7-screenshots.json';
+    previous.files = { [name]: bytes(iosScreenshotJournal()) };
+    previous.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+    const context = { run: run('state', { conclusion: 'failure' }) };
+    assert.deepEqual(validateStateSnapshot(plan, previous, context), { [name]: iosScreenshotJournal() });
+    const submit = validatePublishRequest({
+      ...input,
+      platform: 'ios',
+      action: 'submit',
+      stateRunId: '80',
+      buildNumber: '19'
+    });
+    assert.throws(() => validateStateSnapshot(submit, previous, context), /manifest|attestation|release/i);
+    const bad = iosScreenshotJournal();
+    bad.binding.sourceSha = 'f'.repeat(40);
+    const data = bytes(bad);
+    assert.throws(
+      () =>
+        validateStateSnapshot(
+          plan,
+          {
+            ...previous,
+            files: { [name]: data },
+            manifest: { ...previous.manifest, files: [{ name, sha256: digest(data) }] }
+          },
+          context
+        ),
+      /journal/
+    );
+  }
+});
+test('failed iOS workflow exports only validated screenshot recovery evidence', async t => {
+  const { env, root } = await workspace(t);
+  await main('prepare', env);
+  const iosEnv = {
+    ...env,
+    PLATFORM: 'ios',
+    STORE_ACTION: 'prepare',
+    PRODUCER_RUN_ID: '',
+    OPERATION_OUTCOME: 'failure'
+  };
+  const name = 'ios-6789341854-1.17.7-screenshots.json';
+  await writeFile(join(root, 'state', name), bytes(iosScreenshotJournal()));
+  await writeFile(join(root, 'state', 'private-provider.log'), 'must-not-export');
+  await main('export', iosEnv);
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'export', name))), iosScreenshotJournal());
+  const manifest = JSON.parse(await readFile(join(root, 'export', 'manifest.json')));
+  assert.equal(manifest.outcome, 'failure');
+  assert.deepEqual(manifest.files, [{ name, sha256: digest(await readFile(join(root, 'export', name))) }]);
+  const invalid = iosScreenshotJournal();
+  invalid.privateUploadUrl = 'https://blob.apple.com/private';
+  await writeFile(join(root, 'state', name), bytes(invalid));
+  await assert.rejects(main('export', iosEnv), /journal/);
+});
+
+test('iOS metadata recovery restores a submit journal across the absent build number boundary', () => {
+  const submit = validatePublishRequest({
+    ...input,
+    platform: 'ios',
+    action: 'submit',
+    stateRunId: '80',
+    buildNumber: '19'
+  });
+  const previous = snapshot(submit, { extraManifest: { action: 'submit', outcome: 'failure' } });
+  const name = 'ios-6789341854-1.17.7-screenshots.json';
+  previous.files[name] = bytes(iosScreenshotJournal());
+  previous.manifest.files = Object.entries(previous.files).map(([name, value]) => ({ name, sha256: digest(value) }));
+  const context = { run: run('state', { conclusion: 'failure' }) };
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const metadata = validatePublishRequest({ ...input, platform: 'ios', action, producerRunId: '', stateRunId: '80' });
+    assert.deepEqual(validateStateSnapshot(metadata, previous, context), { [name]: iosScreenshotJournal() });
+    const wrongBuild = validatePublishRequest({ ...metadata, buildNumber: '20' });
+    assert.throws(() => validateStateSnapshot(wrongBuild, previous, context), /manifest|artifact|release/);
+    const invalid = structuredClone(previous);
+    invalid.manifest.intent.buildNumber = '0';
+    assert.throws(() => validateStateSnapshot(metadata, invalid, context), /build|manifest|release/);
+  }
+  const missingAttestation = structuredClone(previous);
+  missingAttestation.files = { [name]: previous.files[name] };
+  missingAttestation.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+  assert.throws(() => validateStateSnapshot(submit, missingAttestation, context), /attestation/);
+});
+
+test('workflow prepare restores an intact private screenshot journal consumed by the real CLI', async t => {
+  const { env, root, directory } = await workspace(t);
+  Object.assign(env, {
+    PLATFORM: 'ios',
+    STORE_ACTION: 'sync-screenshots',
+    PRODUCER_RUN_ID: '',
+    STATE_RUN_ID: '80',
+    RELEASE_TAG: 'v1.17.8',
+    PRIOR_STATE_DIR: join(directory, 'prior'),
+    STATE_RUN_FILE: join(directory, 'state-run.json'),
+    APP_STORE_CONNECT_KEY_ID: 'ABCDE12345',
+    APP_STORE_CONNECT_ISSUER_ID: 'fixture-issuer',
+    APP_STORE_CONNECT_KEY_P8: 'inert-test-key'
+  });
+  const plan = validatePublishRequest({
+    ...input,
+    platform: 'ios',
+    action: 'sync-screenshots',
+    producerRunId: '',
+    stateRunId: '80',
+    releaseTag: 'v1.17.8'
+  });
+  const journal = iosScreenshotJournal('1.17.8');
+  journal.pending = {
+    kind: 'reserve',
+    group: 0,
+    imageIndex: 0,
+    fileName: `bread-${sha}-${'d'.repeat(64)}-0.png`,
+    fileSize: 123
+  };
+  const name = 'ios-6789341854-1.17.8-screenshots.json';
+  const previous = snapshot(plan, { extraManifest: { action: 'sync-screenshots', outcome: 'failure' } });
+  previous.files = { [name]: bytes(journal) };
+  previous.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+  await mkdir(env.PRIOR_STATE_DIR);
+  await writeFile(join(env.PRIOR_STATE_DIR, 'manifest.json'), bytes(previous.manifest));
+  await writeFile(join(env.PRIOR_STATE_DIR, name), previous.files[name]);
+  await writeFile(env.STATE_RUN_FILE, bytes(run('state', { conclusion: 'failure' })));
+  await main('prepare', env);
+  const restored = join(root, 'state', name);
+  let synchronized = 0;
+  await main('execute', env, {
+    run: argv =>
+      runCli(argv, {
+        verifyScreenshotSource: async () => {},
+        loadScreenshotManifest: async () => ({
+          manifestSha256: journal.binding.manifestSha256,
+          sets: [
+            {
+              platform: 'ios',
+              storeId: journal.binding.appId,
+              locale: 'en-US',
+              displayType: 'APP_IPHONE_67',
+              images: [{ path: 'fixture.png' }]
+            }
+          ]
+        }),
+        auth: { createAppleToken: () => 'fixture-token', createApiClient: () => ({}) },
+        screenshotOperations: {
+          syncScreenshots: async (client, options) => {
+            assert.deepEqual(options.screenshotJournal, journal);
+            await options.persistScreenshotJournal(options.screenshotJournal);
+            synchronized++;
+            return { changed: false, matches: true };
+          }
+        }
+      })
+  });
+  assert.equal(synchronized, 1);
+  assert.deepEqual(JSON.parse(await readFile(restored)), journal);
+  assert.equal((await stat(restored)).mode & 0o777, 0o600);
+  assert.equal((await stat(join(root, 'state'))).mode & 0o777, 0o700);
+  assert.deepEqual(await readdir(join(root, 'state')), [name]);
 });

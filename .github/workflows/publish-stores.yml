@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       state_run_id:
-        description: Previous state run (submit/release/Android upload/sync/edit inspection/Chrome resume)
+        description: Previous state run (submit/release/Android upload/sync/edit inspection/Chrome resume/iOS prepare or sync recovery)
         required: false
         type: string
       build_number:

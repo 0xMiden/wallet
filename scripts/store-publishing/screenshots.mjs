@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
+import { validateScreenshotJournal } from './screenshot-journal.mjs';
 
 class ScreenshotError extends Error {}
 
@@ -173,6 +174,8 @@ function appleImage(resource) {
       ? { checksum: checksum({ algorithm: 'md5', value: attributes.sourceFileChecksum }) }
       : {}),
     state,
+    ...(typeof attributes.fileName === 'string' ? { fileName: attributes.fileName } : {}),
+    ...(Number.isSafeInteger(attributes.fileSize) ? { fileSize: attributes.fileSize } : {}),
     ...(url ? { url, width: imageAsset.width, height: imageAsset.height } : {})
   };
 }
@@ -411,37 +414,37 @@ function appleOperations(operations, length) {
   return sorted;
 }
 
-async function uploadApple(client, options, setId, image) {
-  const { data: reserved } = await client.request('POST', '/v1/appScreenshots', {
-    body: {
-      data: {
-        type: 'appScreenshots',
-        attributes: { fileName: basename(image.path), fileSize: image.bytes.length },
-        relationships: { appScreenshotSet: { data: { type: 'appScreenshotSets', id: setId } } }
-      }
-    }
-  });
+async function uploadApple(client, options, image, reserved) {
   if (reserved?.type !== 'appScreenshots' || !id(reserved.id))
     throw new ScreenshotError('Apple screenshot reservation identity is invalid');
-  const operations = appleOperations(reserved.attributes?.uploadOperations, image.bytes.length);
-  for (const operation of operations) {
-    const response = await (options.fetchImpl ?? fetch)(operation.url, {
-      method: 'PUT',
-      headers: operation.headers,
-      body: image.bytes.subarray(operation.offset, operation.offset + operation.length),
-      redirect: 'error',
-      credentials: 'omit',
-      signal: AbortSignal.timeout(60000)
-    });
-    if (!response?.ok || response.redirected || (response.url && response.url !== operation.url)) {
-      throw new ScreenshotError('Apple screenshot byte upload failed or redirected');
-    }
+  const initial = appleImage(reserved);
+  if (initial.state === 'COMPLETE') {
+    if (!sameImage(initial, image)) throw new ScreenshotError('Apple processed screenshot checksum does not match');
+    return initial;
   }
-  await client.request('PATCH', `/v1/appScreenshots/${reserved.id}`, {
-    body: {
-      data: { type: 'appScreenshots', id: reserved.id, attributes: { uploaded: true, sourceFileChecksum: image.md5 } }
+  if (initial.state === 'FAILED') throw new ScreenshotError('Apple screenshot processing FAILED');
+  if (initial.state === 'AWAITING_UPLOAD') {
+    const operations = appleOperations(reserved.attributes?.uploadOperations, image.bytes.length);
+    for (const operation of operations) {
+      const response = await (options.fetchImpl ?? fetch)(operation.url, {
+        method: 'PUT',
+        headers: operation.headers,
+        body: image.bytes.subarray(operation.offset, operation.offset + operation.length),
+        redirect: 'error',
+        credentials: 'omit',
+        signal: AbortSignal.timeout(60000)
+      });
+      if (!response?.ok || response.redirected || (response.url && response.url !== operation.url)) {
+        throw new ScreenshotError('Apple screenshot byte upload failed or redirected');
+      }
     }
-  });
+    if (options.beforeComplete) await options.beforeComplete(reserved.id);
+    await client.request('PATCH', `/v1/appScreenshots/${reserved.id}`, {
+      body: {
+        data: { type: 'appScreenshots', id: reserved.id, attributes: { uploaded: true, sourceFileChecksum: image.md5 } }
+      }
+    });
+  }
   const maxPolls = options.maxPolls ?? applePollsDefault;
   if (!Number.isInteger(maxPolls) || maxPolls < 1 || maxPolls > applePollsMax)
     throw new ScreenshotError('Screenshot processing poll bound is invalid');
@@ -480,6 +483,7 @@ export async function syncScreenshots(client, options) {
   const inventory = await inventoryScreenshots(client, options);
   if (selected.platform === 'ios' && !draftStates.has(inventory.state))
     throw new ScreenshotError('Apple screenshot version is not in an eligible editable draft state');
+  if (selected.platform === 'ios') return syncAppleJournal(client, options, selected, desired, baseline, inventory);
   const changed = desired.filter(
     set =>
       !sameSet(
@@ -501,19 +505,6 @@ export async function syncScreenshots(client, options) {
     }
     if (!inventory.localizations.some(item => item.locale === set.locale))
       throw new ScreenshotError('Screenshot locale does not exist in the selected version or edit');
-    if (selected.platform === 'ios') {
-      const available = [...(actual?.images ?? [])];
-      let missing = 0;
-      for (const image of set.images) {
-        const index = available.findIndex(existing => sameImage(existing, image));
-        if (index < 0) missing++;
-        else available.splice(index, 1);
-      }
-      if ((actual?.images.length ?? 0) + missing > 10)
-        throw new ScreenshotError(
-          'Apple screenshot set has insufficient reservation capacity; preserve originals and resolve explicitly'
-        );
-    }
   }
   const updatedSets = [];
   try {
@@ -530,41 +521,6 @@ export async function syncScreenshots(client, options) {
           if (!sameImage(playImage(response?.image), image))
             throw new ScreenshotError('Android uploaded screenshot checksum does not match');
         }
-      } else {
-        let setId = actual?.setId;
-        if (!setId) {
-          const localization = inventory.localizations.find(item => item.locale === set.locale);
-          const { data } = await client.request('POST', '/v1/appScreenshotSets', {
-            body: {
-              data: {
-                type: 'appScreenshotSets',
-                attributes: { screenshotDisplayType: set.displayType },
-                relationships: {
-                  appStoreVersionLocalization: { data: { type: 'appStoreVersionLocalizations', id: localization.id } }
-                }
-              }
-            }
-          });
-          if (
-            data?.type !== 'appScreenshotSets' ||
-            !id(data.id) ||
-            data.attributes?.screenshotDisplayType !== set.displayType
-          )
-            throw new ScreenshotError('Apple created an unexpected screenshot set');
-          setId = data.id;
-        }
-        const remaining = [...(actual?.images ?? [])];
-        const ordered = [];
-        for (const image of set.images) {
-          const index = remaining.findIndex(existing => sameImage(existing, image));
-          if (index >= 0) ordered.push(remaining.splice(index, 1)[0]);
-          else ordered.push(await uploadApple(client, options, setId, image));
-        }
-        // Preserve existing assets until all replacements have completed processing.
-        for (const image of remaining) await client.request('DELETE', `/v1/appScreenshots/${image.assetId}`);
-        await client.request('PATCH', `/v1/appScreenshotSets/${setId}/relationships/appScreenshots`, {
-          body: { data: ordered.map(image => ({ type: 'appScreenshots', id: image.assetId })) }
-        });
       }
       updatedSets.push({ locale: set.locale, displayType: set.displayType, count: set.images.length });
     }
@@ -580,4 +536,270 @@ export async function syncScreenshots(client, options) {
     );
   }
   return { ...selected, changed: changed.length > 0, matches: true, updatedSets };
+}
+
+function journalImage(image) {
+  return Object.fromEntries(
+    ['assetId', 'state', 'checksum', 'fileName', 'fileSize']
+      .filter(key => image[key] !== undefined)
+      .map(key => [key, image[key]])
+  );
+}
+
+async function syncAppleJournal(client, options, selected, desired, baseline, initial) {
+  const binding = Object.fromEntries(
+    ['appId', 'bundleId', 'version', 'network', 'sourceSha', 'manifestSha256'].map(key => [key, options[key]])
+  );
+  const changed = desired.filter(
+    set =>
+      !sameSet(
+        initial.sets.find(actual => groupKey(actual) === groupKey(set)),
+        set
+      )
+  );
+  let journal = options.screenshotJournal ? validateScreenshotJournal(options.screenshotJournal, binding) : undefined;
+  const save = async () => {
+    journal = validateScreenshotJournal(journal, binding);
+    await options.persistScreenshotJournal(structuredClone(journal));
+  };
+  if (!journal) {
+    for (const set of changed) {
+      const actual = initial.sets.find(item => groupKey(item) === groupKey(set));
+      if (
+        actual?.images.length &&
+        !approvedBaseline(
+          actual,
+          baseline.find(item => groupKey(item) === groupKey(set))
+        )
+      )
+        throw new ScreenshotError('Screenshot drift differs from the approved repository baseline');
+      if (!initial.localizations.some(item => item.locale === set.locale))
+        throw new ScreenshotError('Screenshot locale does not exist in the selected version');
+    }
+    if (!changed.length) return { ...selected, changed: false, matches: true, updatedSets: [] };
+    journal = {
+      schemaVersion: 1,
+      binding,
+      versionId: initial.versionId,
+      pending: null,
+      groups: desired.map(set => {
+        const actual = initial.sets.find(item => groupKey(item) === groupKey(set));
+        return {
+          locale: set.locale,
+          displayType: set.displayType,
+          localizationId: initial.localizations.find(item => item.locale === set.locale)?.id,
+          setId: actual?.setId ?? null,
+          desired: set.images.map(image => image.sha256),
+          original: (actual?.images ?? []).map(journalImage),
+          images: (actual?.images ?? []).map(journalImage),
+          owned: []
+        };
+      })
+    };
+  }
+  if (typeof options.persistScreenshotJournal !== 'function')
+    throw new ScreenshotError('iOS screenshot replacement requires private journal persistence');
+  if (
+    journal.groups.length !== desired.length ||
+    journal.groups.some(
+      (group, index) =>
+        groupKey(group) !== groupKey(desired[index]) ||
+        JSON.stringify(group.desired) !== JSON.stringify(desired[index].images.map(x => x.sha256))
+    )
+  )
+    throw new ScreenshotError('Screenshot journal desired groups differ from canonical manifest');
+  const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const reconcile = inventory => {
+    if (!draftStates.has(inventory.state) || inventory.versionId !== journal.versionId)
+      throw new ScreenshotError('Screenshot journal draft identity/state changed');
+    const next = structuredClone(journal);
+    for (const [index, group] of next.groups.entries()) {
+      const actual = inventory.sets.find(set => groupKey(set) === groupKey(group));
+      const localization = inventory.localizations.find(item => item.locale === group.locale);
+      if (localization?.id !== group.localizationId) throw new ScreenshotError('Screenshot journal localization drift');
+      const pending = next.pending?.group === index ? next.pending : undefined;
+      if (pending?.kind === 'create-set' && group.setId === null) {
+        if (!actual)
+          throw new ScreenshotError('Indeterminate screenshot set creation pending read-only reconciliation');
+        if (actual.images.length) throw new ScreenshotError('Unexpected screenshot set creation drift');
+        group.setId = actual.setId;
+      }
+      if ((actual?.setId ?? null) !== group.setId) throw new ScreenshotError('Screenshot journal set identity drift');
+      const images = (actual?.images ?? []).map(journalImage);
+      if (images.length > 10) throw new ScreenshotError('Apple screenshot capacity exceeded');
+      if (pending?.kind === 'reserve') {
+        const extras = images.filter(image => !group.images.some(old => old.assetId === image.assetId));
+        if (!extras.length)
+          throw new ScreenshotError('Indeterminate screenshot reservation pending read-only reconciliation');
+        if (extras.length !== 1 || extras[0].fileName !== pending.fileName || extras[0].fileSize !== pending.fileSize)
+          throw new ScreenshotError('Screenshot pending reservation drift');
+        group.images.push(extras[0]);
+        group.owned.push({ assetId: extras[0].assetId, imageIndex: pending.imageIndex });
+      } else if (pending?.kind === 'delete' && !images.some(image => image.assetId === pending.assetId)) {
+        group.images = group.images.filter(image => image.assetId !== pending.assetId);
+        group.owned = group.owned.filter(image => image.assetId !== pending.assetId);
+      } else if (pending?.kind === 'order') {
+        const order = images.map(image => image.assetId);
+        if (equal(order, pending.order))
+          group.images = pending.order.map(assetId => group.images.find(image => image.assetId === assetId));
+      }
+      if (group.images.length !== images.length) throw new ScreenshotError('Screenshot journal membership drift');
+      for (let i = 0; i < images.length; i++) {
+        const expected = group.images[i];
+        const image = images[i];
+        const owned = group.owned.find(item => item.assetId === image.assetId);
+        if (image.assetId !== expected.assetId) throw new ScreenshotError('Screenshot journal order drift');
+        if (!owned || expected.state === 'COMPLETE') {
+          if (!equal(image, expected)) throw new ScreenshotError('Screenshot journal image drift');
+        } else {
+          if (
+            image.fileName !== expected.fileName ||
+            image.fileSize !== expected.fileSize ||
+            (image.checksum && !sameImage({ ...image, state: 'COMPLETE' }, desired[index].images[owned.imageIndex])) ||
+            (image.state === 'COMPLETE' && !sameImage(image, desired[index].images[owned.imageIndex])) ||
+            !['AWAITING_UPLOAD', 'UPLOAD_COMPLETE', 'COMPLETE', 'FAILED'].includes(image.state)
+          )
+            throw new ScreenshotError('Screenshot journal owned upload checksum/state drift');
+        }
+      }
+      group.images = images;
+    }
+    next.pending = null;
+    journal = next;
+  };
+  try {
+    reconcile(initial);
+    await save();
+    const refresh = async () => {
+      reconcile(await inventoryScreenshots(client, options));
+      await save();
+    };
+    const mutate = async (pending, method, path, request) => {
+      await refresh();
+      journal.pending = pending;
+      await save();
+      const result = await client.request(method, path, request);
+      await refresh();
+      return result;
+    };
+    for (const [index, set] of desired.entries()) {
+      if (!changed.some(item => groupKey(item) === groupKey(set))) continue;
+      if (journal.groups[index].setId === null) {
+        await mutate({ kind: 'create-set', group: index }, 'POST', '/v1/appScreenshotSets', {
+          body: {
+            data: {
+              type: 'appScreenshotSets',
+              attributes: { screenshotDisplayType: set.displayType },
+              relationships: {
+                appStoreVersionLocalization: {
+                  data: { type: 'appStoreVersionLocalizations', id: journal.groups[index].localizationId }
+                }
+              }
+            }
+          }
+        });
+      }
+      const ordered = [];
+      for (const [imageIndex, image] of set.images.entries()) {
+        await refresh();
+        let group = journal.groups[index];
+        let existing = group.images.find(item => !ordered.includes(item.assetId) && sameImage(item, image));
+        if (!existing) {
+          let owned = group.owned.find(item => item.imageIndex === imageIndex && !ordered.includes(item.assetId));
+          if (owned && group.images.find(item => item.assetId === owned.assetId)?.state === 'FAILED') {
+            await mutate(
+              { kind: 'delete', group: index, assetId: owned.assetId },
+              'DELETE',
+              `/v1/appScreenshots/${owned.assetId}`
+            );
+            owned = undefined;
+          }
+          if (!owned) {
+            group = journal.groups[index];
+            if (group.images.length >= 10) {
+              const available = [...group.images];
+              for (const wanted of set.images) {
+                const keep = available.findIndex(item => sameImage(item, wanted));
+                if (keep >= 0) available.splice(keep, 1);
+              }
+              const obsolete = available.find(item => !group.owned.some(owner => owner.assetId === item.assetId));
+              if (!obsolete) throw new ScreenshotError('No approved obsolete screenshot can release capacity');
+              await mutate(
+                { kind: 'delete', group: index, assetId: obsolete.assetId },
+                'DELETE',
+                `/v1/appScreenshots/${obsolete.assetId}`
+              );
+            }
+            const fileName = `bread-${options.sourceSha}-${image.sha256}-${imageIndex}.png`;
+            await mutate(
+              { kind: 'reserve', group: index, imageIndex, fileName, fileSize: image.bytes.length },
+              'POST',
+              '/v1/appScreenshots',
+              {
+                body: {
+                  data: {
+                    type: 'appScreenshots',
+                    attributes: { fileName, fileSize: image.bytes.length },
+                    relationships: {
+                      appScreenshotSet: { data: { type: 'appScreenshotSets', id: journal.groups[index].setId } }
+                    }
+                  }
+                }
+              }
+            );
+            owned = journal.groups[index].owned.find(item => item.imageIndex === imageIndex);
+          }
+          const { data: reserved } = await client.request('GET', `/v1/appScreenshots/${owned.assetId}`);
+          if (reserved?.id !== owned.assetId)
+            throw new ScreenshotError('Screenshot reservation returned another identity');
+          existing = await uploadApple(
+            client,
+            {
+              ...options,
+              beforeComplete: async assetId => {
+                await refresh();
+                journal.pending = { kind: 'complete', group: index, assetId };
+                await save();
+              }
+            },
+            image,
+            reserved
+          );
+          await refresh();
+        }
+        ordered.push(existing.assetId);
+      }
+      for (const image of [...journal.groups[index].images]) {
+        if (!ordered.includes(image.assetId))
+          await mutate(
+            { kind: 'delete', group: index, assetId: image.assetId },
+            'DELETE',
+            `/v1/appScreenshots/${image.assetId}`
+          );
+      }
+      await mutate(
+        { kind: 'order', group: index, order: ordered },
+        'PATCH',
+        `/v1/appScreenshotSets/${journal.groups[index].setId}/relationships/appScreenshots`,
+        {
+          body: { data: ordered.map(assetId => ({ type: 'appScreenshots', id: assetId })) }
+        }
+      );
+    }
+    const after = await inventoryScreenshots(client, options);
+    reconcile(after);
+    if (differences(after, desired).length)
+      throw new ScreenshotError('Screenshot post-upload ordered inventory verification failed');
+    await save();
+  } catch (error) {
+    throw new ScreenshotError(
+      `Screenshot synchronization stopped after a possible partial store edit: ${error instanceof ScreenshotError ? error.message : 'private journal or store operation interrupted'}`
+    );
+  }
+  return {
+    ...selected,
+    changed: changed.length > 0,
+    matches: true,
+    updatedSets: changed.map(set => ({ locale: set.locale, displayType: set.displayType, count: set.images.length }))
+  };
 }
