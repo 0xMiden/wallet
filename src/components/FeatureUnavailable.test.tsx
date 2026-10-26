@@ -169,3 +169,15 @@ describe('user-visible unavailable-feature errors', () => {
     expect(mockReport.mock.calls).toEqual([]);
   });
 });
+
+it('defaults a composite feature to unknown without rerunning availability or restarting the outage dwell', () => {
+  jest.useFakeTimers();
+  mockReport.mockClear();
+  const view=render(<FeatureUnavailableNotice availability={DOWN} />);
+  act(()=>jest.advanceTimersByTime(500));
+  view.rerender(<FeatureUnavailableNotice availability={{...DOWN,detail:'private-other'}} />);
+  act(()=>jest.advanceTimersByTime(500));
+  expect(mockReport).toHaveBeenCalledTimes(1);
+  expect(mockReport).toHaveBeenCalledWith('bridgeFeatureUnavailableBody','notice',{kind:'feature_unavailable',featureUnavailableFeature:'unknown',featureUnavailableReason:'service-down'});
+  jest.useRealTimers();
+});

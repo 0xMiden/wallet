@@ -1,3 +1,5 @@
+import React from 'react';
+import { act, render, cleanup } from '@testing-library/react';
 import { dedupeIntegration } from '@sentry/browser';
 
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
@@ -19,6 +21,8 @@ import { __resetRelayDiagnosticsForTest } from './relay-diagnostics';
 import { reportTransactionFailure } from './transaction-failure';
 import { reportUserVisibleError, _resetUserVisibleErrorLimitsForTest } from './user-visible-error';
 import packageJson from '../../../package.json';
+
+jest.mock('react-i18next', () => ({useTranslation: () => ({t: (key:string) => key})}));
 
 jest.mock('lib/settings/helpers', () => ({
   ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
@@ -1190,4 +1194,21 @@ it('retains the current UI producer root through both final scrubs without enric
   expect(wire).not.toContain('grpc_unknown');
   expect(wire).not.toContain('recipientValidationStage');
   expect(wire).not.toContain(ADDRESS);
+});
+
+it.each(['off','not-configured','not-deployed','service-down'] as const)('emits the actual displayed feature reason %s through the final wire', async reason => {
+  jest.useFakeTimers();
+  try {
+    _resetUserVisibleErrorLimitsForTest();
+    initCrashReporting();
+    const {FeatureUnavailableNotice} = await import('components/FeatureUnavailable');
+    const component = FeatureUnavailableNotice as React.ComponentType<{availability: {state:'unavailable';reason:typeof reason;detail:string};feature:string}>;
+    render(React.createElement(component, {availability:{state:'unavailable',reason,detail:ADDRESS},feature:'earnDeposit'}));
+    await act(async () => {await jest.advanceTimersByTimeAsync(1000);});
+    expect(captured).toHaveLength(1);
+    const event:Record<string,unknown>={extra:{private:ADDRESS}};
+    scrubEvent(event,{originalException:captured[0]});
+    expect(event.extra).toEqual({walletDiagnostics:expect.objectContaining({featureUnavailableFeature:'earnDeposit',featureUnavailableReason:reason})});
+    expect(JSON.stringify(event)).not.toContain(ADDRESS);
+  } finally {cleanup();jest.useRealTimers();}
 });
