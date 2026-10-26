@@ -1,0 +1,55 @@
+name: Proof wait availability focused proof
+on:
+  push:
+    branches: ['ci/proof-wait-evidence-*']
+permissions:
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+      - name: Verify source proof parent
+        run: git diff --exit-code HEAD^ HEAD -- . ':!.github/workflows/proof-wait-evidence-proof.yml' ':!.github/proof-wait-evidence-mutations.py'
+      - name: Check TypeScript
+        run: yarn ts
+      - name: Run focused reconciliation and final privacy acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            src/lib/miden/transaction/proof-wait-availability.integration.test.ts
+            src/lib/miden/transaction/reconcile-unconfirmed.writes.test.ts
+            src/lib/miden/transaction/failure-identity.integration.test.ts
+            src/lib/telemetry/transaction-failure.test.ts
+            src/lib/telemetry/transaction-failure.worker.test.ts
+            src/lib/telemetry/crash.test.ts
+            src/lib/telemetry/crash-diagnostics.test.ts
+            src/lib/telemetry/crash-diagnostics.policy.test.ts
+          )
+          if [ -f src/lib/telemetry/proof-wait-availability-diagnostics.test.ts ]; then files+=(src/lib/telemetry/proof-wait-availability-diagnostics.test.ts); fi
+          yarn test --runTestsByPath "${files[@]}" --maxWorkers=2 --ci --json --outputFile=proof-wait-test-results.json
+      - name: Verify targeted behavioral mutations
+        if: ${{ success() && hashFiles('.github/proof-wait-evidence-mutations.py') != '' }}
+        run: python3 .github/proof-wait-evidence-mutations.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof-wait-evidence-results
+          path: |
+            proof-wait-test-results.json
+            proof-wait-mutations.json
+            mutation-*.json
+            mutation-*.log
