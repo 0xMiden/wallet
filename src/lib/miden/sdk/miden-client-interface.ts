@@ -1,3 +1,4 @@
+import { captureRecoveryNotes } from '../recovery/capture';
 import {
   Account,
   AccountFile,
@@ -2046,9 +2047,9 @@ export class MidenClientInterface {
           await onStage?.('proving');
           if (attempt.provesInWorker())
             return await (assertStorageHealthy(storageEpoch),
-            this.submitWorkerProof(executed, attempt, onStage, assertQuotedDeadline));
+            this.submitWorkerProof(executed, requestBytes, attempt, onStage, assertQuotedDeadline));
           return await (assertStorageHealthy(storageEpoch),
-          this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage, assertQuotedDeadline));
+          this.proveInRealmAndSubmit(executed, requestBytes, prover, attempt, 'send', onStage, assertQuotedDeadline));
         },
         dbTransaction.delegateTransaction,
         this.liveness
@@ -2127,11 +2128,11 @@ export class MidenClientInterface {
               TransactionRequest.deserialize(requestBytes)
             ));
             if (attempt.provesInWorker())
-              return await (assertStorageHealthy(storageEpoch), this.submitWorkerProof(executed, attempt, onStage));
+              return await (assertStorageHealthy(storageEpoch), this.submitWorkerProof(executed, requestBytes, attempt, onStage));
             // A prove failure is pre-submit, so `proveWithFallback` may re-run this attempt locally on
             // the same notes; a submit failure is never re-run.
             const result = await (assertStorageHealthy(storageEpoch),
-            this.proveInRealmAndSubmit(executed, prover, attempt, 'consume', onStage));
+            this.proveInRealmAndSubmit(executed, requestBytes, prover, attempt, 'consume', onStage));
             recordProveTiming('consumeNoteId staged consume returned');
             return result;
           } catch (error) {
@@ -2224,12 +2225,13 @@ export class MidenClientInterface {
           // other leg proves here, and both submit and apply themselves, so the apply after the submit
           // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
           // delegated prove that fails falls back to a local attempt with a freshly built request.
+          const requestBytes = request.serialize();
           const executed = await (assertStorageHealthy(storageEpoch),
           this.client.transactions.executeRequest(canonicalId, request));
           if (attempt.provesInWorker())
-            return await (assertStorageHealthy(storageEpoch), this.submitWorkerProof(executed, attempt, onStage));
+            return await (assertStorageHealthy(storageEpoch), this.submitWorkerProof(executed, requestBytes, attempt, onStage));
           return await (assertStorageHealthy(storageEpoch),
-          this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage));
+          this.proveInRealmAndSubmit(executed, requestBytes, prover, attempt, 'swap', onStage));
         },
         transaction.delegateTransaction,
         this.liveness
@@ -2287,12 +2289,12 @@ export class MidenClientInterface {
             this.client.transactions.executeRequest(accountId, request));
             recordProveTiming('newTransaction staged: executeRequest returned; proving');
             if (attempt.provesInWorker())
-              return await (assertStorageHealthy(storageEpoch), this.submitWorkerProof(executed, attempt, onStage));
+              return await (assertStorageHealthy(storageEpoch), this.submitWorkerProof(executed, requestBytes, attempt, onStage));
             // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
             // hides the L1 claim (#1233). With no result to return, the dApp's `waitForTransaction`
             // still answers with an error, one saying the network accepted it and naming its id.
             const result = await (assertStorageHealthy(storageEpoch),
-            this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction', onStage));
+            this.proveInRealmAndSubmit(executed, requestBytes, prover, attempt, 'newTransaction', onStage));
             recordProveTiming('newTransaction staged: apply returned');
             return result;
           } catch (error) {
@@ -2328,6 +2330,7 @@ export class MidenClientInterface {
    */
   private async submitWorkerProof(
     executed: TransactionExecution,
+    requestBytes: Uint8Array,
     attempt: ProveAttempt,
     onStage?: LeafStage,
     beforeSubmit?: () => void
@@ -2337,18 +2340,14 @@ export class MidenClientInterface {
     const storageEpoch = getStorageHealth().epoch;
     try {
       const proof = await attempt.proveInWorker(executed.result);
-      // No re-check of the hold between here and `submitProven`: the helper's own
-      // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
-      // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
-      // microtask before `markSubmitting()`, not a real parking point. An async
-      // `onStage` would need its own re-check.
       // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
       if (onStage) {
         await onStage('submitting', {
-          evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
+          evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent()),
+          recovery: captureRecoveryNotes(executed.result, requestBytes, () => attempt.holdIsCurrent())
         });
       }
-      if (beforeSubmit && attempt.evicted()) {
+      if (attempt.evicted()) {
         throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
       }
       beforeSubmit?.();
@@ -2384,6 +2383,7 @@ export class MidenClientInterface {
    */
   private async proveInRealmAndSubmit(
     executed: TransactionExecution,
+    requestBytes: Uint8Array,
     prover: TransactionProver | undefined,
     attempt: ProveAttempt,
     write: 'send' | 'newTransaction' | 'consume' | 'swap',
@@ -2422,7 +2422,8 @@ export class MidenClientInterface {
       recordProveTiming(`${write} staged: prove returned; submitting`);
       if (onStage) {
         await onStage('submitting', {
-          evidence: readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent())
+          evidence: readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent()),
+          recovery: captureRecoveryNotes(executed.result, requestBytes, () => attempt.holdIsCurrent())
         });
       }
       // The prove and the stage stamp both park, and an eviction during either hands the client to a
@@ -2515,9 +2516,11 @@ export class MidenClientInterface {
         await onStage?.('executing');
         recordProveTiming('proveLocallyViaOffscreen entering execute under SDK lock');
         const tExec = performance.now();
+        let requestBytes = new Uint8Array();
         const txResult = await access._withInnerWebClient(async inner => {
           recordProveTiming('proveLocallyViaOffscreen inside SDK lock; building exec args');
           const { accountId, request } = await buildExecuteArgs(wasm, inner);
+          requestBytes = new Uint8Array(request.serialize());
           recordProveTiming('proveLocallyViaOffscreen built exec args; calling executeTransaction');
           const r = await (assertStorageHealthy(storageEpoch), inner.executeTransaction(accountId, request));
           recordProveTiming(
@@ -2544,10 +2547,11 @@ export class MidenClientInterface {
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
         if (onStage) {
           await onStage('submitting', {
-            evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent())
+            evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()),
+            recovery: captureRecoveryNotes(txResult, requestBytes, () => attempt.holdIsCurrent())
           });
         }
-        if (beforeSubmit && attempt.evicted()) {
+        if (attempt.evicted()) {
           throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
         }
         beforeSubmit?.();

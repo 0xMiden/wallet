@@ -83,6 +83,8 @@ import type {
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { toSerializable } from 'lib/miden/recovery/serialization';
+import { captureRecoveryNotes } from 'lib/miden/recovery/capture';
+import type { RecoveryCapture } from 'lib/miden/recovery/types';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
 import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
@@ -498,19 +500,30 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
 // A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
 // pre-submit step.
-async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
+async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields, recovery?: RecoveryCapture): Promise<void> {
+  assertStorageHealthy();
+  const epoch = getStorageHealth().epoch;
   const { op_id } = context;
   if (!op_id || context.settled) throw new Error('offscreen submit gate: no live op to submit for');
   const request: OffscreenSubmitGateRequest = {
     target: SW_TARGET,
     type: OFFSCREEN_SUBMIT_GATE,
     op_id,
+    recovery: toSerializable(recovery),
     ...(evidence === undefined ? {} : { evidence })
   };
   const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
   if (resp?.ok !== true) {
     throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
   }
+  assertStorageHealthy(epoch);
+  assertWasmHoldCurrent(context.hold, 'after recovery journal acknowledgment');
+  if (context.settled) throw new Error('offscreen submit gate: operation settled');
+}
+
+async function stageWithSubmitGate(context: DispatchContext, stage: ITransactionStage, detail?: import('lib/miden/db/types').StageDetail): Promise<void> {
+  if (stage === 'submitting') await passSubmitGate(context, detail?.evidence, detail?.recovery);
+  postStageEvent(context, stage, detail?.evidence);
 }
 
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
@@ -899,7 +912,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     }
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      stageWithSubmitGate(context, stage, detail)
     );
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
     // has submitted (and applied) by the time it returns, on either leg, so the
@@ -930,7 +943,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
     const result = await client.sendTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+      stageWithSubmitGate(context, stage, detail)
     );
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
@@ -967,7 +980,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     const result = await client.swapTransaction(
       tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      (stage, detail) => stageWithSubmitGate(context, stage, detail),
       feeContext
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
@@ -992,7 +1005,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      (stage, detail) => stageWithSubmitGate(context, stage, detail)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
@@ -1170,7 +1183,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
         await passSubmitGate(
           context,
-          readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+          readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold),
+          captureRecoveryNotes(txResult, trBytes, () => getCurrentWasmLockHold() === hold)
         );
         // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
         assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');

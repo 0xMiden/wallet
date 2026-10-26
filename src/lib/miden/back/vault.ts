@@ -1,3 +1,5 @@
+import { readFinancialRecoveryBaseline, verifyFinancialRecoveryEntries } from '../recovery/financial';
+import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import {
   AccountBuilder,
   AccountComponent,
@@ -95,8 +97,9 @@ import { normalizeHex } from '../guardian/operator-map';
 import { checkContinuity, StorageContinuityError } from '../recovery/continuity';
 import { RecoveryJournal } from '../recovery/journal';
 import { withRecoveryStorageLock } from '../recovery/lock';
-import type { RecoveryEntry, RecoveryJournalSnapshot } from '../recovery/types';
+import type { RecoveryCapture, RecoveryEntry, RecoveryJournalSnapshot } from '../recovery/types';
 import { validateJournal } from '../recovery/validation';
+import { decodeRecoveryCapture } from '../recovery/capture';
 import { readWalletGenerationForRecovery, validateWalletGeneration } from '../recovery/wallet-generation';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
@@ -419,6 +422,29 @@ export class Vault {
     }
   }
 
+  async retainTransactionRecovery(id: string, material: RecoveryCapture): Promise<void> {
+    const epoch = getStorageHealth().epoch;
+    const capture = decodeRecoveryCapture(material);
+    const accounts = await this.fetchAccounts();
+    assertStorageHealthy(epoch);
+    const row = await Repo.transactions.get(id);
+    if (!row || row.mayHaveSubmitted !== true) throw new StorageContinuityError();
+    const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, row.accountId));
+    if (!account) throw new StorageContinuityError();
+    await this.retainRecoveryEntries([
+      ...capture.notes.map(note => ({ ...note, accountId: account.publicKey })),
+      {
+        kind: 'transaction', id, accountId: account.publicKey,
+        requestBytes: capture.requestBytes, mayHaveSubmitted: true,
+        evidence: parseSubmitEvidence(row.submitEvidence?.find(entry => entry.attemptId === row.attemptId)) ?? {}
+      }
+    ]);
+    assertStorageHealthy(epoch);
+    const current = await Repo.transactions.get(id);
+    if (!current || current.mayHaveSubmitted !== true) throw new StorageContinuityError();
+    assertStorageHealthy(epoch);
+  }
+
   private async saveRecoveryContinuity(snapshot: RecoveryJournalSnapshot, epoch: number): Promise<void> {
     await withRecoveryStorageLock(async () => {
       assertStorageHealthy(epoch);
@@ -471,6 +497,9 @@ export class Vault {
         ? await readWalletGenerationForRecovery(Repo.db.name)
         : validateWalletGeneration(await Repo.metadata.get('generation'));
       check();
+      const financial = await readFinancialRecoveryBaseline(accounts.map(account => account.publicKey));
+      check();
+      if (journal) verifyFinancialRecoveryEntries(journal.entries, financial);
       return await withWasmClientLock(
         async hold => {
           check();
@@ -496,7 +525,7 @@ export class Vault {
               await midenClientProxy.initializeStorageGeneration(next.scope.sdkGeneration, observed.generation, epoch);
             assertWasmHoldCurrent(hold, 'after storage generation initialization');
             check();
-            const snapshot = await this.recoveryJournal(epoch).update(() => ({ ...next, entries: observed.notes }));
+            const snapshot = await this.recoveryJournal(epoch).update(() => ({ ...next, entries: [...observed.notes, ...financial] }));
             await this.saveRecoveryContinuity(snapshot, epoch);
           }
           check();

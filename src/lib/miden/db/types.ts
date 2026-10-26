@@ -117,6 +117,7 @@ export type SubmitEvidenceFields = Pick<
  * realm (see `setTransactionStage`), and the submit evidence the 'submitting' stamp brings.
  */
 export interface StageDetail {
+  readonly recovery?: import('../recovery/types').RecoveryCapture;
   readonly reliable?: boolean;
   readonly evidence?: SubmitEvidenceFields;
 }

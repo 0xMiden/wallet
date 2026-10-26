@@ -1,3 +1,4 @@
+import type { PersistedSpendingLimit } from '../spending-limits/types';
 import type { SubmitEvidenceFields } from '../db/types';
 
 export interface RecoveryAccountExpectation {
@@ -21,6 +22,11 @@ export interface RecoveryNoteEntry {
   format?: 'full' | 'details';
 }
 
+export interface RecoveryCapture {
+  requestBytes: Uint8Array;
+  notes: RecoveryNoteEntry[];
+}
+
 export interface RecoveryTransactionEntry {
   kind: 'transaction';
   id: string;
@@ -30,7 +36,23 @@ export interface RecoveryTransactionEntry {
   evidence: SubmitEvidenceFields;
 }
 
-export type RecoveryEntry = RecoveryNoteEntry | RecoveryTransactionEntry;
+export interface RecoveryPolicyEntry {
+  kind: 'policy';
+  id: string;
+  accountId: string;
+  configuration: PersistedSpendingLimit | null;
+}
+
+export interface RecoveryDebitEntry {
+  kind: 'debit';
+  id: string;
+  accountId: string;
+  initiatedAt: number;
+  spentUsd?: bigint;
+  authorizationId?: string;
+}
+
+export type RecoveryEntry = RecoveryNoteEntry | RecoveryTransactionEntry | RecoveryPolicyEntry | RecoveryDebitEntry;
 
 export interface RecoveryJournalData {
   scope: RecoveryScope;

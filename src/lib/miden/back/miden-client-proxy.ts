@@ -1,3 +1,5 @@
+import { decodeRecoveryCapture } from '../recovery/capture';
+import type { RecoveryCapture } from '../recovery/types';
 // SW-side `MidenClientProxy` — the thin forwarder half of the offscreen
 // WASM-client rehost (issue #260, slice 1).
 //
@@ -428,7 +430,7 @@ const opStageCallbacks = new Map<string, StageCallback>();
  * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
  * happen.
  */
-export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+export type SubmitGate = (evidence?: SubmitEvidenceFields, recovery?: RecoveryCapture) => Promise<boolean>;
 
 /** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
@@ -838,7 +840,7 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
   try {
-    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
+    if (!(await gate(msg.evidence, decodeRecoveryCapture(msg.recovery)))) return { ok: false, error: `op ${op_id} has already settled` };
   } catch (err) {
     return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
   }
@@ -1004,6 +1006,10 @@ async function dispatchOffscreenWrite(
   opSignCallbacks.set(op_id, signCallback);
   if (onStage) opStageCallbacks.set(op_id, onStage);
   if (submitGate) opSubmitGates.set(op_id, submitGate);
+  else if (onStage) opSubmitGates.set(op_id, async (evidence, recovery) => {
+    await onStage('submitting', { evidence, recovery });
+    return true;
+  });
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
