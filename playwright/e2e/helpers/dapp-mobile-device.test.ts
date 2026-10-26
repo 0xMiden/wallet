@@ -816,6 +816,22 @@ describe('Android native keyboard layout', () => {
     );
   });
 
+  it('ignores a zero-width Android keyboard rectangle', () => {
+    const parse =
+      nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
+        'parseAndroidKeyboardLayout'
+      );
+    const zeroWidthNode =
+      '<hierarchy><node class="android.widget.FrameLayout" ' +
+      'resource-id="com.google.android.inputmethod.latin:id/keyboard_view" bounds="[0,500][0,800]" /></hierarchy>';
+
+    expect(parse('<hierarchy />', 'mType=ime mVisible=true mFrame=[0,500][0,800]', 'dApp input')).toMatchObject({
+      keyboardVisible: false,
+      keyboardTop: null
+    });
+    expect(parse(zeroWidthNode, '', 'dApp input')).toMatchObject({ keyboardVisible: false, keyboardTop: null });
+  });
+
   it.each([
     [
       'visible frame',
