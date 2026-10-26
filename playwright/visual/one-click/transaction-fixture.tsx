@@ -1,7 +1,9 @@
 import React from 'react';
 
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
+import { useTranslation } from 'react-i18next';
 
+import { AdvancedDetails, FoldableField } from '../../../src/app/confirm/AdvancedDetails';
 import { TransactionAssetView } from '../../../src/app/confirm/TransactionAssetView';
 import type { TxAssetView } from '../../../src/app/confirm/decode';
 import type { NoteFlow } from '../../../src/app/confirm/note-flow';
@@ -17,14 +19,7 @@ const flow: NoteFlow = {
   inputs: [],
   outputs: [
     {
-      id: '0xfee0000000000000000000000000000000000000000000000000000000000001',
-      kind: 'fee',
-      visibility: 'public',
-      assets: [{ faucetId: usdcx, amount: 133n }],
-      nfts: []
-    },
-    {
-      id: '0xp2id00000000000000000000000000000000000000000000000000000002',
+      id: `0x${'11'.repeat(32)}`,
       kind: 'p2id',
       visibility: 'public',
       sender: account,
@@ -32,10 +27,17 @@ const flow: NoteFlow = {
       nfts: []
     },
     {
-      id: '0xpswap000000000000000000000000000000000000000000000000000003',
+      id: `0x${'22'.repeat(32)}`,
       kind: 'pswap',
       visibility: 'private',
       assets: [{ faucetId: usdcx, amount: 252n }],
+      nfts: []
+    },
+    {
+      id: `0x${'33'.repeat(32)}`,
+      kind: 'fee',
+      visibility: 'public',
+      assets: [{ faucetId: usdcx, amount: 133n }],
       nfts: []
     }
   ],
@@ -44,10 +46,16 @@ const flow: NoteFlow = {
 
 const partial: NoteFlow = {
   inputCount: 2,
-  inputs: [{ id: '0xinput00000000000000000000000000000000000000000000000000001', kind: 'unknown', visibility: 'unknown' }],
+  inputs: [
+    {
+      id: `0x${'44'.repeat(32)}`,
+      kind: 'unknown',
+      visibility: 'unknown'
+    }
+  ],
   outputs: [
     {
-      id: '0xcustom000000000000000000000000000000000000000000000000001',
+      id: `0x${'55'.repeat(32)}`,
       kind: 'custom',
       visibility: 'private',
       scriptRoot: '0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
@@ -78,6 +86,7 @@ const assetView: TxAssetView = {
 };
 
 export function TransactionFixture({ surface, variant }: { surface: 'modal' | 'asset'; variant: 'main' | 'partial' }) {
+  const { t } = useTranslation();
   const noteFlow = variant === 'partial' ? partial : flow;
   if (surface === 'modal') {
     const request: DAppConfirmationRequest = {
@@ -100,7 +109,21 @@ export function TransactionFixture({ surface, variant }: { surface: 'modal' | 'a
     <main className="mx-auto flex h-full w-full max-w-[380px] flex-col bg-surface-solid text-ink" data-testid="tx-asset-fixture">
       <header className="shrink-0 border-b border-border-light px-5 py-4 text-lg font-semibold">Transaction review</header>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-testid="tx-asset-scroll">
-        <TransactionAssetView view={variant === 'main' ? assetView : { ...assetView, inputNotesConsumed: 2, outputNotesCreated: 1, storageChanged: true }} mode="verified" noteFlow={noteFlow} onDownload={() => undefined} />
+        <TransactionAssetView
+          view={
+            variant === 'main'
+              ? assetView
+              : { ...assetView, inputNotesConsumed: 2, outputNotesCreated: 1, storageChanged: true }
+          }
+          mode="verified"
+          noteFlow={noteFlow}
+          onDownload={() => undefined}
+        />
+        <AdvancedDetails label={t('rawTransactionData')}>
+          <FoldableField label="recipient" value="(none)" />
+          <FoldableField label="importNotes" value={0} />
+          <FoldableField label="requestBytes" value={'AQID'.repeat(60)} />
+        </AdvancedDetails>
       </div>
     </main>
   );

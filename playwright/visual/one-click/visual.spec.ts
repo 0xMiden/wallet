@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import sharp from 'sharp';
 
 const browserErrorsByPage = new WeakMap<Page, string[]>();
@@ -111,43 +111,74 @@ test('captures exact inbound review to the connected Miden account', async ({ pa
   await page.screenshot({ path: testInfo.outputPath('one-click-inbound-review.png') });
 });
 
-for (const surface of ['modal', 'asset'] as const) {
-  for (const variant of ['main', 'partial'] as const) {
-    test(`captures production transaction ${surface} with ${variant} note details`, async ({ page }, testInfo) => {
-      const query = new URLSearchParams({ tx: surface });
-      if (variant === 'partial') query.set('partial', '');
-      if (testInfo.project.name.endsWith('dark')) query.set('dark', '');
-      await page.goto(`/?${query}`);
-      const flow = page.getByTestId('tx-note-flow');
-      await expect(flow).toBeVisible();
-      await expect(page.getByTestId('tx-note-account')).toBeVisible();
-      await expect(page.getByTestId('tx-note-inputs')).toBeVisible();
-      await expect(page.getByTestId('tx-note-outputs')).toBeVisible();
-      if (variant === 'main') {
-        await expect(page.getByText('No input notes')).toBeVisible();
-        await expect(page.getByTestId('tx-note-outputs').getByTestId('tx-note-item')).toHaveCount(3);
-        await expect(page.getByTestId('tx-note-outputs')).toContainText('P2ID');
-        await expect(page.getByTestId('tx-note-outputs')).toContainText('PSWAP');
-      } else {
-        await expect(page.getByTestId('tx-note-inputs').getByTestId('tx-note-item')).toHaveCount(1);
-        await expect(flow).toContainText('account-state');
-        await expect(flow).toContainText('orders');
-      }
-      if (surface === 'modal') await expect(page.getByTestId('dapp-confirmation-approve')).toBeVisible();
-      else await expect(page.getByTestId('tx-asset-view')).toBeVisible();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+type TransactionSurface = 'modal' | 'asset';
+type TransactionVariant = 'main' | 'partial';
 
-      const scroller = surface === 'modal' ? page.locator('[role="dialog"] .overflow-y-auto') : page.getByTestId('tx-asset-scroll');
-      const capture = async (position: string) => {
-        const path = testInfo.outputPath(`transaction-${surface}-${variant}-${position}.png`);
-        await page.screenshot({ path, animations: 'disabled', caret: 'hide' });
-        const resized = await sharp(path).resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true }).toBuffer();
-        await sharp(resized).toFile(path);
-        await testInfo.attach(`transaction-${surface}-${variant}-${position}`, { path, contentType: 'image/png' });
-      };
-      await capture('top');
-      await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
-      await capture('bottom');
-    });
-  }
+async function openTransaction(page: Page, testInfo: TestInfo, surface: TransactionSurface, variant: TransactionVariant) {
+  const query = new URLSearchParams({ tx: surface });
+  if (variant === 'partial') query.set('partial', '');
+  if (testInfo.project.name.endsWith('dark')) query.set('dark', '');
+  await page.goto(`/?${query}`);
+  const flow = page.getByTestId('tx-note-flow');
+  await expect(flow).toBeVisible();
+  await expect(flow).toContainText('USDCX');
+  await expect(page.getByTestId('tx-note-account')).toBeVisible();
+  await expect(page.getByTestId('tx-note-inputs')).toBeVisible();
+  await expect(page.getByTestId('tx-note-outputs')).toBeVisible();
+  await expect(page.getByTestId(surface === 'modal' ? 'dapp-confirmation-approve' : 'tx-asset-view')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
+
+async function captureTransaction(page: Page, testInfo: TestInfo, surface: TransactionSurface, variant: TransactionVariant, position: string) {
+  const path = testInfo.outputPath(`transaction-${surface}-${variant}-${position}.png`);
+  await page.screenshot({ path, animations: 'disabled', caret: 'hide' });
+  const resized = await sharp(path)
+    .resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true })
+    .toBuffer();
+  await sharp(resized).toFile(path);
+  await testInfo.attach(`transaction-${surface}-${variant}-${position}`, { path, contentType: 'image/png' });
+}
+
+async function captureTopAndBottom(page: Page, testInfo: TestInfo, surface: TransactionSurface, variant: TransactionVariant) {
+  const scroller =
+    surface === 'modal' ? page.locator('[role="dialog"] .overflow-y-auto') : page.getByTestId('tx-asset-scroll');
+  await captureTransaction(page, testInfo, surface, variant, 'top');
+  await scroller.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await captureTransaction(page, testInfo, surface, variant, 'bottom');
+}
+
+for (const surface of ['modal', 'asset'] as const) {
+  test(`captures production transaction ${surface} with zero inputs and three outputs`, async ({ page }, testInfo) => {
+    await openTransaction(page, testInfo, surface, 'main');
+    await expect(page.getByText('No input notes')).toBeVisible();
+    await expect(page.getByTestId('tx-note-outputs').getByTestId('tx-note-item')).toHaveCount(3);
+    await expect(page.getByTestId('tx-note-outputs')).toContainText('Transaction fee note');
+    await expect(page.getByTestId('tx-note-outputs')).toContainText('P2ID');
+    await expect(page.getByTestId('tx-note-outputs')).toContainText('PSWAP');
+    await captureTopAndBottom(page, testInfo, surface, 'main');
+  });
+
+  test(`captures production transaction ${surface} with partial note details`, async ({ page }, testInfo) => {
+    await openTransaction(page, testInfo, surface, 'partial');
+    await expect(page.getByTestId('tx-note-inputs').getByTestId('tx-note-item')).toHaveCount(1);
+    await expect(page.getByTestId('tx-note-flow')).toContainText('Other note script');
+    await expect(page.getByTestId('tx-note-flow')).toContainText('account-state');
+    await expect(page.getByTestId('tx-note-flow')).toContainText('orders');
+    await captureTopAndBottom(page, testInfo, surface, 'partial');
+  });
+}
+
+test('keeps raw request bytes behind the production disclosure', async ({ page }, testInfo) => {
+  await openTransaction(page, testInfo, 'asset', 'main');
+  const raw = page.getByTestId('advanced-details-toggle');
+  await expect(raw).toHaveAttribute('aria-expanded', 'false');
+  await raw.click();
+  await expect(page.getByTestId('advanced-details-content')).toContainText('requestBytes');
+  const scroller = page.getByTestId('tx-asset-scroll');
+  await scroller.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await captureTransaction(page, testInfo, 'asset', 'main', 'raw');
+});
