@@ -1283,7 +1283,7 @@ const disabledObservability = () => ({ enabled: false, logs: { enabled: false, i
 test('cleanup requires independent script-level switches when version readback omits observability', async () => {
   const f = await ownershipFixture({ mutate: settings => { delete settings.observability; } });
   const result = await createProbeController(f.effects).cleanup(manifest());
-  assert.equal(result.cleanup, 'deleted');
+  assert.equal(result.cleanup, 'removed');
   assert.equal(deleted(f).length, 1);
   const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
   assert.ok(paths.includes('/workers/scripts/miden-elig-probe-40265000001-1/script-settings'));
