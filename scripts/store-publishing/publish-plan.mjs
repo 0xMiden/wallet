@@ -666,6 +666,12 @@ export async function main(command, env = process.env, dependencies = {}) {
       args.push('--confirm', plan.version, '--screenshots-root', resolve(env.SOURCE_DIR));
       if (plan.version === '1.17.7' && plan.action !== 'sync-screenshots') args.push('--preserve-legacy-screenshots');
     }
+    if (
+      plan.platform === 'ios' &&
+      ['prepare', 'sync-screenshots', 'submit'].includes(plan.action) &&
+      env.SCREENSHOT_DEADLINE_MS !== undefined
+    )
+      args.push('--screenshot-deadline-ms', env.SCREENSHOT_DEADLINE_MS);
     if (plan.buildNumber) args.push('--build-number', plan.buildNumber);
     if (plan.platform === 'android' && plan.versionCode) args.push('--version-code', String(plan.versionCode));
     if (plan.releaseNotes !== undefined) args.push('--release-notes', plan.releaseNotes);

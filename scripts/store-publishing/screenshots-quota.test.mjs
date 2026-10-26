@@ -71,8 +71,8 @@ function fixture(count = 9, timing) {
   });
   const client = {
     request: async (method, path, request) => {
-      calls.push({ method, path, at: timing?.now() });
-      timing?.onRequest?.(method, path);
+      calls.push({ method, path, at: timing?.now(), timeoutMs: request?.timeoutMs });
+      await timing?.onRequest?.(method, path, request);
       const fail = stage => {
         if (fault === stage) {
           fault = undefined;
@@ -135,7 +135,8 @@ function fixture(count = 9, timing) {
         asset.attributes.sourceFileChecksum = request.body.data.attributes.sourceFileChecksum;
         asset.attributes.assetDeliveryState.state =
           fault === 'processing-failed' ? 'FAILED' : timing ? 'UPLOAD_COMPLETE' : 'COMPLETE';
-        if (timing) asset.readyAt = timing.now() + timing.delay;
+        if (timing)
+          asset.readyAt = timing.now() + (typeof timing.delay === 'function' ? timing.delay(asset.id) : timing.delay);
         if (fault === 'processing-failed') fault = undefined;
         fail('complete-after');
         return { data: structuredClone(asset) };
@@ -444,5 +445,88 @@ test('deadline after byte upload prevents completion and resumes the recorded re
   assert.equal(c.calls.filter(x => x.method === 'PATCH' || x.method === 'DELETE').length, 0);
   await syncScreenshots(c.client, { ...c.options(), now: () => elapsed, deadlineMs: 10000 });
   assert.equal(c.calls.filter(x => x.method === 'POST').length, 5);
+  await assertCanonical(c);
+});
+
+test('group processing uses at most two readers and bounds each request to remaining time', async () => {
+  let elapsed = 0;
+  let active = 0;
+  let maximum = 0;
+  const c = fixture(4, {
+    now: () => elapsed,
+    delay: 5000,
+    onRequest: async (method, path) => {
+      if (method === 'GET' && /^\/v1\/appScreenshots\/new[0-9]+$/.test(path)) {
+        active++;
+        maximum = Math.max(maximum, active);
+        await new Promise(resolve => setImmediate(resolve));
+        active--;
+      }
+    }
+  });
+  await syncScreenshots(c.client, {
+    ...c.options(),
+    now: () => elapsed,
+    deadlineMs: 10000,
+    maxPolls: 120,
+    sleep: async ms => {
+      elapsed += ms;
+    }
+  });
+  assert.equal(maximum, 2);
+  assert.equal(active, 0);
+  assert.ok(c.calls.every(call => call.timeoutMs > 0 && call.timeoutMs <= 10000 - call.at));
+  await assertCanonical(c);
+});
+
+test('mixed complete pending and failed uploads keep originals until exact journal retry succeeds', async () => {
+  let elapsed = 0;
+  let fail = true;
+  let c;
+  c = fixture(4, {
+    now: () => elapsed,
+    delay: id => (id === 'new1' ? 0 : 5000),
+    onRequest: async (method, path) => {
+      const second = c.sets.get('large').find(x => x.id === 'new2');
+      if (
+        fail &&
+        method === 'GET' &&
+        path === '/v1/appScreenshots/new2' &&
+        second.attributes.assetDeliveryState.state === 'UPLOAD_COMPLETE'
+      ) {
+        second.attributes.assetDeliveryState.state = 'FAILED';
+        second.readyAt = Infinity;
+        fail = false;
+      }
+    }
+  });
+  const options = () => ({
+    ...c.options(),
+    now: () => elapsed,
+    deadlineMs: 10000,
+    maxPolls: 120,
+    sleep: async ms => {
+      elapsed += ms;
+    }
+  });
+  await assert.rejects(syncScreenshots(c.client, options()), /FAILED|partial/);
+  const states = c.sets
+    .get('large')
+    .filter(x => x.id.startsWith('new'))
+    .map(x => x.attributes.assetDeliveryState.state);
+  assert.ok(states.includes('COMPLETE') && states.includes('UPLOAD_COMPLETE') && states.includes('FAILED'));
+  assert.equal(
+    c.calls.some(x => x.method === 'DELETE' || x.path.includes('/relationships/appScreenshots')),
+    false
+  );
+  assert.deepEqual(
+    c.sets
+      .get('large')
+      .filter(x => x.id.startsWith('old'))
+      .map(x => x.id),
+    ['old0', 'old1', 'old2', 'old3']
+  );
+  await syncScreenshots(c.client, options());
+  assert.equal(c.calls.filter(x => x.method === 'POST').length, 6, 'only the failed reservation is replaced');
   await assertCanonical(c);
 });

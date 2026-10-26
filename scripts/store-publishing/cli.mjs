@@ -12,6 +12,7 @@ import * as apple from './apple.mjs';
 import * as chrome from './chrome.mjs';
 import * as play from './play.mjs';
 import { screenshotJournalName, validateScreenshotJournal } from './screenshot-journal.mjs';
+import { screenshotDeadlineClient } from './screenshots.mjs';
 
 const origins = {
   chrome: 'https://chromewebstore.googleapis.com',
@@ -37,6 +38,7 @@ const values = new Map(
     'edit-id',
     'release-policy',
     'screenshots-root',
+    'screenshot-deadline-ms',
     'release-notes',
     'confirm'
   ].map(name => [name, name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())])
@@ -85,6 +87,13 @@ export function parseArgs(argv) {
 function planFor(args, config) {
   const { platform, action } = args;
   const mutation = action !== 'status';
+  if (
+    args.screenshotDeadlineMs !== undefined &&
+    (platform !== 'ios' ||
+      !/^[1-9][0-9]*$/.test(args.screenshotDeadlineMs) ||
+      !Number.isSafeInteger(Number(args.screenshotDeadlineMs)))
+  )
+    throw new Error('A valid absolute iOS screenshot deadline is required');
   const releaseNotes = apple.validateReleaseNotes(args.releaseNotes);
   if (releaseNotes !== undefined && (platform !== 'ios' || action !== 'submit'))
     throw new Error('Release notes are only supported for iOS submit');
@@ -195,7 +204,8 @@ function planFor(args, config) {
     configPath: expand(args.config),
     version: args.version,
     network: args.network,
-    sourceSha: args.sourceSha?.toLowerCase()
+    sourceSha: args.sourceSha?.toLowerCase(),
+    ...(args.screenshotDeadlineMs !== undefined ? { screenshotDeadlineMs: Number(args.screenshotDeadlineMs) } : {})
   };
 }
 
@@ -767,7 +777,10 @@ export async function run(argv, dependencies = {}) {
       ...plan.options,
       ...screenshots,
       sourceSha: plan.sourceSha,
-      network: plan.network
+      network: plan.network,
+      ...(plan.screenshotDeadlineMs !== undefined
+        ? { deadlineMs: plan.screenshotDeadlineMs, now: dependencies.now ?? Date.now }
+        : {})
     };
     if (plan.platform === 'ios' && screenshotOperations && !screenshots?.legacyPreserved) {
       const journalPath = join(plan.stateDir, screenshotJournalName(screenshotOptions));
@@ -791,7 +804,11 @@ export async function run(argv, dependencies = {}) {
         await screenshotOperations.syncScreenshots(undefined, { ...screenshotOptions, allowWrites: true }),
         plan
       );
-    const client = await authenticatedClient(plan, artifact, dependencies);
+    const rawClient = await authenticatedClient(plan, artifact, dependencies);
+    const client =
+      screenshotOperations && plan.screenshotDeadlineMs !== undefined
+        ? screenshotDeadlineClient(rawClient, screenshotOptions)
+        : rawClient;
     if (plan.action === 'sync-screenshots')
       return screenshotSummary(
         await screenshotOperations.syncScreenshots(client, { ...screenshotOptions, allowWrites: true }),

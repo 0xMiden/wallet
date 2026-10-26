@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import { validateScreenshotJournal } from './screenshot-journal.mjs';
 
 class ScreenshotError extends Error {}
+class ScreenshotDeadlineError extends ScreenshotError {}
 
 const appleOrigin = 'https://api.appstoreconnect.apple.com';
 const screenshotTypes = [
@@ -216,6 +217,7 @@ function chromeResult(selected, sets = []) {
 
 /** Read ordered store screenshots without creating edits, localizations, versions or assets. */
 export async function inventoryScreenshots(client, options) {
+  client = screenshotDeadlineClient(client, options);
   const selected = target(options);
   if (selected.platform === 'chrome') return chromeResult(selected, options.sets);
   if (selected.platform === 'android') {
@@ -414,6 +416,28 @@ function appleOperations(operations, length) {
   return sorted;
 }
 
+function remainingTime(options, maximum) {
+  if (options.deadlineMs === undefined) return maximum;
+  if (!Number.isSafeInteger(options.deadlineMs) || options.deadlineMs <= 0)
+    throw new ScreenshotError('Screenshot deadline is invalid');
+  const remaining = options.deadlineMs - (options.now ?? Date.now)();
+  if (remaining <= 0)
+    throw new ScreenshotDeadlineError('Screenshot processing deadline reached; resume the exact private journal');
+  return Math.min(maximum, remaining);
+}
+
+export function screenshotDeadlineClient(client, options) {
+  remainingTime(options, 30000);
+  return {
+    request(method, path, request = {}) {
+      return client.request(method, path, {
+        ...request,
+        timeoutMs: remainingTime(options, request.timeoutMs ?? 30000)
+      });
+    }
+  };
+}
+
 async function uploadApple(client, options, image, reserved) {
   if (reserved?.type !== 'appScreenshots' || !id(reserved.id))
     throw new ScreenshotError('Apple screenshot reservation identity is invalid');
@@ -432,7 +456,7 @@ async function uploadApple(client, options, image, reserved) {
         body: image.bytes.subarray(operation.offset, operation.offset + operation.length),
         redirect: 'error',
         credentials: 'omit',
-        signal: AbortSignal.timeout(60000)
+        signal: AbortSignal.timeout(remainingTime(options, 60000))
       });
       if (!response?.ok || response.redirected || (response.url && response.url !== operation.url)) {
         throw new ScreenshotError('Apple screenshot byte upload failed or redirected');
@@ -445,29 +469,48 @@ async function uploadApple(client, options, image, reserved) {
       }
     });
   }
+  return { assetId: reserved.id };
+}
+
+async function pollAppleGroup(client, options, pending) {
   const maxPolls = options.maxPolls ?? applePollsDefault;
-  if (!Number.isInteger(maxPolls) || maxPolls < 1 || maxPolls > applePollsMax)
-    throw new ScreenshotError('Screenshot processing poll bound is invalid');
   for (let poll = 0; poll < maxPolls; poll++) {
-    const { data } = await client.request('GET', `/v1/appScreenshots/${reserved.id}`);
-    const actual = appleImage(data);
-    if (actual.assetId !== reserved.id)
-      throw new ScreenshotError('Apple processing returned another screenshot identity');
-    if (actual.state === 'COMPLETE') {
-      if (!sameImage(actual, image)) throw new ScreenshotError('Apple processed screenshot checksum does not match');
-      return actual;
-    }
-    if (actual.state === 'FAILED') throw new ScreenshotError('Apple screenshot processing FAILED');
-    if (!['AWAITING_UPLOAD', 'UPLOAD_COMPLETE'].includes(actual.state))
-      throw new ScreenshotError('Unknown Apple screenshot processing state');
+    const results = [];
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < pending.length) {
+        const item = pending[cursor++];
+        const { data } = await client.request('GET', `/v1/appScreenshots/${item.assetId}`);
+        const actual = appleImage(data);
+        if (actual.assetId !== item.assetId)
+          throw new ScreenshotError('Apple processing returned another screenshot identity');
+        if (actual.state === 'COMPLETE') {
+          if (!sameImage(actual, item.image))
+            throw new ScreenshotError('Apple processed screenshot checksum does not match');
+        } else if (actual.state === 'FAILED') {
+          throw new ScreenshotError('Apple screenshot processing FAILED');
+        } else if (!['AWAITING_UPLOAD', 'UPLOAD_COMPLETE'].includes(actual.state)) {
+          throw new ScreenshotError('Unknown Apple screenshot processing state');
+        } else results.push(item);
+      }
+    };
+    // Drain both readers before returning an error; journal writes remain serial.
+    const outcomes = await Promise.allSettled([worker(), worker()]);
+    const failed = outcomes.find(outcome => outcome.status === 'rejected');
+    if (failed) throw failed.reason;
+    if (!results.length) return;
+    pending = results;
     if (poll + 1 < maxPolls)
-      await (options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(applePollMs);
+      await (options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))(
+        remainingTime(options, applePollMs)
+      );
   }
   throw new ScreenshotError('Apple screenshot processing timeout; inspect the reserved asset before another action');
 }
 
 /** Synchronize only approved managed groups; Android remains in the caller's uncommitted edit. */
 export async function syncScreenshots(client, options) {
+  client = screenshotDeadlineClient(client, options);
   const selected = target(options);
   if (options.allowWrites !== true)
     throw new ScreenshotError('Screenshot synchronization requires explicit allowWrites authorization');
@@ -678,7 +721,17 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
       await refresh();
       journal.pending = pending;
       await save();
-      const result = await client.request(method, path, request);
+      let result;
+      try {
+        result = await client.request(method, path, request);
+      } catch (error) {
+        if (error instanceof ScreenshotDeadlineError) {
+          // This local rejection proves no request launched; it is not an indeterminate POST.
+          journal.pending = null;
+          await save();
+        }
+        throw error;
+      }
       await refresh();
       return result;
     };
@@ -700,6 +753,7 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
         });
       }
       const ordered = [];
+      const pending = [];
       for (const [imageIndex, image] of set.images.entries()) {
         await refresh();
         let group = journal.groups[index];
@@ -766,9 +820,12 @@ async function syncAppleJournal(client, options, selected, desired, baseline, in
             reserved
           );
           await refresh();
+          pending.push({ assetId: existing.assetId, image });
         }
         ordered.push(existing.assetId);
       }
+      await pollAppleGroup(client, options, pending);
+      await refresh();
       for (const image of [...journal.groups[index].images]) {
         if (!ordered.includes(image.assetId))
           await mutate(

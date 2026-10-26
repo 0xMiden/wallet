@@ -1032,3 +1032,20 @@ test('publishing workflow establishes screenshot deadline before checkout with e
   assert.ok(deadline > initialization && deadline < text.indexOf('name: Check out trusted publishing automation'));
   assert.match(text, /SCREENSHOT_DEADLINE_MS=\$\(\( \$\(date \+%s\) \* 1000 \+ 25 \* 60 \* 1000 \)\)/);
 });
+
+test('CLI rejects invalid screenshot deadlines before source or credential access', async () => {
+  for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992']) {
+    await assert.rejects(
+      runCli(['ios', 'sync-screenshots', '--screenshot-deadline-ms', value], {
+        readConfig: async () => ({}),
+        verifyScreenshotSource: async () => {
+          throw new Error('unexpected source access');
+        },
+        readPrivateKey: async () => {
+          throw new Error('unexpected credential access');
+        }
+      }),
+      /absolute iOS screenshot deadline/
+    );
+  }
+});

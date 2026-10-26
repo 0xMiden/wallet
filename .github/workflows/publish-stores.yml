@@ -95,6 +95,7 @@ jobs:
       - name: Initialize temporary evidence paths
         run: |
           {
+            echo "SCREENSHOT_DEADLINE_MS=$(( $(date +%s) * 1000 + 25 * 60 * 1000 ))"
             echo "PRODUCER_DIR=$RUNNER_TEMP/wallet-store-producer"
             echo "PRIOR_STATE_DIR=$RUNNER_TEMP/wallet-store-prior-state"
             echo "PRODUCER_RUN_FILE=$RUNNER_TEMP/wallet-store-producer-run.json"
