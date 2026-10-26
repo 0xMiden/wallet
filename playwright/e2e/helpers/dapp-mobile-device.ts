@@ -352,7 +352,7 @@ export function parseAndroidKeyboardLayout(
   };
 }
 
-const IOS_KEY_READS = 3;
+const IOS_KEY_READS = 4;
 const IOS_KEY_SETTLE_MS = 300;
 const MISSED_NODE_HINT = /edit|text|webview|keyboard|input/i;
 const MISSED_TREE_NODES = 25;
@@ -618,8 +618,10 @@ export function iosDevice(
       for (const character of Array.from(value)) {
         let key: IosKey | null = null;
         let modeTapped = false;
+        let confirmed = false;
         let tree = '';
-        // Right after a tap the keyboard can still be switching case, so a missing key gets a short bounded re-read.
+        // After a tap the keyboard can lag a read behind (still upper case after a capital, or still switching), so
+        // a layout switch is tapped only when two reads in a row miss the key, and a miss is re-read before it fails.
         for (let attempt = 0; attempt < IOS_KEY_READS && key === null; attempt += 1) {
           if (attempt > 0) await new Promise<void>(resolve => setTimeout(resolve, IOS_KEY_SETTLE_MS));
           const read = await readKeys();
@@ -628,6 +630,10 @@ export function iosDevice(
           if (key !== null || modeTapped) continue;
           const mode = iosModeKeyFor(read.keys, character);
           if (mode === null) continue;
+          if (!confirmed) {
+            confirmed = true;
+            continue;
+          }
           await tapKey(mode);
           modeTapped = true;
           attempt -= 1;
