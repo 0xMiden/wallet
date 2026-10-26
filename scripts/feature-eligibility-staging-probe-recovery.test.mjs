@@ -372,9 +372,13 @@ for (const [failure, cleanup] of [
   }
 }
 
-async function preflightEvidence(receipt, original = {}) {
+async function preflightEvidence(receipt, original = {}, manifestBytes) {
   const root = await mkdtemp(join(tmpdir(), 'probe-preflight-evidence-'));
   try {
+    if (manifestBytes !== undefined) {
+      await mkdir(join(root, 'feature-eligibility-probe'));
+      await writeFile(join(root, 'feature-eligibility-probe/manifest.json'), manifestBytes);
+    }
     await writeFile(
       join(root, 'probe-result.json'),
       JSON.stringify({
@@ -431,3 +435,9 @@ for (const [name, patch] of [
     assert.notEqual(received.reason, 'auth');
     assert.doesNotMatch(JSON.stringify(received), /secret-never-publish/);
   });
+
+test('malformed existing manifest cannot be treated as absent for preflight preservation', async () => {
+  const received = await preflightEvidence(preflightReceipt(), {}, '{"deploymentState":"deploying"');
+  assert.equal(received.cleanup, 'blocked');
+  assert.equal(received.reason, 'cleanup_failed');
+});
