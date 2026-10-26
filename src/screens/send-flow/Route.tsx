@@ -188,7 +188,7 @@ const RouteAvailabilityNotice: React.FC<{
   const { t } = useTranslation();
   // The same report FeatureUnavailableNotice makes, so the neutral copy keeps the event stream it replaced.
   useUserVisibleError(
-    availability.state === 'unavailable' && availability.reason !== 'restricted'
+    availability.state === 'unavailable' && availability.reason !== 'restricted' && availability.reason !== 'pending'
       ? 'bridgeFeatureUnavailableBody'
       : null,
     'notice'

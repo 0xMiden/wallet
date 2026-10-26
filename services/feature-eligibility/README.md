@@ -10,7 +10,7 @@ This Worker keeps the MaxMind account and paid license key on the server and ans
 { "network": "testnet", "version": 13, "allowed": { "wallet": true, "earn": true, "swap": false } }
 ```
 
-The wallet must match both `network` and `version` to its accepted wallet-config document and combine these decisions with its existing feature and route availability. Non-2xx responses mean eligibility is unavailable and wallet access stays closed. All three decisions are strict booleans; a global denial forces the product decisions off. Responses contain no caller address, country, subdivision, or provider payload.
+The wallet must match both `network` and `version` to its accepted wallet-config document and combine these decisions with its existing feature and route availability. Non-2xx responses mean eligibility is unavailable: the wallet opens and Earn and Swap stay off. All three decisions are strict booleans; a global denial forces the product decisions off. Responses contain no caller address, country, subdivision, or provider payload.
 
 `GET /healthz` checks structural deployment readiness without spending a query. Success is `{"ready":true,"revision":"<deployment revision>"}`. Release verification also exercises the actual eligibility route and checks its policy version.
 

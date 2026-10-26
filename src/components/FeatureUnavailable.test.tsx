@@ -18,6 +18,11 @@ const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
 const DOWN: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: 503' };
 const RESTRICTED: FeatureAvailability = { state: 'unavailable', reason: 'restricted', detail: 'blocked by a geo rule' };
+const PENDING: FeatureAvailability = {
+  state: 'unavailable',
+  reason: 'pending',
+  detail: 'startup feature eligibility is pending'
+};
 
 describe('FeatureUnavailableNotice', () => {
   it('says the built-in copy as a warning, never the cause', () => {
@@ -30,6 +35,23 @@ describe('FeatureUnavailableNotice', () => {
     expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
     expect(notice).toHaveTextContent('bridgeFeatureUnavailableBody');
     expect(notice).not.toHaveTextContent('allocator');
+  });
+
+  it.each([
+    [DOWN, 'service-down'],
+    [RESTRICTED, 'restricted'],
+    [PENDING, 'pending']
+  ])('names the reason of %o for the e2e harness', (availability, reason) => {
+    render(<FeatureUnavailableNotice availability={availability} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveAttribute('data-reason', reason);
+  });
+
+  it('shows the generic copy while the startup decision is pending', () => {
+    render(<FeatureUnavailableNotice availability={PENDING} />);
+    const notice = screen.getByTestId('feature-unavailable-notice');
+    expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
+    expect(notice).not.toHaveTextContent('geoRestrictedTitle');
+    expect(notice).not.toHaveTextContent('startup feature eligibility');
   });
 
   it.each([AVAILABLE, LOADING])('renders nothing for %o', availability => {
@@ -105,6 +127,13 @@ describe('user-visible unavailable-feature errors', () => {
   it('keeps a visible geographic restriction quiet', () => {
     render(<FeatureUnavailableNotice availability={RESTRICTED} />);
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('geoRestrictedBody');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('keeps a pending startup decision quiet', () => {
+    render(<FeatureUnavailableNotice availability={PENDING} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('Visible bridgeFeatureUnavailableBody');
     act(() => jest.advanceTimersByTime(5000));
     expect(mockReport.mock.calls).toEqual([]);
   });

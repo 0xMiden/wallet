@@ -1,8 +1,6 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
-import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
-import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
-import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
+import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
 
 /**
@@ -16,41 +14,6 @@ import { expect, test } from '../fixtures/extension';
  * Home needs a wallet: import one through fullpage onboarding, then open popup.html in a tab at the
  * popup's size, reporting the tab as the popup view so the app keeps it and lays out as the popup.
  */
-
-const PASSWORD = 'Password123!';
-const SEED = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
-
-async function importWallet(extensionContext: BrowserContext, extensionId: string): Promise<void> {
-  const page = await extensionContext.newPage();
-  await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
-  await page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-  await page.locator('#import-link').click();
-  await acknowledgeNetworkNotice(page, 15_000);
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
-  await page.getByTestId('import-type-seed-phrase').click();
-  await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
-  for (let i = 0; i < SEED.length; i++) {
-    await page.locator(`#seed-phrase-input-${i}`).fill(SEED[i]!);
-  }
-  await page.getByRole('button', { name: /continue/i }).click();
-  await expect(page).toHaveURL(/create-password/);
-  await page.locator('input[placeholder="Enter password"]').first().fill(PASSWORD);
-  await page.locator('input[placeholder="Enter password again"]').first().fill(PASSWORD);
-  await page.getByRole('button', { name: /continue/i }).click();
-  await page.getByTestId('import-recovery-method').waitFor({ timeout: 15_000 });
-  await page.getByText(/import public account/i).click();
-  // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
-  await page.getByTestId('reused-phrase-acknowledge').click();
-  await page.getByRole('button', { name: /continue/i }).click();
-  await passImportConfirmation(page, 30_000);
-  // Onboarding gained a consent screen between the confirmation and the handoff, so this
-  // driver has to clear it before waiting for a post-onboarding surface.
-  await dismissTelemetryConsent(page, { timeoutMs: 30_000 });
-  // The wallet is Ready once the side-panel handoff offers to open it; this test drives the popup
-  // instead, so it stops here.
-  await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30_000 });
-  await page.close();
-}
 
 async function openPopup(extensionContext: BrowserContext, extensionId: string, locale: string): Promise<Page> {
   const page = await extensionContext.newPage();
@@ -73,7 +36,7 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
   const unlock = page.getByTestId('unlock-password');
   await card.or(unlock).first().waitFor({ timeout: 30_000 });
   if (await unlock.isVisible().catch(() => false)) {
-    await page.locator('#unlock-password').fill(PASSWORD);
+    await page.locator('#unlock-password').fill(IMPORTED_WALLET_PASSWORD);
     await page.locator('#unlock-password').press('Enter');
   }
   await card.waitFor({ timeout: 30_000 });
