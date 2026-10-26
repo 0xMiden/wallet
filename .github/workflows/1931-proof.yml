@@ -1,0 +1,30 @@
+name: Issue1931 focused proof
+on:
+  push:
+    branches: ['ci/issue-1931-*']
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 64dc1d09a7b980d6b2e4e31cdca9b17463544248
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Bind proof to source parent
+        run: test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          ref: '${{ env.SOURCE_SHA }}'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - name: Focused action and onboarding regressions
+        run: yarn jest src/background.test.ts src/app/PageRouter.test.tsx src/lib/extension/side-panel-handoff.test.ts --runInBand --coverage=false
