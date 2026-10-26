@@ -19,6 +19,8 @@ export type Status =
   | 'burnConsuming'
   | 'burnConfirmed'
   | 'burnDiscarded'
+  // A confirmed burn Circle has not paid out after 2 hours
+  | 'payoutDelayed'
   | 'failed'
   | 'cancelled'
   | 'unconfirmed'
@@ -80,6 +82,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
   burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
+  payoutDelayed: { labelKey: 'usdcxPayoutDelayed', tone: 'pending' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },

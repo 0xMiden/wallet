@@ -3554,6 +3554,54 @@ describe('HistoryDetails', () => {
       );
     });
 
+    it('passes the recorded payout transaction to the USDCx withdrawal details without searching', async () => {
+      const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+      setMockRow({
+        ...bridgedSendTx,
+        amount: 5_000_000n,
+        extraInputs: {
+          provider: 'usdcx',
+          destinationAddress: '0x1111111111111111111111111111111111111111',
+          destinationNetwork: 5042002,
+          usdcxBurn: {
+            noteId: 'note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+            payout
+          }
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+      await flush();
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
+      expect(mockBridgeClaimSection).toHaveBeenLastCalledWith(
+        expect.objectContaining({ destinationTxHash: payout.transactionHash, sentAmount: 5_000_000n })
+      );
+      expect(findUsdcxDestinationTransaction).not.toHaveBeenCalled();
+    });
+
+    it('reads Payout delayed on a confirmed burn that stayed unpaid for 2 hours', async () => {
+      const confirmedAt = Date.now() - 3 * 3_600_000;
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: {
+          provider: 'usdcx',
+          destinationAddress: '0x1111111111111111111111111111111111111111',
+          destinationNetwork: 5042002,
+          usdcxBurn: {
+            noteId: 'note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+            confirmedAt
+          }
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('usdcxPayoutDelayed');
+    });
+
     // A bridge row created before the amount/quote were stamped still has to
     // render a hero rather than blanking out.
     it('falls back to an em dash on both sides when no amount is known', async () => {

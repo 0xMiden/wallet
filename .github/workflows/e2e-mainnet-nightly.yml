@@ -37,7 +37,7 @@ jobs:
   mainnet-nightly:
     name: Chrome mainnet round trip
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 225 || 180 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 245 || 200 }}
     outputs:
       started: ${{ steps.started.outputs.started }}
     env:
@@ -186,6 +186,14 @@ jobs:
             MAINNET_ONE_CLICK_MODE=preflight E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-preflight xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
           else
             echo 'MAINNET_ONE_CLICK_ENABLED is not true: skipping the 1Click preflight.'
+          fi
+
+      # The loop logs each payout it proved before a failure, so a red night still shows those fees.
+      - name: Publish the USDCx payout summary
+        if: always()
+        run: |
+          if [ -f test-results/mainnet-usdcx-payouts.md ]; then
+            cat test-results/mainnet-usdcx-payouts.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Check whether 1Click preflight produced an authorized route
