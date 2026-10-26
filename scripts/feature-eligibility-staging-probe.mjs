@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 const WORKFLOW = '.github/workflows/probe-feature-eligibility.yml';
 const LIMITS = { requests: 120, concurrency: 4, startsPerSecond: 8, durationMs: 60000 };
 const STATES = ['prepared', 'deploying', 'deployed', 'uncertain', 'cleaned', 'cleanup_blocked'];
-const START_INTERVAL_MS = 126;
+const START_INTERVAL_MS = 0;
 const REASONS = [
   'complete',
   'deploy_rejected',
