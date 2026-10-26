@@ -12,16 +12,30 @@ const ids = ['chrome-testnet', 'ios-testnet', 'android-testnet', 'chrome-devnet'
 const base = () => ({ schemaVersion: 1, releaseTag: 'v1.17.7', sourceSha, buildNumber: '19', targets: {} });
 const plan = () => ({
   ...base(),
-  targets: Object.fromEntries(ids.map((id, index) => [id, {
-    producerRunId: String(100 + index), stateRunId: String(200 + index),
-    ...(id === 'android-testnet' ? { editId: 'owned-edit', acknowledgement: 'submit-pending-play-changes' } : {})
-  }]))
+  targets: Object.fromEntries(
+    ids.map((id, index) => [
+      id,
+      {
+        producerRunId: String(100 + index),
+        stateRunId: String(200 + index),
+        ...(id === 'android-testnet' ? { editId: 'owned-edit', acknowledgement: 'submit-pending-play-changes' } : {})
+      }
+    ])
+  )
 });
 const run = (intent, id = 301, overrides = {}) => ({
-  id, run_attempt: 1, path: intent.workflowPath, event: 'workflow_dispatch', head_branch: 'main',
-  head_sha: automationSha, repository: { full_name: '0xMiden/wallet' },
-  head_repository: { full_name: '0xMiden/wallet' }, display_title: `Store request ${intent.token}`,
-  status: 'completed', conclusion: 'success', ...overrides
+  id,
+  run_attempt: 1,
+  path: intent.workflowPath,
+  event: 'workflow_dispatch',
+  head_branch: 'main',
+  head_sha: automationSha,
+  repository: { full_name: '0xMiden/wallet' },
+  head_repository: { full_name: '0xMiden/wallet' },
+  display_title: `Store request ${intent.token}`,
+  status: 'completed',
+  conclusion: 'success',
+  ...overrides
 });
 function harness(overrides = {}) {
   let saved;
@@ -30,26 +44,42 @@ function harness(overrides = {}) {
   let count = 300;
   return {
     calls,
-    get saved() { return saved; },
+    get saved() {
+      return saved;
+    },
     deps: {
-      save: async checkpoint => { saved = structuredClone(checkpoint); calls.push(['save', saved]); },
+      save: async checkpoint => {
+        saved = structuredClone(checkpoint);
+        calls.push(['save', saved]);
+      },
       token: () => `token-${++count}`,
-      dispatch: async intent => { calls.push(['dispatch', structuredClone(intent)]); records.set(intent.token, run(intent, count)); },
-      findRuns: async intent => [...records.values()].filter(value => value.display_title === `Store request ${intent.token}`),
-      watch: async id => { calls.push(['watch', id]); },
+      dispatch: async intent => {
+        calls.push(['dispatch', structuredClone(intent)]);
+        records.set(intent.token, run(intent, count));
+      },
+      findRuns: async intent =>
+        [...records.values()].filter(value => value.display_title === `Store request ${intent.token}`),
+      watch: async id => {
+        calls.push(['watch', id]);
+      },
       readRun: async id => [...records.values()].find(value => value.id === id),
       ...overrides
     }
   };
 }
-function requireApi(name) { assert.equal(typeof coordinator[name], 'function', `missing ${name}`); }
+function requireApi(name) {
+  assert.equal(typeof coordinator[name], 'function', `missing ${name}`);
+}
 
 test('standard build uses four separate trusted producers in priority order', async () => {
   requireApi('executeReleaseStage');
   const h = harness();
   const checkpoint = await coordinator.executeReleaseStage(base(), { stage: 'build', ...h.deps });
   const dispatches = h.calls.filter(([name]) => name === 'dispatch').map(([, value]) => value);
-  assert.deepEqual(dispatches.map(value => value.targetId), ids);
+  assert.deepEqual(
+    dispatches.map(value => value.targetId),
+    ids
+  );
   for (const intent of dispatches) {
     assert.equal(intent.workflowPath, '.github/workflows/build-store-artifacts.yml');
     assert.equal(intent.inputs.source_sha, sourceSha);
@@ -61,7 +91,10 @@ test('standard build uses four separate trusted producers in priority order', as
     assert.equal(h.calls[index - 1][1].operations[`build:${intent.targetId}`].status, 'dispatch-started');
     assert.equal(checkpoint.operations[`build:${intent.targetId}`].status, 'success');
   }
-  assert.deepEqual(dispatches.map(value => value.inputs.network), ['testnet', 'testnet', 'testnet', 'devnet']);
+  assert.deepEqual(
+    dispatches.map(value => value.inputs.network),
+    ['testnet', 'testnet', 'testnet', 'devnet']
+  );
   assert.equal(dispatches[0].inputs.build_number, '');
   assert.equal(dispatches[1].inputs.build_number, '19');
 });
@@ -82,41 +115,70 @@ test('a late Devnet failure preserves successful native evidence and never resen
   assert.equal(h.saved.operations['build:chrome-devnet'].status, 'failure');
   const second = harness({ dispatch: async () => assert.fail('must not resend any child') });
   second.deps.readRun = h.deps.readRun;
-  await assert.rejects(coordinator.executeReleaseStage(base(), {
-    stage: 'build', checkpoint: h.saved, ...second.deps
-  }), /failed|inspection/i);
+  await assert.rejects(
+    coordinator.executeReleaseStage(base(), {
+      stage: 'build',
+      checkpoint: h.saved,
+      ...second.deps
+    }),
+    /failed|inspection/i
+  );
 });
 
 test('a lost dispatch response remains uncertain across restart and cannot send a duplicate', async () => {
   requireApi('executeReleaseStage');
-  const h = harness({ dispatch: async () => { throw new Error('connection closed after send'); } });
+  const h = harness({
+    dispatch: async () => {
+      throw new Error('connection closed after send');
+    }
+  });
   await assert.rejects(coordinator.executeReleaseStage(base(), { stage: 'build', ...h.deps }), /connection|uncertain/i);
   assert.equal(h.saved.operations['build:chrome-testnet'].status, 'dispatch-started');
   const second = harness({ dispatch: async () => assert.fail('duplicate dispatch'), findRuns: async () => [] });
-  await assert.rejects(coordinator.executeReleaseStage(base(), {
-    stage: 'build', checkpoint: h.saved, ...second.deps
-  }), /uncertain|inspect|correlat/i);
+  await assert.rejects(
+    coordinator.executeReleaseStage(base(), {
+      stage: 'build',
+      checkpoint: h.saved,
+      ...second.deps
+    }),
+    /uncertain|inspect|correlat/i
+  );
 });
 
 test('correlation requires exact token and trusted workflow/main/event, not latest run or release-source head', () => {
   requireApi('matchDispatchedRun');
-  const intent = { token: 'token-1', workflowPath: '.github/workflows/publish-stores.yml', inputs: { source_sha: sourceSha } };
+  const intent = {
+    token: 'token-1',
+    workflowPath: '.github/workflows/publish-stores.yml',
+    inputs: { source_sha: sourceSha }
+  };
   const good = run(intent);
   assert.deepEqual(coordinator.matchDispatchedRun([run({ ...intent, token: 'unrelated' }, 999), good], intent), good);
   assert.throws(() => coordinator.matchDispatchedRun([good, { ...good, id: 302 }], intent), /multiple|ambiguous/i);
   for (const change of [
-    { path: '.github/workflows/untrusted.yml' }, { event: 'push' }, { head_branch: 'feature' },
-    { head_repository: { full_name: 'someone/wallet' } }, { display_title: 'Store request token-1 trailing' }
-  ]) assert.throws(() => coordinator.matchDispatchedRun([run(intent, 301, change)], intent), /trusted|correlat|match/i);
+    { path: '.github/workflows/untrusted.yml' },
+    { event: 'push' },
+    { head_branch: 'feature' },
+    { head_repository: { full_name: 'someone/wallet' } },
+    { display_title: 'Store request token-1 trailing' }
+  ])
+    assert.throws(() => coordinator.matchDispatchedRun([run(intent, 301, change)], intent), /trusted|correlat|match/i);
 });
 
 test('all-target submit preflights every explicit Android acknowledgement and caller-owned edit before any dispatch', async () => {
   requireApi('executeReleaseStage');
   for (const missing of ['editId', 'acknowledgement']) {
-    const input = plan(); delete input.targets['android-testnet'][missing];
+    const input = plan();
+    delete input.targets['android-testnet'][missing];
     const h = harness();
-    await assert.rejects(coordinator.executeReleaseStage(input, { stage: 'submit', ...h.deps }), /edit|acknowledgement/i);
-    assert.equal(h.calls.some(([name]) => name === 'dispatch'), false);
+    await assert.rejects(
+      coordinator.executeReleaseStage(input, { stage: 'submit', ...h.deps }),
+      /edit|acknowledgement/i
+    );
+    assert.equal(
+      h.calls.some(([name]) => name === 'dispatch'),
+      false
+    );
   }
 });
 
@@ -125,7 +187,10 @@ test('each standard publication stage routes the correct target-specific produce
   const h = harness();
   await coordinator.executeReleaseStage(plan(), { stage: 'submit', ...h.deps });
   const intents = h.calls.filter(([name]) => name === 'dispatch').map(([, value]) => value);
-  assert.deepEqual(intents.map(value => value.targetId), ids);
+  assert.deepEqual(
+    intents.map(value => value.targetId),
+    ids
+  );
   for (const [index, intent] of intents.entries()) {
     assert.equal(intent.workflowPath, '.github/workflows/publish-stores.yml');
     assert.equal(intent.inputs.producer_run_id, String(100 + index));
@@ -139,9 +204,14 @@ test('each standard publication stage routes the correct target-specific produce
 test('status does not consume mutation evidence and prepare/begin-edit are never silently broadened to all stores', () => {
   requireApi('validateReleasePlan');
   const validated = coordinator.validateReleasePlan(base(), { stage: 'status' });
-  assert.deepEqual(validated.map(value => value.targetId), ids);
-  for (const stage of ['prepare', 'begin-edit']) assert.throws(() => coordinator.validateReleasePlan(base(), { stage }), /individual|target/i);
-  const android = base(); android.targets['android-testnet'] = { acknowledgement: 'create-new-play-edit' };
+  assert.deepEqual(
+    validated.map(value => value.targetId),
+    ids
+  );
+  for (const stage of ['prepare', 'begin-edit'])
+    assert.throws(() => coordinator.validateReleasePlan(base(), { stage }), /individual|target/i);
+  const android = base();
+  android.targets['android-testnet'] = { acknowledgement: 'create-new-play-edit' };
   assert.equal(coordinator.validateReleasePlan(android, { stage: 'begin-edit', target: 'android-testnet' }).length, 1);
   assert.throws(() => coordinator.validateReleasePlan(base(), { stage: 'build', target: 'ios-devnet' }), /target/i);
 });
@@ -149,14 +219,26 @@ test('status does not consume mutation evidence and prepare/begin-edit are never
 test('resume rejects a changed source or changed child intent before dispatch', async () => {
   requireApi('executeReleaseStage');
   const h = harness();
-  const checkpoint = await coordinator.executeReleaseStage(base(), { stage: 'build', target: 'chrome-testnet', ...h.deps });
+  const checkpoint = await coordinator.executeReleaseStage(base(), {
+    stage: 'build',
+    target: 'chrome-testnet',
+    ...h.deps
+  });
   const next = harness({ dispatch: async () => assert.fail('must reject before dispatch') });
-  const changed = base(); changed.sourceSha = '3'.repeat(40);
-  await assert.rejects(coordinator.executeReleaseStage(changed, { stage: 'build', checkpoint, ...next.deps }), /source|intent|release/i);
-  const build = base(); build.buildNumber = '20';
+  const changed = base();
+  changed.sourceSha = '3'.repeat(40);
+  await assert.rejects(
+    coordinator.executeReleaseStage(changed, { stage: 'build', checkpoint, ...next.deps }),
+    /source|intent|release/i
+  );
+  const build = base();
+  build.buildNumber = '20';
   const complete = harness();
   const previous = await coordinator.executeReleaseStage(base(), { stage: 'build', ...complete.deps });
-  await assert.rejects(coordinator.executeReleaseStage(build, { stage: 'build', checkpoint: previous, ...next.deps }), /intent|build/i);
+  await assert.rejects(
+    coordinator.executeReleaseStage(build, { stage: 'build', checkpoint: previous, ...next.deps }),
+    /intent|build/i
+  );
 });
 
 test('a watcher exit or pending child never establishes completed producer evidence', async () => {
@@ -164,18 +246,26 @@ test('a watcher exit or pending child never establishes completed producer evide
   const h = harness();
   const originalRead = h.deps.readRun;
   h.deps.readRun = async id => ({ ...(await originalRead(id)), status: 'in_progress', conclusion: null });
-  await assert.rejects(coordinator.executeReleaseStage(base(), { stage: 'build', ...h.deps }), /complete|terminal|pending/i);
+  await assert.rejects(
+    coordinator.executeReleaseStage(base(), { stage: 'build', ...h.deps }),
+    /complete|terminal|pending/i
+  );
   assert.notEqual(h.saved.operations['build:chrome-testnet'].status, 'success');
   assert.equal(h.calls.filter(([name]) => name === 'dispatch').length, 1);
 });
 
 test('plan rejects custom identities, unknown targets and malformed source before reaching workflows', () => {
   requireApi('validateReleasePlan');
-  const extra = base(); extra.targets['ios-devnet'] = {};
+  const extra = base();
+  extra.targets['ios-devnet'] = {};
   assert.throws(() => coordinator.validateReleasePlan(extra, { stage: 'build' }), /target/i);
-  const override = base(); override.targets['chrome-devnet'] = { identity: 'another-item' };
+  const override = base();
+  override.targets['chrome-devnet'] = { identity: 'another-item' };
   assert.throws(() => coordinator.validateReleasePlan(override, { stage: 'build' }), /identity|field/i);
   for (const source of ['main', '1'.repeat(39), null]) {
-    assert.throws(() => coordinator.validateReleasePlan({ ...base(), sourceSha: source }, { stage: 'build' }), /source|SHA/i);
+    assert.throws(
+      () => coordinator.validateReleasePlan({ ...base(), sourceSha: source }, { stage: 'build' }),
+      /source|SHA/i
+    );
   }
 });
