@@ -321,6 +321,44 @@ async function openForeground(options: { held?: boolean; actions?: boolean } = {
   mockSetVisible.mockReset().mockResolvedValue(undefined);
   return currentTree;
 }
+function managedTokenFor(id: string) {
+  const options = mockOpen.mock.calls.find(([candidate]) => candidate.id === id)?.[0];
+  const token = options?.managedHostClose?.token;
+  if (!token) throw new Error(`No managed-close token for ${id}`);
+  return token;
+}
+function holdSnapshotsFor(id: string) {
+  const releases: ((snapshot: string | null) => void)[] = [];
+  mockCaptureSnapshot.mockImplementation(candidate =>
+    candidate === id ? new Promise<string | null>(resolve => releases.push(resolve)) : Promise.resolve(null)
+  );
+  return releases;
+}
+async function finishManagedClose(id: string) {
+  const token = managedTokenFor(id);
+  act(() => nativeListeners.get('hostCloseRequested')?.({ id, token, requestId: `close-${id}`, visible: false }));
+  await settle();
+  await act(async () => nativeListeners.get('closeEvent')?.({ id, managedHostCloseToken: token }));
+  await settle();
+}
+async function openManagedSession(id: string) {
+  act(() => {
+    control().open(session(id));
+    control().setSlotRect(RECT);
+  });
+  await waitFor(() => expect(control().sessionStates.find(state => state.session.id === id)?.instance).not.toBeNull());
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id,
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: managedTokenFor(id)
+    })
+  );
+  await settle();
+  await waitFor(() => expect(lastVisibility(id)).toBe(true));
+}
 async function closeAlert() {
   const sheet = screen.getByRole('alertdialog', { name: en.error });
   await act(async () => {
@@ -1461,10 +1499,16 @@ function lastMorphId() {
     throw new Error('No morph was sent');
   return request.morphId;
 }
-function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra: { tracking?: boolean } = {}) {
+function emitMorphForSession(
+  sessionId: string,
+  phase: string,
+  target: string,
+  morphId = lastMorphId(),
+  extra: { tracking?: boolean } = {}
+) {
   act(() =>
     nativeListeners.get('presentationMorph')?.({
-      id: 'origin',
+      id: sessionId,
       morphId,
       phase,
       target,
@@ -1472,9 +1516,12 @@ function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra
       velocity: 0,
       tracking: extra.tracking ?? false,
       visibilitySequence: 0,
-      managedHostCloseToken: lifetime()
+      managedHostCloseToken: managedTokenFor(sessionId)
     })
   );
+}
+function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra: { tracking?: boolean } = {}) {
+  emitMorphForSession('origin', phase, target, morphId, extra);
 }
 const parked = () => control().parkedSessions.map(state => state.session.id);
 
@@ -2120,6 +2167,64 @@ describe('native morph adoption', () => {
       expect(parked()).not.toContain('origin');
     });
 
+    it('one snapshot while a later open joins a pending park of the same session', async () => {
+      await openForeground();
+      const release = holdSnapshot();
+      try {
+        act(() => control().open(session('second')));
+        await waitFor(() => expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7));
+        act(() => control().open(session('third')));
+        await settle();
+
+        expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+        await act(async () => release(null));
+        await settle();
+        expect(statusOf('origin')).toBe('parked');
+        expect(parked()).toContain('origin');
+      } finally {
+        await act(async () => release(null));
+      }
+    });
+
+    it('parks a reopened session while the closed snapshot is still held', async () => {
+      await openForeground();
+      const previousInstance = control().sessionStates.find(state => state.session.id === 'origin')?.instance;
+      const releases = holdSnapshotsFor('origin');
+      const originCaptures = () => mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin').length;
+      try {
+        act(() => control().open(session('second')));
+        await waitFor(() => expect(originCaptures()).toBe(1));
+        await finishManagedClose('origin');
+        expect(statusOf('origin')).toBeUndefined();
+        act(() => control().open(session('origin')));
+        await waitFor(() => {
+          const instance = control().sessionStates.find(state => state.session.id === 'origin')?.instance;
+          expect(instance).toBeTruthy();
+          expect(instance).not.toBe(previousInstance);
+        });
+        expect(originCaptures()).toBe(1);
+        act(() => control().open(session('third')));
+        await settle();
+        expect(originCaptures()).toBe(2);
+        act(() => control().open(session('fourth')));
+        await settle();
+        expect(originCaptures()).toBe(2);
+
+        await act(async () => releases[0]?.(null));
+        await settle();
+        expect(statusOf('origin')).toBe('active');
+        act(() => control().open(session('fifth')));
+        await settle();
+        expect(originCaptures()).toBe(2);
+        await act(async () => releases[1]?.(null));
+        await settle();
+        expect(statusOf('origin')).toBe('parked');
+        expect(parked()).toContain('origin');
+      } finally {
+        await act(async () => releases.forEach(release => release(null)));
+      }
+    });
+
     it('still parks the foreground open replaced when a host alert opens meanwhile', async () => {
       await openForeground();
       const release = holdSnapshot();
@@ -2342,5 +2447,669 @@ describe('native morph adoption', () => {
     expect(control().motion).toMatchObject({ tracking: true });
     expect(parked()).toEqual([]);
     expect(lastVisibility()).toBeUndefined();
+  });
+});
+
+describe('latest foreground intent across sessions', () => {
+  const statusOf = (id: string) => control().sessionStates.find(state => state.session.id === id)?.status;
+
+  async function openForegroundWithColdSession() {
+    mockLoadPersisted.mockResolvedValue([{ ...session('cold'), parkedAt: 1 }]);
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(parked()).toEqual(['cold']));
+    await openManagedSession('origin');
+  }
+
+  async function openSecondFromParkedOrigin() {
+    await openForeground();
+    await act(async () => control().park('origin'));
+    await openManagedSession('second');
+  }
+
+  interface RoundTripRecord {
+    id: string;
+    url?: string;
+    origin?: string;
+    title?: string;
+    favicon?: string | null;
+    openedAt?: number;
+    status?: string;
+    parkedAt?: number;
+  }
+
+  function isRoundTripRecord(value: unknown): value is RoundTripRecord {
+    return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string';
+  }
+
+  function installPersistedRoundTrip(seed: RoundTripRecord[] = []) {
+    const stored = seed.map(entry => ({ ...entry }));
+    mockUpsertSession.mockImplementation(session => {
+      if (!isRoundTripRecord(session)) return Promise.resolve();
+      const copy = { ...session };
+      const index = stored.findIndex(entry => entry.id === copy.id);
+      if (index === -1) stored.push(copy);
+      else stored[index] = copy;
+      return Promise.resolve();
+    });
+    mockLoadPersisted.mockImplementation(() => Promise.resolve(stored.map(entry => ({ ...entry }))));
+    return () => {
+      mockUpsertSession.mockImplementation(async () => {});
+    };
+  }
+
+  it('parks a slotless open when a second open supersedes it', async () => {
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+    act(() => {
+      control().open(session('first'));
+      control().open(session('second'));
+    });
+    await settle();
+
+    expect(statusOf('first')).toBe('parked');
+    expect(control().sessionStates.find(state => state.session.id === 'first')?.isLoading).toBe(false);
+    expect(parked()).toContain('first');
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('loading');
+  });
+
+  it('returns a superseded cold restore to the parked list', async () => {
+    mockLoadPersisted.mockResolvedValue([{ ...session('cold'), parkedAt: 1 }]);
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(parked()).toEqual(['cold']));
+    await act(async () => control().restore('cold'));
+    act(() => control().open(session('second')));
+    await settle();
+
+    expect(statusOf('cold')).toBe('parked');
+    expect(parked()).toContain('cold');
+    expect(control().session?.id).toBe('second');
+  });
+
+  it('parks a slotless loading session when a cold session is restored', async () => {
+    mockLoadPersisted.mockResolvedValue([{ ...session('cold'), parkedAt: 1 }]);
+    currentTree = render(<Tree />);
+    await waitFor(() => expect(parked()).toEqual(['cold']));
+    act(() => control().open(session('first')));
+    await settle();
+    expect(statusOf('first')).toBe('loading');
+    await act(async () => control().restore('cold'));
+
+    expect(statusOf('first')).toBe('parked');
+    expect(parked()).toContain('first');
+    expect(control().session?.id).toBe('cold');
+    expect(statusOf('cold')).toBe('loading');
+  });
+
+  it('parks a slotless loading session when a warm session is restored', async () => {
+    await openForeground();
+    await act(async () => control().park('origin'));
+    act(() => control().setSlotRect(null));
+    act(() => control().open(session('second')));
+    await settle();
+    expect(statusOf('second')).toBe('loading');
+    await act(async () => control().restore('origin'));
+
+    expect(statusOf('second')).toBe('parked');
+    expect(parked()).toContain('second');
+    expect(control().session?.id).toBe('origin');
+  });
+
+  it('remounts a slotless open that a second open parked', async () => {
+    const restoreStore = installPersistedRoundTrip();
+    const tree = render(<Tree />);
+    currentTree = tree;
+    try {
+      await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+      act(() => {
+        control().open(session('first'));
+        control().open(session('second'));
+      });
+      await settle();
+      expect(statusOf('first')).toBe('parked');
+      expect(statusOf('second')).toBe('loading');
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => expect(parked()).toEqual(['first']));
+    } finally {
+      restoreStore();
+    }
+  });
+
+  it('remounts a slotless session that a cold restore parked', async () => {
+    const restoreStore = installPersistedRoundTrip([{ ...session('cold'), parkedAt: 1 }]);
+    const tree = render(<Tree />);
+    currentTree = tree;
+    try {
+      await waitFor(() => expect(parked()).toEqual(['cold']));
+      act(() => control().open(session('first')));
+      await settle();
+      await act(async () => control().restore('cold'));
+      expect(statusOf('first')).toBe('parked');
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => {
+        expect(parked()).toContain('first');
+        expect(parked()).toContain('cold');
+      });
+    } finally {
+      restoreStore();
+    }
+  });
+
+  it('remounts a slotless session that a warm restore parked', async () => {
+    const restoreStore = installPersistedRoundTrip();
+    try {
+      const tree = await openForeground();
+      await act(async () => control().park('origin'));
+      act(() => control().setSlotRect(null));
+      act(() => control().open(session('second')));
+      await settle();
+      await act(async () => control().restore('origin'));
+      expect(statusOf('second')).toBe('parked');
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => expect(parked()).toContain('second'));
+    } finally {
+      restoreStore();
+    }
+  });
+
+  it('remounts a session whose open finished after the user left', async () => {
+    const restoreStore = installPersistedRoundTrip();
+    let releaseOpen: () => void = () => undefined;
+    mockOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          releaseOpen = resolve;
+        })
+    );
+    const tree = render(<Tree />);
+    currentTree = tree;
+    try {
+      act(() => {
+        control().open(session('first'));
+        control().setSlotRect(RECT);
+      });
+      await waitFor(() => expect(mockOpen).toHaveBeenCalled());
+      act(() => control().setSlotRect(null));
+      await waitFor(() => expect(control().session).toBeNull());
+      await act(async () => {
+        releaseOpen();
+      });
+      await waitFor(() => expect(statusOf('first')).toBe('parked'));
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => expect(parked()).toContain('first'));
+    } finally {
+      await act(async () => {
+        releaseOpen();
+      });
+      restoreStore();
+      mockOpen.mockReset();
+      mockOpen.mockImplementation(async () => {});
+    }
+  });
+
+  it('parks the foreground after a superseded park once the slot leaves', async () => {
+    await openForegroundWithColdSession();
+    let releaseSnapshot: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () => new Promise<string | null>(resolve => (releaseSnapshot = resolve))
+    );
+    let restoringCold = Promise.resolve(false);
+    try {
+      act(() => {
+        restoringCold = control().restore('cold');
+      });
+      await waitFor(() => expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7));
+      await act(async () => control().restore('origin'));
+      await act(async () => {
+        releaseSnapshot(null);
+        await restoringCold;
+      });
+      expect(statusOf('origin')).toBe('active');
+      expect(control().session?.id).toBe('origin');
+      act(() => control().setSlotRect(null));
+      await settle();
+
+      expect(statusOf('origin')).toBe('parked');
+      expect(parked()).toContain('origin');
+      expect(control().session).toBeNull();
+    } finally {
+      await act(async () => {
+        releaseSnapshot(null);
+        await restoringCold;
+      });
+    }
+  });
+
+  it('route-away during a held park after the same foreground is restored parks that foreground', async () => {
+    await openForegroundWithColdSession();
+    const previousHash = window.location.hash;
+    let releaseSnapshot: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () => new Promise<string | null>(resolve => (releaseSnapshot = resolve))
+    );
+    let restoringCold = Promise.resolve(false);
+    try {
+      window.location.hash = '#/activity';
+      const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+      jest.mocked(navigate).mockClear();
+      act(() => {
+        restoringCold = control().restore('cold');
+      });
+      await waitFor(() => expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1));
+      await act(async () => control().restore('origin'));
+      await settle();
+
+      expect(statusOf('origin')).toBe('active');
+      expect(control().session?.id).toBe('origin');
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+
+      jest.mocked(navigate).mockClear();
+      act(() => control().setSlotRect(null));
+      await settle();
+      await act(async () => {
+        releaseSnapshot(null);
+        await restoringCold;
+      });
+      await settle();
+
+      expect(statusOf('origin')).toBe('parked');
+      expect(parked()).toContain('origin');
+      expect(lastVisibility('origin')).toBe(false);
+      expect(control().session).toBeNull();
+      expect(statusOf('cold')).toBe('parked');
+      expect(navigate).not.toHaveBeenCalledWith('/browser');
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+    } finally {
+      await act(async () => {
+        releaseSnapshot(null);
+        await restoringCold;
+      });
+      window.location.hash = previousHash;
+    }
+  });
+
+  it('route-away keeps an earlier background park current', async () => {
+    await openForeground();
+    const releases = holdSnapshotsFor('origin');
+    try {
+      await openManagedSession('second');
+      await waitFor(() => expect(releases).toHaveLength(1));
+      act(() => control().setSlotRect(null));
+      await waitFor(() => expect(statusOf('second')).toBe('parked'));
+      await act(async () => releases[0]?.(null));
+      await settle();
+
+      expect(statusOf('origin')).toBe('parked');
+      expect(parked().sort()).toEqual(['origin', 'second']);
+      expect(control().session).toBeNull();
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+    } finally {
+      await act(async () => releases.forEach(release => release(null)));
+    }
+  });
+
+  it.each(['snapshot', 'hide'])('route-away during a cold restore %s beats that restore', async phase => {
+    await openForegroundWithColdSession();
+    const previousHash = window.location.hash;
+    const releases: (() => void)[] = [];
+    if (phase === 'snapshot') {
+      mockCaptureSnapshot.mockImplementationOnce(
+        () => new Promise<string | null>(resolve => releases.push(() => resolve(null)))
+      );
+    } else {
+      mockSetVisible.mockImplementation((id, visible) =>
+        id === 'origin' && !visible ? new Promise<void>(resolve => releases.push(resolve)) : Promise.resolve()
+      );
+    }
+    let restoringCold = Promise.resolve(false);
+    try {
+      window.location.hash = '#/activity';
+      const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+      jest.mocked(navigate).mockClear();
+      act(() => {
+        restoringCold = control().restore('cold');
+      });
+      await waitFor(() => expect(releases.length).toBeGreaterThan(0));
+      act(() => control().setSlotRect(null));
+      await settle();
+      await act(async () => {
+        releases.forEach(release => release());
+        await restoringCold;
+      });
+      await settle();
+
+      expect(statusOf('cold')).toBe('parked');
+      expect(parked()).toContain('cold');
+      expect(control().session?.id).not.toBe('cold');
+      expect(navigate).not.toHaveBeenCalledWith('/browser');
+    } finally {
+      mockSetVisible.mockReset().mockResolvedValue(undefined);
+      await act(async () => {
+        releases.forEach(release => release());
+        await restoringCold;
+      });
+      window.location.hash = previousHash;
+    }
+  });
+
+  it('a slot clear during the reopened session held park beats the cold restore after the closed capture finishes', async () => {
+    await openForegroundWithColdSession();
+    const previousHash = window.location.hash;
+    const previousInstance = control().sessionStates.find(state => state.session.id === 'origin')?.instance;
+    const releases = holdSnapshotsFor('origin');
+    let firstRestore = Promise.resolve(false);
+    let secondRestore = Promise.resolve(false);
+    try {
+      window.location.hash = '#/activity';
+      act(() => {
+        firstRestore = control().restore('cold');
+      });
+      await waitFor(() => expect(releases).toHaveLength(1));
+      await finishManagedClose('origin');
+      expect(statusOf('origin')).toBeUndefined();
+      act(() => control().open(session('origin')));
+      await waitFor(() => {
+        const instance = control().sessionStates.find(state => state.session.id === 'origin')?.instance;
+        expect(instance).toBeTruthy();
+        expect(instance).not.toBe(previousInstance);
+      });
+      act(() => {
+        secondRestore = control().restore('cold');
+      });
+      await waitFor(() => expect(releases).toHaveLength(2));
+      await act(async () => {
+        releases[0]?.(null);
+        await firstRestore;
+      });
+      expect(statusOf('origin')).toBe('active');
+      expect(control().session?.id).toBe('origin');
+      const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+      jest.mocked(navigate).mockClear();
+      act(() => control().setSlotRect(null));
+      await settle();
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(2);
+      await act(async () => {
+        releases[1]?.(null);
+        await secondRestore;
+      });
+      await settle();
+
+      expect(statusOf('cold')).toBe('parked');
+      expect(parked()).toContain('cold');
+      expect(statusOf('origin')).toBe('parked');
+      expect(control().session).toBeNull();
+      expect(navigate).not.toHaveBeenCalledWith('/browser');
+    } finally {
+      mockCaptureSnapshot.mockReset().mockResolvedValue(null);
+      await act(async () => releases.forEach(release => release(null)));
+      window.location.hash = previousHash;
+    }
+  });
+
+  it('a closed capture leaves the reopened session foreground when the slot is null', async () => {
+    await openForegroundWithColdSession();
+    const previousHash = window.location.hash;
+    const releases = holdSnapshotsFor('origin');
+    let firstRestore = Promise.resolve(false);
+    try {
+      window.location.hash = '#/activity';
+      act(() => {
+        firstRestore = control().restore('cold');
+      });
+      await waitFor(() => expect(releases).toHaveLength(1));
+      await finishManagedClose('origin');
+      act(() => control().setSlotRect(null));
+      await settle();
+      act(() => control().open(session('origin')));
+      await settle();
+      expect(control().session?.id).toBe('origin');
+      expect(statusOf('origin')).toBe('loading');
+      expect(control().sessionStates.find(state => state.session.id === 'origin')?.instance).toBeNull();
+      await act(async () => {
+        releases[0]?.(null);
+        await firstRestore;
+      });
+      act(() => control().open(session('second')));
+      await settle();
+      await act(async () => control().restore('origin'));
+      await settle();
+
+      expect(control().session?.id).toBe('origin');
+      expect(statusOf('origin')).toBe('loading');
+    } finally {
+      await act(async () => releases.forEach(release => release(null)));
+      window.location.hash = previousHash;
+    }
+  });
+
+  it('keeps the later legacy restore foreground when the earlier park resolves last', async () => {
+    await openForegroundWithColdSession();
+    let releaseSnapshot: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string | null>(resolve => {
+          releaseSnapshot = resolve;
+        })
+    );
+
+    let restoringCold: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      restoringCold = control().restore('cold');
+    });
+    await waitFor(() => expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7));
+
+    await act(async () => control().restore('origin'));
+    expect(control().session?.id).toBe('origin');
+    await act(async () => {
+      releaseSnapshot(null);
+      await restoringCold;
+    });
+    await settle();
+
+    expect(control().session?.id).toBe('origin');
+    expect(statusOf('origin')).toBe('active');
+    expect(statusOf('cold')).toBe('parked');
+    expect(parked()).toEqual(['cold']);
+    expect(lastVisibility('origin')).toBe(true);
+  });
+
+  it('does not hide a session restored while an older park is waiting', async () => {
+    await openForeground();
+    let nativeVisible = true;
+    let releaseHide: (() => void) | undefined;
+    let hideReleased = false;
+    mockSetVisible.mockImplementation((id, visible) => {
+      if (id !== 'origin') return Promise.resolve();
+      if (visible) {
+        nativeVisible = true;
+        return Promise.resolve();
+      }
+      return new Promise<void>(resolve => {
+        releaseHide = () => {
+          hideReleased = true;
+          nativeVisible = false;
+          resolve();
+        };
+      });
+    });
+
+    let parking: Promise<void> = Promise.resolve();
+    try {
+      act(() => {
+        parking = control().park('origin');
+      });
+      await waitFor(() => expect(releaseHide).toBeDefined());
+      expect(mockSetVisible).toHaveBeenCalledWith('origin', false);
+
+      await act(async () => control().restore('origin'));
+      await waitFor(() => expect(lastVisibility('origin')).toBe(true));
+      expect(nativeVisible).toBe(true);
+
+      await act(async () => {
+        releaseHide?.();
+        await parking;
+      });
+      expect(statusOf('origin')).toBe('active');
+      expect(lastVisibility('origin')).toBe(true);
+      expect(nativeVisible).toBe(true);
+    } finally {
+      if (!hideReleased && releaseHide) {
+        await act(async () => {
+          releaseHide?.();
+          await parking;
+        });
+      }
+      mockSetVisible.mockReset().mockResolvedValue(undefined);
+    }
+  });
+
+  it('does not park a restored outgoing session when an older expansion settles', async () => {
+    await openSecondFromParkedOrigin();
+    let acceptExpansion: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph.mockImplementationOnce(
+      () =>
+        new Promise<{ accepted: boolean }>(resolve => {
+          acceptExpansion = resolve;
+        })
+    );
+
+    let expandingOrigin: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      expandingOrigin = control().restore('origin', { card: CARD });
+    });
+    await waitFor(() => expect(mockMorph).toHaveBeenCalled());
+    emitMorphForSession('origin', 'started', 'expanded');
+    await act(async () => control().restore('second'));
+    expect(control().session?.id).toBe('second');
+
+    await act(async () => {
+      acceptExpansion({ accepted: true });
+      await expandingOrigin;
+    });
+    emitMorphForSession('origin', 'settled', 'expanded');
+    await settle();
+
+    expect(statusOf('origin')).toBe('parked');
+    expect(parked()).toContain('origin');
+    expect(lastVisibility('origin')).toBe(false);
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
+    expect(parked()).not.toContain('second');
+    expect(lastVisibility('second')).toBe(true);
+  });
+
+  it('ignores a stale collapse terminal event after a newer foreground intent', async () => {
+    await openSecondFromParkedOrigin();
+    let acceptExpansion: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph.mockImplementationOnce(
+      () =>
+        new Promise<{ accepted: boolean }>(resolve => {
+          acceptExpansion = resolve;
+        })
+    );
+
+    let expandingOrigin: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      expandingOrigin = control().restore('origin', { card: CARD });
+    });
+    await waitFor(() => expect(mockMorph).toHaveBeenCalled());
+    emitMorphForSession('origin', 'started', 'expanded');
+    await act(async () => control().restore('second'));
+    expect(control().session?.id).toBe('second');
+
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded' });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
+    expect(control().motion).toBeNull();
+
+    await act(async () => {
+      acceptExpansion({ accepted: true });
+      await expandingOrigin;
+    });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
+
+    expect(statusOf('origin')).toBe('parked');
+    expect(parked()).toContain('origin');
+    expect(lastVisibility('origin')).toBe(false);
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
+    expect(parked()).not.toContain('second');
+    expect(lastVisibility('second')).toBe(true);
+  });
+
+  it('keeps the confirmation owner reachable after a stale collapse settles', async () => {
+    mockRealApproval = true;
+    await openSecondFromParkedOrigin();
+    let acceptExpansion: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph.mockImplementationOnce(
+      () =>
+        new Promise<{ accepted: boolean }>(resolve => {
+          acceptExpansion = resolve;
+        })
+    );
+
+    let expandingOrigin: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      expandingOrigin = control().restore('origin', { card: CARD });
+    });
+    await waitFor(() => expect(mockMorph).toHaveBeenCalled());
+    emitMorphForSession('origin', 'started', 'expanded');
+
+    let confirmation: Promise<unknown> | undefined;
+    act(() => {
+      confirmation = dappConfirmationStore.requestConfirmation({
+        ...approval(),
+        id: 'confirmation-second',
+        sessionId: 'second',
+        origin: 'https://second.test',
+        type: 'sign',
+        transactionMessages: ['Confirmation owner']
+      });
+    });
+    await screen.findByText('Confirmation owner');
+    await waitFor(() => expect(control().session?.id).toBe('second'));
+
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded' });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
+    expect(control().motion).toBeNull();
+
+    await act(async () => {
+      acceptExpansion({ accepted: true });
+      await expandingOrigin;
+    });
+    emitMorphForSession('origin', 'retargeted', 'collapsed');
+    emitMorphForSession('origin', 'settled', 'collapsed');
+    await settle();
+
+    expect(statusOf('origin')).toBe('parked');
+    expect(parked()).toContain('origin');
+    expect(lastVisibility('origin')).toBe(false);
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
+    expect(parked()).not.toContain('second');
+    expect(lastVisibility('second')).toBe(false);
+    expect(dappConfirmationStore.getPendingRequest('second')).toMatchObject({ id: 'confirmation-second' });
+    await waitFor(() => expect(screen.getByText('Confirmation owner').closest('[role="dialog"]')).toBeVisible());
+
+    await act(async () => {
+      dappConfirmationStore.resolveConfirmation('second', { confirmed: false }, 'confirmation-second');
+      await confirmation;
+    });
+    await waitFor(() => expect(lastVisibility('second')).toBe(true));
+    expect(control().session?.id).toBe('second');
+    expect(statusOf('second')).toBe('active');
   });
 });
