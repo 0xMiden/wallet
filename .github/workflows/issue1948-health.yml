@@ -1,0 +1,41 @@
+name: Issue1948 health checkpoint
+on:
+  push:
+    branches:
+      - 'ci/1948-health-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 00ad0eefb341696ccd2b1591ad4649bd2ea3002e | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 00ad0eefb341696ccd2b1591ad4649bd2ea3002e
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Prove predicted health mutations
+        run: |
+          set -o pipefail
+          python3 .github/ci/health-mutations.py 2>&1 | tee proof/mutation-summary.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: health-checkpoint-mutations-v1
+          path: proof/
