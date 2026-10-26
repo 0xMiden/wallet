@@ -4297,7 +4297,8 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     const client = makeClientApi(result);
-    client.transactions.prove.mockRejectedValueOnce(new WebAssembly.RuntimeError('unreachable'));
+    const delegatedTrap = new WebAssembly.RuntimeError('unreachable');
+    client.transactions.prove.mockRejectedValueOnce(delegatedTrap);
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => {}),
@@ -4319,6 +4320,7 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     ).catch(() => {});
 
+    expect(snapshotCrashDiagnostics(delegatedTrap)).toMatchObject({ guardianProvingSubstep: 'prove_delegate' });
     expect(client.transactions.prove).toHaveBeenCalledTimes(1);
     expect(TransactionProver.newLocalProver).not.toHaveBeenCalled();
     expect(mockWithWasmLockWatchdogPaused).not.toHaveBeenCalled();

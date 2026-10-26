@@ -2623,6 +2623,11 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       started: true,
       deadline: { owner: 'own', timer: 'started', killer: 'write' }
     });
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(err)).toMatchObject({
+      offscreenDeadlineMethod: 'consumeNoteId',
+      offscreenDeadlineStage: 'not_observed'
+    });
     expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
     expect(__test.inFlightSize()).toBe(0);
   });

@@ -1042,3 +1042,26 @@ describe('closed queue facts without failure text', () => {
     }
   });
 });
+
+it('binds the selected stuck start to the committed cancellation report', async () => {
+  await Repo.transactions.put(row({ processingStartedAt: SESSION_STARTED_AT - 3600 }));
+  await cancelStuckTransactions();
+  expect(report).toHaveBeenCalledWith(
+    expect.objectContaining({
+      reason: 'stuck_reaped',
+      reap: expect.objectContaining({ startRelation: 'before_realm_cutoff' })
+    })
+  );
+});
+
+it('publishes only the already queried surviving queue membership after reaping', async () => {
+  const member = row({ status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000), queuedSeq: 7 });
+  await Repo.transactions.put(member);
+  const observed = jest.fn();
+  await Reflect.apply(cancelStaleQueuedTransactions, undefined, [observed]);
+  expect(observed).toHaveBeenCalledTimes(1);
+  expect(observed).toHaveBeenCalledWith([
+    expect.objectContaining({ id: member.id, initiatedAt: member.initiatedAt, queuedSeq: 7 })
+  ]);
+  expect(report).not.toHaveBeenCalled();
+});

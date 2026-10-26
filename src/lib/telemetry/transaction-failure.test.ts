@@ -2268,3 +2268,16 @@ it('nativeDimensionsDoNotChangeTitleSeverityOrFingerprint', () => {
     firstReport.message.replace('evm error other', 'evm error invalid_permissions')
   );
 });
+
+it('refines the exact PartialBlockchain producer context without exporting the private suffix', async () => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'executing',
+    error: new Error(
+      'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data store: error creating PartialBlockchain from internal data: private-chain-canary'
+    )
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('cause partial_blockchain_build');
+  expect(message).not.toContain('private-chain-canary');
+});
