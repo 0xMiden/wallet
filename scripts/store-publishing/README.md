@@ -22,7 +22,7 @@ Standard store builds and each explicit publication stage use this fixed order:
 3. Android Testnet: `com.miden.wallet`.
 4. Chrome Devnet: Bread Devnet (`eeghndabgeicdpkbcohgglidpfpiafnb`).
 
-`build-store-artifacts.yml` with `platform=all`, `network=testnet` and an explicit native build suffix dispatches four separate single-target producer runs. Devnet starts last. The parent run's journal identifies the successful producer for each target; the parent itself is not artifact producer evidence. A later Devnet failure leaves earlier successful producers usable. Existing individual platform/network dispatches remain available.
+`build-store-artifacts.yml` with `platform=all`, `network=testnet` and an explicit native build suffix dispatches four separate single-target producer runs. Devnet starts last. The parent run's journal identifies the successful producer for each target; the parent itself is not artifact producer evidence. A later Devnet failure leaves earlier successful producers usable. Existing individual platform/network dispatches remain available. A GitHub rerun of the all-target parent stops before dispatch: inspect the original children and resume with the preserved private coordinator journal instead of starting fresh child requests.
 
 `yarn build-all` also appends explicit Chrome Testnet and Devnet builds, preserves the existing platform outputs and leaves `dist/chrome-testnet.zip` and `dist/chrome-devnet.zip`. The default `chrome.zip` and unpacked Chrome output remain Testnet. These local build outputs do not replace signed store producer receipts.
 

@@ -80,6 +80,7 @@ jobs:
           node --input-type=module <<'NODE'
           import { writeFileSync } from 'node:fs';
           import { validateBuildRequest } from './scripts/store-publishing/create-receipt.mjs';
+          if (process.env.GITHUB_RUN_ATTEMPT !== '1') throw new Error('All-target reruns require inspection and explicit recovery with the preserved coordinator journal');
           const plan = validateBuildRequest({ releaseTag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA,
             platform: process.env.PLATFORM, network: process.env.NETWORK, buildNumber: process.env.BUILD_NUMBER });
           writeFileSync(process.env.RUNNER_TEMP + '/store-all-targets/store-build-plan.json', JSON.stringify({ schemaVersion: 1,
