@@ -323,18 +323,22 @@ export function parseAndroidKeyboardLayout(
   label: string
 ): NativeKeyboardLayout {
   const nodes = androidNodes(hierarchy);
-  const webView = nodes.find(node => /webview/i.test(node.class ?? ''));
+  const isWebView = (node: Record<string, string>) => /webview/i.test(node.class ?? '');
   // A WebView EditText carries its label as the hint; the label element beside it is a plain View.
-  const field = only(
-    nodes.filter(
-      node =>
-        (node['content-desc'] === label ||
-          node.text === label ||
-          node.hint === label ||
-          node['resource-id']?.endsWith(`/${label}`)) &&
-        /edittext|textfield/i.test(node.class ?? '')
+  const fieldIndex = only(
+    nodes.flatMap((node, index) =>
+      (node['content-desc'] === label ||
+        node.text === label ||
+        node.hint === label ||
+        node['resource-id']?.endsWith(`/${label}`)) &&
+      /edittext|textfield/i.test(node.class ?? '')
+        ? [index]
+        : []
     )
   );
+  const field = fieldIndex === null ? undefined : nodes[fieldIndex];
+  // An all-windows dump also holds the wallet's own WebView; the dApp's is the last one before the field.
+  const webView = fieldIndex === null ? nodes.find(isWebView) : nodes.slice(0, fieldIndex).reverse().find(isWebView);
   const keyboard = nodes.find(node => /keyboard_view|input_view/i.test(node['resource-id'] ?? ''));
   const hierarchyKeyboard = keyboard ? androidFrame(keyboard.bounds) : null;
   // Visibility follows a positive-height rectangle. mInputShown alone leaves the top null.
@@ -485,14 +489,15 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
     if (!serial) throw new HarnessFault(`wallet ${device} has no Android emulator`);
     return serial;
   };
-  // FileWriter swallows a failed dump and DumpCommand still exits 0, so stdout is only the banner.
+  // A plain dump reads only the active window, which a tap or typing can hand to the IME; `--windows` reads every
+  // window. FileWriter swallows a failed dump and DumpCommand still exits 0, so stdout is only the banner.
   // Removing the previous file keeps a swallowed write from being read back as a stale tree.
   const hierarchyPath = '/data/local/tmp/miden-wallet-hierarchy.xml';
   const hierarchyFor = async (serial: string): Promise<string> => {
     for (let attempt = 1; ; attempt += 1) {
       await run(serial, ['shell', 'rm', '-f', hierarchyPath]);
       try {
-        await run(serial, ['shell', 'uiautomator', 'dump', hierarchyPath]);
+        await run(serial, ['shell', 'uiautomator', 'dump', '--windows', hierarchyPath]);
       } catch (error) {
         // The dump's own UiAutomation thread can die on a stale binder ("Bad file descriptor"); one fresh dump is
         // the bound.
