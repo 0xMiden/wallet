@@ -1,0 +1,35 @@
+name: UI producer focused proof
+on:
+  push:
+    branches: ['ci/ui-producer-*']
+permissions:
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+      - name: Verify source proof parent
+        run: git diff --exit-code HEAD^ HEAD -- . ':!.github/workflows/ui-producer-proof.yml'
+      - name: Run focused UI and privacy acceptance
+        run: yarn test --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/ui-producer-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/components/ui/Notice.test.tsx src/components/FeatureUnavailable.test.tsx src/lib/miden/transaction/submission-feedback.test.ts src/lib/miden/transaction/retry.test.ts src/lib/miden/transaction/retry.unconfirmed.test.ts src/utils/miden.test.ts src/screens/send-flow/SendManager.test.tsx src/screens/send-flow/SelectRecipient.test.tsx src/app/pages/Earn.test.tsx src/screens/earn-flow/EarnDepositAmount.test.tsx src/screens/earn-flow/EarnVaultDetail.test.tsx src/screens/send-flow/SendRoute.test.tsx src/screens/send-flow/ReviewTransaction.test.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.deposit.test.tsx src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx src/app/templates/history/PendingActivityCard.test.tsx src/screens/send-flow/Route.test.tsx src/screens/generating-transaction/GeneratingTransaction.test.tsx src/app/hooks/useActivityClaims.test.ts --maxWorkers=2 --ci --json --outputFile=ui-test-results.json
+      - name: Check TypeScript
+        if: always()
+        run: yarn ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-producer-results
+          path: ui-test-results.json
