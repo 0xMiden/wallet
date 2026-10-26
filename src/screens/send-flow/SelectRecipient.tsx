@@ -151,7 +151,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       title={t('sendTo')}
       footer={
         <Button
-          title={t('confirm')}
+          title={t('continue')}
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
