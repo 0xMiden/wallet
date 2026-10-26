@@ -1,0 +1,14 @@
+name: Eligibility staging binding probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inactive:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Staging probe is inactive until its contract is implemented'
