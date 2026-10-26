@@ -747,6 +747,74 @@ describe('USDCx withdrawal stages', () => {
   });
 });
 
+describe('USDCx payout badge', () => {
+  const HOUR = 3_600_000;
+  const NOW = 1_800_000_000_000;
+  const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+  const burn = (extra: Partial<NonNullable<IHistoryEntry['usdcxBurn']>> = {}): IHistoryEntry =>
+    bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      bridgeSettledAt: NOW - 3 * HOUR,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+        ...extra
+      }
+    });
+
+  it('reads Confirmed on a recorded payout', () => {
+    const paid = burn({ payout });
+    expect(bridgeBadgeStatusOf(paid, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(paid)).toBe('confirmed');
+  });
+
+  it('reads Confirmed on a legacy balance confirmation', () => {
+    const legacy = burn({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(legacy)).toBe('confirmed');
+  });
+
+  it('reads Payout delayed 2 hours after the burn confirmed without a payout', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).toBe('payoutDelayed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).not.toBe('burnConfirmed');
+    // A row confirmed before confirmedAt existed counts from when it settled.
+    expect(bridgeBadgeStatusOf(burn(), NOW)).toBe('payoutDelayed');
+  });
+
+  it('reads Burn confirmed before 2 hours', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR + 1 }), NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: NOW - HOUR }, NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: undefined }, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed on a balance-confirmed row', () => {
+    const legacy = burn({
+      confirmedAt: NOW - 30 * HOUR,
+      destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+    });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 30 * HOUR, payout }), NOW)).toBe('confirmed');
+  });
+
+  it('a restored row never reads Payout delayed', () => {
+    const restored = { ...burn({ confirmedAt: NOW - 30 * HOUR }), restoredFromBackup: true };
+    expect(bridgeBadgeStatusOf(restored, NOW)).toBe('burnConfirmed');
+  });
+
+  it('a row without a saved snapshot never reads Payout delayed', () => {
+    const old = burn({ confirmedAt: NOW - 30 * HOUR, destinationBalanceBefore: undefined });
+    expect(bridgeBadgeStatusOf(old, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed before the burn confirmed', () => {
+    expect(bridgeBadgeStatusOf(burn({ phase: 'consuming' }), NOW)).toBe('burnConsuming');
+    expect(bridgeBadgeStatusOf(burn({ phase: 'pending' }), NOW)).toBe('burnPending');
+  });
+});
+
 describe('bridgeStatusOf', () => {
   // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
   // so its terminal status must beat the route's own (initially pending) metadata.

@@ -112,9 +112,9 @@ jobs:
 
       # The Arc suites in turn, narrowest first, and each only once the one before passed: a red suite can leave a
       # payout or a deposit still landing on the key, inside the next suite's payout window. Each Playwright run empties
-      # test-results/, so each suite's results upload before the next suite starts. An upload may fail without failing
-      # the job: the Arc suites after it run only when every step before them passed, and its failure is never the
-      # wallet's.
+      # test-results/, so each suite's results upload, and a burning suite's payout fees reach the job summary, before
+      # the next suite starts. An upload or a summary may fail without failing the job: the Arc suites after it run only
+      # when every step before them passed, and its failure is never the wallet's.
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
 
@@ -144,6 +144,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Add usdcx-burn payout fees to the job summary
+        if: always() && steps.usdcx_burn.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Run usdcx (round trip)
         id: usdcx_round_trip
         run: node scripts/e2e-real.mjs --suite usdcx
@@ -156,6 +164,14 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx payout fees to the job summary
+        if: always() && steps.usdcx_round_trip.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # After the Arc job, red or green: its suites leave nothing pending on Base Sepolia, Arbitrum Sepolia or Ethereum
   # Sepolia, so a red one cannot break a proof here. Never in a cancelled run. This job's own setup guards the key: a
@@ -270,3 +286,11 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx-burn-l2 payout fees to the job summary
+        if: always() && steps.usdcx_burn_l2.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi

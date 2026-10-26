@@ -307,6 +307,15 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # Circle's fee varies with network fees and is not a gate, so each proven return burn's fee is reported here.
+      - name: Add the payout fees to the job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # After the Arc job, red or green, never in a cancelled run: every job spends from one key, and a forwarded burn
   # names that key as the executor's recovery address on Arc, so no source chain's deposit may run inside the Arc job's
   # payout window. One job per source chain, in parallel: each reads and refills only its own chain's balance of the
@@ -488,3 +497,12 @@ jobs:
           path: test-results-ios/
           retention-days: 7
           if-no-files-found: ignore
+
+      # Circle's fee varies with network fees and is not a gate, so each proven return burn's fee is reported here.
+      - name: Add the payout fees to the job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
