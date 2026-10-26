@@ -655,7 +655,7 @@ export function createLocalProbeEffects(env) {
           /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}\/(settings|subdomain|content\/v2)$/.test(path));
       const remove = method === 'DELETE' && /^\/workers\/scripts\/[a-zA-Z0-9_-]{1,63}$/.test(path);
       if (!account && !read && !remove) fail('auth');
-      const endpoint = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${account ? '' : path}`;
+      const endpoint = `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${path}`;
       return request(`https://api.cloudflare.com/client/v4${endpoint}`, {
         ...init,
         headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` }
