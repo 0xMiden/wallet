@@ -1,0 +1,52 @@
+name: Issue1931 regression proof
+on:
+  push:
+    branches: ['ci/issue-1931-*']
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: 7feddf5fc006a5ed5ce70b8e1d381584da44b91e
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Bind proof envelope to frozen source
+        run: test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          ref: '${{ env.SOURCE_SHA }}'
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Expected red toolbar target
+        id: toolbar
+        continue-on-error: true
+        run: yarn test:e2e:toolbar
+      - name: Expected red popup assertions
+        id: popup
+        continue-on-error: true
+        run: yarn jest src/popup.test.tsx --maxWorkers=2
+      - name: Expected red onboarding tab reuse
+        id: onboarding
+        continue-on-error: true
+        run: yarn jest src/app/env.test.ts --maxWorkers=2 --testNamePattern='reuses Guardian onboarding without navigation|reuses import onboarding without navigation'
+      - name: Record expected regression outcome
+        if: always()
+        env:
+          TOOLBAR_RESULT: ${{ steps.toolbar.outcome }}
+          POPUP_RESULT: ${{ steps.popup.outcome }}
+          ONBOARDING_RESULT: ${{ steps.onboarding.outcome }}
+        run: |
+          if [ "$TOOLBAR_RESULT" != failure ] || [ "$POPUP_RESULT" != failure ] || [ "$ONBOARDING_RESULT" != failure ]; then
+            echo 'Expected regression failures were not all observed; inspect the individual steps.'
+            exit 1
+          fi
+          echo 'Expected red source: inspect named assertions and nonzero executed test counts before accepting proof.'
+          exit 1
