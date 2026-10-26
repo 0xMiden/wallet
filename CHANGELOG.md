@@ -9,6 +9,7 @@
 ### Changes
 
 - [FIX][all] The Send recipient step says Continue before choosing the amount, while the final review keeps its Send Payment or Send publicly action; mock E2E and UI smoothness use an explicit prelaunch testnet fixture so the published launch clock cannot switch their synthetic onboarding to Mainnet.
+- [FIX][all] Center the Arcade game-details button within the sheet while preserving its maximum width and mobile safe-area spacing.
 - [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
 - [FIX][all] Shed eligibility floods before durable objects and cache decisions per colo while preserving the global query budget.
 - [FIX][extension] Bread uses the sidebar by default, keeps onboarding in a full page, and uses the popup only when sidebar setup is unavailable.
