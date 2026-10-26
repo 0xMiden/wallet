@@ -60,6 +60,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_NETWORKS: testnet,mainnet
 
       - name: Build chrome
         uses: borales/actions-yarn@v4
