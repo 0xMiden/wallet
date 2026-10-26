@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "У подальших запитах WalletConnect може показувати ідентифікатор розширення Bread для Chrome замість його назви:",
   "bridgeWalletPromptEpochApprove": "У разі потреби затвердіть $amount$ $token$ для The Compact. Для деяких токенів спочатку потрібно скинути дозвіл до нуля.",
   "bridgeWalletPromptEpochDeposit": "Внесіть $amount$ $token$ у The Compact для переходу до Miden у мережі $network$ (depositERC20AndRegister).",
-  "bridgeWalletPromptEpochExistingCollateral": "У цьому цитаті використовується термінологія, що вже міститься в «The Compact». Перегляньте кожну наведену нижче ціль транзакції гаманця. Ваш гаманець може поєднувати їх.",
+  "bridgeWalletPromptEpochExistingCollateral": "Цей міст використовує заставу, яку вже внесено в The Compact. Перегляньте кожну ціль транзакції гаманця, зазначену нижче. Ваш гаманець може поєднувати їх.",
   "bridgeWalletPromptEpochNoTransactions": "Ця цитата стосується застави, яка вже є в «The Compact», і не вимагає жодної нової транзакції з гаманця.",
   "bridgeWalletPromptQuotedCall": "Транзакція $number$ на ланцюгу $chainId$ має за ціль:",
   "bridgeWalletPromptNativeValue": "Власна вартість (базові одиниці):",

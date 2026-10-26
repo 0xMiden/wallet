@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "WalletConnectでは、以降のプロンプトで、Breadの名称の代わりにChrome拡張機能のIDが表示される場合があります：",
   "bridgeWalletPromptEpochApprove": "必要に応じて、The Compact 向けに $amount$ $token$ を承認してください。一部のトークンでは、最初に許容額（allowance）をゼロにリセットする必要があります。",
   "bridgeWalletPromptEpochDeposit": "$amount$の$token$をThe Compactに預け入れ、$network$上のMidenへブリッジします（depositERC20AndRegister）。",
-  "bridgeWalletPromptEpochExistingCollateral": "この引用文では、『The Compact』にすでに記載されている担保が使用されています。以下に引用されている各ウォレット取引の対象をそれぞれ確認してください。お使いのウォレットでは、これらが組み合わされている場合があります。",
+  "bridgeWalletPromptEpochExistingCollateral": "このブリッジは、The Compact にすでに預けられている担保を使います。以下に示された各ウォレット取引の対象を確認してください。お使いのウォレットでは、これらが組み合わされている場合があります。",
   "bridgeWalletPromptEpochNoTransactions": "この引用文では、すでに『The Compact』に存在する担保が使用されており、新たなウォレット取引は要求されていません。",
   "bridgeWalletPromptQuotedCall": "チェーン $chainId$ 上のトランザクション $number$ の対象は：",
   "bridgeWalletPromptNativeValue": "ネイティブ価値（基本単位）：",

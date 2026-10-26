@@ -334,8 +334,8 @@
     }
   },
   "bridgeWalletPromptEpochExistingCollateral": {
-    "message": "W niniejszym cytacie wykorzystano zabezpieczenia zawarte już w „The Compact”. Zapoznaj się z każdym z cytowanych poniżej celów transakcji portfela. Twój portfel może je łączyć.",
-    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+    "message": "Ten most używa zabezpieczenia już złożonego w The Compact. Zapoznaj się z każdym wymienionym poniżej celem transakcji portfela. Twój portfel może je łączyć.",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
   },
   "bridgeWalletPromptEpochNoTransactions": {
     "message": "Ten cytat odnosi się do zabezpieczenia już zawartego w „The Compact” i nie wymaga żadnej nowej transakcji portfelowej.",

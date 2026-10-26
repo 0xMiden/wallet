@@ -334,8 +334,8 @@
     }
   },
   "bridgeWalletPromptEpochExistingCollateral": {
-    "message": "此处引用的术语均已收录于《协议》中。请仔细核对下方引用的每个钱包交易目标。您的钱包可能会将它们合并显示。",
-    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+    "message": "此桥使用已存入 The Compact 的抵押品。请仔细核对下方列出的每个钱包交易目标。您的钱包可能会将它们合并显示。",
+    "englishSource": "This bridge uses collateral already in The Compact. Review each wallet transaction target listed below. Your wallet may combine them."
   },
   "bridgeWalletPromptEpochNoTransactions": {
     "message": "此引文所涉及的抵押品已存于《契约》中，无需进行新的钱包交易。",

@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "WalletConnect peut afficher l’identifiant de l’extension Chrome de Bread à la place de son nom lors des invites suivantes :",
   "bridgeWalletPromptEpochApprove": "Si nécessaire, approuvez $amount$ $token$ pour The Compact. Certains jetons nécessitent au préalable une réinitialisation à une allocation nulle.",
   "bridgeWalletPromptEpochDeposit": "Déposez $amount$ $token$ dans The Compact pour effectuer un pont vers Miden sur $network$ (depositERC20AndRegister).",
-  "bridgeWalletPromptEpochExistingCollateral": "Cette citation reprend des termes déjà présents dans The Compact. Vérifiez ci-dessous chaque cible de transaction de portefeuille citée. Votre portefeuille peut les combiner.",
+  "bridgeWalletPromptEpochExistingCollateral": "Ce pont utilise des garanties déjà déposées dans The Compact. Vérifiez chaque cible de transaction de portefeuille indiquée ci-dessous. Votre portefeuille peut les combiner.",
   "bridgeWalletPromptEpochNoTransactions": "Cette citation fait référence à des garanties déjà incluses dans « The Compact » et ne nécessite aucune nouvelle transaction de portefeuille.",
   "bridgeWalletPromptQuotedCall": "La transaction $number$ sur la chaîne $chainId$ vise :",
   "bridgeWalletPromptNativeValue": "Valeur native (unités de base) :",

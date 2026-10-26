@@ -65,7 +65,7 @@
   "bridgeWalletPromptIdentity": "在后续提示中，WalletConnect 可能会显示 Bread 的 Chrome 扩展程序 ID 而不是其名称：",
   "bridgeWalletPromptEpochApprove": "如有需要，请批准向 The Compact 转账 $amount$ $token$。部分代币需要先将额度重置为零。",
   "bridgeWalletPromptEpochDeposit": "向 The Compact 存入 $amount$ $token$，以桥接至 $network$ 上的 Miden（depositERC20AndRegister）。",
-  "bridgeWalletPromptEpochExistingCollateral": "此处引用的术语均已收录于《协议》中。请仔细核对下方引用的每个钱包交易目标。您的钱包可能会将它们合并显示。",
+  "bridgeWalletPromptEpochExistingCollateral": "此桥使用已存入 The Compact 的抵押品。请仔细核对下方列出的每个钱包交易目标。您的钱包可能会将它们合并显示。",
   "bridgeWalletPromptEpochNoTransactions": "此引文所涉及的抵押品已存于《契约》中，无需进行新的钱包交易。",
   "bridgeWalletPromptQuotedCall": "链$chainId$上的交易$number$的目标为：",
   "bridgeWalletPromptNativeValue": "原生价值（基本单位）：",

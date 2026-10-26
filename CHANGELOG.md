@@ -2,7 +2,7 @@
 
 ## 1.17.8 (TBD)
 
-- [FIX][extension] Bridge-IN reviews identify Bread's Chrome extension origin and show route-specific wallet actions or quoted transaction targets; connection metadata names the wallet actions and remains isolated from native sessions (#1934).
+- [FIX][extension] Bridge-IN reviews identify Bread's Chrome extension origin and show route-specific wallet actions or quoted transaction targets; connection metadata names the wallet actions and remains isolated from native sessions, with deposited Compact collateral guidance in every shipped language (#1934).
 
 - Preserve bounded staging-probe preflight failures without claiming unverified cleanup.
 
