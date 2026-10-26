@@ -7,6 +7,7 @@
 ### Changes
 
 - [FIX][all] Center the Arcade game-details button within the sheet while preserving its maximum width and mobile safe-area spacing.
+- [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
