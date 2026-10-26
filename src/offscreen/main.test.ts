@@ -3543,6 +3543,48 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
   });
 
+  it.each(['consumeNoteId', 'sendTransaction', 'swapTransaction', 'newTransaction'])(
+    '%s waits for independent recovery ACK before its network submit',
+    async method => {
+      await loadModule();
+      let acknowledge: ((reply: { ok: boolean }) => void) | undefined;
+      G.chrome.runtime.sendMessage = jest.fn((message: { type?: string }) =>
+        message.type === OFFSCREEN_SUBMIT_GATE
+          ? new Promise<{ ok: boolean }>(resolve => { acknowledge = resolve; })
+          : Promise.resolve(undefined)
+      );
+      const submitted = jest.fn();
+      const leaf = async (...args: unknown[]) => {
+        const onStage = args.find(arg => typeof arg === 'function');
+        if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+        submitted();
+        return { serialize: () => new Uint8Array([1]) };
+      };
+      const leaves: Record<string, string> = {
+        consumeNoteId: 'clientConsumeNoteId', sendTransaction: 'clientSendTransaction',
+        swapTransaction: 'clientSwapTransaction', newTransaction: 'clientNewTransaction'
+      };
+      G.__off[leaves[method]!] = leaf;
+      const dto = {
+        accountId: 'mtst1qacc', secondaryAccountId: 'mtst1qrecipient', noteId: '0xn1', noteIds: ['0xn1'],
+        faucetId: 'mtst1qfaucet', noteType: 'public', amount: '1',
+        extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' },
+        swapFeeContext: { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: '7' }
+      };
+      const argsB64 = method === 'newTransaction'
+        ? [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)] : [encodeArg(dto)];
+      const sendResponse = jest.fn();
+      capturedListener!(callReq({ op_id: 'op-recovery', method, argsB64 }), {}, sendResponse);
+      await flush();
+      expect(submitted).not.toHaveBeenCalled();
+      expect(acknowledge).toBeDefined();
+      acknowledge?.({ ok: false });
+      await waitForReply(sendResponse);
+      expect(submitted).not.toHaveBeenCalled();
+      expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+    }
+  );
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
