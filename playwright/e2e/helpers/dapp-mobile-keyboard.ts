@@ -9,6 +9,7 @@ const INPUT_VALUE = 'Native typing 1837';
 const KEYBOARD_STABILITY_MS = 1_000;
 const KEYBOARD_WAIT_ATTEMPTS = 12;
 const PAGE_STATE_TIMEOUT_MS = 15_000;
+const TYPED_VALUE_WAIT_MS = 30_000;
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
 type NativeKeyboardDevice = NativeKeyboardControls;
@@ -32,7 +33,8 @@ function assertFieldAboveKeyboard(layout: NativeKeyboardLayout): void {
   const fieldBottom = field.y + field.height;
   const webViewRight = webView.x + webView.width;
   const webViewBottom = webView.y + webView.height;
-  const insideWebView = field.x >= webView.x && field.y >= webView.y && fieldRight <= webViewRight && fieldBottom <= webViewBottom;
+  const insideWebView =
+    field.x >= webView.x && field.y >= webView.y && fieldRight <= webViewRight && fieldBottom <= webViewBottom;
   if (!insideWebView || fieldBottom > keyboardTop) {
     throw new HarnessFault(`the focused input is not fully visible above the keyboard: ${JSON.stringify(layout)}`);
   }
@@ -72,6 +74,21 @@ async function waitForKeyboard(device: NativeKeyboardDevice): Promise<NativeKeyb
   throw new HarnessFault(`the keyboard did not become visible: ${JSON.stringify(latest)}`);
 }
 
+/** Android delivers `input text` key events after the command returns, so the page can still be mid-string. */
+async function waitForTypedValue(page: PageCommandSender): Promise<void> {
+  const deadline = Date.now() + TYPED_VALUE_WAIT_MS;
+  for (;;) {
+    const state = formState(await page.send('A', 'one', '__state', {}, PAGE_STATE_TIMEOUT_MS));
+    if (state.activeField === INPUT_LABEL && state.inputValue === INPUT_VALUE) return;
+    if (Date.now() >= deadline) {
+      throw new HarnessFault(
+        `native typing did not reach the focused dApp input: ${JSON.stringify({ ...state, expectedValue: INPUT_VALUE })}`
+      );
+    }
+    await sleep(500);
+  }
+}
+
 async function waitForKeyboardDismissed(device: NativeKeyboardDevice): Promise<NativeKeyboardLayout> {
   let latest: NativeKeyboardLayout | undefined;
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -106,21 +123,15 @@ export async function runNativeKeyboardJourney(input: NativeKeyboardJourneyInput
     latest = await waitForKeyboard(input.device);
     await sleep(KEYBOARD_STABILITY_MS);
     latest = await input.device.keyboardLayout('A', INPUT_LABEL);
-    if (!latest.keyboardVisible) throw new HarnessFault('the keyboard did not remain visible during the stability wait');
+    if (!latest.keyboardVisible)
+      throw new HarnessFault('the keyboard did not remain visible during the stability wait');
     assertFieldAboveKeyboard(latest);
 
     await input.device.typeText('A', INPUT_VALUE);
+    await waitForTypedValue(input.page);
     latest = await input.device.keyboardLayout('A', INPUT_LABEL);
     if (!latest.keyboardVisible) throw new HarnessFault('the keyboard became hidden while typing');
     assertFieldAboveKeyboard(latest);
-
-    const result = await input.page.send('A', 'one', '__state', {}, PAGE_STATE_TIMEOUT_MS);
-    const state = formState(result);
-    if (state.activeField !== INPUT_LABEL || state.inputValue !== INPUT_VALUE) {
-      throw new HarnessFault(
-        `native typing did not reach the focused dApp input: ${JSON.stringify({ ...state, expectedValue: INPUT_VALUE })}`
-      );
-    }
 
     const focusedPath = input.testInfo.outputPath(`dapp-keyboard-${input.surface}-focused.png`);
     await input.wallet.screenshot({ path: focusedPath });
