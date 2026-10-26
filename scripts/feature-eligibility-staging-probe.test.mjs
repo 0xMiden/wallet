@@ -3,7 +3,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { buildProbeManifest, createProbeController, main } from './feature-eligibility-staging-probe.mjs';
+import {
+  buildProbeManifest,
+  createProbeController,
+  main,
+  validatePreflight
+} from './feature-eligibility-staging-probe.mjs';
 
 const identity = {
   repository: '0xMiden/wallet',
@@ -174,9 +179,14 @@ const deployed = f => f.events.filter(event => event[0] === 'deploy');
 const deleted = f => f.events.filter(event => event[0] === 'api' && event[1] === 'DELETE');
 
 function assertClosed(result) {
-  assert.deepEqual(Object.keys(result).sort(), ['caller', 'cleanup', 'colo', 'counts', 'reason', 'support']);
+  const { preflight, ...verdict } = result;
+  if (preflight) {
+    validatePreflight(preflight);
+    assert.deepEqual(preflight.identity, identity);
+  }
+  assert.deepEqual(Object.keys(verdict).sort(), ['caller', 'cleanup', 'colo', 'counts', 'reason', 'support']);
   assert.doesNotMatch(
-    JSON.stringify(result),
+    JSON.stringify(verdict),
     /never-publish|production-secret|isolated-test|workers\.dev|1234567890abcdef|40265000001/
   );
 }
@@ -749,4 +759,55 @@ test('staging workflow always attempts current cleanup and publishes only saniti
   assert.match(workflow, /run-id: \$\{\{ inputs\.cleanup_run_id \}\}/);
   assert.match(workflow, /feature-eligibility-staging-probe-recovery\.mjs prepare/);
   assert.match(workflow, /feature-eligibility-staging-probe-recovery\.mjs cleanup/);
+});
+
+test('authentication failure records source-bound preflight without deployment', async () => {
+  const f = fixture({ api: path => (path === '/user/tokens/verify' ? envelope({}, 403) : undefined) });
+  const received = await createProbeController(f.effects).run(identity);
+  assert.deepEqual(received.preflight, {
+    identity,
+    stage: 'authentication',
+    manifest: 'absent',
+    deployment: 'not_attempted',
+    reason: 'auth'
+  });
+  assert.equal(
+    f.events.some(event => event[0] === 'deploy'),
+    false
+  );
+});
+test('deployment failure retains attempted state and original deploy reason', async () => {
+  const f = fixture();
+  f.effects.deploy = async () => ({ exitCode: 1 });
+  const received = await createProbeController(f.effects).run(identity);
+  assert.deepEqual(received.preflight, {
+    identity,
+    stage: 'deployment',
+    manifest: 'registered',
+    deployment: 'attempted',
+    reason: 'deploy_rejected'
+  });
+});
+
+test('invalid credential settings retain only environment-stage evidence for trusted workflow context', async () => {
+  const received = await main(['run'], {
+    RUNNER_TEMP: '/private/probe',
+    GITHUB_REPOSITORY: identity.repository,
+    GITHUB_WORKFLOW_REF: `${identity.repository}/${identity.workflowPath}@refs/heads/main`,
+    GITHUB_RUN_ID: identity.runId,
+    GITHUB_RUN_ATTEMPT: identity.runAttempt,
+    GITHUB_SHA: identity.sourceSha,
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    CLOUDFLARE_ACCOUNT_ID: 'invalid-setting-never-publish',
+    CLOUDFLARE_API_TOKEN: 'secret-never-publish'
+  });
+  assert.deepEqual(received.preflight, {
+    identity,
+    stage: 'environment',
+    manifest: 'absent',
+    deployment: 'not_attempted',
+    reason: 'auth'
+  });
+  assertClosed(received);
 });

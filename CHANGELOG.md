@@ -2,6 +2,8 @@
 
 ## 1.17.8 (TBD)
 
+- Preserve bounded staging-probe preflight failures without claiming unverified cleanup.
+
 ### Changes
 
 - [CHANGE][all] Failed transaction reports distinguish reached Guardian signing operations and locally observed execution authentication facts without sending request data.
