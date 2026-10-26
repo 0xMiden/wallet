@@ -7,6 +7,7 @@
 ### Changes
 
 - [FIX][all] The Send recipient step says Continue before choosing the amount, while the final review keeps its Send Payment or Send publicly action; mock E2E and UI smoothness use an explicit prelaunch testnet fixture so the published launch clock cannot switch their synthetic onboarding to Mainnet.
+- [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 

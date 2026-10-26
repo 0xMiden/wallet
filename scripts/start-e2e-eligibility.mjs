@@ -13,13 +13,21 @@ export function fixtureEnvironment(env) {
   const requested = env.E2E_NETWORK || env.MIDEN_NETWORK || 'testnet';
   const network = requested === 'localhost' ? 'localnet' : requested;
   if (!NETWORKS.has(network)) throw new Error('Unsupported E2E fixture network');
-  const args = ['--port', '8551', '--networks', network];
+  const selected = env.E2E_FIXTURE_NETWORKS ? env.E2E_FIXTURE_NETWORKS.split(',') : [network];
+  if (
+    selected.some(value => !NETWORKS.has(value)) ||
+    new Set(selected).size !== selected.length ||
+    !selected.includes(network)
+  ) {
+    throw new Error('Unsupported E2E fixture networks');
+  }
+  const args = ['--port', '8551', '--networks', selected.join(',')];
   const prelaunch = env.E2E_FIXTURE_PRELAUNCH_TESTNET;
   if (prelaunch !== undefined && prelaunch !== 'true' && prelaunch !== 'false') {
     throw new Error('Unsupported E2E prelaunch fixture setting');
   }
   if (prelaunch === 'true') {
-    if (network !== 'testnet') throw new Error('Prelaunch fixture requires testnet');
+    if (network !== 'testnet' || selected.length !== 1) throw new Error('Prelaunch fixture requires testnet');
     args.push('--prelaunch-testnet');
   }
   let configUrl = BASE_URL;
