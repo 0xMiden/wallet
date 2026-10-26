@@ -5280,6 +5280,20 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it('refuses recovery when a journaled uncertain transaction row disappears', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    await Repo.transactions.put({ id: 'uncertain', accountId: 'retained', type: 'send',
+      status: ITransactionStatus.Unconfirmed, initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND', mayHaveSubmitted: true, attemptId: 'attempt-a' });
+    await vault.retainTransactionRecovery('uncertain', { requestBytes: new Uint8Array([7, 8]), notes: [] });
+    await Repo.transactions.delete('uncertain');
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally { await resetStorageHealthForLifecycle(getStorageHealth().epoch); }
+  });
+
   it('refuses a fresh wallet database before establishing retained expectations', async () => {
     await Repo.metadata.put({ id: 'generation', generation: 'fresh', origin: 'fresh' });
     try {

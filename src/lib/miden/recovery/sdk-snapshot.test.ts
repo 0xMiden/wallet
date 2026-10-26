@@ -103,3 +103,10 @@ it('verifies a newly initialized marker before returning success', async () => {
   jest.mocked(client.settings.get).mockResolvedValueOnce(null).mockResolvedValueOnce('wrong');
   await expect(initializeSdkGeneration(client, 'new', null, () => {})).rejects.toThrow();
 });
+
+it('refuses recovery when a retained private input body has disappeared', async () => {
+  const client = reader();
+  await expect(readSdkRecoverySnapshot(client, ['retained'], false, () => {}, [
+    { kind: 'note', id: 'missing-input', noteFile: new Uint8Array([1, 2]), provenance: 'input', format: 'full' }
+  ])).rejects.toThrow('Storage continuity unavailable');
+});
