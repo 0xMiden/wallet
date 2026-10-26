@@ -1,4 +1,4 @@
-name: Immutable store workflow contract proof
+name: Combined store workflow source proof
 on:
   workflow_dispatch:
 permissions:
@@ -12,24 +12,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Restore unchanged source workflow for global contract inspection
+      - name: Restore and prove exact candidate content tree for global workflow contracts
         run: |
-          git fetch --no-tags --depth=1 origin 4714cd509361471936ab7f9fc2b3d10e7f8738e6
-          git show 4714cd509361471936ab7f9fc2b3d10e7f8738e6:.github/workflows/e2e-mainnet-nightly.yml > .github/workflows/e2e-mainnet-nightly.yml
+          git fetch --no-tags --depth=1 origin a16d34151ed2d2fb2fcb4e7b0ee75adef9f10904
+          git show a16d34151ed2d2fb2fcb4e7b0ee75adef9f10904:.github/workflows/e2e-mainnet-nightly.yml > .github/workflows/e2e-mainnet-nightly.yml
+          git add .github/workflows/e2e-mainnet-nightly.yml
+          test "$(git write-tree)" = dbb2a5f75996b410ea6155195cb559a90a53b4e0
+      - name: Combined publishing and coordinator regression tests without store access
+        run: node --test scripts/store-publishing/*.test.mjs
+      - name: Retained artifact and profile validation without signing
+        run: |
+          python3 scripts/store-publishing/apple-profile.test.py
+          python3 scripts/store-publishing/inspect-artifact.test.py
       - uses: ./.github/actions/yarn-install
-      - name: Verify actual frozen workflow contracts without store access
+      - name: Verify actual frozen workflow and build contracts without store access
         run: yarn jest --ci --maxWorkers=2 --runTestsByPath playwright/e2e/harness/linked-pr-injection.test.ts src/lib/build-scripts.test.ts src/lib/update/release-workflows.test.ts
-      - name: Lint exact changed workflow contract
+      - name: Lint changed workflow contract
         run: yarn eslint playwright/e2e/harness/linked-pr-injection.test.ts
-      - name: Format exact changed contract and retain patch
-        if: always()
-        run: |
-          yarn prettier --write playwright/e2e/harness/linked-pr-injection.test.ts
-          git diff --binary -- playwright/e2e/harness/linked-pr-injection.test.ts > formatting.patch
-          test ! -s formatting.patch
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: immutable-contract-formatting
-          path: formatting.patch
-          if-no-files-found: ignore
+      - name: Check new routing and adapter formatting
+        run: yarn prettier --check playwright/e2e/harness/linked-pr-injection.test.ts scripts/store-publishing/release-plan.mjs scripts/store-publishing/release-plan.test.mjs scripts/store-publishing/README.md
