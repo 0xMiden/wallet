@@ -46,7 +46,7 @@ for (const theme of ['light', 'dark'] as const) {
       );
       if (!Array.isArray(value) || value.length !== 2 || !value.every(item => Number.isInteger(item)))
         throw new Error('Native toolbar bounds invalid');
-      execFileSync('xdotool', ['mousemove', '--sync', String(value[0]), String(value[1]), 'click', '1'], {
+      execFileSync('xdotool', ['mousemove', String(value[0]), String(value[1]), 'click', '1'], {
         timeout: 10000
       });
     };
