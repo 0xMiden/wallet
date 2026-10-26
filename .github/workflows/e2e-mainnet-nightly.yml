@@ -10,4 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bind the valid Store profile to its SHA256 identity
-        run: python3 scripts/store-publishing/apple-profile.test.py ProfileTests.test_valid_store_profile_binds_installed_distribution_certificate
+        run: |
+          python3 scripts/store-publishing/apple-profile.test.py
+          python3 scripts/store-publishing/inspect-artifact.test.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publishing regression suite
+        run: node --test scripts/store-publishing/*.test.mjs
