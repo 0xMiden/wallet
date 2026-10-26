@@ -49,6 +49,7 @@ import {
   RELAY_TRIGGERS,
   RELAY_VISIBILITY
 } from './relay-diagnostics';
+import { EXECUTION_ROUTES, AUTH_OBSERVATIONS, AUTH_ARG_PRESENCE } from './transaction-execution-diagnostics';
 import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
@@ -70,6 +71,9 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['the execution route', EXECUTION_ROUTES],
+  ['the authentication observation', AUTH_OBSERVATIONS],
+  ['auth argument presence', AUTH_ARG_PRESENCE],
   ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],
   ['startup eligibility reason', STARTUP_ELIGIBILITY_REASONS],
   ['startup eligibility retry', STARTUP_ELIGIBILITY_RETRIES],

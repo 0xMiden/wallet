@@ -51,6 +51,10 @@ import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-cont
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
+import {
+  annotateTransactionExecution,
+  validateTransactionExecutionDiagnostics
+} from 'lib/telemetry/transaction-execution-diagnostics';
 
 import {
   OFFSCREEN_CALL,
@@ -448,6 +452,22 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   }
   if (resp.ok) op.resolveResult(resp.resultB64);
   else {
+    const reject = (error: Error) => {
+      try {
+        if (resp.op_id === op_id) {
+          const execution = validateTransactionExecutionDiagnostics(resp.errorTransactionExecution);
+          if (
+            (op.method === 'newTransaction' && execution?.executionRoute === 'ordinary_new_transaction') ||
+            (op.method === 'guardianPipeline' && execution?.executionRoute === 'guardian_signed_request')
+          ) {
+            annotateTransactionExecution(error, execution);
+          }
+        }
+      } catch {
+        /* Diagnostic reads cannot replace the operation's rejection. */
+      }
+      op.reject(error);
+    };
     // Preserve the SDK's stable error code end-to-end (issue #260, funds-critical).
     // Re-attach it onto the rejection under `errorCode`, one of the two names
     // `extractSdkErrorCode` reads. That code - which the wallet's own
@@ -475,26 +495,26 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // so fall back to the mechanism that bounds every wedge rather than
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
-      op.reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
-      op.reject(new GuardianHistoryFeeUnavailableError());
+      reject(new GuardianHistoryFeeUnavailableError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeLookupError') {
-      op.reject(new GuardianHistoryFeeLookupError());
+      reject(new GuardianHistoryFeeLookupError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryDataError') {
-      op.reject(new GuardianHistoryDataError(resp.error));
+      reject(new GuardianHistoryDataError(resp.error));
       return;
     }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     if (resp.errorLanded !== undefined) Object.assign(err, { landed: resp.errorLanded });
     if (resp.errorBeforeSubmit === true) markErrorBeforeSubmit(err);
-    op.reject(err);
+    reject(err);
   }
 }
 

@@ -27,17 +27,19 @@ import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
+import {
+  AUTH_LAYOUTS,
+  COMMITMENT_MATCHES,
+  ACCOUNT_AUTH_CODES,
+  snapshotTransactionExecution
+} from './transaction-execution-diagnostics';
 import { operationOfType, stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
 import { TELEMETRY_ERROR_KINDS } from './types';
 import packageJson from '../../../package.json';
 
+export { AUTH_LAYOUTS, COMMITMENT_MATCHES, ACCOUNT_AUTH_CODES } from './transaction-execution-diagnostics';
+
 export const AUTH_PREPARATIONS = ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const;
-
-export const AUTH_LAYOUTS = ['absent', 'fee', 'guardian', 'other', 'missing_preimage', 'unavailable'] as const;
-
-export const COMMITMENT_MATCHES = ['fee', 'guardian', 'neither', 'unavailable'] as const;
-
-export const ACCOUNT_AUTH_CODES = ['current_guardian', 'unrecognized', 'unavailable'] as const;
 
 export interface TransactionFailureDiagnostics {
   authPreparation: (typeof AUTH_PREPARATIONS)[number];
@@ -875,10 +877,15 @@ function softwareVersion(value: string): string {
 export function reportTransactionFailure(failure: TransactionFailure): void {
   try {
     const facts = failure.diagnostics;
+    const execution = snapshotTransactionExecution(failure.error);
     const preparation = diagnostic(facts?.authPreparation, AUTH_PREPARATIONS, 'unavailable');
-    const layout = diagnostic(facts?.authLayout, AUTH_LAYOUTS, 'unavailable');
-    const match = diagnostic(facts?.commitmentMatch, COMMITMENT_MATCHES, 'unavailable');
-    const accountCode = diagnostic(facts?.accountAuthCode, ACCOUNT_AUTH_CODES, 'unavailable');
+    const layout = diagnostic(execution?.authLayout ?? facts?.authLayout, AUTH_LAYOUTS, 'unavailable');
+    const match = diagnostic(execution?.commitmentMatch ?? facts?.commitmentMatch, COMMITMENT_MATCHES, 'unavailable');
+    const accountCode = diagnostic(
+      execution?.accountAuthCode ?? facts?.accountAuthCode,
+      ACCOUNT_AUTH_CODES,
+      'unavailable'
+    );
     const type = diagnostic(
       failure.type,
       [
