@@ -256,22 +256,38 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
 const immutableStoreWorkflow = (file: string, text: string): boolean => {
   if (file !== 'build-store-artifacts.yml' || triggers(file, text).join(',') !== 'workflow_dispatch') return false;
   const all = jobs(file, text);
-  if (all.map(job => job.id).sort().join(',') !== 'android,chrome,ios,prepare') return false;
+  if (all.map(job => job.id).sort().join(',') !== 'all-targets,android,chrome,ios,prepare') return false;
   const prepare = all.find(job => job.id === 'prepare');
+  const coordinator = all.find(job => job.id === 'all-targets');
   if (
     prepare === undefined ||
     prepare.keys['if'] !==
-      "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}"
+      "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform != 'all' }}"
   ) return false;
-  const checkedOut = (job: Job, path: string, ref: string): boolean => job.steps.some(step =>
+  const checkedOut = (job: Job, path: string | undefined, ref: string): boolean => job.steps.some(step =>
     usesOf(step) === 'actions/checkout@v4' && keyOf(step, 'path') === path && keyOf(step, 'ref') === ref &&
     keyOf(step, 'persist-credentials') === 'false'
   );
-  if (all.some(job =>
+  const builders = all.filter(job => job.id !== 'all-targets');
+  if (builders.some(job =>
     !checkedOut(job, 'automation', '${{ github.workflow_sha }}') ||
     !checkedOut(job, 'source', '${{ inputs.source_sha }}') ||
     job.steps.some(step => [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? ''))
   )) return false;
+  // The wrapper dispatches the same immutable producer as separate child runs and installs no dependencies.
+  const coordinatorLines = coordinator?.steps.flatMap(step => step.lines) ?? [];
+  if (
+    coordinator === undefined ||
+    coordinator.keys['if'] !==
+      "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform == 'all' }}" ||
+    !checkedOut(coordinator, undefined, '${{ github.workflow_sha }}') ||
+    coordinator.steps.filter(step => usesOf(step) === 'actions/checkout@v4').length !== 1 ||
+    coordinator.steps.some(step => installs(step) || [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? '')) ||
+    !coordinatorLines.includes("import { validateBuildRequest } from './scripts/store-publishing/create-receipt.mjs';") ||
+    !coordinatorLines.some(line => line.startsWith('const plan = validateBuildRequest({ releaseTag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA,')) ||
+    !coordinatorLines.includes('releaseTag: plan.releaseTag, sourceSha: plan.sourceSha, buildNumber: plan.buildNumber, targets: {} }));') ||
+    !coordinatorLines.includes('run: node scripts/store-publishing/release-plan.mjs --stage build --plan "$RUNNER_TEMP/store-all-targets/store-build-plan.json" --journal "$RUNNER_TEMP/store-all-targets/store-build-journal.json"')
+  ) return false;
   const lines = prepare.steps.flatMap(step => step.lines);
   if (
     !lines.some(line => line.startsWith('node automation/scripts/store-publishing/create-receipt.mjs validate-request')) ||
@@ -285,7 +301,7 @@ const immutableStoreWorkflow = (file: string, text: string): boolean => {
     !lines.some(line => line.includes('--release-file "$RUNNER_TEMP/wallet-release.json" --tag-sha "$TAG_SHA"')) ||
     !lines.includes('node services/feature-eligibility/check-deployment.mjs')
   ) return false;
-  return all.filter(job => job.id !== 'prepare').every(job => {
+  return builders.filter(job => job.id !== 'prepare').every(job => {
     const install = job.steps.filter(installs);
     return job.keys['needs'] === 'prepare' &&
       job.keys['if'] === `\${{ needs.prepare.outputs.build_${job.id} == 'true' }}` &&
@@ -667,6 +683,18 @@ describe('published immutable store artifact builds', () => {
     expect(workflowViolations(file, text)).toEqual([]);
     expect(workflowViolations('another-release.yml', text)).toHaveLength(3);
     expect(guardedNames.some(name => name.startsWith(`${file} `))).toBe(false);
+  });
+
+  it('rejects an all-target wrapper that installs dependencies, dispatches another stage or bypasses intent validation', () => {
+    const text = source(file);
+    const unsafe = [
+      text.replace("inputs.platform == 'all'", "inputs.platform != 'all'"),
+      text.replace("const plan = validateBuildRequest({", "const plan = uncheckedBuildRequest({"),
+      text.replace('releaseTag: plan.releaseTag, sourceSha: plan.sourceSha,', 'releaseTag: plan.releaseTag, sourceSha: process.env.SOURCE_SHA,'),
+      text.replace('release-plan.mjs --stage build', 'release-plan.mjs --stage submit'),
+      text.replace('      - name: Validate all-target build plan', '      - run: yarn install\n      - name: Validate all-target build plan')
+    ];
+    for (const altered of unsafe) expect(immutableStoreWorkflow(file, altered)).toBe(false);
   });
 
   it('rejects broadened events, mutable checkouts, missing release validation and unfrozen installation', () => {
