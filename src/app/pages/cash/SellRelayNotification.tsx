@@ -12,6 +12,8 @@ import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import type { SellEndedState } from 'lib/miden/activity/sell-order';
 import type { SellTokenBlock } from 'lib/onramp/sell-token';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 import { formatDeadline } from 'screens/sell-status/sell-status-helpers';
 import { truncateHash } from 'utils/string';
@@ -132,6 +134,17 @@ const Shell: React.FC<ShellProps> = ({ tone, phase, role, glyph, title, children
   </Card>
 );
 
+/** The error the card shows in this state, for the user-visible error report. Null when it shows none. */
+const shownErrorId = (phase: SellRelay['phase'], noDeposit: boolean): UserErrorId | null => {
+  if (phase === 'unreadable' || noDeposit) return 'cashSellUnreadable';
+  switch (phase) {
+    case 'failed':
+      return 'cashSellFailedTitle';
+    default:
+      return null;
+  }
+};
+
 interface SellRelayNotificationProps {
   relay: SellRelay;
 }
@@ -144,6 +157,7 @@ interface SellRelayNotificationProps {
 export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ relay }) => {
   const { t } = useTranslation();
   const { phase, pageDeposit, backendCheck, tokenCheck, tokenSymbol, expiresAt, error } = relay;
+  useUserVisibleError(shownErrorId(phase, pageDeposit === null), 'notice');
 
   const errorText = (cause: SellRelayError): string => {
     switch (cause.kind) {

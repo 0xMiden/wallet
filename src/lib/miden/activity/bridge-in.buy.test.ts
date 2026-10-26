@@ -2,6 +2,9 @@ import { BuyTransaction, ConsumeTransaction, IBuyExtraInputs, ITransactionStatus
 import * as Repo from 'lib/miden/repo';
 
 import { applyBridgeInToConsumeRow, suppressedLinkedConsumeIds, takeBuyBridgeInInfo } from './bridge-in';
+// Load the module that `settleLinkedRows` imports on demand before the tests start. Its graph is large, and under
+// coverage its first load inside a test exceeded the 5 s test timeout.
+import '../transaction/complete';
 import { NoteTypeEnum } from '../types';
 
 const ACCOUNT = 'mtst1account';

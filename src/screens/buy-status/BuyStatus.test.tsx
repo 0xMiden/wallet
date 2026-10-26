@@ -5,8 +5,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { IBuyExtraInputs, IBuyPhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-import { BuyStatus } from './BuyStatus';
 import { buyProgressFraction, buyStepDurationsMs } from './buy-status-helpers';
+import { BuyStatus } from './BuyStatus';
 
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockReducedMotion = false;
@@ -91,7 +91,17 @@ jest.mock('components/Button', () => ({
 
 jest.mock('screens/generating-transaction/components', () => ({
   TransactionHeroIcon: ({ state }: { state: string }) => <div data-testid="hero-state">{state}</div>,
-  TransactionStepRow: ({ step, state, label, meta }: { step: { id: string }; state: string; label: string; meta?: string }) => (
+  TransactionStepRow: ({
+    step,
+    state,
+    label,
+    meta
+  }: {
+    step: { id: string };
+    state: string;
+    label: string;
+    meta?: string;
+  }) => (
     <div data-testid="step" data-step={step.id} data-state={state} data-meta={meta ?? ''}>
       {label}
     </div>
@@ -324,7 +334,9 @@ describe('buy status helpers', () => {
   it('fills a completed order to the end and a failed one to the half segment where it stopped', () => {
     expect(buyProgressFraction(inputs({ phase: 'completed' }))).toBe(1);
     expect(
-      buyProgressFraction(inputs({ phase: 'failed', phaseTimestamps: { payment: 1, 'funds-arriving': 2, bridging: 3 } }))
+      buyProgressFraction(
+        inputs({ phase: 'failed', phaseTimestamps: { payment: 1, 'funds-arriving': 2, bridging: 3 } })
+      )
     ).toBeCloseTo(3.5 / 6);
   });
 

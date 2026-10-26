@@ -196,7 +196,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         ? 'text-4xl'
         : 'text-5xl'
     : figureSizeClassName(size, displayLength, figureValue);
-  const figureClasses = size === 'default' ? classNames('font-heading font-extrabold leading-none', figureSize) : figureSize;
+  const figureClasses =
+    size === 'default' ? classNames('font-heading font-extrabold leading-none', figureSize) : figureSize;
   const amountClasses = classNames(figureClasses, centered ? 'text-center' : 'text-left');
   const placeholderClasses = size === 'default' ? 'text-grey-300 placeholder-grey-300' : 'text-muted placeholder-muted';
   const stateClasses = invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : placeholderClasses;

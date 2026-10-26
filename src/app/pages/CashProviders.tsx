@@ -32,6 +32,7 @@ import {
 } from 'lib/onramp/transak-guard';
 import { closeTransakWidget, openTransakWidget, setTransakWidgetRect } from 'lib/onramp/transak-webview';
 import { isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import { SellRelayNotification } from './cash/SellRelayNotification';
@@ -262,6 +263,8 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
     return () => observer.disconnect();
   }, [widgetDocking, saleActive]);
 
+  useUserVisibleError(mismatchClosed ? copy.mismatchKey : null, 'status_screen');
+
   if (mismatchClosed) {
     return (
       <FlowLayout title={t('cashChooseProvider')} onBack={onBack} focusTitleOnMount footer={null}>
@@ -285,7 +288,9 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
   const checkoutFooter = checkoutEnabled ? (
     <div className="flex flex-col gap-3">
       {checkoutNote && <Notice variant="inline">{checkoutNote}</Notice>}
-      <ErrorLine data-testid="cash-checkout-error">{error && t(error)}</ErrorLine>
+      <ErrorLine errorId={error} data-testid="cash-checkout-error">
+        {error && t(error)}
+      </ErrorLine>
       <Button
         className="w-full"
         // One sale at a time: a second checkout must not start while the widget names its deposit.

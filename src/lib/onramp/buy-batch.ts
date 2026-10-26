@@ -1,4 +1,3 @@
-import { Address as MidenAddress } from '@miden-sdk/miden-sdk/lazy';
 import {
   encodeAbiParameters,
   encodeFunctionData,
@@ -12,6 +11,7 @@ import {
   type TypedData
 } from 'viem';
 
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { getOnramp } from 'lib/remote-config/values';
 
 /**
@@ -86,11 +86,12 @@ function caliburDomain(evmAddress: Address, salt: Hex) {
 }
 
 /**
- * The hex account ID (lower case, `0x` + 30 hex) of a bech32 Miden address. The backend challenge and the batch
- * recipient use this form. It is the same conversion as `midenAddrToEvmAddr` in `lib/agglayer/contract.ts`.
+ * The hex account ID (lower case, `0x` + 30 hex) of a Miden account reference (bech32, composite or hex). The backend
+ * challenge and the batch recipient use this form. It is the same conversion as `midenAddrToEvmAddr` in
+ * `lib/agglayer/contract.ts`.
  */
-export function midenAccountIdToHex(bech32: string): string {
-  const hex = MidenAddress.fromBech32(bech32).accountId().toString().toLowerCase();
+export function midenAccountIdToHex(accountRef: string): string {
+  const hex = accountRefToSdk(accountRef).toString().toLowerCase();
   const prefixed = hex.startsWith('0x') ? hex : `0x${hex}`;
   if (!MIDEN_ACCOUNT_HEX_PATTERN.test(prefixed)) {
     throw new Error('Miden account ID is not 15 bytes');
