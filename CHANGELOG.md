@@ -2,6 +2,8 @@
 
 ## 1.17.8 (TBD)
 
+- Preserve sanitized Play submission failure stages and support read-only inspection of an existing release edit.
+
 ### Changes
 
 - [CHANGE][ios] JavaScript-driven animations (requestAnimationFrame and the springs, layout animations and drags built on it) run at up to 120 fps on ProMotion iPhones and iPads, in the wallet and in dApps opened in the in-app browser: both WebViews turn off WebKit's preference for rendering near 60 fps, and keep it when an iOS version lacks the setting (#1864).

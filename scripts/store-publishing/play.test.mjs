@@ -273,11 +273,12 @@ test('track identity mismatches fail before uploads or modifications', async () 
   client.done();
 });
 
-
 test('submit failure names its stage without retrying or exposing provider content', async () => {
   const failure = Object.assign(new Error('private provider content'), { status: 400 });
-  const client = transport([{ method: 'GET', path: trackPath, response: track([draft]) },
-    { method: 'PUT', path: trackPath, error: failure }]);
+  const client = transport([
+    { method: 'GET', path: trackPath, response: track([draft]) },
+    { method: 'PUT', path: trackPath, error: failure }
+  ]);
   await assert.rejects(play.submit(client, { ...options, allowPendingChanges: true }), error => {
     assert.equal(error, failure);
     assert.equal(error.stage, 'play-submit-track-update');
