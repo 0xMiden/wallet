@@ -724,8 +724,10 @@ test('global-v1 grants bounded idempotent leases alongside the old single reserv
   const payload = { day: '2026-10-20', deadline: Date.UTC(2026, 9, 20, 12) + 30, leaseId: '00000000-0000-4000-8000-000000000001', count: 4 };
   const lease = () => h.guard.fetch(new Request('https://eligibility.internal/lease', { method: 'POST', body: JSON.stringify(payload) }));
   assert.deepEqual(await (await lease()).json(), { reserved: true, count: 4 });
+  h.env.MAXMIND_DAILY_QUERY_LIMIT = '2';
   assert.deepEqual(await (await lease()).json(), { reserved: true, count: 4 });
   assert.equal(h.storage.values.get('budget').count, 4);
+  h.env.MAXMIND_DAILY_QUERY_LIMIT = '6';
   const reserve = await h.guard.fetch(new Request('https://eligibility.internal/reserve', { method: 'POST', body: JSON.stringify({ day: payload.day, deadline: payload.deadline }) }));
   assert.deepEqual(await reserve.json(), { reserved: true });
   assert.equal(h.storage.values.get('budget').count, 5);
@@ -754,8 +756,10 @@ test('cleanup drops expired caller records while preserving the paid-query count
   await h.request();
   h.advance(300_001);
   const entry = [...h.callerStates.values()][0];
+  entry.storage.alarm = null;
   await entry.guard.alarm();
   assert.equal([...entry.storage.values.keys()].filter(key => key.startsWith('caller:')).length, 0);
+  assert.equal(await entry.storage.getAlarm(), null);
   assert.equal(h.storage.values.get('budget').count, 4);
 });
 

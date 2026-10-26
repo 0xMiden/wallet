@@ -267,7 +267,8 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
         return 1_000;
       }
       await transaction.delete('cleanup-cursor');
-      return entries.size > expired.length || cursor ? DECISION_TTL : null;
+      const remaining = await transaction.list({ prefix: 'caller:', limit: 1 });
+      return remaining.size ? DECISION_TTL : null;
     });
     if (delay !== null) await storage.setAlarm(now() + delay);
   }
@@ -313,12 +314,13 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
           let budget = await transaction.get('budget');
           if (day !== dayOf(now()) || deadline <= now()) return 0;
           if (budget?.day !== day) budget = { day, count: 0 };
-          if (!Number.isSafeInteger(budget.count) || budget.count < 0 || budget.count > limit) return 0;
+          if (!Number.isSafeInteger(budget.count) || budget.count < 0) return 0;
           const leaseKey = `lease:${day}:${leaseId}`;
           if (pathname === '/lease') {
             const existing = await transaction.get(leaseKey);
             if (existing !== undefined) return existing.requested === count ? existing.granted : 0;
           }
+          if (budget.count > limit) return 0;
           const granted = Math.min(pathname === '/lease' ? count : 1, limit - budget.count);
           if (granted < 1) return 0;
           // Keep the existing global-v1 budget and count every paid attempt, including failures.
