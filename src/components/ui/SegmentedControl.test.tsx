@@ -9,6 +9,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { SegmentedControl, SegmentedControlItem, SegmentedControlProps } from './SegmentedControl';
 
 let mockReduce = false;
+let mockExtension = true;
 
 // framer-motion: motion.* render as plain elements that surface what framer would receive — the
 // bubble's shared layoutId and transition, the press scale, the content's pop target and the row's
@@ -56,6 +57,7 @@ jest.mock('framer-motion', () => {
 });
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn() }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => mockExtension }));
 
 const mockHapticSelection = jest.mocked(hapticSelection);
 
@@ -97,9 +99,130 @@ const popOf = (item: HTMLElement) => item.querySelector<HTMLElement>('[data-pop]
 
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
+function pointer(target: HTMLElement, type: string, x: number, y = 20, pointerType = 'mouse', button = 0) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button, buttons: 1 });
+  Object.defineProperties(event, {
+    pointerType: { value: pointerType },
+    pointerId: { value: 1 },
+    isPrimary: { value: true }
+  });
+  fireEvent(target, event);
+  return event;
+}
+
+describe('SegmentedControl — extension mouse scrolling', () => {
+  function scrollingRow(props: Partial<SegmentedControlProps<Filter>> = {}) {
+    const owner = props.layout ? renderControl(props) : render(<Owner />);
+    const row = screen.getByRole('radiogroup');
+    Object.defineProperties(row, { clientWidth: { value: 200 }, scrollWidth: { value: 450 } });
+    row.setPointerCapture = jest.fn();
+    row.hasPointerCapture = jest.fn(() => true);
+    row.releasePointerCapture = jest.fn();
+    return Object.assign(row, { unmountControl: owner.unmount });
+  }
+
+  it('scrolls on a horizontal mouse drag without selecting its release target, then allows a fresh click', () => {
+    const row = scrollingRow();
+    pointer(getRadio('Pending'), 'pointerdown', 180);
+    const move = pointer(row, 'pointermove', 100);
+    expect(row.scrollLeft).toBe(80);
+    expect(move.defaultPrevented).toBe(true);
+    pointer(row, 'pointerup', 100);
+    fireEvent.click(getRadio('Sent'), { detail: 1 });
+    expect(getRadio('All')).toHaveAttribute('aria-checked', 'true');
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+    pointer(getRadio('Sent'), 'pointerdown', 100);
+    pointer(getRadio('Sent'), 'pointerup', 100);
+    fireEvent.click(getRadio('Sent'), { detail: 1 });
+    expect(getRadio('Sent')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('preserves small click movements and keyboard activation after a drag', () => {
+    const row = scrollingRow();
+    pointer(getRadio('Pending'), 'pointerdown', 180);
+    pointer(row, 'pointermove', 177);
+    pointer(getRadio('Pending'), 'pointerup', 177);
+    fireEvent.click(getRadio('Pending'), { detail: 1 });
+    expect(getRadio('Pending')).toHaveAttribute('aria-checked', 'true');
+    pointer(row, 'pointerdown', 180);
+    pointer(row, 'pointermove', 80);
+    pointer(row, 'pointerup', 80);
+    fireEvent.click(getRadio('Sent'), { detail: 0 });
+    expect(getRadio('Sent')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it.each(['touch', 'pen'])('leaves %s scrolling to the browser', pointerType => {
+    const row = scrollingRow();
+    pointer(row, 'pointerdown', 180, 20, pointerType);
+    expect(pointer(row, 'pointermove', 80, 20, pointerType).defaultPrevented).toBe(false);
+    expect(row.scrollLeft).toBe(0);
+    expect(row.setPointerCapture).not.toHaveBeenCalled();
+  });
+
+  it('leaves vertical gestures and secondary buttons alone', () => {
+    const row = scrollingRow();
+    pointer(row, 'pointerdown', 180);
+    expect(pointer(row, 'pointermove', 178, 60).defaultPrevented).toBe(false);
+    pointer(row, 'pointermove', 80, 60);
+    expect(row.scrollLeft).toBe(0);
+    pointer(row, 'pointerdown', 180, 20, 'mouse', 2);
+    pointer(row, 'pointermove', 80);
+    expect(row.scrollLeft).toBe(0);
+  });
+
+  it.each(['pointercancel', 'lostpointercapture'])('cleans up %s and allows the next click', type => {
+    const row = scrollingRow();
+    pointer(row, 'pointerdown', 180);
+    pointer(row, 'pointermove', 100);
+    pointer(row, type, 100);
+    pointer(row, 'pointermove', 40);
+    expect(row.scrollLeft).toBe(80);
+    pointer(getRadio('Pending'), 'pointerdown', 100);
+    pointer(getRadio('Pending'), 'pointerup', 100);
+    fireEvent.click(getRadio('Pending'), { detail: 1 });
+    expect(getRadio('Pending')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('does not begin a drag after the pointer has left the row or released its button', () => {
+    const row = scrollingRow();
+    pointer(row, 'pointerdown', 180);
+    pointer(row, 'pointerout', 180);
+    pointer(row, 'pointermove', 80);
+    expect(row.scrollLeft).toBe(0);
+    pointer(row, 'pointerdown', 180);
+    const move = new MouseEvent('pointermove', { bubbles: true, buttons: 0, clientX: 80 });
+    Object.defineProperty(move, 'pointerId', { value: 1 });
+    fireEvent(row, move);
+    expect(row.scrollLeft).toBe(0);
+  });
+
+  it('releases capture when unmounted during a drag', () => {
+    const row = scrollingRow();
+    pointer(row, 'pointerdown', 180);
+    pointer(row, 'pointermove', 100);
+    row.unmountControl();
+    expect(row.releasePointerCapture).toHaveBeenCalledWith(1);
+  });
+
+  it('leaves fill rows and non-extension surfaces unchanged', () => {
+    const fill = scrollingRow({ layout: 'fill' });
+    pointer(fill, 'pointerdown', 180);
+    expect(pointer(fill, 'pointermove', 80).defaultPrevented).toBe(false);
+    expect(fill.scrollLeft).toBe(0);
+    fill.unmountControl();
+    mockExtension = false;
+    const native = scrollingRow();
+    pointer(native, 'pointerdown', 180);
+    expect(pointer(native, 'pointermove', 80).defaultPrevented).toBe(false);
+    expect(native.scrollLeft).toBe(0);
+    expect(native).not.toHaveClass('select-none');
+  });
+});
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockReduce = false;
+  mockExtension = true;
   HTMLElement.prototype.scrollIntoView = jest.fn();
 });
 

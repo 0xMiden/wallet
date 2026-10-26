@@ -707,23 +707,31 @@ export class MultisigService {
     requestBytes?: Uint8Array,
     lockOptions?: Parameters<typeof withWasmClientLock>[1]
   ): Promise<TransactionRequest> {
-    return withWasmClientLock(async hold => {
-      const proposal = await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
-      assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
-      if (proposal.metadata.proposalType === 'custom') {
-        if (!requestBytes) {
-          throw new Error('Request Bytes are required for custom execution');
+    return withProposalStep('sign_lock', () =>
+      withWasmClientLock(async hold => {
+        const proposal = await this.proposalStep('proposal_sign', () => this.multisig.signProposal(id));
+        assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
+        if (proposal.metadata.proposalType === 'custom') {
+          if (!requestBytes) {
+            throw new Error('Request Bytes are required for custom execution');
+          }
+          const advice = await withProposalStep('custom_advice', () =>
+            this.multisig.prepareCustomExecution(id, requestBytes)
+          );
+          assertWasmHoldCurrent(hold, 'guardian request: after custom advice preparation');
+          return withProposalStep('custom_request_build', async () => {
+            const request = TransactionRequest.deserialize(requestBytes);
+            return request.extendAdviceMap(advice);
+          });
         }
-        const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-        assertWasmHoldCurrent(hold, 'guardian request: after custom advice preparation');
-        const request = TransactionRequest.deserialize(requestBytes);
-        return request.extendAdviceMap(advice);
-      }
-      const request = await this.multisig.createTransactionProposalRequest(id);
-      assertWasmHoldCurrent(hold, 'guardian request: after proposal request preparation');
-      if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
-      return request;
-    }, lockOptions);
+        const request = await withProposalStep('proposal_request', () =>
+          this.multisig.createTransactionProposalRequest(id)
+        );
+        assertWasmHoldCurrent(hold, 'guardian request: after proposal request preparation');
+        if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
+        return request;
+      }, lockOptions)
+    );
   }
 
   /**

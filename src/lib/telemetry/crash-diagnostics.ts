@@ -24,6 +24,12 @@ import {
   type BridgeSourceRoute
 } from './bridge-receive-failure';
 import {
+  annotateTransactionExecution,
+  snapshotTransactionExecution,
+  EXECUTION_DIAGNOSTIC_KEYS,
+  type TransactionExecutionDiagnostics
+} from './transaction-execution-diagnostics';
+import {
   USER_ERROR_SURFACES,
   isUserErrorId,
   type UserErrorId,
@@ -90,6 +96,11 @@ export const PROPOSAL_STEPS = [
   'proposal_create',
   'rebased_request_persist',
   'signing_stage_write',
+  'sign_lock',
+  'proposal_sign',
+  'custom_advice',
+  'custom_request_build',
+  'proposal_request',
   'submit_serialize',
   'submit_pin',
   'client_build'
@@ -143,7 +154,8 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
 ];
 export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
-export type CrashDiagnostics = WasmStartupEvidence &
+export type CrashDiagnostics = Partial<TransactionExecutionDiagnostics> &
+  WasmStartupEvidence &
   Partial<StartupEligibilityDiagnostics> & {
     operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
     requestType?: WalletMessageType | MidenMessageType;
@@ -261,6 +273,7 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   try {
     if (!(error instanceof Error)) return;
     const safe: CrashDiagnostics = {};
+    if ('executionRoute' in diagnostics) annotateTransactionExecution(error, diagnostics);
     const {
       operation,
       requestType: suppliedRequestType,
@@ -508,6 +521,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  for (const key of EXECUTION_DIAGNOSTIC_KEYS) delete snapshot[key];
+  Object.assign(snapshot, snapshotTransactionExecution(error));
   // Startup evidence belongs to this displayed attempt, never an earlier cause.
   delete snapshot.startupEligibilityStage;
   delete snapshot.startupEligibilityReason;

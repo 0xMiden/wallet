@@ -59,3 +59,9 @@ If the artifact is missing, expired or rejected, stop with cleanup blocked. Do n
 ## Remaining #1894 acceptance
 
 Account-binding proof is the first phase only. Native-Origin witness and supported-shell verification, production topology, load/cache/budget/lease tests, production shedding changes and any production deployment remain separate deliverables. This workflow implies no customer load test, Paid/domain decision or financial-policy change.
+
+## Early failure evidence
+
+Failed current-run results may retain a closed preflight receipt bound to the workflow's repository, source, run and attempt. It records the finite stage and original reason, whether a manifest was registered, and whether deployment was attempted. It never includes credential values, provider response bodies or account settings.
+
+If the trusted receipt proves deployment was not attempted and no manifest is present, missing cleanup output no longer replaces the original reason. Cleanup remains `blocked`, not `absent`: no external resource-absence claim follows from a missing manifest. Missing, malformed, other-run or attempted-deployment evidence remains fail-closed. Prior-run recovery still requires its exact manifest, artifact and authenticated ownership checks.

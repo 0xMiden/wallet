@@ -406,6 +406,183 @@ describe('send (site 5)', () => {
 });
 
 describe('newTransaction (site 6)', () => {
+  it.each(['absent', 'missing_preimage', 'read_failed'])(
+    'observes %s on the actual request and preserves the rejected object, bytes and execute count',
+    async shape => {
+      const harness = buildHarness();
+      const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
+      harness.executeRequest.mockRejectedValueOnce(original);
+      const { client, withWasmClientLock } = await load(harness);
+      const lazy = await import('@miden-sdk/miden-sdk/lazy');
+      const request = {
+        authArg: () => {
+          if (shape === 'read_failed') throw new Error('private auth getter');
+          return shape === 'absent' ? undefined : {};
+        },
+        adviceMap: () => ({ get: () => undefined })
+      };
+      Reflect.set(
+        lazy.TransactionRequest,
+        'deserialize',
+        jest.fn(() => request)
+      );
+      const bytes = new Uint8Array([4, 19, 28]);
+      await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, false))).rejects.toBe(original);
+      const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+      expect(snapshotCrashDiagnostics(original)).toMatchObject({
+        executionRoute: 'ordinary_new_transaction',
+        authObservation: shape === 'read_failed' ? 'read_failed' : 'observed',
+        authArgPresence: shape === 'absent' ? 'absent' : shape === 'read_failed' ? 'unavailable' : 'present',
+        authLayout: shape === 'read_failed' ? 'unavailable' : shape,
+        commitmentMatch: 'unavailable',
+        accountAuthCode: 'unavailable'
+      });
+      expect(harness.executeRequest).toHaveBeenCalledTimes(1);
+      expect(harness.executeRequest).toHaveBeenCalledWith('acct', request);
+      expect(lazy.TransactionRequest.deserialize).toHaveBeenCalledTimes(1);
+      expect(lazy.TransactionRequest.deserialize).toHaveBeenCalledWith(bytes);
+      expect(bytes).toEqual(new Uint8Array([4, 19, 28]));
+      expect(harness.transport.prove).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled();
+      expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
+    }
+  );
+
+  it('a failed fallback observes its own request rather than the earlier delegated attempt', async () => {
+    const harness = buildHarness();
+    const original = new Error('remote prover unavailable');
+    harness.executeRequest.mockRejectedValueOnce(original).mockRejectedValueOnce(original);
+    const { client, withWasmClientLock } = await load(harness);
+    const lazy = await import('@miden-sdk/miden-sdk/lazy');
+    const first = { authArg: () => undefined };
+    const second = { authArg: () => ({}), adviceMap: () => ({ get: () => undefined }) };
+    const deserialize = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    Reflect.set(lazy.TransactionRequest, 'deserialize', deserialize);
+    const bytes = new Uint8Array([4, 5, 6]);
+    await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, true))).rejects.toBe(original);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(original)).toMatchObject({
+      executionRoute: 'ordinary_new_transaction',
+      authObservation: 'observed',
+      authArgPresence: 'present',
+      authLayout: 'missing_preimage',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    });
+    expect(harness.executeRequest).toHaveBeenCalledTimes(2);
+    expect(harness.executeRequest.mock.calls.map(call => call[1])).toEqual([first, second]);
+    expect(deserialize.mock.calls).toEqual([[bytes], [bytes]]);
+    expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('unreadable diagnostic getters leave successful execution and calls unchanged', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    const lazy = await import('@miden-sdk/miden-sdk/lazy');
+    const request = {
+      get authArg() {
+        throw new Error('private diagnostic getter');
+      }
+    };
+    const deserialize = jest.fn(() => request);
+    Reflect.set(lazy.TransactionRequest, 'deserialize', deserialize);
+    await expect(
+      withWasmClientLock(async () => client.newTransaction('acct', new Uint8Array([9]), false))
+    ).resolves.toBe(harness.result);
+    expect(harness.executeRequest).toHaveBeenCalledTimes(1);
+    expect(harness.executeRequest).toHaveBeenCalledWith('acct', request);
+    expectWorkerProved(harness);
+    expect(deserialize).toHaveBeenCalledTimes(1);
+    expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
+  });
+
+  it('throwing observer getters preserve a successful delegated fallback and its exact request bytes and calls', async () => {
+    const harness = buildHarness();
+    harness.delegated.fail = true;
+    const { client, withWasmClientLock } = await load(harness);
+    const lazy = await import('@miden-sdk/miden-sdk/lazy');
+    const first = Object.freeze({
+      get authArg() {
+        throw new Error('private first getter');
+      }
+    });
+    const second = Object.freeze({
+      get authArg() {
+        throw new Error('private fallback getter');
+      }
+    });
+    const deserialize = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    Reflect.set(lazy.TransactionRequest, 'deserialize', deserialize);
+    const bytes = new Uint8Array([4, 29, 31]);
+    await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, true))).resolves.toBe(
+      harness.result
+    );
+    expect(harness.executeRequest).toHaveBeenCalledTimes(2);
+    expect(harness.executeRequest.mock.calls[0]?.[1]).toBe(first);
+    expect(harness.executeRequest.mock.calls[1]?.[1]).toBe(second);
+    expect(deserialize.mock.calls).toEqual([[bytes], [bytes]]);
+    expect(bytes).toEqual(new Uint8Array([4, 29, 31]));
+    expectWorkerProved(harness);
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(harness.order).toEqual(['worker prove', 'submitProven', 'apply']);
+    expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
+  });
+
+  it('a request that cannot deserialize records not_reached without executing', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    const lazy = await import('@miden-sdk/miden-sdk/lazy');
+    const original = new Error('private request decode failure');
+    Reflect.set(
+      lazy.TransactionRequest,
+      'deserialize',
+      jest.fn(() => {
+        throw original;
+      })
+    );
+    await expect(
+      withWasmClientLock(async () => client.newTransaction('acct', new Uint8Array([9]), false))
+    ).rejects.toBe(original);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(original)).toMatchObject({
+      executionRoute: 'ordinary_new_transaction',
+      authObservation: 'not_reached',
+      authArgPresence: 'unavailable',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    });
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('observes the existing request on the local offscreen-prover execution branch', async () => {
+    const harness = buildHarness();
+    const original = new Error('private raw execution failure');
+    harness.inner.executeTransaction.mockRejectedValueOnce(original);
+    const { client, withWasmClientLock } = await loadOffscreenProved(harness);
+    const lazy = await import('@miden-sdk/miden-sdk/lazy');
+    const request = { authArg: () => undefined };
+    const deserialize = jest.fn(() => request);
+    Reflect.set(lazy.TransactionRequest, 'deserialize', deserialize);
+    const bytes = new Uint8Array([4, 19]);
+    await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, false))).rejects.toBe(original);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(original)).toMatchObject({
+      executionRoute: 'ordinary_new_transaction',
+      authObservation: 'observed',
+      authArgPresence: 'absent',
+      authLayout: 'absent'
+    });
+    expect(deserialize).toHaveBeenCalledTimes(1);
+    expect(deserialize).toHaveBeenCalledWith(bytes);
+    expect(harness.inner.executeTransaction).toHaveBeenCalledTimes(1);
+    expect(harness.inner.executeTransaction.mock.calls[0]?.[1]).toBe(request);
+    expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+    expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
+  });
+
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);

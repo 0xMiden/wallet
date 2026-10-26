@@ -2,12 +2,17 @@
 
 ## 1.17.8 (TBD)
 
+- Preserve bounded staging-probe preflight failures without claiming unverified cleanup.
+
 ### Changes
 
 - [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).
+- [CHANGE][all] Failed transaction reports distinguish reached Guardian signing operations and locally observed execution authentication facts without sending request data.
+- [FIX][ios] Prepare future release screenshots automatically with quota-aware, resumable draft replacement while preserving the submitted 1.17.7 listing (#1906).
 - [CHANGE][ci] Add a trusted-main manual staging probe for isolated eligibility rate-limit bindings with bounded synthetic traffic and manifest-bound cleanup; account support remains unproven until live evidence (#1894).
 
 - [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.
+- [FIX][extension] Activity filters and other scrolling segmented controls can be dragged with the mouse in Chrome, while preserving clicks, keyboard navigation and native touch scrolling.
 - [CHANGE][ci] Standard store builds and explicit publication stages include Bread Devnet for Chrome after production Chrome, iOS and Android, with separate source-bound run evidence for each target.
 - [CHANGE][all] Unavailable startup reports name only the closed eligibility stage, failure category and existing retry outcome, without location, response data or identifiers.
 - [FIX][service] Isolate eligibility caller state while preserving the shared paid-query cap; this mitigates the singleton bottleneck but does not remove the Free invocation quota (#1888).

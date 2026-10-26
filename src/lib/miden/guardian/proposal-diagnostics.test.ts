@@ -170,9 +170,12 @@ it('names the signer facts on a Guardian authentication refusal while signing, f
   const facts = { guardianSignerInSet: 'yes', guardianSigningKey: 'cold', hotKeyRotationPending: 'no' } as const;
   const loaded = await service();
   loaded.authFacts = facts;
-  for (const sign of [
-    () => loaded.signProposal('private-proposal'),
-    () => loaded.signAndCreateTransactionRequest('private-proposal')
+  for (const { sign, expected } of [
+    { sign: () => loaded.signProposal('private-proposal'), expected: facts },
+    {
+      sign: () => loaded.signAndCreateTransactionRequest('private-proposal'),
+      expected: { ...facts, proposalStep: 'proposal_sign' }
+    }
   ]) {
     const refusal = Object.assign(privateFailure(), {
       name: 'GuardianHttpError',
@@ -181,7 +184,7 @@ it('names the signer facts on a Guardian authentication refusal while signing, f
     });
     mockSignProposal.mockRejectedValueOnce(refusal);
     await expect(sign()).rejects.toBe(refusal);
-    expect(snapshotCrashDiagnostics(refusal)).toEqual(facts);
+    expect(snapshotCrashDiagnostics(refusal)).toEqual(expected);
   }
   const other = privateFailure();
   mockSignProposal.mockRejectedValueOnce(other);
