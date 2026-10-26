@@ -644,7 +644,7 @@ async function dispatchOp(
   try {
     await initializeStorageHealth();
     if (recoveryCapability) {
-      if (method !== 'readStorageContinuity') throw new Error('Invalid recovery read');
+      if (method !== 'readStorageContinuity' && method !== 'restoreStorageRecovery') throw new Error('Invalid recovery operation');
       assertStorageRecoveryAllowed(recoveryCapability);
     } else assertStorageHealthy();
     await ensureOffscreenDocument();
@@ -1103,6 +1103,20 @@ export function dispatchGuardianPipeline(
  * is a strict pass-through to the inline singleton — a no-op vs. today.
  */
 export const midenClientProxy = {
+  async restoreStorageRecovery(
+    command: import('../recovery/sdk-restore').SdkRecoveryCommand,
+    capability: StorageRecoveryCapability
+  ): Promise<void> {
+    assertStorageRecoveryAllowed(capability);
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = await getMidenClientForRecovery(capability);
+      assertStorageRecoveryAllowed(capability);
+      await client.restoreStorageRecovery(command, capability);
+    } else {
+      await dispatchOp(newOpId(), 'restoreStorageRecovery', [toSerializable(command)], 5000, false, capability);
+    }
+    assertStorageRecoveryAllowed(capability);
+  },
   async readStorageContinuity(
     accountIds: string[],
     includeNotes: boolean,

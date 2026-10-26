@@ -583,17 +583,32 @@ export class Vault {
       )
         throw new StorageContinuityError();
       if (capability && !journal) throw new StorageContinuityError();
-      const wallet = capability
-        ? await readWalletGenerationForRecovery(Repo.db.name)
-        : validateWalletGeneration(await Repo.metadata.get('generation'));
+      if (capability) await readWalletGenerationForRecovery(Repo.db.name);
       check();
-      const financial = await readFinancialRecoveryBaseline(accounts.map(account => account.publicKey));
-      check();
-      if (journal) {
-        verifyFinancialRecoveryEntries(journal.entries, financial);
-        await verifyRetainedTransactionRows(journal.entries);
-        check();
-      }
+      const recoveryStore = capability ? await Repo.openWalletRecoveryStore(capability) : undefined;
+      const database = recoveryStore ?? Repo.db;
+      const retained = await (async () => {
+        try {
+          check();
+          const wallet = validateWalletGeneration(await database.table('metadata').get('generation'));
+          check();
+          const financial = await readFinancialRecoveryBaseline(
+            accounts.map(account => account.publicKey),
+            Math.floor(Date.now() / 1000),
+            database
+          );
+          check();
+          if (journal) {
+            verifyFinancialRecoveryEntries(journal.entries, financial);
+            await verifyRetainedTransactionRows(journal.entries, database);
+            check();
+          }
+          return { wallet, financial };
+        } finally {
+          recoveryStore?.close();
+        }
+      })();
+      const { wallet, financial } = retained;
       return await withWasmClientLock(
         async hold => {
           check();
@@ -648,6 +663,10 @@ export class Vault {
         if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();
       });
     }, 5000);
+  }
+
+  async recoverStorage(): Promise<boolean> {
+    return false;
   }
 
   async fetchSeedPhraseStatus(): Promise<SeedPhraseStatus> {

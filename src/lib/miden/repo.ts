@@ -378,6 +378,19 @@ export async function openWalletRecoveryStore(capability: StorageRecoveryCapabil
       transaction: (...args) => {
         assertStorageRecoveryAllowed(capability);
         return down.transaction(...args);
+      },
+      table: name => {
+        const table = down.table(name);
+        return {
+          ...table,
+          mutate: request => {
+            assertStorageRecoveryAllowed(capability);
+            return table.mutate(request).then(result => {
+              assertStorageRecoveryAllowed(capability);
+              return result;
+            });
+          }
+        };
       }
     })
   });
@@ -387,6 +400,7 @@ export async function openWalletRecoveryStore(capability: StorageRecoveryCapabil
     return target;
   } catch (error) {
     target.close();
+    reportStorageFailure(error, { backend: 'wallet', operation: 'open' });
     throw error;
   }
 }
