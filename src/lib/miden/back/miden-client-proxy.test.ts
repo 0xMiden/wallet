@@ -4655,6 +4655,7 @@ it.each(['newTransaction', 'guardianPipeline'])(
       ok: false,
       op_id: env.op_id,
       error: 'original failure',
+      proofWaitAvailability: 'available',
       proposalCreateApi: 'consume_notes',
       proposalCreateFamily: 'sdk_account_read',
       guardianProvingSubstep: 'prove_local',
@@ -4662,6 +4663,7 @@ it.each(['newTransaction', 'guardianPipeline'])(
       offscreenDeadlineStage: 'proving',
       queueAdmissionObservation: 'selected',
       reapStartRelation: 'before_realm_cutoff',
+      errorProofWaitAvailability: 'available',
       errorProposalCreate: { proposalCreateApi: 'consume_notes', proposalCreateFamily: 'sdk_account_read' },
       errorGuardianProving: { guardianProvingSubstep: 'prove_local' },
       errorOffscreenDeadline: { offscreenDeadlineMethod: 'guardianPipeline', offscreenDeadlineStage: 'proving' }

@@ -75,13 +75,16 @@ const row = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   rawError: 'failed to submit proven transaction: grpc request failed for submit_proven_transaction: deadline exceeded',
   ...overrides
 });
-const run = () =>
+const run = (during?: () => Promise<unknown>) =>
   judgeAndWrite('private-proof-wait-row', {
     nowSec: NOW,
     cadenceMs: 3000,
     node: {
       blockCommitment: async () => HEADER,
-      account: async () => ({ ok: true, state: { blockNum: 750, commitment: INITIAL } }),
+      account: async () => {
+        await during?.();
+        return { ok: true, state: { blockNum: 750, commitment: INITIAL } };
+      },
       noteInclusions: async () => new Map(),
       nullifierHeight: async () => null
     }
@@ -152,7 +155,61 @@ const cases: AvailabilityCase[] = [
     overrides: { stageTimestamps: { executing: -Number.MAX_VALUE, submitting: Number.MAX_VALUE } }
   },
   { expected: 'derived_window_invalid', entry: { refBlock: -Number.MAX_VALUE, expirationBlock: Number.MAX_VALUE } },
-  { expected: 'available', bucket: 'under_half_window' }
+  { expected: 'available', bucket: 'under_half_window' },
+  {
+    expected: 'current_attempt_missing',
+    overrides: { attemptId: undefined, stageTimestamps: {} },
+    entry: { refBlock: undefined, expirationBlock: undefined }
+  },
+  {
+    expected: 'execution_time_invalid',
+    overrides: { stageTimestamps: { executing: NaN, submitting: NaN } },
+    entry: { refBlock: undefined }
+  },
+  {
+    expected: 'execution_time_invalid',
+    overrides: {
+      stageTimestamps: Object.defineProperty({}, 'executing', { enumerable: true, value: 'private-invalid-time' })
+    }
+  },
+  {
+    expected: 'submit_time_invalid',
+    overrides: {
+      stageTimestamps: Object.defineProperty({ executing: EXECUTING }, 'submitting', {
+        enumerable: true,
+        value: 'private-invalid-time'
+      })
+    }
+  },
+  { expected: 'reference_block_missing', entry: { refBlock: undefined, expirationBlock: undefined } },
+  { expected: 'expiration_block_missing', entry: { refBlock: NaN, expirationBlock: undefined } },
+  { expected: 'reference_block_invalid', entry: { refBlock: NaN, expirationBlock: NaN } },
+  {
+    expected: 'derived_wait_invalid',
+    overrides: { stageTimestamps: { executing: -Number.MAX_VALUE, submitting: Number.MAX_VALUE } },
+    entry: { refBlock: -Number.MAX_VALUE, expirationBlock: Number.MAX_VALUE }
+  },
+  {
+    expected: 'available',
+    overrides: { stageTimestamps: { executing: EXECUTING, submitting: EXECUTING } },
+    bucket: 'under_half_window'
+  },
+  {
+    expected: 'available',
+    overrides: { stageTimestamps: { executing: -10, submitting: -10 } },
+    entry: { refBlock: -100 },
+    bucket: 'under_half_window'
+  },
+  {
+    expected: 'available',
+    overrides: { stageTimestamps: { executing: 0, submitting: 900000 } },
+    bucket: 'over_half_window'
+  },
+  {
+    expected: 'available',
+    overrides: { stageTimestamps: { executing: 0, submitting: 1803000 } },
+    bucket: 'past_window'
+  }
 ];
 
 it.each(cases)(
@@ -258,6 +315,18 @@ it.each([
         });
       }
     }
+    const entries = modifications.submitEvidence;
+    const originalFind = entries.find.bind(entries);
+    Object.defineProperty(entries, 'find', {
+      configurable: true,
+      value: (predicate: (value: ISubmitEvidence, index: number, members: ISubmitEvidence[]) => unknown) => {
+        if (recording) reads.push('find');
+        return originalFind((value, index, members) => {
+          if (recording) reads.push('candidate');
+          return predicate(value, index, members);
+        });
+      }
+    });
     this.onsuccess = () => {
       recording = true;
     };
@@ -266,8 +335,84 @@ it.each([
   try {
     await Repo.transactions.put(row({ submitEvidence: [historical(), current(entry)] }));
     expect((await run()).kind).toBe('never-committed');
-    expect(reads).toEqual(expected);
+    expect(reads).toEqual(['find', 'candidate', 'candidate', ...expected]);
   } finally {
     Repo.transactions.hook('updating').unsubscribe(updating);
   }
+});
+
+it.each(['status', 'evidence', 'restored'])(
+  'does not invent a report after the selected row changes at the %s boundary',
+  async change => {
+    await Repo.transactions.put(row());
+    await run(async () =>
+      Repo.transactions.where({ id: 'private-proof-wait-row' }).modify(fresh => {
+        if (change === 'status') fresh.status = ITransactionStatus.Completed;
+        else if (change === 'restored') fresh.restoredFromBackup = true;
+        else
+          fresh.submitEvidence = [
+            ...(fresh.submitEvidence ?? []),
+            { attemptId: 'private-new-attempt', capturedAt: NOW, source: 'stage' }
+          ];
+      })
+    );
+    await settle();
+    expect(wire).toHaveLength(0);
+  }
+);
+it('uses the committed changed current attempt association rather than the selected id', async () => {
+  await Repo.transactions.put(row());
+  expect(
+    (
+      await run(async () =>
+        Repo.transactions.where({ id: 'private-proof-wait-row' }).modify({ attemptId: 'private-new-current' })
+      )
+    ).kind
+  ).toBe('never-committed');
+  await settle();
+  expect(wire).toHaveLength(1);
+  expect(wire[0]).toContain('"proofWaitAvailability":"current_entry_missing"');
+});
+it('keeps the committed verdict and original report when the weak observation cannot be recorded', async () => {
+  await Repo.transactions.put(row());
+  const originalSet = WeakMap.prototype.set;
+  const set = jest.spyOn(WeakMap.prototype, 'set').mockImplementation(function (
+    this: WeakMap<object, unknown>,
+    key: object,
+    value: unknown
+  ) {
+    if (value === 'available') throw new Error('private observation failure');
+    return originalSet.call(this, key, value);
+  });
+  try {
+    expect((await run()).kind).toBe('never-committed');
+    await settle();
+    expect(wire).toHaveLength(1);
+    expect(wire[0]).toContain('proof wait under_half_window');
+    expect(wire[0]).not.toContain('proofWaitAvailability');
+    expect(wire[0]).not.toContain('private observation failure');
+  } finally {
+    set.mockRestore();
+  }
+});
+
+it('removes scope, native and structural canonical availability without producer provenance', async () => {
+  getCurrentScope().setExtra('walletDiagnostics', { proofWaitAvailability: 'available', privateAccount: ACCOUNT });
+  failureReporter.reportTransactionFailure({
+    type: 'consume',
+    point: 'node_verdict',
+    reason: 'never_committed',
+    neverCommittedRule: 'expired',
+    error: Object.assign(new Error('private untrusted SDK failure'), { proofWaitAvailability: 'available' })
+  });
+  await settle();
+  expect(wire).toHaveLength(1);
+  expect(wire[0]).not.toContain('proofWaitAvailability');
+  expect(wire[0]).not.toContain(ACCOUNT);
+  const event: Record<string, unknown> = {
+    extra: { walletDiagnostics: { proofWaitAvailability: 'available', raw: ACCOUNT } }
+  };
+  const scrubbed = scrubEvent(event, { originalException: roots[0] });
+  expect(JSON.stringify(scrubbed)).not.toContain('proofWaitAvailability');
+  expect(JSON.stringify(scrubbed)).not.toContain(ACCOUNT);
 });

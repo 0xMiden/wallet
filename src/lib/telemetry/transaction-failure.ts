@@ -30,6 +30,7 @@ import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import { annotateGuardianProving, snapshotGuardianProving } from './guardian-proving-diagnostics';
 import { transferOffscreenDeadline } from './offscreen-deadline-diagnostics';
+import { annotateProofWaitAvailability, snapshotProofWaitAvailability } from './proof-wait-availability-diagnostics';
 import { transferProposalCreateDiagnostics } from './proposal-create-diagnostics';
 import assertions from './protocol-assertions.json';
 import type { ReapStartRelation } from './reap-start-diagnostics';
@@ -983,11 +984,12 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
       failure.submitCrossing === undefined
         ? ''
         : `; submit crossing ${diagnostic<string>(failure.submitCrossing, SUBMIT_CROSSINGS, 'unavailable')}`;
+    let reportedNeverCommittedRule: string | undefined;
     const identity =
       reason === undefined
         ? failureIdentity(failure)
         : reason === 'never_committed' && failure.neverCommittedRule !== undefined
-          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}` +
+          ? `${reason}; rule ${(reportedNeverCommittedRule = diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other'))}` +
             (failure.neverCommittedRule !== 'expired' || failure.priorError === undefined
               ? ''
               : `; prior ${failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError })}`) +
@@ -1011,7 +1013,10 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     delete inherited.reownRequestAge;
     delete inherited.reownPublished;
     delete inherited.reownBackgrounded;
+    delete inherited.proofWaitAvailability;
     annotateCrash(report, inherited);
+    if (point === 'node_verdict' && reason === 'never_committed' && reportedNeverCommittedRule === 'expired')
+      annotateProofWaitAvailability(report, snapshotProofWaitAvailability(failure));
     if (inherited.proposalStep === 'proposal_create') transferProposalCreateDiagnostics(failure.error, report);
     annotateGuardianProving(report, snapshotGuardianProving(failure.error));
     if (identity.startsWith('offscreen_aborted_deadline;')) transferOffscreenDeadline(failure.error, report);
