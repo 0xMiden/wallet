@@ -495,7 +495,7 @@ export function createProbeController(effects) {
     )
       mismatch('binding_names');
     const scriptSettings = (await api(`${prefix}/script-settings`)).result;
-    for (const [gate, path] of observationSwitches) checkSwitch(scriptSettings, path, `script_${gate}`, true);
+    for (const [gate, path] of observationSwitches) checkSwitch(scriptSettings, path, `script_${gate}`, false);
     if (scriptSettings.logpush !== undefined && scriptSettings.logpush !== false)
       mismatch('script_logpush', () => ownershipData(scriptSettings, 'logpush'), false);
     if (
