@@ -1239,3 +1239,19 @@ test('iOS submit uses the exact notes fallback when omitted or empty', async () 
     assert.equal(c.calls.find(call => call[0] === 'operation')[3].releaseNotes, 'Various Fixes & Improvements');
   }
 });
+
+test('future iOS prepare and submit synchronize canonical screenshots in mutation order', async () => {
+  for (const action of ['prepare', 'submit']) {
+    const c = screenshotContext();
+    c.deps.operations.ios.prepare = async () => { c.calls.push(['prepare']); return { state: 'PREPARE_FOR_SUBMISSION' }; };
+    c.deps.loadScreenshotJournal = async () => undefined;
+    c.deps.persistScreenshotJournal = async () => {};
+    await run(['ios', action, ...screenshotArgs, ...(action === 'submit' ? ['--build-number', '19'] : [])], c.deps);
+    const sync = c.calls.findIndex(call => call[0] === 'screenshotSync');
+    assert.ok(sync >= 0, 'normal future publication must apply canonical assets');
+    if (action === 'prepare') assert.ok(c.calls.findIndex(call => call[0] === 'prepare') < sync);
+    else assert.ok(sync < c.calls.findIndex(call => call[0] === 'screenshotVerify'));
+    assert.equal(c.calls[sync][1].sourceSha, sha);
+    assert.equal(typeof c.calls[sync][1].persistScreenshotJournal, 'function');
+  }
+});

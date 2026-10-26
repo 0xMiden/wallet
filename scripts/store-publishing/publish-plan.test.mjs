@@ -823,3 +823,11 @@ test('the notes fallback is scoped to iOS submit and leaves other default action
     assert.equal(plan.releaseNotes, undefined);
   }
 });
+
+test('iOS prepare and screenshot sync optionally restore an exact prior state run', () => {
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const request = { ...input, platform: 'ios', action, producerRunId: '', stateRunId: '80' };
+    assert.equal(validatePublishRequest(request).needsState, true);
+    assert.equal(validatePublishRequest({ ...request, stateRunId: '' }).needsState, false);
+  }
+});
