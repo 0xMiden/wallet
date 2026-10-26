@@ -8,6 +8,7 @@ import { clearStorage, PENDING_ADMISSION_STORAGE_KEY, SETUP_WIPE_KEPT_KEYS } fro
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
+import { getStorageHealth, resetStorageHealthForLifecycle } from 'lib/miden/storage-health';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
@@ -63,6 +64,7 @@ import {
   estimateUsdcxBurnFee,
   getSpendingLimit,
   saveSpendingLimit,
+  checkpointFinancialRecovery,
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
@@ -2768,4 +2770,11 @@ describe('handleReportTelemetryEvent', () => {
       network: expect.any(String)
     });
   });
+});
+
+it('refuses a financial checkpoint captured before reset without selecting the replacement Vault', async () => {
+  const oldEpoch = getStorageHealth().epoch;
+  await resetStorageHealthForLifecycle(oldEpoch);
+  await expect(checkpointFinancialRecovery('account-a', undefined, oldEpoch)).rejects.toThrow('StorageUnavailableError');
+  expect(mockVault.checkpointFinancialRecovery).not.toHaveBeenCalled();
 });
