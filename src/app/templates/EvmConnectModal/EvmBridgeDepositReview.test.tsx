@@ -119,6 +119,39 @@ describe('EvmBridgeDepositReview', () => {
     expect(screen.queryByText('bridgeWalletPromptUsdcxDeposit')).not.toBeInTheDocument();
   });
 
+  it('shows the quoted wallet calls instead of a Compact deposit when Fast reuses collateral', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({
+          epochResourceLockRequired: false,
+          epochQuoteTransactions: [
+            {
+              chainId: 11155111,
+              target: '0x1234567890123456789012345678901234567890',
+              value: '1000000000000000',
+              callData: '0x12345678abcdef'
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.queryByText('bridgeWalletPromptEpochApprove')).not.toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptEpochDeposit')).not.toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptEpochExistingCollateral')).toBeInTheDocument();
+    expect(screen.getByText('0x1234567890123456789012345678901234567890')).toBeInTheDocument();
+    expect(screen.getByText('0x12345678')).toBeInTheDocument();
+    expect(screen.getByText('1000000000000000')).toBeInTheDocument();
+  });
+
+  it('does not imply a wallet prompt when the Fast quote has no execution transactions', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ epochResourceLockRequired: false, epochQuoteTransactions: [] })} />);
+
+    expect(screen.getByText('bridgeWalletPromptEpochNoTransactions')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptEpochApprove')).not.toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptEpochDeposit')).not.toBeInTheDocument();
+  });
+
   describe('hero', () => {
     it('renders the deposit caption, logo and amount', () => {
       render(<EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC' })} />);

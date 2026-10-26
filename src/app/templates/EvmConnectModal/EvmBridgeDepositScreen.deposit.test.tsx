@@ -398,12 +398,18 @@ jest.mock('./EvmBridgeDepositReview', () => {
       sourceQuote,
       outputAmount,
       label,
+      promptContract,
+      epochResourceLockRequired,
+      epochQuoteTransactions,
       onConfirm
     }: {
       amount: string;
       sourceQuote?: TokenPriceInfo;
       outputAmount?: string;
       label?: string;
+      promptContract?: string;
+      epochResourceLockRequired?: boolean;
+      epochQuoteTransactions?: Array<{ target: string }>;
       onConfirm: () => void;
     }) => {
       mockLastReviewConfirm = onConfirm;
@@ -413,6 +419,9 @@ jest.mock('./EvmBridgeDepositReview', () => {
           <span data-testid="review-amount">{amount}</span>
           <span data-testid="review-price">{sourceQuote?.price}</span>
           <span data-testid="review-output">{outputAmount}</span>
+          <span data-testid="review-contract">{promptContract}</span>
+          <span data-testid="review-resource-lock">{String(epochResourceLockRequired)}</span>
+          <span data-testid="review-quote-target">{epochQuoteTransactions?.[0]?.target}</span>
           <button data-testid="confirm-deposit" onClick={onConfirm}>
             confirm
           </button>
@@ -585,14 +594,17 @@ const reachReview = async (amountButton = 'set-amount', expectReview = true) => 
  * faucet's 6 decimals), `tokenOut` a quote of 10, and `tokenIn` a deposit of 10.6512 at 18. Both
  * need more than two decimals so typed, rounded up, half-up and rounded down each read differently.
  */
-const quoteFast = () =>
+const quoteFast = (
+  resourceLockRequired = true,
+  transactions: Array<{ target: string; value: string; callData: string; chainId: number }> = []
+) =>
   Object.assign(epochState, {
     quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
     status: 'quoted',
     flow: 'evm-to-miden',
     quote: {
       params: { minTokenOut: '1505000' },
-      quoteResult: { tokenIn: '10651200000000000000', tokenOut: '10000000' }
+      quoteResult: { tokenIn: '10651200000000000000', tokenOut: '10000000', resourceLockRequired, transactions }
     }
   });
 
@@ -810,6 +822,27 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
     expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
+  });
+
+  it('shows The Compact as the Fast-route approval spender and deposit target', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(screen.getByTestId('review-contract')).toHaveTextContent('0x00000000000000171ede64904551eeDF3C6C9788');
+  });
+
+  it('passes the Fast quote wallet calls to the review when existing collateral is used', async () => {
+    quoteFast(false, [
+      { chainId: 11155111, target: '0x1234567890123456789012345678901234567890', value: '0', callData: '0x12345678' }
+    ]);
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(screen.getByTestId('review-resource-lock')).toHaveTextContent('false');
+    expect(screen.getByTestId('review-quote-target')).toHaveTextContent('0x1234567890123456789012345678901234567890');
   });
 
   it('keeps the Fast-route review amount without inventing a nominal USD quote', async () => {

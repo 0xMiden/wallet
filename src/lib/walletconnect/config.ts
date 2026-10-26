@@ -117,7 +117,8 @@ export const DEFAULT_CHAIN_ID = 11155111;
 
 export const APP_METADATA = {
   name: 'Bread Wallet',
-  description: 'Bread — Miden wallet. Sign EVM transactions to bridge assets to and from Miden.',
+  description:
+    'Bread Wallet connects to your Ethereum wallet for bridge deposits and claims. Review token approvals and transactions before confirming.',
   url: 'https://miden.io',
   icons: ['https://miden.io/favicon.ico']
 };

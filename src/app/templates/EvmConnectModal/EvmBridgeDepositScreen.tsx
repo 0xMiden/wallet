@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { COMPACT_ADDRESS } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitProvider } from '@reown/appkit/react';
 import PQueue from 'p-queue';
 import { useTranslation } from 'react-i18next';
@@ -87,6 +88,7 @@ import {
 } from 'lib/usdcx/executor';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
+import { chromeExtensionWalletConnectId } from 'lib/walletconnect/identity';
 import {
   isNativeReownAvailable,
   NativeReown,
@@ -1993,6 +1995,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               networkId={bridgeNetwork?.id}
               destinationName={midenAccount.name}
               sourceChainId={sourceChainId}
+              extensionId={typeof window !== 'undefined' ? chromeExtensionWalletConnectId(window.location) : undefined}
+              promptAmount={depositAmount.trim()}
+              nativeSource={route === 'agglayer' && token === 'ETH'}
+              epochResourceLockRequired={epochQuote?.quoteResult.resourceLockRequired}
+              epochQuoteTransactions={epochQuote?.quoteResult.transactions}
+              promptContract={
+                route === 'epoch'
+                  ? COMPACT_ADDRESS[sourceChainId]
+                  : route === 'agglayer'
+                    ? agglayerRecovery?.contractAddress
+                    : usdcxSource?.route === 'xreserve'
+                      ? usdcxSource.xReserve
+                      : usdcxSource?.tokenMessengerWithFees
+              }
+              usdcxExecutor={usdcxSource?.route === 'cctp-executor'}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
@@ -2086,6 +2103,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       evmUsdc,
       token,
       bridgeConfig,
+      agglayerRecovery?.contractAddress,
+      depositAmount,
+      epochQuote?.quoteResult.resourceLockRequired,
+      epochQuote?.quoteResult.transactions,
       awaitingNextConfirmation,
       balanceHoldNotice,
       capHoldNotice,
