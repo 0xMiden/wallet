@@ -2,7 +2,7 @@ import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+import { snapshotCrashDiagnostics, withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import { MultisigService, ProposalChainSyncError } from './index';
 
@@ -369,4 +369,38 @@ it('clears an earlier inline proving observation when the same Error is rejected
   await expect(loaded.createConsumeNotesProposal(['private'])).rejects.toBe(error);
   expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalCreateFamily', 'sdk_account_read');
   expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('guardianProvingSubstep');
+});
+
+it('rebinds a reused signing rejection to the next actual consume-creation boundary', async () => {
+  const loaded = await service();
+  const error = new Error('failed to get account: private');
+  mockSignProposal.mockRejectedValueOnce(error);
+  await expect(loaded.signAndCreateTransactionRequest('private-proposal')).rejects.toBe(error);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalStep', 'proposal_sign');
+  const ids = ['private-note'];
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(ids)).rejects.toBe(error);
+  expect(mockSignProposal).toHaveBeenCalledTimes(1);
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+  expect(mockConsumeProposal).toHaveBeenCalledWith(ids);
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'sdk_account_read'
+  });
+});
+
+it('keeps current innermost creation evidence while an older outer boundary propagates the rejection', async () => {
+  const loaded = await service();
+  const error = new Error('failed to get account: private');
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(withProposalStep('sign_lock', () => loaded.createConsumeNotesProposal(['private-note']))).rejects.toBe(
+    error
+  );
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'sdk_account_read'
+  });
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
 });

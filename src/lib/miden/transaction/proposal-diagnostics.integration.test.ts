@@ -1051,3 +1051,35 @@ it('reports the reliable submitting precondition rejection as its own boundary',
     Repo.transactions.hook('updating').unsubscribe(rejectCrossing);
   }
 });
+
+it('sends the next actual consume family after the same root previously failed signing', async () => {
+  const error = new Error('failed to get account: ' + accountId);
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockSignProposal.mockRejectedValueOnce(error);
+  await run();
+  await flush();
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalStep', 'proposal_sign');
+  requests.length = 0;
+  report.mockClear();
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'creating-proposal' });
+  expectHookRejection(report, error);
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(2);
+  expect(mockSignProposal).toHaveBeenCalledTimes(1);
+  await failureEventWith(
+    { proposalStep: 'proposal_create', proposalCreateApi: 'consume_notes', proposalCreateFamily: 'sdk_account_read' },
+    'stage signing'
+  );
+});
+
+it('preserves an undefined execute rejection without manufacturing a proving error', async () => {
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockExecute.mockRejectedValueOnce(undefined);
+  await run();
+  expect(report).toHaveBeenCalledTimes(1);
+  expect(report.mock.calls[0]?.[0].error).toBeUndefined();
+  expect(mockExecute).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ guardianProvingSubstep: undefined }, 'stage');
+});

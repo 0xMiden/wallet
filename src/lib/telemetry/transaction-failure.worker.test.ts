@@ -301,3 +301,25 @@ it('serializes only independent closed deadline queue and reap evidence without 
   expect(wire).toContain('before_realm_cutoff');
   expect(wire).not.toContain(privateValue);
 });
+
+it.each(['user_cancelled', 'queued_expired', 'stuck_reaped'] as const)(
+  'omits deadline progress from the final wire when effective identity is %s',
+  async reason => {
+    const error = new OperationAbortedError('private-operation', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    annotateOffscreenDeadline(error, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    reportTransactionFailure({ type: 'send', stage: 'proving', reason, error });
+    await settle();
+    expect(captured).toHaveLength(1);
+    const wire = captured[0]!;
+    expect(wire).toContain(reason);
+    expect(wire).not.toContain('offscreenDeadlineMethod');
+    expect(wire).not.toContain('offscreenDeadlineStage');
+    expect(wire).not.toContain('private-operation');
+  }
+);
