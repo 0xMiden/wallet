@@ -1,7 +1,7 @@
-import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 // Real Dexie, real judgement and writes; external reads and bridge adoption are faked.
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { ClaimFeeContext, getClaimFeeAhead } from './claim-fee';
 import {

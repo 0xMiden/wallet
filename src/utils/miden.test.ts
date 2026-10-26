@@ -1,7 +1,7 @@
-import { snapshotRecipientValidation } from 'lib/telemetry/ui-producer-diagnostics';
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { snapshotRecipientValidation } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
   detectAddressChain,
@@ -48,9 +48,11 @@ const reasonOf = (address: string): string => {
 
 describe('Miden and Ethereum address utilities', () => {
   it('accepts a decodable address for the current network, with or without routing params', () => {
+    const calls = jest.mocked(Address.fromBech32).mock.calls.length;
     expect(isValidMidenAddress(TESTNET_ADDRESS)).toBe(true);
     expect(isValidMidenAddress(TESTNET_ADDRESS_WITH_ROUTING)).toBe(true);
     expect(isValidMidenAddress(`  ${TESTNET_ADDRESS}  `)).toBe(true);
+    expect(jest.mocked(Address.fromBech32).mock.calls.length - calls).toBe(3);
   });
 
   it('throws wrong-network for a well-formed address of another Miden network', () => {
@@ -119,6 +121,7 @@ it.each([
   ['unknown1private', 'prefix_rejected'],
   ['mtst1account', 'decoder_throw']
 ])('retains only the existing validation boundary for %s', (address, stage) => {
+  const calls = jest.mocked(Address.fromBech32).mock.calls.length;
   let observed: unknown;
   try {
     isValidMidenAddress(address);
@@ -127,4 +130,5 @@ it.each([
   }
   expect(observed).toBeInstanceOf(MidenAddressError);
   expect(snapshotRecipientValidation(observed)).toBe(stage);
+  expect(jest.mocked(Address.fromBech32).mock.calls.length - calls).toBe(stage === 'decoder_throw' ? 1 : 0);
 });

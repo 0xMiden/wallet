@@ -6,6 +6,8 @@
 
 ### Changes
 
+- [CHANGE][all] Existing unavailable-feature, unanswered-submission, held-retry and recipient-validation reports retain only closed producer decisions, without private inputs or inferred outcomes.
+
 - [CHANGE][all] Failed transaction reports retain closed proposal, inline proving, queue admission, deadline progress and reaper timestamp observations without private transaction data.
 
 - [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).

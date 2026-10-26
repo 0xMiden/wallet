@@ -1,6 +1,7 @@
 import React from 'react';
-import { act, render, cleanup } from '@testing-library/react';
+
 import { dedupeIntegration } from '@sentry/browser';
+import { act, render, cleanup } from '@testing-library/react';
 
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';

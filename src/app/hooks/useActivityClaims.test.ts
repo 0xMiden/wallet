@@ -1,4 +1,3 @@
-import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import React from 'react';
 
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
@@ -10,6 +9,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { resetActivityReadState } from 'lib/settings/activity-read';
+import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';

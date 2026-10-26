@@ -181,7 +181,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const expiredOneClick = isRecoverableExpiredOneClick(active, status);
   useUserVisibleError(
     submissionMessage !== undefined && submissionMessage.rowCopy === undefined ? submissionMessage.messageKey : null,
-    'status_screen'
+    'status_screen',
+    undefined,
+    submissionMessage?.submissionFeedbackBranch === undefined
+      ? undefined
+      : {
+          kind: 'submission_feedback',
+          submissionFeedbackBranch: submissionMessage.submissionFeedbackBranch
+        }
   );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
   // it while the row waits for a verdict; its judging takes no WASM lock (#1081).

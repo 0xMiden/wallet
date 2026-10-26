@@ -218,12 +218,19 @@ it('keeps the visible branch when a replacement render suspends before commit', 
     if (pending) throw never;
     return <span>Committed message</span>;
   }
-  const view = render(<React.Suspense fallback={<span>Pending</span>}><DisplayEvidence /></React.Suspense>);
+  const view = render(
+    <React.Suspense fallback={<span>Pending</span>}>
+      <DisplayEvidence />
+    </React.Suspense>
+  );
   advance(999);
-  await act(async () => { replace?.(); });
+  await act(async () => {
+    replace?.();
+  });
   expect(view.getByText('Committed message')).toBeVisible();
   advance(1);
   expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {
-    kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown'
+    kind: 'submission_feedback',
+    submissionFeedbackBranch: 'grpc_unknown'
   });
 });

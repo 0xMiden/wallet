@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { usePromptSlideActive } from 'components/ui/prompt-slide-active';
@@ -17,7 +17,9 @@ export function useUserVisibleError(
   const slideActive = usePromptSlideActive();
   const active = pageActive && slideActive;
   const latestDiagnostics = useRef(diagnostics);
-  latestDiagnostics.current = diagnostics;
+  useLayoutEffect(() => {
+    latestDiagnostics.current = diagnostics;
+  }, [diagnostics]);
   const episode = useRef({ id, surface, occurrence, reported: false });
 
   useEffect(() => {
