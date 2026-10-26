@@ -272,3 +272,43 @@ test('track identity mismatches fail before uploads or modifications', async () 
   await assert.rejects(() => play.upload(client, { ...options, artifact }), /track identity/);
   client.done();
 });
+
+
+test('submit failure names its stage without retrying or exposing provider content', async () => {
+  const failure = Object.assign(new Error('private provider content'), { status: 400 });
+  const client = transport([{ method: 'GET', path: trackPath, response: track([draft]) },
+    { method: 'PUT', path: trackPath, error: failure }]);
+  await assert.rejects(play.submit(client, { ...options, allowPendingChanges: true }), error => {
+    assert.equal(error, failure);
+    assert.equal(error.stage, 'play-submit-track-update');
+    return true;
+  });
+  client.done();
+});
+
+test('explicit edit inspection uses only GETs and reports expired edit separately from live releases', async () => {
+  const expired = Object.assign(new Error('private body'), { status: 404 });
+  const client = transport([
+    { method: 'GET', path: `${app}/tracks/production/releases`, response: { releases: [] } },
+    { method: 'GET', path: edit, error: expired }
+  ]);
+  const result = await play.status(client, { ...options, inspectEdit: true });
+  assert.deepEqual(result.editInspection, { stage: 'play-inspect-edit', httpStatus: 404 });
+  assert.deepEqual(result.releases, []);
+  assert.doesNotMatch(JSON.stringify(result), /private body/);
+  client.done();
+});
+
+test('explicit edit inspection reads exact caller edit and track without changing either', async () => {
+  const client = transport([
+    { method: 'GET', path: `${app}/tracks/production/releases`, response: { releases: [] } },
+    { method: 'GET', path: edit, response: { id: 'edit-1', expiryTimeSeconds: '1', secret: 'hidden' } },
+    { method: 'GET', path: trackPath, response: track([draft]) }
+  ]);
+  const result = await play.status(client, { ...options, inspectEdit: true });
+  assert.equal(result.editInspection.id, 'edit-1');
+  assert.equal(result.editInspection.expiryTimeSeconds, '1');
+  assert.deepEqual(result.editInspection.releases, [draft]);
+  assert.equal(client.calls.length, 3);
+  client.done();
+});

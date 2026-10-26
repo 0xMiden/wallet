@@ -605,3 +605,30 @@ test('workflow state selection accepts exactly the explicit prior Chrome run art
   );
   await assert.rejects(main('state-run', env), /Exactly one/);
 });
+
+
+test('Android read-only edit status requires exact producer and prior state even after expiry', () => {
+  const intent = { ...input, platform: 'android', action: 'status', buildNumber: '19', editId: 'edit-1', stateRunId: '80' };
+  const plan = validatePublishRequest(intent);
+  assert.equal(plan.needsProducer, true);
+  assert.equal(plan.needsState, true);
+  assert.throws(() => validatePublishRequest({ ...intent, producerRunId: '' }));
+  assert.throws(() => validatePublishRequest({ ...intent, stateRunId: '' }));
+  const edit = { packageName: 'com.miden.wallet', editId: 'edit-1', version: plan.version,
+    network: plan.network, sourceSha: sha, expiryTimeSeconds: '1' };
+  const previous = snapshot(plan, { edit, extraManifest: { outcome: 'failure' } });
+  assert.equal(validateStateSnapshot(plan, previous, { run: run('state', { conclusion: 'failure' }),
+    receipt: receipt({ platform: 'android', identity: 'com.miden.wallet', versionCode: plan.versionCode }), nowSeconds: 999 })['android-edit.json'].editId, 'edit-1');
+});
+
+test('workflow persists only safe stage/status failure metadata before rejecting', async t => {
+  const { env, root } = await workspace(t);
+  await main('prepare', env);
+  const failure = Object.assign(new Error('secret provider body'), { stage: 'play-submit-track-update', status: 403,
+    apiStatus: 'PERMISSION_DENIED', apiReasons: ['forbidden', 'secret-body'] });
+  await assert.rejects(main('execute', env, { run: async () => { throw failure; } }));
+  const result = JSON.parse(await readFile(join(root, 'result.json')));
+  assert.deepEqual(result.failure, { stage: 'play-submit-track-update', httpStatus: 403,
+    apiStatus: 'PERMISSION_DENIED', apiReasons: ['forbidden'] });
+  assert.doesNotMatch(JSON.stringify(result), /secret/);
+});

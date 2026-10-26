@@ -369,3 +369,17 @@ test('response redirect metadata and malformed URLs cannot leak provider details
     assert.equal(queue.calls.length, 1);
   }
 });
+
+
+test('Play failures retain only closed status and reason metadata, never provider messages', async () => {
+  const client = createApiClient({ origin: 'https://androidpublisher.googleapis.com', token: 'secret-token',
+    fetchImpl: async () => new Response(JSON.stringify({ error: { status: 'PERMISSION_DENIED',
+      message: 'secret-token private content', errors: [{ reason: 'forbidden' }, { reason: 'secret-token' }] } }), { status: 403 }) });
+  await assert.rejects(client.request('GET', '/androidpublisher/v3/applications/app'), error => {
+    assert.equal(error.status, 403);
+    assert.equal(error.apiStatus, 'PERMISSION_DENIED');
+    assert.deepEqual(error.apiReasons, ['forbidden']);
+    assert.doesNotMatch(JSON.stringify(error), /secret-token|private content/);
+    return true;
+  });
+});
