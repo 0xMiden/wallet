@@ -10,7 +10,7 @@ import {
 } from 'lib/telemetry/relay-diagnostics';
 
 import { type AppKitInstance, CONNECT_VIEW, modal, openConnectModal } from './appkit';
-import { EVM_CHAIN_DEFINITIONS, getChain } from './config';
+import { APP_METADATA, EVM_CHAIN_DEFINITIONS, getChain } from './config';
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => ({ config: null }),
@@ -20,6 +20,28 @@ jest.mock('lib/remote-config/runtime', () => ({
 }));
 
 const networks: AppKitNetwork[] = jest.mocked(createAppKit).mock.calls[0]?.[0].networks ?? [];
+
+it('keeps the shared native metadata unchanged when AppKit owns its copy', () => {
+  const metadata = jest.mocked(createAppKit).mock.calls[0]?.[0].metadata;
+  expect(metadata).toEqual(APP_METADATA);
+  expect(metadata).not.toBe(APP_METADATA);
+  expect(metadata?.icons).not.toBe(APP_METADATA.icons);
+  if (!metadata) throw new Error('AppKit did not receive Bread metadata');
+  const originalUrl = metadata.url;
+  try {
+    metadata.url = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/popup.html';
+    expect(APP_METADATA.url).toBe('https://miden.io');
+  } finally {
+    metadata.url = originalUrl;
+  }
+});
+
+it('describes the EVM wallet actions Bread requests at connection', () => {
+  const metadata = jest.mocked(createAppKit).mock.calls[0]?.[0].metadata;
+  expect(metadata?.name).toBe('Bread Wallet');
+  expect(metadata?.description).toMatch(/bridge deposits and claims/i);
+  expect(metadata?.description).toMatch(/token approvals/i);
+});
 
 describe('external-wallet picker', () => {
   const options = jest.mocked(createAppKit).mock.calls[0]?.[0];

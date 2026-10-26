@@ -64,6 +64,61 @@ const baseProps = (overrides: Partial<EvmBridgeDepositReviewProps> = {}): EvmBri
 });
 
 describe('EvmBridgeDepositReview', () => {
+  it('matches the actual extension ID and the Slow ETH bridge action before opening the mobile wallet', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({
+          route: 'agglayer',
+          symbol: 'ETH',
+          nativeSource: true,
+          extensionId: 'abcdefghijklmnopabcdefghijklmnop',
+          promptAmount: '1.25',
+          promptContract: '0x1111111111111111111111111111111111111111'
+        })}
+      />
+    );
+
+    expect(screen.getByText('abcdefghijklmnopabcdefghijklmnop')).toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptIdentity')).toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptAgglayerDeposit')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptAgglayerApprove')).not.toBeInTheDocument();
+    expect(screen.getByText('0x1111111111111111111111111111111111111111')).toBeInTheDocument();
+  });
+
+  it('names the bounded approval and deposit for each token route', () => {
+    const cases: Array<[EvmBridgeDepositReviewProps['route'], string, string]> = [
+      ['epoch', 'bridgeWalletPromptEpochApprove', 'bridgeWalletPromptEpochDeposit'],
+      ['agglayer', 'bridgeWalletPromptAgglayerApprove', 'bridgeWalletPromptAgglayerDeposit'],
+      ['usdcx', 'bridgeWalletPromptUsdcxApprove', 'bridgeWalletPromptUsdcxDeposit']
+    ];
+    for (const [route, approval, deposit] of cases) {
+      const { unmount } = render(
+        <EvmBridgeDepositReview
+          {...baseProps({
+            route,
+            promptAmount: '10',
+            promptContract: '0x1111111111111111111111111111111111111111'
+          })}
+        />
+      );
+      expect(screen.getByText(approval)).toBeInTheDocument();
+      expect(screen.getByText(deposit)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('still names the approval for an ERC-20 whose symbol happens to be ETH', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ route: 'agglayer', symbol: 'ETH', nativeSource: false })} />);
+    expect(screen.getByText('bridgeWalletPromptAgglayerApprove')).toBeInTheDocument();
+  });
+
+  it('names the Circle burn instead of an xReserve deposit when the source uses the executor', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx', usdcxExecutor: true })} />);
+    expect(screen.getByText('bridgeWalletPromptExecutorApprove')).toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptExecutorBurn')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptUsdcxDeposit')).not.toBeInTheDocument();
+  });
+
   describe('hero', () => {
     it('renders the deposit caption, logo and amount', () => {
       render(<EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC' })} />);
