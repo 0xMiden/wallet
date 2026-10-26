@@ -580,10 +580,10 @@ test('uploader error details are failures even when its process exits successful
   }
 });
 
-test('iOS submit preserves release policy by default and passes only explicit supported overrides', async () => {
+test('iOS submit defaults to after-approval and retains explicit supported overrides', async () => {
   for (const releasePolicy of ['preserve-existing', 'manual', 'after-approval']) {
     const c = context('ios');
-    const override = releasePolicy === 'preserve-existing' ? [] : ['--release-policy', releasePolicy];
+    const override = releasePolicy === 'after-approval' ? [] : ['--release-policy', releasePolicy];
     await run(['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', ...override], c.deps);
     assert.equal(c.calls.find(call => call[0] === 'operation')[3].releasePolicy, releasePolicy);
   }
@@ -856,4 +856,38 @@ test('Chrome rollover preserves an exclusive owner-private archive and refuses a
   await assert.rejects(run(args, c.deps), /archive/i);
   assert.equal(posts, 0);
   assert.equal(JSON.parse(await readFile(journalPath)).version, '1.17.7');
+});
+
+test('explicit iOS submit notes pass through unchanged and reject other operations before authentication', async () => {
+  const c = context('ios');
+  const notes = 'Recovery improvements.\nBug fixes.';
+  await run(
+    ['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', '--release-notes', notes],
+    c.deps
+  );
+  assert.equal(c.calls.find(call => call[0] === 'operation')[3].releaseNotes, notes);
+  for (const [platform, action, value] of [
+    ['ios', 'upload', notes],
+    ['chrome', 'submit', notes],
+    ['ios', 'submit', ' '],
+    ['ios', 'submit', 'x'.repeat(4001)]
+  ]) {
+    const other = context(platform);
+    await assert.rejects(
+      run(
+        [platform, action, ...common, '--build-number', '19', '--confirm', '1.17.7', '--release-notes', value],
+        other.deps
+      ),
+      /release notes/i
+    );
+    assert.equal(other.calls.length, 0);
+  }
+});
+
+test('iOS submit uses the exact notes fallback when omitted or empty', async () => {
+  for (const extra of [[], ['--release-notes', '']]) {
+    const c = context('ios');
+    await run(['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', ...extra], c.deps);
+    assert.equal(c.calls.find(call => call[0] === 'operation')[3].releaseNotes, 'Various Fixes & Improvements');
+  }
 });
