@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -76,6 +77,19 @@ function context(platform = 'chrome', overrides = {}) {
   };
   const deps = {
     readConfig: async () => structuredClone(config),
+    verifyScreenshotSource: async () => {},
+    loadScreenshotManifest: async () => ({
+      schemaVersion: 1,
+      sets: [
+        {
+          platform,
+          storeId: platform === 'ios' ? config.apple.appId : identity,
+          locale: 'en-US',
+          displayType: 'fixture',
+          images: [{ path: 'store-listing/fixture.png', sha256: hash, size: bytes.length, bytes }]
+        }
+      ]
+    }),
     readArtifact: async () => bytes,
     readReceipt: async () => structuredClone(receipt),
     inspectArtifact: async (...args) => {
@@ -145,6 +159,14 @@ function context(platform = 'chrome', overrides = {}) {
 const artifactArgs = ['--artifact', '/artifacts/wallet.zip', '--receipt', '/artifacts/receipt.json'];
 const run = (...args) => {
   assert.equal(typeof cli.run, 'function', 'Publishing CLI must be implemented');
+  if (
+    args[0].includes('1.17.7') &&
+    !args[0].includes('--preserve-legacy-screenshots') &&
+    !args[0].includes('--screenshots-root')
+  )
+    args[0] = [...args[0], '--preserve-legacy-screenshots'];
+  if (args[0].includes('1.17.8') && !args[0].includes('--screenshots-root'))
+    args[0] = [...args[0], '--screenshots-root', '/release/source'];
   return cli.run(...args);
 };
 
@@ -856,6 +878,332 @@ test('Chrome rollover preserves an exclusive owner-private archive and refuses a
   await assert.rejects(run(args, c.deps), /archive/i);
   assert.equal(posts, 0);
   assert.equal(JSON.parse(await readFile(journalPath)).version, '1.17.7');
+});
+
+function screenshotContext(platform = 'ios') {
+  const c = context(platform);
+  c.attestation.version = '1.17.8';
+  const storeId = platform === 'ios' ? config.apple.appId : platform === 'android' ? config.play.packageName : item;
+  const manifest = {
+    schemaVersion: 1,
+    baselineVersion: '1.17.7',
+    capturedAt: '2026-10-25T00:00:00Z',
+    sets: [
+      {
+        platform,
+        storeId,
+        locale: 'en-US',
+        displayType: platform === 'ios' ? 'APP_IPHONE_67' : 'phoneScreenshots',
+        images: [{ path: 'store-listing/screenshots/image.png', sha256: hash, size: bytes.length, bytes }]
+      }
+    ]
+  };
+  c.deps.verifyScreenshotSource = async request => {
+    c.calls.push(['screenshotSource', request]);
+  };
+  c.deps.loadScreenshotManifest = async request => {
+    c.calls.push(['screenshotManifest', request]);
+    return manifest;
+  };
+  c.deps.screenshotOperations = {
+    inventoryScreenshots: async (client, options) => {
+      c.calls.push(['screenshotInventory', options]);
+      return { sets: [] };
+    },
+    verifyScreenshots: async (client, options) => {
+      c.calls.push(['screenshotVerify', options]);
+      return { matches: true };
+    },
+    syncScreenshots: async (client, options) => {
+      c.calls.push(['screenshotSync', options]);
+      return { matches: true, state: 'screenshots-matched' };
+    }
+  };
+  c.deps.loadAndroidEdit = async () => ({
+    packageName: 'com.miden.wallet',
+    editId: 'edit-1',
+    version: '1.17.8',
+    sourceSha: sha,
+    network: 'testnet',
+    expiryTimeSeconds: '2000000000'
+  });
+  return { ...c, manifest };
+}
+const screenshotArgs = [
+  '--version',
+  '1.17.8',
+  '--source-sha',
+  sha,
+  '--network',
+  'testnet',
+  '--confirm',
+  '1.17.8',
+  '--screenshots-root',
+  '/release/source'
+];
+
+test('future iOS submission verifies canonical ordered screenshots before calling submit', async () => {
+  const c = screenshotContext();
+  await run(['ios', 'submit', ...screenshotArgs, '--build-number', '19'], c.deps);
+  const verify = c.calls.findIndex(call => call[0] === 'screenshotVerify');
+  const submit = c.calls.findIndex(call => call[0] === 'operation');
+  assert.ok(verify >= 0 && verify < submit);
+  assert.equal(c.calls[verify][1].sets[0].images[0].bytes, bytes);
+  assert.equal(c.calls.find(call => call[0] === 'screenshotSource')[1].sourceSha, sha);
+  assert.equal(c.calls.find(call => call[0] === 'operation')[3].releasePolicy, 'after-approval');
+});
+
+test('future screenshot absence or drift fails before the publishing mutation', async () => {
+  const missing = screenshotContext();
+  missing.deps.loadScreenshotManifest = async () => {
+    throw Object.assign(new Error('manifest missing'), { code: 'SCREENSHOT_MANIFEST_MISSING' });
+  };
+  await assert.rejects(
+    run(['ios', 'submit', ...screenshotArgs, '--build-number', '19'], missing.deps),
+    /screenshot|manifest/i
+  );
+  assert.equal(
+    missing.calls.some(call => ['operation', 'client', 'appleToken'].includes(call[0])),
+    false
+  );
+  const drift = screenshotContext();
+  drift.deps.screenshotOperations.verifyScreenshots = async () => ({
+    matches: false,
+    differences: [{ reason: 'ordered-assets-differ' }]
+  });
+  await assert.rejects(
+    run(['ios', 'submit', ...screenshotArgs, '--build-number', '19'], drift.deps),
+    /screenshot|sync/i
+  );
+  assert.equal(
+    drift.calls.some(call => call[0] === 'operation'),
+    false
+  );
+});
+
+test('a glob manifest path is not satisfied by a tracked sibling', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'screenshot-source-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync('git', ['-C', root, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], {
+      encoding: 'utf8'
+    }).trim();
+  await mkdir(join(root, 'public'));
+  await mkdir(join(root, 'store-listing/screenshots'), { recursive: true });
+  for (const name of ['package.json', 'public/manifest.json'])
+    await writeFile(join(root, name), JSON.stringify({ version: '1.17.8' }));
+  for (const name of ['screenshots.json', 'store-rules.json']) await writeFile(join(root, 'store-listing', name), '{}');
+  await writeFile(join(root, 'store-listing/screenshots/01.png'), bytes);
+  git('init', '-q');
+  git('add', '.');
+  const commit = git('commit-tree', '--no-gpg-sign', '-m', 'fixture', git('write-tree'));
+  git('update-ref', 'HEAD', commit);
+  const prepare = async path => {
+    const c = screenshotContext();
+    delete c.deps.verifyScreenshotSource;
+    c.manifest.sets[0].images[0].path = path;
+    return run(
+      [
+        'ios',
+        'prepare',
+        '--version',
+        '1.17.8',
+        '--source-sha',
+        commit,
+        '--network',
+        'testnet',
+        '--confirm',
+        '1.17.8',
+        '--screenshots-root',
+        root,
+        '--dry-run'
+      ],
+      c.deps
+    );
+  };
+  assert.equal((await prepare('store-listing/screenshots/01.png')).dryRun, true);
+  await assert.rejects(prepare('store-listing/screenshots/0*.png'), /exact release checkout/);
+});
+
+test('a dirty version file cannot stand in for the committed release version', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'screenshot-version-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync('git', ['-C', root, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], {
+      encoding: 'utf8'
+    }).trim();
+  const versions = version =>
+    Promise.all(
+      ['package.json', 'public/manifest.json'].map(name => writeFile(join(root, name), JSON.stringify({ version })))
+    );
+  await mkdir(join(root, 'public'));
+  await mkdir(join(root, 'store-listing/screenshots'), { recursive: true });
+  await versions('1.17.7');
+  for (const name of ['screenshots.json', 'store-rules.json']) await writeFile(join(root, 'store-listing', name), '{}');
+  await writeFile(join(root, 'store-listing/screenshots/01.png'), bytes);
+  git('init', '-q');
+  git('add', '.');
+  const commit = git('commit-tree', '--no-gpg-sign', '-m', 'fixture', git('write-tree'));
+  git('update-ref', 'HEAD', commit);
+  await versions('1.17.8');
+  const c = screenshotContext();
+  delete c.deps.verifyScreenshotSource;
+  c.manifest.sets[0].images[0].path = 'store-listing/screenshots/01.png';
+  await assert.rejects(
+    run(
+      [
+        'ios',
+        'prepare',
+        '--version',
+        '1.17.8',
+        '--source-sha',
+        commit,
+        '--network',
+        'testnet',
+        '--confirm',
+        '1.17.8',
+        '--screenshots-root',
+        root,
+        '--dry-run'
+      ],
+      c.deps
+    ),
+    /exact release checkout/
+  );
+});
+
+test('Android screenshot synchronization uses the exact existing edit without a build, upload, creation or commit', async () => {
+  const c = screenshotContext('android');
+  await run(['android', 'sync-screenshots', ...screenshotArgs, '--edit-id', 'edit-1'], c.deps);
+  const sync = c.calls.find(call => call[0] === 'screenshotSync');
+  assert.equal(sync[1].editId, 'edit-1');
+  assert.equal(sync[1].allowWrites, true);
+  assert.equal(
+    c.calls.some(call => ['operation', 'persist', 'request', 'attestation'].includes(call[0])),
+    false
+  );
+  c.deps.loadAndroidEdit = async () => ({
+    packageName: 'com.miden.wallet',
+    editId: 'other',
+    version: '1.17.8',
+    sourceSha: sha,
+    network: 'testnet',
+    expiryTimeSeconds: '2000000000'
+  });
+  await assert.rejects(run(['android', 'sync-screenshots', ...screenshotArgs, '--edit-id', 'edit-1'], c.deps), /edit/i);
+});
+
+test('the 1.17.7 preservation exception is explicit and cannot bypass malformed or future manifests', async () => {
+  const c = context('ios');
+  await assert.rejects(cli.run(['ios', 'prepare', ...common, '--confirm', '1.17.7'], c.deps), /screenshot|source/i);
+  c.deps.operations.ios.prepare = async () => ({ state: 'preserved' });
+  assert.equal(
+    (await cli.run(['ios', 'prepare', ...common, '--confirm', '1.17.7', '--preserve-legacy-screenshots'], c.deps))
+      .state,
+    'preserved'
+  );
+  await assert.rejects(
+    cli.run(['ios', 'prepare', ...screenshotArgs, '--preserve-legacy-screenshots'], screenshotContext().deps),
+    /legacy|1.17.7/i
+  );
+});
+
+test('Android submit verifies screenshots against the same edit and blocks mismatches before commit', async () => {
+  const c = screenshotContext('android');
+  c.deps.screenshotOperations.verifyScreenshots = async (client, options) => {
+    assert.equal(options.editId, 'edit-1');
+    return { matches: false };
+  };
+  await assert.rejects(
+    run(
+      [
+        'android',
+        'submit',
+        ...screenshotArgs,
+        '--edit-id',
+        'edit-1',
+        '--version-code',
+        '11707001',
+        '--allow-pending-changes'
+      ],
+      c.deps
+    ),
+    /screenshots/
+  );
+  assert.equal(
+    c.calls.some(call => call[0] === 'operation'),
+    false
+  );
+});
+
+test('Chrome screenshot sync emits only console bundle metadata without credentials or API writes', async () => {
+  const c = screenshotContext('chrome');
+  c.deps.screenshotOperations.syncScreenshots = async (client, options) => {
+    assert.equal(client, undefined);
+    assert.equal(options.sets[0].storeId, item);
+    return {
+      consoleRequired: true,
+      actionRequired: 'Use developer console screenshot editor',
+      assets: [
+        {
+          locale: 'en-US',
+          displayType: 'screenshot',
+          path: 'store-listing/image.png',
+          sha256: hash,
+          bytes,
+          url: 'https://provider.invalid/?token=secret'
+        }
+      ],
+      privateToken: 'secret'
+    };
+  };
+  const result = await run(['chrome', 'sync-screenshots', ...screenshotArgs], c.deps);
+  assert.equal(result.consoleRequired, true);
+  assert.equal(result.assets[0].sha256, hash);
+  assert.doesNotMatch(JSON.stringify(result), /secret|provider|bytes/);
+  assert.equal(
+    c.calls.some(call => ['client', 'credentials', 'operation', 'request'].includes(call[0])),
+    false
+  );
+});
+
+test('source mismatch and invalid legacy manifest cannot reach credentials or store mutations', async () => {
+  const mismatch = screenshotContext();
+  mismatch.deps.verifyScreenshotSource = async () => {
+    throw new Error('screenshot source mismatch');
+  };
+  await assert.rejects(
+    run(['ios', 'submit', ...screenshotArgs, '--build-number', '19'], mismatch.deps),
+    /source mismatch/
+  );
+  assert.equal(
+    mismatch.calls.some(call => ['client', 'operation'].includes(call[0])),
+    false
+  );
+  const invalid = screenshotContext();
+  invalid.deps.loadScreenshotManifest = async () => {
+    throw new Error('screenshot image hash mismatch');
+  };
+  await assert.rejects(
+    cli.run(
+      [
+        'ios',
+        'prepare',
+        ...common,
+        '--confirm',
+        '1.17.7',
+        '--screenshots-root',
+        '/release/source',
+        '--preserve-legacy-screenshots'
+      ],
+      invalid.deps
+    ),
+    /hash mismatch/
+  );
+  assert.equal(
+    invalid.calls.some(call => ['client', 'operation'].includes(call[0])),
+    false
+  );
 });
 
 test('explicit iOS submit notes pass through unchanged and reject other operations before authentication', async () => {

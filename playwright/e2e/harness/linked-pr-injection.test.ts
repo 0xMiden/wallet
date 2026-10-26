@@ -346,8 +346,38 @@ const immutableStoreWorkflow = (file: string, text: string): boolean => {
     });
 };
 
+/** This exception permits only fixed validator commands, never application builds or SDK consumers. */
+const technicalScreenshotWorkflow = (file: string, text: string): boolean => {
+  if (file !== 'store-screenshots.yml' || triggers(file, text).sort().join(',') !== 'pull_request,workflow_dispatch') return false;
+  if (/^(env|defaults):/m.test(text)) return false;
+  const permissions = /^permissions:\n((?:[ \t].*\n|\n)*)/m.exec(text)?.[1]?.trim();
+  if (permissions !== 'contents: read') return false;
+  const all = jobs(file, text);
+  if (all.length !== 1 || all[0]?.id !== 'eligibility') return false;
+  const job = all[0];
+  if (Object.keys(job.keys).sort().join(',') !== 'env,name,runs-on,steps,timeout-minutes' ||
+      job.keys.name !== 'Store screenshot eligibility' || job.keys['runs-on'] !== 'ubuntu-latest' ||
+      job.keys['timeout-minutes'] !== '60') return false;
+  const environment = /^    env:\n([\s\S]*?)^    steps:/m.exec(text)?.[1];
+  if (environment !== "      CI: 'true'\n      CARGO_BUILD_JOBS: '2'\n      RAYON_NUM_THREADS: '2'\n      VIPS_CONCURRENCY: '2'\n      UV_THREADPOOL_SIZE: '2'\n") return false;
+  const expected = [
+    ['uses: actions/checkout@v4', 'with:', 'persist-credentials: false'],
+    ['uses: actions/setup-node@v4', 'with:', 'node-version: 22', 'cache: yarn'],
+    ['run: >-', 'node --test --test-concurrency=2', 'scripts/store-listing/screenshots.test.mjs',
+      'scripts/store-publishing/screenshots.test.mjs', 'scripts/store-publishing/cli.test.mjs',
+      'scripts/store-publishing/publish-plan.test.mjs'],
+    ['timeout-minutes: 4', 'run: timeout 240s yarn install --frozen-lockfile --network-timeout 120000'],
+    ['run: git diff --exit-code -- package.json yarn.lock'],
+    ['run: node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json'],
+    ['run: yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand']
+  ];
+  return job.steps.length === expected.length && job.steps.every((step, index) =>
+    JSON.stringify(step.lines.filter(line => !line.startsWith('name:'))) === JSON.stringify(expected[index])
+  );
+};
+
 const workflowViolations = (file: string, text: string): string[] =>
-  guarded(file, text) && !immutableStoreWorkflow(file, text)
+  guarded(file, text) && !immutableStoreWorkflow(file, text) && !technicalScreenshotWorkflow(file, text)
     ? jobs(file, text).flatMap(job => {
         const why = violation(job);
         return why === undefined ? [] : [`${file} ${job.id}: ${why}`];
@@ -360,7 +390,7 @@ const workflowFiles = readdirSync(workflowsDir)
 const source = (file: string): string => readFileSync(resolve(workflowsDir, file), 'utf8');
 /** Every job the rule checks, and each as `<file> <job>`. */
 const guardedJobs = workflowFiles.flatMap(file =>
-  guarded(file, source(file)) && !immutableStoreWorkflow(file, source(file))
+  guarded(file, source(file)) && !immutableStoreWorkflow(file, source(file)) && !technicalScreenshotWorkflow(file, source(file))
     ? jobs(file, source(file))
         .filter(job => job.steps.some(installs))
         .map(job => ({ file, job }))
@@ -753,6 +783,39 @@ describe('published immutable store artifact builds', () => {
     for (const altered of unsafe) {
       expect(immutableStoreWorkflow(file, altered)).toBe(false);
       expect(workflowViolations(file, altered)).toHaveLength(3);
+    }
+  });
+});
+
+describe('technical screenshot eligibility is a narrow published-dependency exception', () => {
+  const file = 'store-screenshots.yml';
+
+  it('recognizes only the exact bounded image-validation job', () => {
+    const text = source(file);
+    expect(technicalScreenshotWorkflow(file, text)).toBe(true);
+    expect(technicalScreenshotWorkflow('another-workflow.yml', text)).toBe(false);
+    expect(workflowViolations(file, text)).toEqual([]);
+    expect(guardedNames.some(name => name.startsWith(`${file} `))).toBe(false);
+  });
+
+  it('rejects production builds, SDK consumers, mutable installs and alternate execution surfaces', () => {
+    const text = source(file);
+    const unsafe = [
+      text.replace('node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json', 'yarn build:chrome'),
+      text.replace('yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand', 'node scripts/check-native-prover-pin.mjs'),
+      text.replace('node --test --test-concurrency=2', 'node --import @miden-sdk/miden-sdk --test --test-concurrency=2'),
+      text.replace('--frozen-lockfile', ''),
+      text.replace('git diff --exit-code -- package.json yarn.lock', 'true'),
+      text.replace('timeout 240s', 'timeout 600s'),
+      text.replace('runs-on: ubuntu-latest', 'runs-on: macos-26'),
+      text.replace('contents: read', 'contents: write'),
+      text.replace("      CI: 'true'", "      CI: 'true'\n      NODE_OPTIONS: --import=@miden-sdk/miden-sdk"),
+      text.replace('  workflow_dispatch:', '  push:\n  workflow_dispatch:'),
+      text + '\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: yarn build:chrome\n'
+    ];
+    for (const altered of unsafe) {
+      expect(technicalScreenshotWorkflow(file, altered)).toBe(false);
+      expect(workflowViolations(file, altered)).not.toHaveLength(0);
     }
   });
 });

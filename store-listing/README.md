@@ -1,15 +1,95 @@
 # Bread Wallet store listing package
 
-This directory is the source of truth for the English App Store, Google Play,
-and Chrome Web Store listings. It keeps the shared product claims, platform
-differences, capture plan, generated copy, generated artwork, and publication
-evidence together so the three listings can be reviewed as one release.
+The canonical publication screenshots are `screenshots.json` and the files it
+references under `assets/`. They begin with the existing 1.17.7 store-draft
+screenshot sets. Screenshot changes belong in a PR before a release uses them.
+The older scene, copy and artwork generators remain available for separately
+approved design work; their output does not replace the canonical screenshots.
 
 The repository package is not proof that a public listing changed. Publication
 is complete only after an authorized publisher uploads the reviewed package and
 the corresponding public page is checked against it.
 
-## Public baseline
+## Canonical screenshots
+
+`screenshots.json` records platform, exact store identity, locale, display group,
+and image order. Each image carries its repository path, SHA-256, byte size,
+dimensions and format. `baselineSets` records the approved prior remote checksum
+sequence for each group. It protects an explicit replacement from overwriting
+unexpected live changes; it is never inferred from the current store inventory.
+
+Publication uses the assets from the exact approved release source SHA, with a
+clean tracked manifest, rules file and referenced images. A local checkout of a
+different commit or uncommitted asset changes cannot supply publishing inputs.
+`baselineVersion` identifies the initial imported presentation, not the only
+release allowed to reuse it. Later releases keep the approved sets unless a PR
+explicitly changes them.
+
+The provenance distinguishes two kinds of Apple import:
+
+- `original-upload` means the imported bytes match the store's original upload
+  checksum. The original file name and asset identifier are provenance.
+- `store-delivery-rendition` means the store CDN re-encoded its downloadable
+  representation. Its original remote checksum remains provenance, while
+  `source.importSha256` must match the downloaded file's SHA-256. This does not
+  claim the rendition bytes equal the original upload.
+
+Do not regenerate, crop, resize or reframe the imported baseline as part of a
+release. Image order is the order of each manifest array. Validation checks
+technical eligibility without imposing the historical generated marketing
+story, shared scene order or promotional recommendations.
+
+The **Store screenshot eligibility** CI job runs on relevant PR changes and by
+manual dispatch. It checks file containment, symlinks, hashes, sizes, target
+identity, locale/display groups and counts, then decodes actual files to check
+format, dimensions, opacity, color space and depth against `store-rules.json`.
+It also tests the publishing adapters and focused legacy validator. It has no
+store credentials and changes no drafts. Store rule freshness expires after the
+recorded interval; refresh the first-party evidence when it does.
+
+Run the image eligibility check with Node 22 and installed dependencies:
+
+```sh
+node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json
+```
+
+## Publishing approved screenshot changes
+
+The publishing CLI requires `--screenshots-root` pointing to the checkout of the
+same release SHA passed as `--source-sha`. iOS and Android submissions verify the
+remote screenshot sequence against the approved manifest before submitting.
+Detected drift requires inspection and an explicit `sync-screenshots` operation;
+submission itself does not replace screenshots. New iOS version preparation
+creates a draft skeleton. Populate any missing approved screenshot groups with
+an explicit sync and verify them before submission.
+
+Use the normal publishing configuration, exact version, network and source
+selectors for an explicit sync, including `--confirm` for that version. Inspect
+`--dry-run` first. Android also requires the exact registered edit ID because a
+new edit can invalidate another edit. For example, inspect an iOS sync plan:
+
+```sh
+node scripts/store-publishing/cli.mjs ios sync-screenshots \
+  --version "$VERSION" --network testnet --source-sha "$SOURCE_SHA" \
+  --screenshots-root "$RELEASE_CHECKOUT" --confirm "$VERSION" --dry-run
+```
+
+`VERSION`, `SOURCE_SHA` and `RELEASE_CHECKOUT` must identify the approved release.
+See the [publishing runbook](../scripts/store-publishing/README.md) for credential,
+artifact, edit and release authorization requirements.
+
+Chrome screenshot sync returns a developer-console handoff for the selected
+item and the canonical ordered files. The Chrome Web Store publishing API does
+not upload these listing images. Use the handoff for the console change and
+verify the resulting item; an extension-package upload alone does not update
+screenshots. Bread/Testnet and Devnet have separate pinned item identities.
+
+The explicit `--preserve-legacy-screenshots` exception applies only to 1.17.7
+operations that preserve existing store images when that old release source has
+no manifest. It does not apply to `sync-screenshots`, invalid assets or later
+versions. Later releases must include the approved manifest and files.
+
+## Historical public baseline
 
 `current-public-state.json` records the three listings as observed on
 2026-09-15. It includes public URLs, visible copy, screenshot order, image URLs,
@@ -72,7 +152,7 @@ the generators. Every capture must use a deterministic test wallet and testnet
 data. Never capture a personal address, seed phrase, private key, password,
 production balance, unavailable feature, or error state.
 
-Before publication:
+For separately approved generated artwork, before publication:
 
 1. Recheck the first-party store rules and their checked date.
 2. Generate copy and assets from the committed manifests.
