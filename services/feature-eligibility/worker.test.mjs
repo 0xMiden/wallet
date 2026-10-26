@@ -79,6 +79,8 @@ const walletRules = {
 function harness(options = {}) {
   const storage = new MemoryStorage();
   const calls = [];
+  const globalTargets = [];
+  const callerStates = new Map();
   let clock = Date.UTC(2026, 9, 20, 12);
   let currentPolicy = options.policy ?? policy();
   const env = {
@@ -102,7 +104,22 @@ function harness(options = {}) {
   let guard = new service.EligibilityGuard({ storage }, env);
   env.ELIGIBILITY_GUARD = {
     idFromName: name => name,
-    get: () => ({ fetch: request => guard.fetch(request) })
+    get: name => {
+      globalTargets.push(name);
+      return { fetch: request => options.globalFetch ? options.globalFetch(request, value => guard.fetch(value)) : guard.fetch(request) };
+    }
+  };
+  env.CALLER_GUARD = {
+    idFromName: name => name,
+    get: name => {
+      let entry = callerStates.get(name);
+      if (!entry) {
+        entry = { storage: new MemoryStorage() };
+        callerStates.set(name, entry);
+      }
+      entry.guard ??= new service.CallerEligibilityGuard({ storage: entry.storage }, env);
+      return { fetch: request => entry.guard.fetch(request) };
+    }
   };
   const request = async ({
     path = '/v1/eligibility',
@@ -121,9 +138,15 @@ function harness(options = {}) {
   return {
     request,
     calls,
+    env,
+    globalTargets,
+    callerStates,
     storage,
     guard,
-    restart: () => (guard = new service.EligibilityGuard({ storage }, env)),
+    restart: () => {
+      guard = new service.EligibilityGuard({ storage }, env);
+      for (const entry of callerStates.values()) delete entry.guard;
+    },
     advance: ms => (clock += ms),
     setPolicy: value => (currentPolicy = value),
     paidCalls: () => calls.filter(call => call.url.startsWith('https://geoip.maxmind.com/'))
@@ -657,4 +680,77 @@ test('deployment resolver CLI writes exact outputs and rejects untrusted manual 
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test('warm cache and per-caller rejection do not enter the global reservation object', async () => {
+  const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request()).status, 429);
+  assert.deepEqual(h.globalTargets, ['global-v1']);
+  assert.equal(h.callerStates.size, 1);
+});
+
+test('one caller storage queue cannot block another caller warm cache', async () => {
+  const h = harness();
+  await h.request();
+  await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } });
+  assert.equal(h.callerStates.size, 2);
+  const first = [...h.callerStates.values()][0];
+  let release;
+  const originalQueue = first.storage.queue;
+  first.storage.queue = new Promise(resolve => { release = resolve; });
+  try {
+    const held = h.request();
+    const healthy = await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } });
+    assert.equal(healthy.status, 200);
+    release();
+    assert.equal((await held).status, 200);
+  } finally { release(); first.storage.queue = originalQueue; }
+  assert.equal(h.globalTargets.length, 2);
+});
+
+test('all caller objects share the existing nearly exhausted persisted global budget', async () => {
+  const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '10000' } });
+  h.storage.values.set('budget', { day: '2026-10-20', count: 9999 });
+  const responses = await Promise.all(['203.0.113.7', '203.0.113.8', '203.0.113.9'].map(ip => h.request({ headers: { 'CF-Connecting-IP': ip } })));
+  assert.equal(responses.filter(r => r.status === 200).length, 1);
+  assert.equal(h.paidCalls().length, 1);
+  assert.equal(h.storage.values.get('budget').count, 10000);
+  h.restart();
+  assert.equal((await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.10' } })).status, 503);
+  assert.equal(h.paidCalls().length, 1);
+  assert.equal(h.callerStates.size, 4);
+});
+
+test('queued reservation expiry fails closed without starting a late paid lookup or retry', async () => {
+  let h;
+  h = harness({ timeoutMs: 10, globalFetch: async (request, proceed) => {
+    await new Promise(resolve => setTimeout(resolve, 40));
+    h.advance(21);
+    return proceed(request);
+  }});
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(h.paidCalls().length, 0);
+  assert.equal(h.globalTargets.length, 1);
+});
+
+test('readiness and requests fail closed when the caller namespace binding is unavailable', async () => {
+  const h = harness();
+  delete h.env.CALLER_GUARD;
+  assert.equal((await h.request({ path: '/healthz', query: '' })).status, 503);
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.globalTargets.length, 0);
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('caller migration appends a class without recreating the original budget namespace', () => {
+  const config = JSON.parse(readFileSync(new URL('./wrangler.jsonc', import.meta.url), 'utf8'));
+  assert.deepEqual(config.durable_objects.bindings.find(b => b.name === 'ELIGIBILITY_GUARD'), { name: 'ELIGIBILITY_GUARD', class_name: 'EligibilityGuard' });
+  assert.deepEqual(config.migrations[0], { tag: 'v1', new_sqlite_classes: ['EligibilityGuard'] });
+  assert.ok(config.durable_objects.bindings.some(b => b.name === 'CALLER_GUARD' && b.class_name === 'CallerEligibilityGuard'));
+  assert.deepEqual(config.migrations.slice(1), [{ tag: 'v2', new_sqlite_classes: ['CallerEligibilityGuard'] }]);
 });
