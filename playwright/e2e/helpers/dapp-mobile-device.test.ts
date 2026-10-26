@@ -438,6 +438,32 @@ describe('iOS native typing', () => {
 });
 
 describe('Android native keyboard layout', () => {
+  it('reads the dApp WebView, field and keyboard from an all-windows dump', () => {
+    const parse =
+      nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
+        'parseAndroidKeyboardLayout'
+      );
+    const hierarchy =
+      '<displays><display id="0">' +
+      '<window index="0" type="TYPE_INPUT_METHOD" bounds="[0,1517][1080,2400]"><hierarchy rotation="0">' +
+      '<node class="android.widget.FrameLayout" ' +
+      'resource-id="com.google.android.inputmethod.latin:id/keyboard_view" bounds="[0,1517][1080,2400]" />' +
+      '</hierarchy></window>' +
+      '<window index="1" type="TYPE_APPLICATION" bounds="[0,0][1080,2400]"><hierarchy rotation="0">' +
+      '<node class="android.webkit.WebView" bounds="[0,0][1080,2400]" /></hierarchy></window>' +
+      '<window index="2" type="TYPE_APPLICATION" bounds="[0,463][1078,2400]"><hierarchy rotation="0">' +
+      '<node class="android.webkit.WebView" bounds="[0,463][1078,2400]">' +
+      '<node class="android.widget.EditText" hint="Keyboard input" bounds="[42,1090][1036,1169]" /></node>' +
+      '</hierarchy></window></display></displays>';
+
+    expect(parse(hierarchy, '', 'Keyboard input')).toEqual({
+      keyboardVisible: true,
+      keyboardTop: 1517,
+      fieldFrame: { x: 42, y: 1090, width: 994, height: 79 },
+      webViewFrame: { x: 0, y: 463, width: 1078, height: 1937 }
+    });
+  });
+
   it('reads the field, webview and keyboard bounds from the native hierarchy', () => {
     const parse =
       nativeParser<(hierarchy: string, inputMethod: string, label: string) => NativeKeyboardLayout>(
@@ -506,7 +532,7 @@ describe('Android native keyboard layout', () => {
 
     expect(calls).toEqual([
       ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'tap', '220', '222'],
       ...Array.from('typed%svalue'.replace('%s', ' ')).map(character => [
@@ -518,11 +544,11 @@ describe('Android native keyboard layout', () => {
       ]),
       ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-b', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-b', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-b', 'shell', 'input', 'keyevent', '4']
     ]);
@@ -643,10 +669,10 @@ describe('Android native keyboard layout', () => {
     await expect(androidDevice(['emulator-a'], run).tapAccessibilityLabel('A', 'dApp input')).resolves.toBeUndefined();
     expect(calls).toEqual([
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'input', 'tap', '220', '722']
     ]);
@@ -692,10 +718,10 @@ describe('Android native keyboard layout', () => {
     await expect(failure).rejects.toThrow(`focus=${focus}`);
     expect(calls).toEqual([
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
     ]);
@@ -743,9 +769,9 @@ describe('Android native keyboard layout', () => {
     ).resolves.toBeUndefined();
     expect(calls).toEqual([
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'input', 'tap', '539', '1130']
     ]);
@@ -819,11 +845,11 @@ describe('Android native keyboard layout', () => {
     expect(calls).toEqual([
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'rm', '-f', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'input_method'],
-      ['emulator-a', 'shell', 'uiautomator', 'dump', '/data/local/tmp/miden-wallet-hierarchy.xml'],
+      ['emulator-a', 'shell', 'uiautomator', 'dump', '--windows', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'exec-out', 'cat', '/data/local/tmp/miden-wallet-hierarchy.xml'],
       ['emulator-a', 'shell', 'dumpsys', 'window', 'displays']
     ]);
