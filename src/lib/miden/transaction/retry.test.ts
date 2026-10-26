@@ -1,3 +1,4 @@
+import {snapshotPendingRetry} from 'lib/telemetry/ui-producer-diagnostics';
 import {
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -988,4 +989,13 @@ describe('requeueFailedTransaction — mayHaveSubmitted is sticky', () => {
     expect(row.mayHaveSubmitted).toBeUndefined();
     expect(row.requestBytes).toBe(kept);
   });
+});
+
+it('retains the actual missing-row refusal without replacing its Error or adding a read', async () => {
+  const first=jest.fn(async()=>undefined);
+  mockTransactionsWhere.mockReturnValueOnce({first});
+  const error=await requeueFailedTransaction('private-missing').catch((failure:unknown)=>failure);
+  expect(error).toBeInstanceOf(Error);
+  expect(snapshotPendingRetry(error)).toBe('row_missing');
+  expect(first).toHaveBeenCalledTimes(1);
 });
