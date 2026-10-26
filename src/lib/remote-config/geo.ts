@@ -1,3 +1,4 @@
+import type { EligibilityFailure } from './eligibility-failure';
 import type { OneClickConfig } from './schema';
 
 /**
@@ -25,8 +26,12 @@ export interface FeatureEligibility {
   allowed: Record<GeoFeature, boolean>;
 }
 
-/** A failed startup decision keeps the wallet closed until the page restarts. */
-export type GeoLookup = { state: 'loading' } | { state: 'failed' } | ({ state: 'ready' } & FeatureEligibility);
+/** A failed startup decision turns geo-gated features off until the page restarts; the wallet stays open. */
+export type GeoLookup =
+  | { state: 'loading' }
+  | { state: 'failed'; reason: EligibilityFailure }
+  | ({ state: 'ready' } & FeatureEligibility);
+export type EligibilityAnswer = Exclude<GeoLookup, { state: 'loading' }>;
 
 /** Structural feature availability; live route and market probes remain separate. */
 export function geoFeatureEnabled(
