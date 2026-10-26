@@ -428,7 +428,7 @@ export function createProbeController(effects) {
         () => ownershipData(settings, 'observability', 'logs', 'invocation_logs'),
         false
       );
-    if (settings.observability?.traces?.enabled !== false)
+    if (settings.observability?.traces?.enabled === true)
       mismatch('observability_traces', () => ownershipData(settings, 'observability', 'traces', 'enabled'), false);
     if ((settings.tail_consumers?.length || 0) !== 0)
       mismatch('tail_consumers', () => ownershipData(settings, 'tail_consumers'), []);
