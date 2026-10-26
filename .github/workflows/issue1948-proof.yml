@@ -1,0 +1,44 @@
+name: Issue1948 frozen mutation proof
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  mutations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen source and preserve test harness
+        run: |
+          mkdir -p proof/harness
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          test "$(git rev-parse HEAD^)" = 1d5f0b75119c84761978266baea13a7387f755a8
+          cp .github/ci/issue1948-mutations/manifest.json .github/ci/issue1948-mutations/run.py proof/harness/
+          git checkout --detach 1d5f0b75119c84761978266baea13a7387f755a8
+          git rev-parse HEAD | tee proof/source-sha.txt
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Verify baselines and kill predicted mutations
+        timeout-minutes: 11
+        run: |
+          set -o pipefail
+          python3 proof/harness/run.py --manifest proof/harness/manifest.json --output proof/results 2>&1 | tee proof/mutations.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-proof-task4b-mutations-v1
+          path: proof/

@@ -1,0 +1,95 @@
+{
+  "source": "1d5f0b75119c84761978266baea13a7387f755a8",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "incident-revision",
+      "path": "src/lib/miden/storage-health.ts",
+      "before": "snapshot.epoch !== epoch || failureRevision !== revision || Date.now() >= expiresAt",
+      "after": "snapshot.epoch !== epoch || failureRevision < revision || Date.now() >= expiresAt",
+      "suites": [
+        "src/lib/miden/storage-health.test.ts"
+      ],
+      "pattern": "keeps a staged recovery read current only until another incident or lifecycle replaces it",
+      "expected_assertion": "keeps a staged recovery read current only until another incident or lifecycle replaces it"
+    },
+    {
+      "id": "retired-vault",
+      "path": "src/lib/miden/back/vault.ts",
+      "before": "  async checkStorageRecovery(): Promise<boolean> {\n    return validateStorageHealth(async capability => {\n      await getAccountsWriteQueue().add(async () => {\n        this.assertRealmSinkIsMine();\n        assertStorageRecoveryAllowed(capability);\n        await Repo.probeWalletStorage(capability);\n        assertStorageRecoveryAllowed(capability);\n        if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();\n        this.assertRealmSinkIsMine();\n        await Repo.openWalletConsumerForRecovery(capability);\n        assertStorageRecoveryAllowed(capability);\n        this.assertRealmSinkIsMine();\n      });\n    }, 5000);\n  }\n",
+      "after": "  async checkStorageRecovery(): Promise<boolean> {\n    return validateStorageHealth(async capability => {\n      await getAccountsWriteQueue().add(async () => {\n        assertStorageRecoveryAllowed(capability);\n        await Repo.probeWalletStorage(capability);\n        assertStorageRecoveryAllowed(capability);\n        if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();\n        await Repo.openWalletConsumerForRecovery(capability);\n        assertStorageRecoveryAllowed(capability);\n      });\n    }, 5000);\n  }\n",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "does not clear an incident through a Vault retired before its recovery check",
+      "expected_assertion": "does not clear an incident through a Vault retired before its recovery check"
+    },
+    {
+      "id": "consumer-reopen",
+      "path": "src/lib/miden/back/vault.ts",
+      "before": "  async checkStorageRecovery(): Promise<boolean> {\n    return validateStorageHealth(async capability => {\n      await getAccountsWriteQueue().add(async () => {\n        this.assertRealmSinkIsMine();\n        assertStorageRecoveryAllowed(capability);\n        await Repo.probeWalletStorage(capability);\n        assertStorageRecoveryAllowed(capability);\n        if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();\n        this.assertRealmSinkIsMine();\n        await Repo.openWalletConsumerForRecovery(capability);\n        assertStorageRecoveryAllowed(capability);\n        this.assertRealmSinkIsMine();\n      });\n    }, 5000);\n  }\n",
+      "after": "  async checkStorageRecovery(): Promise<boolean> {\n    return validateStorageHealth(async capability => {\n      await getAccountsWriteQueue().add(async () => {\n        this.assertRealmSinkIsMine();\n        assertStorageRecoveryAllowed(capability);\n        await Repo.probeWalletStorage(capability);\n        assertStorageRecoveryAllowed(capability);\n        if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();\n        this.assertRealmSinkIsMine();\n        assertStorageRecoveryAllowed(capability);\n        this.assertRealmSinkIsMine();\n      });\n    }, 5000);\n  }\n",
+      "suites": [
+        "src/lib/miden/back/vault.test.ts"
+      ],
+      "pattern": "validates retained stores through scoped reads when the ordinary wallet handle is closed",
+      "expected_assertion": "validates retained stores through scoped reads when the ordinary wallet handle is closed"
+    },
+    {
+      "id": "get-state-payload",
+      "path": "src/lib/miden/recovery/guardian-state.ts",
+      "before": "used || id !== accountId || payload.toCanonicalJson() !== JSON.stringify({ account_id: accountId })",
+      "after": "used || id !== accountId",
+      "suites": [
+        "src/lib/miden/recovery/guardian-state.test.ts"
+      ],
+      "pattern": "never signs a proposal payload through recovery authentication",
+      "expected_assertion": "never signs a proposal payload through recovery authentication"
+    },
+    {
+      "id": "sdk-generation",
+      "path": "src/lib/miden/recovery/sdk-restore.ts",
+      "before": "    if (old !== null && old !== command.generation) throw new StorageContinuityError();\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/sdk-restore.test.ts"
+      ],
+      "pattern": "preserves a different surviving SDK generation",
+      "expected_assertion": "preserves a different surviving SDK generation"
+    },
+    {
+      "id": "retained-floor",
+      "path": "src/lib/miden/recovery/account-restore.ts",
+      "before": "    assertAtLeast(candidate, material.floor);\n",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/account-restore.test.ts"
+      ],
+      "pattern": "keeps an optimistic retained floor unavailable while the node is still behind it",
+      "expected_assertion": "keeps an optimistic retained floor unavailable while the node is still behind it"
+    },
+    {
+      "id": "canonical-state",
+      "path": "src/lib/miden/recovery/account-restore.ts",
+      "before": ": !sameCommitment(candidate.commitment, material.chainCommitment))",
+      "after": ": false)",
+      "suites": [
+        "src/lib/miden/recovery/account-restore.test.ts"
+      ],
+      "pattern": "refuses noncanonical pending state without inserting anything",
+      "expected_assertion": "refuses noncanonical pending state without inserting anything"
+    },
+    {
+      "id": "consumed-note-replay",
+      "path": "src/lib/miden/recovery/sdk-restore.ts",
+      "before": "          if (noteDetailsCommitment(existing[0]!.details()) !== commitment) throw new StorageContinuityError();\n          return;",
+      "after": "          if (noteDetailsCommitment(existing[0]!.details()) !== commitment) throw new StorageContinuityError();",
+      "suites": [
+        "src/lib/miden/recovery/sdk-restore.test.ts"
+      ],
+      "pattern": "preserves a matching already consumed record without importing it again",
+      "expected_assertion": "preserves a matching already consumed record without importing it again"
+    }
+  ]
+}
