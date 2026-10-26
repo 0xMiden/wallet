@@ -58,18 +58,24 @@ function formState(result: CommandResult): { activeField: unknown; inputValue: u
   };
 }
 
-async function waitForKeyboard(device: NativeKeyboardDevice): Promise<NativeKeyboardLayout> {
+/**
+ * The Android in-app browser covers the dApp until it fences a paint at the WebView's new size, so each keyboard
+ * resize hides the field from accessibility for a moment. The wait is bounded: a cover that stays is a failure.
+ * `hiddenReason` makes a hidden keyboard fail at once instead of being waited for.
+ */
+async function waitForExposedField(device: NativeKeyboardDevice, hiddenReason?: string): Promise<NativeKeyboardLayout> {
   let latest: NativeKeyboardLayout | undefined;
   for (let attempt = 0; attempt < KEYBOARD_WAIT_ATTEMPTS; attempt += 1) {
     latest = await device.keyboardLayout('A', INPUT_LABEL);
-    if (latest.fieldFrame === null) {
-      throw new HarnessFault(`native accessibility did not expose the ${INPUT_LABEL} field`);
-    }
-    if (latest.keyboardVisible) {
+    if (!latest.keyboardVisible && hiddenReason !== undefined) throw new HarnessFault(hiddenReason);
+    if (latest.keyboardVisible && latest.fieldFrame !== null) {
       assertFieldAboveKeyboard(latest);
       return latest;
     }
     await sleep(250);
+  }
+  if (latest?.fieldFrame === null) {
+    throw new HarnessFault(`native accessibility did not expose the ${INPUT_LABEL} field: ${JSON.stringify(latest)}`);
   }
   throw new HarnessFault(`the keyboard did not become visible: ${JSON.stringify(latest)}`);
 }
@@ -120,18 +126,13 @@ export async function runNativeKeyboardJourney(input: NativeKeyboardJourneyInput
   try {
     await input.device.tapAccessibilityLabel('A', INPUT_LABEL);
     tapped = true;
-    latest = await waitForKeyboard(input.device);
+    latest = await waitForExposedField(input.device);
     await sleep(KEYBOARD_STABILITY_MS);
-    latest = await input.device.keyboardLayout('A', INPUT_LABEL);
-    if (!latest.keyboardVisible)
-      throw new HarnessFault('the keyboard did not remain visible during the stability wait');
-    assertFieldAboveKeyboard(latest);
+    latest = await waitForExposedField(input.device, 'the keyboard did not remain visible during the stability wait');
 
     await input.device.typeText('A', INPUT_VALUE);
     await waitForTypedValue(input.page);
-    latest = await input.device.keyboardLayout('A', INPUT_LABEL);
-    if (!latest.keyboardVisible) throw new HarnessFault('the keyboard became hidden while typing');
-    assertFieldAboveKeyboard(latest);
+    latest = await waitForExposedField(input.device, 'the keyboard became hidden while typing');
 
     const focusedPath = input.testInfo.outputPath(`dapp-keyboard-${input.surface}-focused.png`);
     await input.wallet.screenshot({ path: focusedPath });
