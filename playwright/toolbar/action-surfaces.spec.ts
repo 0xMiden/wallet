@@ -33,19 +33,54 @@ for (const theme of ['light', 'dark'] as const) {
       });
     let context = await launch();
     const capture = async (name: string) => {
+      await new Promise(resolve => setTimeout(resolve, 250));
       const path = testInfo.outputPath(`${theme}-${name}.png`);
       execFileSync('import', ['-window', 'root', path]);
       execFileSync('convert', [path, '-resize', '1800x1800>', path]);
       await testInfo.attach(name, { path, contentType: 'image/png' });
     };
-    const activate = () => execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+    const activate = () => {
+      const windows = execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'chromium'])
+        .toString()
+        .trim()
+        .split('\n');
+      const window = windows[0];
+      if (!window) throw new Error('Native Chromium window unavailable');
+      execFileSync('xdotool', ['windowfocus', '--sync', window]);
+      execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+    };
     try {
       let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
-      const panelCount = () =>
-        worker.evaluate(async () => {
-          const contexts = await chrome.runtime.getContexts({});
-          return contexts.filter(item => item.contextType === 'SIDE_PANEL').length;
+      const observePanel = () =>
+        worker.evaluate(() => {
+          const state = { open: false, opened: 0, closed: 0 };
+          Reflect.set(globalThis, '__toolbarPanelObservation', state);
+          const events = [
+            { name: 'onOpened', open: true },
+            { name: 'onClosed', open: false }
+          ];
+          for (const { name, open } of events) {
+            const event: unknown = Reflect.get(chrome.sidePanel, name);
+            if (
+              !event ||
+              typeof event !== 'object' ||
+              !('addListener' in event) ||
+              typeof event.addListener !== 'function'
+            )
+              throw new Error('Native panel event unavailable');
+            event.addListener(() => {
+              state.open = open;
+              if (open) state.opened++;
+              else state.closed++;
+            });
+          }
         });
+      const panelCount = () =>
+        worker.evaluate(() => {
+          const state: unknown = Reflect.get(globalThis, '__toolbarPanelObservation');
+          return state && typeof state === 'object' && 'open' in state && state.open === true ? 1 : 0;
+        });
+      await observePanel();
       await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
       const page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
       await page.waitForSelector('[data-testid="onboarding-welcome"]', { timeout: 45000 });
@@ -59,6 +94,23 @@ for (const theme of ['light', 'dark'] as const) {
       await page.bringToFront();
       await capture('fullpage-onboarding');
       activate();
+      await expect
+        .poll(() =>
+          worker.evaluate(() => {
+            const state: unknown = Reflect.get(globalThis, '__toolbarPanelObservation');
+            return (
+              state &&
+              typeof state === 'object' &&
+              'opened' in state &&
+              'closed' in state &&
+              typeof state.opened === 'number' &&
+              typeof state.closed === 'number' &&
+              state.opened > 0 &&
+              state.closed > 0
+            );
+          })
+        )
+        .toBe(true);
       await expect.poll(panelCount).toBe(0);
       await expect(page.getByTestId('onboarding-welcome')).toBeVisible();
       await capture('interrupted-onboarding-returned-to-fullpage');
@@ -107,6 +159,7 @@ for (const theme of ['light', 'dark'] as const) {
       await context.close();
       context = await launch();
       worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      await observePanel();
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
       await expect
         .poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior()))
@@ -130,6 +183,7 @@ for (const theme of ['light', 'dark'] as const) {
       const control = await context.newPage();
       await control.goto(`chrome-extension://${id}/fullpage.html`);
       worker = await restarted;
+      await observePanel();
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
       await expect
         .poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior()))
@@ -140,6 +194,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-after-worker-stop-and-wake');
     } finally {
+      if (testInfo.status !== testInfo.expectedStatus) await capture('failure-browser');
       await context.close();
       rmSync(root, { recursive: true, force: true });
     }
