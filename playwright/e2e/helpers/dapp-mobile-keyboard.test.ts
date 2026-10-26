@@ -49,12 +49,24 @@ describe('native dApp keyboard journey', () => {
     expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
   });
 
-  it('fails if typing hides the keyboard before the dApp value is checked', async () => {
+  it('waits for typed text that lands after typeText returns', async () => {
+    const context = setup([visible, visible, visible, hidden]);
+    context.page.send
+      .mockResolvedValueOnce(pageAnswer('Native typing 1'))
+      .mockResolvedValueOnce(pageAnswer('Native typing 1837'));
+
+    await runNativeKeyboardJourney({ surface: 'android', ...context });
+
+    expect(context.page.send).toHaveBeenCalledTimes(2);
+    expect(context.device.keyboardLayout).toHaveBeenCalledTimes(4);
+    expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
+  });
+
+  it('fails if typing hides the keyboard', async () => {
     const context = setup([visible, visible, hidden]);
 
     await expect(runNativeKeyboardJourney({ surface: 'android', ...context })).rejects.toThrow(/keyboard.*typing/i);
 
-    expect(context.page.send).not.toHaveBeenCalled();
     expect(context.device.dismissKeyboard).toHaveBeenCalledWith('A');
     expect(context.wallet.screenshot).toHaveBeenCalled();
   });
