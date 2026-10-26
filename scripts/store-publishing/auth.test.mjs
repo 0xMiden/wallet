@@ -447,13 +447,23 @@ test('only the exact known one-completed-release message receives a closed class
   }
 });
 
-
 test('Apple errors expose only known codes and a closed operation stage', async () => {
-  const queue = fetchQueue(new Response(JSON.stringify({ errors: [
-    { code: 'ENTITY_ERROR.ATTRIBUTE.REQUIRED', title: 'private', detail: 'private-secret' },
-    { code: 'PRIVATE-UNRECOGNIZED-CODE', detail: 'private-secret' }
-  ] }), { status: 409 }));
-  const client = createApiClient({ origin: 'https://api.appstoreconnect.apple.com', token: 'test-token', fetchImpl: queue.fetchImpl });
+  const queue = fetchQueue(
+    new Response(
+      JSON.stringify({
+        errors: [
+          { code: 'ENTITY_ERROR.ATTRIBUTE.REQUIRED', title: 'private', detail: 'private-secret' },
+          { code: 'PRIVATE-UNRECOGNIZED-CODE', detail: 'private-secret' }
+        ]
+      }),
+      { status: 409 }
+    )
+  );
+  const client = createApiClient({
+    origin: 'https://api.appstoreconnect.apple.com',
+    token: 'test-token',
+    fetchImpl: queue.fetchImpl
+  });
   await assert.rejects(client.request('POST', '/v1/reviewSubmissionItems', { body: {} }), error => {
     error.stage = 'apple-review-item-create';
     assert.deepEqual(safeStoreFailure(error).appleCodes, ['ENTITY_ERROR.ATTRIBUTE.REQUIRED']);
