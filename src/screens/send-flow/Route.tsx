@@ -17,6 +17,7 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useWalletStore } from 'lib/store';
+import type { FeatureUnavailableFeature } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { BridgeRoute } from './types';
@@ -37,6 +38,8 @@ export interface RouteStepProps {
   confirmDisabled?: boolean;
   onConfirm: () => void;
   /** Each route's feature: an unavailable or still-loading route is greyed out and takes no tap. */
+  fastFeature?: FeatureUnavailableFeature;
+  slowFeature?: FeatureUnavailableFeature;
   fastAvailability: FeatureAvailability;
   slowAvailability: FeatureAvailability;
 }
@@ -118,6 +121,8 @@ export type RouteOptionsProps = Pick<
   | 'fastQuoteLoading'
   | 'notice'
   | 'usdcxAvailable'
+  | 'fastFeature'
+  | 'slowFeature'
   | 'fastAvailability'
   | 'slowAvailability'
 > & {
@@ -181,17 +186,28 @@ const SLOW_NOTICE_ID = 'bridge-route-slow-unavailable';
  */
 const RouteAvailabilityNotice: React.FC<{
   availability: FeatureAvailability;
+  feature?: FeatureUnavailableFeature;
   otherRouteSelectable: boolean;
   id: string;
   'data-testid': string;
-}> = ({ availability, otherRouteSelectable, id, 'data-testid': testId }) => {
+}> = ({ availability, feature = 'unknown', otherRouteSelectable, id, 'data-testid': testId }) => {
   const { t } = useTranslation();
   // The same report FeatureUnavailableNotice makes, so the neutral copy keeps the event stream it replaced.
   useUserVisibleError(
     availability.state === 'unavailable' && availability.reason !== 'restricted' && availability.reason !== 'pending'
       ? 'bridgeFeatureUnavailableBody'
       : null,
-    'notice'
+    'notice',
+    undefined,
+    {
+      kind: 'feature_unavailable',
+      featureUnavailableFeature: feature,
+      featureUnavailableReason:
+        availability.state === 'unavailable' &&
+        ['off', 'not-configured', 'not-deployed', 'service-down'].includes(availability.reason)
+          ? (availability.reason as 'off' | 'not-configured' | 'not-deployed' | 'service-down')
+          : 'unknown'
+    }
   );
   if (availability.state !== 'unavailable') return null;
   if (availability.reason === 'restricted') {
@@ -213,6 +229,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   notice,
   usdcxAvailable,
   slowStatus,
+  fastFeature,
+  slowFeature,
   fastAvailability,
   slowAvailability,
   accent = 'brand',
@@ -280,6 +298,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
             <>
               <RouteAvailabilityNotice
                 availability={fastAvailability}
+                feature={fastFeature}
                 otherRouteSelectable={slowSelectable}
                 id={FAST_NOTICE_ID}
                 data-testid="feature-unavailable-notice-fast"
@@ -318,6 +337,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
             <>
               <RouteAvailabilityNotice
                 availability={slowAvailability}
+                feature={slowFeature}
                 otherRouteSelectable={fastSelectable}
                 id={SLOW_NOTICE_ID}
                 data-testid="feature-unavailable-notice-slow"
@@ -356,6 +376,8 @@ export const Route: React.FC<RouteStepProps> = ({
   notice,
   confirmDisabled,
   onConfirm,
+  fastFeature,
+  slowFeature,
   fastAvailability,
   slowAvailability
 }) => {
@@ -389,6 +411,8 @@ export const Route: React.FC<RouteStepProps> = ({
         fastQuoteLoading={fastQuoteLoading}
         notice={notice}
         slowStatus="allowed"
+        fastFeature={fastFeature}
+        slowFeature={slowFeature}
         fastAvailability={fastAvailability}
         slowAvailability={slowAvailability}
       />

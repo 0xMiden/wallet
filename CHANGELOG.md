@@ -6,6 +6,8 @@
 
 ### Changes
 
+- [CHANGE][all] Existing unavailable-feature, unanswered-submission, held-retry and recipient-validation reports retain only closed producer decisions, without private inputs or inferred outcomes.
+
 - [CHANGE][all] Failed transaction reports retain closed proposal, inline proving, queue admission, deadline progress and reaper timestamp observations without private transaction data.
 - [CHANGE][all] Removed the root `screenshots/` folder: the old App Store, iPad and Play marketing images (the canonical store screenshots are in `store-listing/assets/`) and the evidence images and capture fixtures from earlier changes.
 - [FIX][ci] Authorize staging probe and cleanup against exact configured-account metadata without user-token introspection.

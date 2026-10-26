@@ -138,7 +138,8 @@ export const ReviewTransaction: React.FC = () => {
         return 'fastBridgeOut';
     }
   };
-  const bridgeAvailability = useFeatureAvailability(bridgeFeature(), {
+  const selectedBridgeFeature = bridgeFeature();
+  const bridgeAvailability = useFeatureAvailability(selectedBridgeFeature, {
     hold: isBridge,
     chainId: bridgeNetworkObj?.chainId
   });
@@ -763,7 +764,7 @@ export const ReviewTransaction: React.FC = () => {
           </div>
         }
       >
-        {isBridge && <FeatureUnavailableNotice availability={bridgeAvailability} />}
+        {isBridge && <FeatureUnavailableNotice feature={selectedBridgeFeature} availability={bridgeAvailability} />}
         {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
         {tokenHeld && (
           <Notice

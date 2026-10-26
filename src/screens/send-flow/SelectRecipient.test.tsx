@@ -425,6 +425,44 @@ describe('SelectRecipient user-visible errors', () => {
     });
   };
 
+  it('forwards only the current invalid recipient stage after the existing dwell', async () => {
+    const view = render(
+      <MotionConfig skipAnimations>
+        <SelectRecipient
+          {...baseRecipientProps()}
+          error="invalidMidenAccountId"
+          {...{
+            errorDiagnostics: {
+              kind: 'recipient_validation' as const,
+              recipientValidationStage: 'prefix_rejected' as const
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+    await settleMotion();
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    view.rerender(
+      <MotionConfig skipAnimations>
+        <SelectRecipient
+          {...baseRecipientProps()}
+          error="invalidMidenAccountId"
+          {...{
+            errorDiagnostics: {
+              kind: 'recipient_validation' as const,
+              recipientValidationStage: 'decoder_throw' as const
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('invalidMidenAccountId', 'inline', {
+      kind: 'recipient_validation',
+      recipientValidationStage: 'decoder_throw'
+    });
+  });
+
   it.each(['invalidEthereumAddress', 'cannotSendToSelf', 'midenAddressWrongNetwork', 'invalidMidenAccountId'])(
     'reports the visible %s recipient refusal without the address',
     async error => {

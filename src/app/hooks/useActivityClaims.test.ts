@@ -9,6 +9,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { resetActivityReadState } from 'lib/settings/activity-read';
+import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -1636,8 +1637,24 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     settle([{ id: 'tx-held', status: 4, held: true }]);
     return view;
   };
+  it('carries an exact root guard through the held retry card and notice', async () => {
+    const error = new Error('private guard text');
+    annotatePendingRetry(error, 'guardian_hold');
+    mockRequeue.mockRejectedValueOnce(error);
+    held();
+    await click('retry');
+    advance(1000);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_pending_activity_retry_failed', 'notice', {
+      kind: 'pending_retry',
+      pendingRetryReason: 'guardian_hold'
+    });
+    expect(mockRequeue).toHaveBeenCalledTimes(1);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
   const expectRawReport = () =>
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_pending_activity_retry_failed', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'unexpected' }]
+    ]);
   const observeHeldCard = () => {
     let retryHeld: (() => Promise<void>) | undefined;
     const commits: Array<{
@@ -1924,8 +1941,8 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expectRawReport();
     advance(1);
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
-      ['raw_pending_activity_retry_failed', 'notice'],
-      ['raw_pending_activity_retry_failed', 'notice']
+      ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'unexpected' }],
+      ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'unexpected' }]
     ]);
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(2);
