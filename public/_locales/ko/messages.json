@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "이더리움 지갑에서",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "WalletConnect는 이후 안내 창에서 Bread의 이름 대신 Chrome 확장 프로그램 ID를 표시할 수 있습니다:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "필요한 경우, The Compact를 위해 $amount$ $token$을 승인하십시오. 일부 토큰의 경우 먼저 허용 한도를 0으로 재설정해야 합니다.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "$amount$ $token$을 The Compact에 예치하여 $network$상의 Miden으로 연결하십시오 (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "이 인용문은 이미 ‘The Compact’에 포함된 담보를 사용합니다. 아래에 인용된 각 지갑 거래 대상을 검토하십시오. 귀하의 지갑에서는 이들이 결합되어 있을 수 있습니다.",
+    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "이 인용문은 이미 ‘The Compact’에 있는 담보를 사용하며, 새로운 지갑 거래를 요구하지 않습니다.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "체인 $chainId$상의 트랜잭션 $number$은 다음을 대상으로 합니다:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "기본 가치(기본 단위):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "콜 선택기:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "필요한 경우, AggLayer 브리지가 정확히 $amount$ $token$를 지출할 수 있도록 승인하십시오.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "$network$상의 AggLayer를 통해 $amount$ $token$를 Miden으로 브리지합니다 (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "필요한 경우, Circle xReserve가 정확히 $amount$ 상당의 $token$을 지출할 수 있도록 승인하십시오.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "$network$ 네트워크(depositToRemote)를 통해 Circle xReserve를 이용하여 Miden에 $amount$ $token$을 입금하십시오.",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "필요한 경우, $amount$ $token$에 수수료 여유분을 더한 금액에 대해 Circle TokenMessengerWithFees를 승인하십시오. 정확한 한도는 지갑에 표시됩니다.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "$amount$ $token$ 및 현재 Circle 수수료를 합산하여 $network$상의 Miden에 USDCx를 입금하기 위해 소각(depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "거래 대상(토큰 승인이 필요한 경우 승인 지출자):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "이더리움 지갑은 프롬프트 문구를 선택하며, 여러 작업을 결합할 수 있습니다. 확인하기 전에 네트워크, 승인 한도 및 거래 세부 정보를 확인하십시오.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "총 잔액",
     "englishSource": "Total balance"

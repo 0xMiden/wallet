@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "En tu monedero de Ethereum",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "WalletConnect puede mostrar el ID de la extensión de Chrome de Bread en lugar de su nombre en las siguientes solicitudes:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "Si es necesario, aprueba $amount$ $token$ para The Compact. Algunos tokens requieren primero un restablecimiento a asignación cero.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "Deposita $amount$ $token$ en The Compact para realizar un puente hacia Miden en $network$ (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "Esta cita utiliza términos que ya figuran en «The Compact». Revisa cada objetivo de transacción de monedero citado a continuación. Es posible que tu monedero los combine.",
+    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "Esta cotización utiliza garantías que ya figuran en «The Compact» y no requiere ninguna nueva transacción de monedero.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "La transacción $number$ en la cadena $chainId$ tiene como objetivo:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "Valor nativo (unidades base):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "Selector de llamadas:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "Si es necesario, aprueba el puente de AggLayer para gastar exactamente $amount$ en $token$.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "Transferir $amount$ $token$ a Miden a través de AggLayer en $network$ (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "Si es necesario, autoriza a Circle xReserve a gastar exactamente $amount$ en $token$.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "Deposita $amount$ $token$ en Miden a través de Circle xReserve en $network$ (depositToRemote).",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "Si es necesario, aprueba «Circle TokenMessengerWithFees» por $amount$ $token$ más un margen para comisiones. El límite exacto aparece en tu monedero.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "Quemar $amount$ $token$ más la comisión actual de Circle por un depósito de USDCx en Miden en $network$ (depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "Destinatario de la transacción (autorizador del gasto si se requiere una autorización del token):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "Tu monedero de Ethereum elige la redacción de las indicaciones y puede combinar acciones. Comprueba la red, el límite de aprobación y los detalles de la transacción antes de confirmar.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "Saldo total",
     "englishSource": "Total balance"

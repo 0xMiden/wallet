@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "在您的以太坊钱包中",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "在后续提示中，WalletConnect 可能会显示 Bread 的 Chrome 扩展程序 ID 而不是其名称：",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "如有需要，请批准向 The Compact 转账 $amount$ $token$。部分代币需要先将额度重置为零。",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "向 The Compact 存入 $amount$ $token$，以桥接至 $network$ 上的 Miden（depositERC20AndRegister）。",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "此处引用的术语均已收录于《协议》中。请仔细核对下方引用的每个钱包交易目标。您的钱包可能会将它们合并显示。",
+    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "此引文所涉及的抵押品已存于《契约》中，无需进行新的钱包交易。",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "链$chainId$上的交易$number$的目标为：",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "原生价值（基本单位）：",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "调用选择器：",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "如有需要，请授权 AggLayer 桥接服务精确支出 $amount$ $token$。",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "通过$network$上的AggLayer将$amount$的$token$桥接至Miden（bridgeAsset）。",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "如有需要，请授权 Circle xReserve 支出确切的 $amount$ $token$。",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "通过 Circle xReserve 在 $network$ 上向 Miden 存入 $amount$ $token$（depositToRemote）。",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "如有需要，请批准 Circle TokenMessengerWithFees 交易，金额为 $amount$ $token$ 加上手续费预留额度。确切限额显示在您的钱包中。",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "将$amount$的$token$代币（外加当前Circle手续费）烧毁，并存入Miden的USDCx账户（$network$网络）（depositForBurnWithHookAndFees）。",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "交易目标（若需代币授权，则为授权支出方）：",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "您的以太坊钱包会选择提示语的措辞，并可能将多种操作合并显示。确认前请检查其网络、授权限额及交易详情。",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "总余额",
     "englishSource": "Total balance"

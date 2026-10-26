@@ -298,6 +298,158 @@
       }
     }
   },
+  "bridgeWalletPromptTitle": {
+    "message": "In your Ethereum wallet",
+    "englishSource": "In your Ethereum wallet"
+  },
+  "bridgeWalletPromptIdentity": {
+    "message": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:",
+    "englishSource": "WalletConnect may show Bread's Chrome extension ID instead of its name on later prompts:"
+  },
+  "bridgeWalletPromptEpochApprove": {
+    "message": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "englishSource": "If needed, approve $amount$ $token$ for The Compact. Some tokens first require a zero-allowance reset.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochDeposit": {
+    "message": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "englishSource": "Deposit $amount$ $token$ into The Compact to bridge to Miden on $network$ (depositERC20AndRegister).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptEpochExistingCollateral": {
+    "message": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them.",
+    "englishSource": "This quote uses collateral already in The Compact. Review each quoted wallet transaction target below. Your wallet may combine them."
+  },
+  "bridgeWalletPromptEpochNoTransactions": {
+    "message": "This quote uses collateral already in The Compact and requests no new wallet transaction.",
+    "englishSource": "This quote uses collateral already in The Compact and requests no new wallet transaction."
+  },
+  "bridgeWalletPromptQuotedCall": {
+    "message": "Transaction $number$ on chain $chainId$ targets:",
+    "englishSource": "Transaction $number$ on chain $chainId$ targets:",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      },
+      "chainid": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptNativeValue": {
+    "message": "Native value (base units):",
+    "englishSource": "Native value (base units):"
+  },
+  "bridgeWalletPromptCallSelector": {
+    "message": "Call selector:",
+    "englishSource": "Call selector:"
+  },
+  "bridgeWalletPromptAgglayerApprove": {
+    "message": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "englishSource": "If needed, approve the AggLayer bridge to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptAgglayerDeposit": {
+    "message": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "englishSource": "Bridge $amount$ $token$ to Miden through AggLayer on $network$ (bridgeAsset).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxApprove": {
+    "message": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "englishSource": "If needed, approve Circle xReserve to spend exactly $amount$ $token$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptUsdcxDeposit": {
+    "message": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "englishSource": "Deposit $amount$ $token$ to Miden through Circle xReserve on $network$ (depositToRemote).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorApprove": {
+    "message": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "englishSource": "If needed, approve Circle TokenMessengerWithFees for $amount$ $token$ plus fee headroom. The exact limit appears in your wallet.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWalletPromptExecutorBurn": {
+    "message": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "englishSource": "Burn $amount$ $token$ plus the current Circle fee for a USDCx deposit to Miden on $network$ (depositForBurnWithHookAndFees).",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeWalletPromptContract": {
+    "message": "Transaction target (approval spender if a token approval is needed):",
+    "englishSource": "Transaction target (approval spender if a token approval is needed):"
+  },
+  "bridgeWalletPromptWalletControls": {
+    "message": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming.",
+    "englishSource": "Your Ethereum wallet chooses the prompt wording and may combine actions. Check its network, approval limit and transaction details before confirming."
+  },
   "balanceCardTotalBalance": {
     "message": "Total balance",
     "englishSource": "Total balance"
