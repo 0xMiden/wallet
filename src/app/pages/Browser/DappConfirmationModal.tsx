@@ -5,6 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { TransactionNoteFlow } from 'app/confirm/TransactionNoteFlow';
 import { Icon, IconName } from 'app/icons/v2';
 import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
@@ -293,6 +294,14 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                     ))}
                   </div>
                 )}
+
+                {request.type === 'transaction' &&
+                  request.noteFlow !== undefined &&
+                  (request.noteFlow ? (
+                    <TransactionNoteFlow flow={request.noteFlow} account={accountId ?? undefined} />
+                  ) : (
+                    <p className="mb-4 text-sm text-muted">{t('verifiedNoteDetailsUnavailable')}</p>
+                  ))}
 
                 {!isTransaction && (
                   <div className="mb-4 rounded-xl bg-grey-50 p-4">

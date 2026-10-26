@@ -124,6 +124,28 @@ function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppCon
   } as DAppConfirmationRequest;
 }
 
+it('shows the verified custom transaction note flow in the mobile and desktop modal', () => {
+  render(
+    <DappConfirmationModal
+      request={buildRequest({
+        type: 'transaction',
+        transactionMessages: ['Simulated effects:'],
+        sourcePublicKey: FULL_ACCOUNT_ID,
+        noteFlow: {
+          inputCount: 0,
+          inputs: [],
+          outputs: [{ id: 'note-1', kind: 'p2id', visibility: 'public', assets: [] }]
+        }
+      })}
+      accountId={FULL_ACCOUNT_ID}
+      onResolve={jest.fn()}
+    />
+  );
+  expect(screen.getByTestId('tx-note-flow')).toBeInTheDocument();
+  expect(screen.getByText('noInputNotes')).toBeInTheDocument();
+  expect(screen.getByText('P2ID')).toBeInTheDocument();
+});
+
 /** A connect request asking for standing (`Auto`) access to private notes. */
 const autoRequest = () =>
   buildRequest({

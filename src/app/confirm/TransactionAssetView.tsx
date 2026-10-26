@@ -11,6 +11,8 @@ import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
 import { AssetAmount, NftAsset, TxAssetView } from './decode';
+import type { NoteFlow } from './note-flow';
+import { TransactionNoteFlow } from './TransactionNoteFlow';
 import { Icon, IconName } from '../icons/v2';
 
 export interface TransactionAssetViewProps {
@@ -18,6 +20,7 @@ export interface TransactionAssetViewProps {
   mode: 'verified' | 'declared';
   /** Optional download handler (verified path exposes the raw summary bytes). */
   onDownload?: () => void;
+  noteFlow?: NoteFlow;
 }
 
 interface ResolvedAsset {
@@ -111,7 +114,7 @@ const NftRow: React.FC<{ nft: NftAsset; sign: '-' | '+'; isVerified: boolean }> 
   );
 };
 
-export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload }) => {
+export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload, noteFlow }) => {
   const { t } = useTranslation();
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
@@ -252,6 +255,14 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
           </div>
         )}
       </div>
+
+      {mode === 'verified' && noteFlow ? (
+        <TransactionNoteFlow flow={noteFlow} account={view.account} />
+      ) : (
+        <div className="w-full my-4 text-sm text-muted" data-testid="tx-note-flow-unavailable">
+          {t(mode === 'verified' ? 'verifiedNoteDetailsUnavailable' : 'declaredNoteDetailsUnavailable')}
+        </div>
+      )}
 
       {onDownload && (
         <Button
