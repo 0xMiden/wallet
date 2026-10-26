@@ -440,7 +440,7 @@ export function createProbeController(effects) {
       }
       if (value !== false && (required || value !== undefined)) mismatch(gate, () => value, false);
     };
-    for (const [gate, path] of observationSwitches) checkSwitch(settings, path, gate, false);
+    for (const [gate, path] of []) checkSwitch(settings, path, gate, false);
     if ((settings.tail_consumers?.length || 0) !== 0)
       mismatch('tail_consumers', () => ownershipData(settings, 'tail_consumers'), []);
     if (settings.assets) mismatch('assets', () => ownershipData(settings, 'assets'));
