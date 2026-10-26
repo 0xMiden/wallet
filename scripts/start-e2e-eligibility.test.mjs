@@ -51,3 +51,12 @@ test('prelaunch fixture mode cannot be selected for Mainnet or another network',
   }
   assert.throws(() => fixtureEnvironment({ E2E_FIXTURE_PRELAUNCH_TESTNET: 'yes' }));
 });
+
+test('prelaunch mode rejects direct loopback policy sources that the app would read without the fixture transform', () => {
+  assert.throws(() =>
+    fixtureEnvironment({
+      E2E_FIXTURE_PRELAUNCH_TESTNET: 'true',
+      MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550/'
+    })
+  );
+});

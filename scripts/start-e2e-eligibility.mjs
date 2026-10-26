@@ -33,6 +33,7 @@ export function fixtureEnvironment(env) {
     if (sourceUrl !== BASE_URL) {
       args.push('--source', sourceUrl);
       if (local) {
+        if (prelaunch === 'true') throw new Error('Prelaunch fixture cannot use a direct loopback policy source');
         // Existing hermetic suites start their changing config server after the build.
         args.push('--lazy-source');
         configUrl = sourceUrl;

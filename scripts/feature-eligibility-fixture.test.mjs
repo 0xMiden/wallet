@@ -274,6 +274,14 @@ test('explicit prelaunch testnet keeps general onboarding after the published la
     version: 13,
     allowed: { wallet: true, earn: true, swap: true }
   });
+  const updated = { ...published, version: 14, features: { earn: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(updated) });
+  assert.deepEqual(await (await fetch(`${fixture.url}/testnet.json`)).json(), {
+    ...updated, mainnetCountdown: { ...published.mainnetCountdown, enabled: false }
+  });
+  assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json(), {
+    network: 'testnet', version: 14, allowed: { wallet: true, earn: false, swap: true }
+  });
   await fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state: 'restricted' }) });
   assert.deepEqual((await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json()).allowed, {
     wallet: false,
