@@ -861,11 +861,25 @@ test('Chrome rollover preserves an exclusive owner-private archive and refuses a
 test('explicit iOS submit notes pass through unchanged and reject other operations before authentication', async () => {
   const c = context('ios');
   const notes = 'Recovery improvements.\nBug fixes.';
-  await run(['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', '--release-notes', notes], c.deps);
+  await run(
+    ['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', '--release-notes', notes],
+    c.deps
+  );
   assert.equal(c.calls.find(call => call[0] === 'operation')[3].releaseNotes, notes);
-  for (const [platform, action, value] of [['ios', 'upload', notes], ['chrome', 'submit', notes], ['ios', 'submit', ' '], ['ios', 'submit', 'x'.repeat(4001)]]) {
+  for (const [platform, action, value] of [
+    ['ios', 'upload', notes],
+    ['chrome', 'submit', notes],
+    ['ios', 'submit', ' '],
+    ['ios', 'submit', 'x'.repeat(4001)]
+  ]) {
     const other = context(platform);
-    await assert.rejects(run([platform, action, ...common, '--build-number', '19', '--confirm', '1.17.7', '--release-notes', value], other.deps), /release notes/i);
+    await assert.rejects(
+      run(
+        [platform, action, ...common, '--build-number', '19', '--confirm', '1.17.7', '--release-notes', value],
+        other.deps
+      ),
+      /release notes/i
+    );
     assert.equal(other.calls.length, 0);
   }
 });

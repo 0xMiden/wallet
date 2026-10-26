@@ -35,6 +35,7 @@ const values = new Map(
     'version-code',
     'edit-id',
     'release-policy',
+    'release-notes',
     'confirm'
   ].map(name => [name, name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())])
 );
@@ -79,6 +80,9 @@ export function parseArgs(argv) {
 function planFor(args, config) {
   const { platform, action } = args;
   const mutation = action !== 'status';
+  const releaseNotes = apple.validateReleaseNotes(args.releaseNotes);
+  if (releaseNotes !== undefined && (platform !== 'ios' || action !== 'submit'))
+    throw new Error('Release notes are only supported for iOS submit');
   if ((action === 'begin-edit' && platform !== 'android') || (action === 'prepare' && platform !== 'ios')) {
     throw new Error('The selected platform does not support that publishing action');
   }
@@ -135,7 +139,10 @@ function planFor(args, config) {
     identity = section.bundleId;
     storeId = section.appId;
     Object.assign(options, { appId: section.appId, bundleId: identity });
-    if (action === 'submit') options.releasePolicy = args.releasePolicy ?? 'preserve-existing';
+    if (action === 'submit') {
+      options.releasePolicy = args.releasePolicy ?? 'preserve-existing';
+      if (releaseNotes !== undefined) options.releaseNotes = releaseNotes;
+    }
     if ((mutation && action !== 'prepare') || args.buildNumber !== undefined) {
       if (!/^\d+(?:\.\d+){0,2}$/.test(args.buildNumber ?? ''))
         throw new Error('An explicit Apple build number is required');

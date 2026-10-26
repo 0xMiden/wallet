@@ -4,6 +4,7 @@ import { appendFile, mkdir, open, readdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { validateReleaseNotes } from './apple.mjs';
 import { safeStoreFailure } from './auth.mjs';
 import { validateRolloverSession, validateUploadSession } from './chrome.mjs';
 import { androidVersionCode, verifyReleaseSource } from './create-receipt.mjs';
@@ -24,6 +25,9 @@ const stateName = (plan, runId, attempt) =>
   `WalletStoreState-${plan.platform}-${plan.version}-${plan.network}-${runId}-${attempt}`;
 
 export function validatePublishRequest(input) {
+  const releaseNotes = validateReleaseNotes(input.releaseNotes);
+  if (releaseNotes !== undefined && (input.platform !== 'ios' || input.action !== 'submit'))
+    throw new Error('Release notes are only supported for iOS submit');
   const { releaseTag, platform, action, network } = input;
   if (!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(releaseTag ?? ''))
     throw new Error('A stable release tag is required');
@@ -88,6 +92,7 @@ export function validatePublishRequest(input) {
     buildNumber,
     editId,
     acknowledgement,
+    ...(releaseNotes !== undefined ? { releaseNotes } : {}),
     needsProducer,
     needsState,
     ...(platform === 'android' && buildNumber ? { versionCode: androidVersionCode(version, buildNumber) } : {})
@@ -370,7 +375,8 @@ function fromEnv(env) {
     stateRunId: env.STATE_RUN_ID,
     buildNumber: env.BUILD_NUMBER,
     editId: env.EDIT_ID,
-    acknowledgement: env.ACKNOWLEDGEMENT
+    acknowledgement: env.ACKNOWLEDGEMENT,
+    releaseNotes: env.RELEASE_NOTES
   });
 }
 function paths(env) {
@@ -450,9 +456,7 @@ function safeResult(result) {
   if (Array.isArray(result?.versionCodes)) {
     clean.versionCodes = result.versionCodes
       .slice(0, 100)
-      .filter(
-        value => typeof value === 'string' && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= 2100000000
-      );
+      .filter(value => typeof value === 'string' && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= 2100000000);
   }
   if (result?.failure) clean.failure = safeStoreFailure({ ...result.failure, status: result.failure.httpStatus });
   if (result?.editInspection) {
@@ -584,6 +588,7 @@ export async function main(command, env = process.env, dependencies = {}) {
     if (plan.action !== 'status') args.push('--confirm', plan.version);
     if (plan.buildNumber) args.push('--build-number', plan.buildNumber);
     if (plan.platform === 'android' && plan.versionCode) args.push('--version-code', String(plan.versionCode));
+    if (plan.releaseNotes !== undefined) args.push('--release-notes', plan.releaseNotes);
     if (plan.editId) args.push('--edit-id', plan.editId);
     if (plan.action === 'begin-edit') args.push('--confirm-new-edit');
     if (plan.platform === 'android' && plan.action === 'submit') args.push('--allow-pending-changes');
