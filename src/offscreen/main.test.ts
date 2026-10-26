@@ -3906,6 +3906,35 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
+  it('guardianPipeline sends only closed observations from the exact executed request on rejection', async () => {
+    await loadModule();
+    const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
+    G.__off.guardianExecuteRequest.mockRejectedValueOnce(original);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({
+      op_id: 'execution-diagnostic-op',
+      method: 'guardianPipeline',
+      argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1, 2, 3, 4])), encodeArg(false)]
+    }), {}, sendResponse);
+    await flush();
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({
+      ok: false,
+      op_id: 'execution-diagnostic-op',
+      errorTransactionExecution: {
+        executionRoute: 'guardian_signed_request',
+        authObservation: 'observed',
+        authArgPresence: 'absent',
+        authLayout: 'absent',
+        commitmentMatch: 'unavailable',
+        accountAuthCode: 'unavailable'
+      }
+    });
+    expect(G.__off.deserializeTxRequest).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianExecuteRequest.mock.calls[0]?.[1]).toBe(G.__off.deserializeTxRequest.mock.results[0]?.value);
+    expect(G.__off.guardianSubmitted).toBe(false);
+  });
+
   it('guardianPipeline: deserializes the co-signed request, proves in the prove worker, submits the proof and applies', async () => {
     await loadModule();
     const sendResponse = jest.fn();

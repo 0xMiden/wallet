@@ -20,6 +20,9 @@ const order: string[] = [];
 const mockState: {
   requestSerialize?: Error;
   clientBuild?: Error;
+  proposalRequest?: Error;
+  customAdvice?: Error;
+  customBuild?: Error;
   resultRead?: Error;
   resultSerialize?: Error;
   noInputNotes?: boolean;
@@ -49,6 +52,10 @@ const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({
   metadata: { proposalType: 'custom' }
 }));
 const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
+const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
+  if (mockState.customAdvice) throw mockState.customAdvice;
+  return {};
+});
 const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume' } }));
 const mockSubmit = jest.fn(async () => ({ apply: async () => {} }));
 const executedNote = {
@@ -95,19 +102,27 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args),
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
+  prepareCustomExecution: (...args: unknown[]) => mockPrepareCustom(...args),
   abandonCandidate: (...args: unknown[]) => mockAbandon(...args),
-  createTransactionProposalRequest: async () => ({
+  createTransactionProposalRequest: async () => {
+    if (mockState.proposalRequest) throw mockState.proposalRequest;
+    return {
     serialize: () => {
       if (mockState.requestSerialize) throw mockState.requestSerialize;
       return new Uint8Array([7, 8]);
     }
-  }),
+  };
+  },
   syncState: async () => {}
 }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  TransactionProver: { newLocalProver: () => ({}) }
+  TransactionProver: { newLocalProver: () => ({}) },
+  TransactionRequest: { deserialize: () => {
+    if (mockState.customBuild) throw mockState.customBuild;
+    return { extendAdviceMap: () => ({ serialize: () => oldBytes }) };
+  } }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
@@ -798,3 +813,25 @@ describe('a claim that fails while recording its result after the guardian sync'
     }
   });
 });
+
+
+it.each(['proposal_sign', 'custom_advice', 'custom_request_build', 'proposal_request'])(
+  'post-create %s reaches actual cancellation and the sanitized wire with the original error',
+  async step => {
+    const error = privateFailure();
+    const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+    if (step === 'proposal_sign') mockSignProposal.mockRejectedValueOnce(error);
+    if (step === 'proposal_request') mockState.proposalRequest = error;
+    const custom = step === 'custom_advice' || step === 'custom_request_build';
+    if (custom) mockSignProposal.mockResolvedValueOnce({ metadata: { proposalType: 'custom' } });
+    if (step === 'custom_advice') mockState.customAdvice = error;
+    if (step === 'custom_request_build') mockState.customBuild = error;
+    const stored = await run(account, custom);
+    expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+    expectHookRejection(report, error);
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await failureEventWith({ proposalStep: step }, 'signing step signing_proposal');
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: step });
+  }
+);

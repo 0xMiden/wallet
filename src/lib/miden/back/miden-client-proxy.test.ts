@@ -4391,3 +4391,38 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
     }
   });
 });
+
+
+describe('closed execution error transport', () => {
+  it.each([true, false])('binds execution observations to the response op (matched: %s)', async matched => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: matched ? env.op_id : 'an-old-op',
+      error: 'private original failure account 0xabcdef',
+      errorTransactionExecution: {
+        executionRoute: 'ordinary_new_transaction',
+        authObservation: 'observed',
+        authArgPresence: 'present',
+        authLayout: 'missing_preimage',
+        commitmentMatch: 'unavailable',
+        accountAuthCode: 'unavailable',
+        rawRequest: 'private request bytes'
+      }
+    }));
+    const running = midenClientProxy.newTransaction('acct', new Uint8Array([1, 2]), false, async () => new Uint8Array()).catch(error => error);
+    await flush();
+    fireReady();
+    const error: unknown = await running;
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(error)).toEqual(matched ? {
+      executionRoute: 'ordinary_new_transaction',
+      authObservation: 'observed',
+      authArgPresence: 'present',
+      authLayout: 'missing_preimage',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    } : {});
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+  });
+});

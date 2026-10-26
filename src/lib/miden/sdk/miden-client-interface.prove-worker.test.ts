@@ -406,6 +406,43 @@ describe('send (site 5)', () => {
 });
 
 describe('newTransaction (site 6)', () => {
+  it.each(['absent', 'missing_preimage', 'read_failed'])(
+    'observes %s on the actual request and preserves the rejected object, bytes and execute count',
+    async shape => {
+      const harness = buildHarness();
+      const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
+      harness.executeRequest.mockRejectedValueOnce(original);
+      const { client, withWasmClientLock } = await load(harness);
+      const lazy = await import('@miden-sdk/miden-sdk/lazy');
+      const request = {
+        authArg: () => {
+          if (shape === 'read_failed') throw new Error('private auth getter');
+          return shape === 'absent' ? undefined : {};
+        },
+        adviceMap: () => ({ get: () => undefined })
+      };
+      Reflect.set(lazy.TransactionRequest, 'deserialize', jest.fn(() => request));
+      const bytes = new Uint8Array([4, 19, 28]);
+      await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, true))).rejects.toBe(original);
+      const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+      expect(snapshotCrashDiagnostics(original)).toMatchObject({
+        executionRoute: 'ordinary_new_transaction',
+        authObservation: shape === 'read_failed' ? 'read_failed' : 'observed',
+        authArgPresence: shape === 'absent' ? 'absent' : shape === 'read_failed' ? 'unavailable' : 'present',
+        authLayout: shape === 'read_failed' ? 'unavailable' : shape,
+        commitmentMatch: 'unavailable',
+        accountAuthCode: 'unavailable'
+      });
+      expect(harness.executeRequest).toHaveBeenCalledTimes(1);
+      expect(harness.executeRequest).toHaveBeenCalledWith('acct', request);
+      expect(lazy.TransactionRequest.deserialize).toHaveBeenCalledTimes(1);
+      expect(lazy.TransactionRequest.deserialize).toHaveBeenCalledWith(bytes);
+      expect(bytes).toEqual(new Uint8Array([4, 19, 28]));
+      expect(harness.transport.prove).not.toHaveBeenCalled();
+      expect(harness.submitProven).not.toHaveBeenCalled();
+    }
+  );
+
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
