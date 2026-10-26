@@ -2,7 +2,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, mkdtemp, open, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, open, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,12 +35,13 @@ const values = new Map(
     'version-code',
     'edit-id',
     'release-policy',
+    'screenshots-root',
     'release-notes',
     'confirm'
   ].map(name => [name, name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())])
 );
 const flags = new Map(
-  ['allow-pending-changes', 'confirm-new-edit', 'dry-run'].map(name => [
+  ['allow-pending-changes', 'confirm-new-edit', 'dry-run', 'preserve-legacy-screenshots'].map(name => [
     name,
     name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())
   ])
@@ -55,9 +56,11 @@ export function parseArgs(argv) {
   const [platform, action, ...rest] = argv;
   if (
     !Object.hasOwn(origins, platform) ||
-    !['status', 'upload', 'submit', 'release', 'begin-edit', 'prepare'].includes(action)
+    !['status', 'upload', 'submit', 'release', 'begin-edit', 'prepare', 'sync-screenshots'].includes(action)
   ) {
-    throw new Error('Usage: cli.mjs <chrome|ios|android> <status|upload|submit|release|begin-edit|prepare> [options]');
+    throw new Error(
+      'Usage: cli.mjs <chrome|ios|android> <status|upload|submit|release|begin-edit|prepare|sync-screenshots> [options]'
+    );
   }
   const result = { platform, action, config: join(homedir(), '.config/wallet-publishing/config.json') };
   const seen = new Set();
@@ -84,6 +87,8 @@ function planFor(args, config) {
   const releaseNotes = apple.validateReleaseNotes(args.releaseNotes);
   if (releaseNotes !== undefined && (platform !== 'ios' || action !== 'submit'))
     throw new Error('Release notes are only supported for iOS submit');
+  if (args.preserveLegacyScreenshots && (args.version !== '1.17.7' || action === 'sync-screenshots'))
+    throw new Error('Legacy screenshot preservation applies only to existing 1.17.7 publishing, never synchronization');
   if ((action === 'begin-edit' && platform !== 'android') || (action === 'prepare' && platform !== 'ios')) {
     throw new Error('The selected platform does not support that publishing action');
   }
@@ -144,7 +149,7 @@ function planFor(args, config) {
       options.releasePolicy = args.releasePolicy ?? 'after-approval';
       options.releaseNotes = releaseNotes ?? apple.DEFAULT_RELEASE_NOTES;
     }
-    if ((mutation && action !== 'prepare') || args.buildNumber !== undefined) {
+    if ((mutation && !['prepare', 'sync-screenshots'].includes(action)) || args.buildNumber !== undefined) {
       if (!/^\d+(?:\.\d+){0,2}$/.test(args.buildNumber ?? ''))
         throw new Error('An explicit Apple build number is required');
       options.buildNumber = args.buildNumber;
@@ -155,12 +160,15 @@ function planFor(args, config) {
     identity = section.packageName;
     storeId = identity;
     options.packageName = identity;
-    if ((mutation && action !== 'begin-edit') || args.versionCode !== undefined) {
+    if ((mutation && !['begin-edit', 'sync-screenshots'].includes(action)) || args.versionCode !== undefined) {
       if (!/^[1-9]\d*$/.test(args.versionCode ?? '') || !Number.isSafeInteger(Number(args.versionCode)))
         throw new Error('An explicit positive Android version code is required');
       options.versionCode = Number(args.versionCode);
     }
-    if (['upload', 'submit'].includes(action) || (action === 'status' && args.editId !== undefined)) {
+    if (
+      ['upload', 'submit', 'sync-screenshots'].includes(action) ||
+      (action === 'status' && args.editId !== undefined)
+    ) {
       if (!/^[A-Za-z0-9_-]+$/.test(args.editId ?? ''))
         throw new Error('An explicit caller-owned Play edit ID is required');
       options.editId = args.editId;
@@ -537,17 +545,142 @@ async function authenticatedClient(plan, artifact, dependencies) {
   };
 }
 
+async function verifyScreenshotSource({ root, version, sourceSha, paths }) {
+  try {
+    const execute = promisify(execFile);
+    const result = await execute('git', ['-C', root, 'rev-parse', '--show-toplevel', 'HEAD'], {
+      timeout: 10000,
+      maxBuffer: 1024 * 1024
+    });
+    const [top, revision] = result.stdout.trim().split('\n');
+    if ((await realpath(top)) !== (await realpath(root)) || revision !== sourceSha) throw new Error('Source mismatch');
+    const status = await execute(
+      'git',
+      [
+        '-C',
+        root,
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--',
+        'store-listing',
+        'package.json',
+        'public/manifest.json'
+      ],
+      { timeout: 10000, maxBuffer: 1024 * 1024 }
+    );
+    if (status.stdout.trim()) throw new Error('Screenshot source has local changes');
+    // Literal pathspecs stop a manifest path such as `0*.png` from matching a tracked sibling.
+    if (paths.length)
+      await execute('git', ['-C', root, '--literal-pathspecs', 'ls-files', '--error-unmatch', '--', ...paths], {
+        timeout: 10000,
+        maxBuffer: 1024 * 1024
+      });
+    for (const name of ['package.json', 'public/manifest.json'])
+      if (document(await regularFile(join(root, name), { limit: 1024 * 1024 })).version !== version)
+        throw new Error('Source version mismatch');
+  } catch {
+    throw new Error(
+      'Screenshot source must be the exact release checkout with clean tracked canonical assets and matching package versions'
+    );
+  }
+}
+
+async function screenshotPlan(args, plan, dependencies) {
+  if (!plan.mutation) return undefined;
+  if (!args.screenshotsRoot) {
+    if (args.preserveLegacyScreenshots && plan.version === '1.17.7' && plan.action !== 'sync-screenshots')
+      return { legacyPreserved: true };
+    throw new Error('An exact release --screenshots-root is required before publishing');
+  }
+  const root = expand(args.screenshotsRoot);
+  const verifySource = dependencies.verifyScreenshotSource ?? verifyScreenshotSource;
+  let manifest;
+  try {
+    const load =
+      dependencies.loadScreenshotManifest ?? (await import('../store-listing/screenshots.mjs')).loadScreenshotManifest;
+    manifest = await load({
+      root,
+      manifestPath: 'store-listing/screenshots.json',
+      rulesPath: 'store-listing/store-rules.json'
+    });
+  } catch (error) {
+    if (
+      error.code === 'SCREENSHOT_MANIFEST_MISSING' &&
+      args.preserveLegacyScreenshots &&
+      plan.version === '1.17.7' &&
+      plan.action !== 'sync-screenshots'
+    ) {
+      await verifySource({ root, version: plan.version, sourceSha: plan.sourceSha, paths: [] });
+      return { legacyPreserved: true };
+    }
+    throw error;
+  }
+  await verifySource({
+    root,
+    version: plan.version,
+    sourceSha: plan.sourceSha,
+    paths: [
+      'store-listing/screenshots.json',
+      'store-listing/store-rules.json',
+      ...new Set(manifest.sets.flatMap(set => set.images.map(image => image.path)))
+    ]
+  });
+  const sets = manifest.sets.filter(set => set.platform === plan.platform && set.storeId === plan.storeId);
+  if (!sets.length) throw new Error('Canonical screenshot manifest has no sets for the selected store target');
+  return {
+    root,
+    sets,
+    baselineSets: manifest.baselineSets?.filter(set => set.platform === plan.platform && set.storeId === plan.storeId),
+    manifestSha256: manifest.manifestSha256
+  };
+}
+
+async function verifyScreenshotEdit(plan, dependencies) {
+  const edit = await (dependencies.loadAndroidEdit ?? loadAttestation)(join(plan.stateDir, 'android-edit.json'));
+  const now = (dependencies.nowSeconds ?? (() => Math.floor(Date.now() / 1000)))();
+  if (
+    !edit ||
+    edit.packageName !== plan.identity ||
+    edit.editId !== plan.options.editId ||
+    ['version', 'network', 'sourceSha'].some(key => edit[key] !== plan[key]) ||
+    !/^[0-9]+$/.test(String(edit.expiryTimeSeconds ?? '')) ||
+    Number(edit.expiryTimeSeconds) <= now
+  )
+    throw new Error('Screenshot synchronization requires the exact restored caller-owned unexpired Play edit');
+}
+
+function screenshotSummary(result, plan) {
+  const summary = { platform: plan.platform, storeId: plan.storeId, version: plan.version };
+  for (const key of ['changed', 'matches', 'consoleRequired', 'actionRequired', 'state'])
+    if (['string', 'boolean'].includes(typeof result?.[key])) summary[key] = result[key];
+  for (const key of ['updatedSets', 'assets'])
+    if (Array.isArray(result?.[key]))
+      summary[key] = result[key].map(value =>
+        Object.fromEntries(
+          ['locale', 'displayType', 'count', 'path', 'sha256']
+            .filter(field => ['string', 'number'].includes(typeof value[field]))
+            .map(field => [field, value[field]])
+        )
+      );
+  return summary;
+}
+
 export async function run(argv, dependencies = {}) {
   const args = parseArgs(argv);
   if (args.help)
-    return 'Usage: cli.mjs <chrome|ios|android> <status|upload|submit|release|begin-edit|prepare> [options]\nMutations require --version X.Y.Z --network NAME --source-sha SHA --confirm X.Y.Z. Uploads require --artifact FILE --receipt FILE. Use --dry-run before authorization.';
+    return 'Usage: cli.mjs <chrome|ios|android> <status|upload|submit|release|begin-edit|prepare|sync-screenshots> [options]\nMutations require --version X.Y.Z --network NAME --source-sha SHA --confirm X.Y.Z. Uploads require --artifact FILE --receipt FILE. Use --dry-run before authorization.';
   const config = await (
     dependencies.readConfig ??
     (async path => document(await regularFile(path, { privateFile: true, limit: 1024 * 1024 })))
   )(expand(args.config));
   const plan = planFor(args, config);
   const artifact = plan.needsArtifact ? await verifyArtifact(plan, args, dependencies) : undefined;
-  const path = plan.mutation && !['begin-edit', 'prepare'].includes(plan.action) ? recordPath(plan) : undefined;
+  const screenshots = await screenshotPlan(args, plan, dependencies);
+  const path =
+    plan.mutation && !['begin-edit', 'prepare', 'sync-screenshots'].includes(plan.action)
+      ? recordPath(plan)
+      : undefined;
   let uploadSession;
   let rollover = false;
   const chromeSessionPath =
@@ -582,6 +715,8 @@ export async function run(argv, dependencies = {}) {
     else if (!artifact) verifyAttestation(plan, existing);
   };
   if (args.dryRun) {
+    if (plan.platform === 'android' && plan.action === 'sync-screenshots')
+      await verifyScreenshotEdit(plan, dependencies);
     await restoreSession();
     await verifyPreviousUpload();
     return {
@@ -603,7 +738,32 @@ export async function run(argv, dependencies = {}) {
   const operation = async () => {
     await restoreSession();
     await verifyPreviousUpload();
+    if (plan.platform === 'android' && plan.action === 'sync-screenshots')
+      await verifyScreenshotEdit(plan, dependencies);
+    const screenshotOperations =
+      plan.action === 'sync-screenshots' ||
+      (plan.action === 'submit' && plan.platform !== 'chrome' && !screenshots?.legacyPreserved)
+        ? (dependencies.screenshotOperations ?? (await import('./screenshots.mjs')))
+        : undefined;
+    const screenshotOptions = { platform: plan.platform, ...plan.options, ...screenshots };
+    if (plan.platform === 'chrome' && plan.action === 'sync-screenshots')
+      return screenshotSummary(
+        await screenshotOperations.syncScreenshots(undefined, { ...screenshotOptions, allowWrites: true }),
+        plan
+      );
     const client = await authenticatedClient(plan, artifact, dependencies);
+    if (plan.action === 'sync-screenshots')
+      return screenshotSummary(
+        await screenshotOperations.syncScreenshots(client, { ...screenshotOptions, allowWrites: true }),
+        plan
+      );
+    if (plan.action === 'submit' && plan.platform !== 'chrome' && !screenshots?.legacyPreserved) {
+      const verified = await screenshotOperations.verifyScreenshots(client, screenshotOptions);
+      if (verified.matches !== true)
+        throw new Error(
+          'Remote screenshots do not match canonical release assets; inspect drift and use explicit sync-screenshots before submission'
+        );
+    }
     if (plan.action === 'begin-edit') {
       const result = await client.request(
         'POST',
