@@ -12,7 +12,7 @@ import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type Unavaila
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
-import type { GeoLookup } from './geo';
+import type { FeatureEligibility, GeoLookup, StartupEligibilityDiagnostics, StartupEligibilityReason } from './geo';
 import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
@@ -469,23 +469,46 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
   startupGeo = { state: 'loading' };
   startupEligibility = (async (): Promise<GeoLookup> => {
     let geo: GeoLookup;
+    const diagnostics: StartupEligibilityDiagnostics = {
+      startupEligibilityStage: 'config_initialization',
+      startupEligibilityReason: 'config_unavailable',
+      startupEligibilityRetry: 'not_attempted'
+    };
+    const onFailure = (reason: StartupEligibilityReason) => {
+      diagnostics.startupEligibilityReason = reason;
+    };
     try {
       const snapshot = await ensureBridgeConfig();
-      let decision = snapshot.config ? await lookupFeatureEligibility(snapshot.network, snapshot.config.version) : null;
+      let decision: FeatureEligibility | null = null;
+      if (snapshot.config) {
+        diagnostics.startupEligibilityStage = 'eligibility_lookup';
+        diagnostics.startupEligibilityReason = 'unexpected';
+        decision = await lookupFeatureEligibility(snapshot.network, snapshot.config.version, { onFailure });
+      }
       if (!decision && snapshot.config) {
         const state = states.get(snapshot.network);
         if (state) {
-          // Pair policy with the document accepted during this lookup, not a newer response in flight.
           await startRefresh(state);
           const refreshed = state.snapshot;
           if (refreshed.config && refreshed.config.version > snapshot.config.version) {
-            decision = await lookupFeatureEligibility(refreshed.network, refreshed.config.version);
+            diagnostics.startupEligibilityStage = 'eligibility_retry';
+            diagnostics.startupEligibilityReason = 'unexpected';
+            diagnostics.startupEligibilityRetry = 'retry_failed';
+            decision = await lookupFeatureEligibility(refreshed.network, refreshed.config.version, { onFailure });
+          } else if (refreshed.lastFetch?.ok === false) {
+            diagnostics.startupEligibilityStage = 'config_refresh';
+            diagnostics.startupEligibilityReason = 'config_unavailable';
+            diagnostics.startupEligibilityRetry = 'refresh_failed';
+          } else {
+            diagnostics.startupEligibilityRetry = 'config_not_advanced';
           }
         }
       }
-      geo = decision ? { state: 'ready', ...decision } : { state: 'failed' };
+      geo = decision ? { state: 'ready', ...decision } : { state: 'failed', diagnostics: { ...diagnostics } };
     } catch {
-      geo = { state: 'failed' };
+      diagnostics.startupEligibilityReason =
+        diagnostics.startupEligibilityStage === 'config_initialization' ? 'config_initialization_failed' : 'unexpected';
+      geo = { state: 'failed', diagnostics: { ...diagnostics } };
     }
     startupGeo = geo;
     states.forEach(state => publish(state));
