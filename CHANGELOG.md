@@ -7,6 +7,7 @@
 ### Changes
 
 - [CHANGE][all] Transaction confirmations show the available input and output notes as an account flow, with verified note types, fee notes, named storage-slot changes and explicit gaps for partial note data (#1936).
+- [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
