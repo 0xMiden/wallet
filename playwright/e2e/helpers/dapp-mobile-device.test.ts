@@ -437,6 +437,27 @@ describe('iOS native typing', () => {
     ]);
   });
 
+  it('does not tap shift on a stale uppercase read taken before the keyboard drops to lowercase', async () => {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run: IdbRun = async (udid, args) => {
+      calls.push([udid, ...args]);
+      if (!args.includes('describe-all')) return '';
+      reads += 1;
+      // Read 2 is stale: the keyboard has not yet dropped to lowercase after the first capital.
+      return iosTypingTree(reads <= 2 ? 'upper' : 'lower');
+    };
+    const device = iosDevice([{ udid: 'sim-a', settleNotificationPrompt: async () => ({ answered: true }) }], run);
+
+    await expect(device.typeText('A', 'Na')).resolves.toBeUndefined();
+
+    const lowerA = iosKeys('lower').find(key => key.AXLabel === 'a');
+    expect(calls.filter(call => call[2] === 'tap').map(call => call.slice(5))).toEqual([
+      ['281', '725'],
+      center(lowerA?.frame)
+    ]);
+  });
+
   it('fails closed when shift does not reveal the lowercase key', async () => {
     const keyboard = simulatedKeyboard(mode => mode);
 
