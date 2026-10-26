@@ -435,3 +435,25 @@ describe('background.ts — Safari browser action', () => {
     expect(warnSpy).toHaveBeenCalledWith('[Background] Could not open the full page:', err);
   });
 });
+
+
+describe('sidebar-primary toolbar migration', () => {
+  it.each([{}, { sidepanel_mode: false }, { sidepanel_mode: true }])('does not let an old preference choose popup %p', async saved => {
+    const chrome = makeChromeStub(saved, 'resolve');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+    expect(chrome.action.setPopup).toHaveBeenCalledWith({ popup: '' });
+    expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ sidepanel_mode: false });
+  });
+  it('sidebar failure permits popup fallback without disabling the next startup retry', async () => {
+    const chrome = makeChromeStub({}, 'reject');
+    loadBackground({ target: 'chrome', chrome }); await flush();
+    expect(chrome.action.setPopup).toHaveBeenCalledWith({ popup: 'popup.html' });
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ sidepanel_mode: false });
+    const recovered = makeChromeStub({ sidepanel_mode: false }, 'resolve');
+    loadBackground({ target: 'chrome', chrome: recovered }); await flush();
+    expect(recovered.action.setPopup).toHaveBeenCalledWith({ popup: '' });
+    expect(recovered.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+  });
+});

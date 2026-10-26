@@ -914,3 +914,10 @@ describe('app/PageRouter - encoded route parameters', () => {
     expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
   });
 });
+
+
+it('unfinished onboarding from an action popup opens its full-page surface after hydration', () => {
+  renderAt('/some/not-ready/path', { popup: true, fullPage: false, locked: false, ready: false, hydrated: true });
+  expect(screen.getByTestId('open-in-full-page')).toBeInTheDocument();
+  expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+});
