@@ -27,11 +27,11 @@ on:
         type: choice
         options: [testnet, mainnet, devnet]
       producer_run_id:
-        description: Successful build-store-artifacts.yml run (upload/submit/release)
+        description: Successful producer run (also required for Android edit inspection)
         required: false
         type: string
       state_run_id:
-        description: Previous state run (submit/release/Android upload/Chrome resume)
+        description: Previous state run (also required for Android edit inspection)
         required: false
         type: string
       build_number:
@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       edit_id:
-        description: Exact caller-owned Play edit (Android upload/submit)
+        description: Exact caller-owned Play edit (Android upload/submit or read-only status)
         required: false
         type: string
       acknowledgement:

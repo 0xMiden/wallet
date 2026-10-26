@@ -152,10 +152,11 @@ function planFor(args, config) {
         throw new Error('An explicit positive Android version code is required');
       options.versionCode = Number(args.versionCode);
     }
-    if (['upload', 'submit'].includes(action)) {
+    if (['upload', 'submit'].includes(action) || (action === 'status' && args.editId !== undefined)) {
       if (!/^[A-Za-z0-9_-]+$/.test(args.editId ?? ''))
         throw new Error('An explicit caller-owned Play edit ID is required');
       options.editId = args.editId;
+      if (action === 'status') options.inspectEdit = true;
     }
     if (args.allowPendingChanges) options.allowPendingChanges = true;
   }
