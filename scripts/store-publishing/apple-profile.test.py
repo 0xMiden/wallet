@@ -10,7 +10,7 @@ PROFILE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PROFILE)
 NOW = dt.datetime(2026, 10, 26, tzinfo=dt.timezone.utc)
 CERT = b'distribution-certificate-fixture'
-IDENTITIES = {hashlib.sha1(CERT).hexdigest()}
+IDENTITIES = {'813d3260d0db9139fcd861f64bfa83fc4bb6a4284ddc88bf1ecc3b6a2e11c4df'}
 
 
 def valid():
