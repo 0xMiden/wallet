@@ -318,7 +318,7 @@ export async function upload(client, options = {}) {
   return uploadMedia(client, options);
 }
 
-/** Submit for staged approval, preserving an already matching active submission. */
+/** Submit for automatic publication after approval, preserving a matching active submission. */
 export async function submit(client, options = {}) {
   mediaCheck(options);
   if (options.uploadSession) {
@@ -355,15 +355,21 @@ export async function submit(client, options = {}) {
     : await uploadMedia(client, options);
   if (uploaded.uploadState !== 'SUCCEEDED') return uploaded;
   await saveSession(options, { state: 'submission-requested' });
-  const result = await publish(client, options, 'STAGED_PUBLISH', ['PENDING_REVIEW', 'STAGED']);
+  const result = await publish(client, options, 'DEFAULT_PUBLISH', ['PENDING_REVIEW', 'PUBLISHED']);
   const confirmed = await status(client, options);
   policyCheck(confirmed);
-  if (!activeStates.has(confirmed.submittedItemRevisionStatus?.state))
+  const alreadyPublic =
+    confirmed.publishedItemRevisionStatus?.state === 'PUBLISHED' &&
+    confirmed.publishedItemRevisionStatus.distributionChannels.some(channel => channel.crxVersion === options.version);
+  if (alreadyPublic) exactRevision(confirmed.publishedItemRevisionStatus, options.version);
+  else if (confirmed.submittedItemRevisionStatus?.state === 'PENDING_REVIEW')
+    exactRevision(confirmed.submittedItemRevisionStatus, options.version);
+  else
     throw new Error('Chrome submitted revision is not yet confirmed; preserve the submission journal');
-  exactRevision(confirmed.submittedItemRevisionStatus, options.version);
   await saveSession(options, { state: 'submitted' });
   return {
     ...result,
+    state: alreadyPublic ? 'PUBLISHED' : 'PENDING_REVIEW',
     submittedRevisionVerified: true,
     ...(uploaded.completionEvidence ? { completionEvidence: uploaded.completionEvidence } : {})
   };
