@@ -4391,3 +4391,167 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
     }
   });
 });
+
+describe('closed execution error transport', () => {
+  it.each(['unknown_value', 'wrong_route', 'throwing_getter'])(
+    'ignores %s metadata and preserves the reconstructed failure',
+    async kind => {
+      const { midenClientProxy } = await loadProxy(true);
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+        const payload = {
+          executionRoute: kind === 'wrong_route' ? 'guardian_signed_request' : 'ordinary_new_transaction',
+          authObservation: 'observed',
+          authArgPresence: 'present',
+          authLayout: 'fee',
+          commitmentMatch: kind === 'unknown_value' ? 'private 0xabcdef' : 'fee',
+          accountAuthCode: 'unavailable'
+        };
+        const response = {
+          ok: false,
+          op_id: env.op_id,
+          error: 'unchanged original rejection',
+          errorTransactionExecution: payload
+        };
+        if (kind === 'throwing_getter')
+          Object.defineProperty(response, 'errorTransactionExecution', {
+            get: () => {
+              throw new Error('private diagnostic getter');
+            }
+          });
+        return response;
+      });
+      const running = midenClientProxy
+        .newTransaction('acct', new Uint8Array([1, 2]), false, async () => new Uint8Array())
+        .catch(error => error);
+      await flush();
+      fireReady();
+      const error: unknown = await running;
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toMatchObject({ message: "Offscreen call 'newTransaction' failed: unchanged original rejection" });
+      const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
+  );
+
+  it.each([true, false])('binds execution observations to the response op (matched: %s)', async matched => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: matched ? env.op_id : 'an-old-op',
+      error: 'private original failure account 0xabcdef',
+      errorTransactionExecution: {
+        executionRoute: 'ordinary_new_transaction',
+        authObservation: 'observed',
+        authArgPresence: 'present',
+        authLayout: 'missing_preimage',
+        commitmentMatch: 'unavailable',
+        accountAuthCode: 'unavailable',
+        rawRequest: 'private request bytes'
+      }
+    }));
+    const running = midenClientProxy
+      .newTransaction('acct', new Uint8Array([1, 2]), false, async () => new Uint8Array())
+      .catch(error => error);
+    await flush();
+    fireReady();
+    const error: unknown = await running;
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(error)).toEqual(
+      matched
+        ? {
+            executionRoute: 'ordinary_new_transaction',
+            authObservation: 'observed',
+            authArgPresence: 'present',
+            authLayout: 'missing_preimage',
+            commitmentMatch: 'unavailable',
+            accountAuthCode: 'unavailable'
+          }
+        : {}
+    );
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('ignores otherwise valid execution metadata for an unrelated response method', async () => {
+  const { __test } = await loadProxy(true);
+  fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+    ok: false,
+    op_id: env.op_id,
+    error: 'original send rejection',
+    errorTransactionExecution: {
+      executionRoute: 'ordinary_new_transaction',
+      authObservation: 'observed',
+      authArgPresence: 'present',
+      authLayout: 'fee',
+      commitmentMatch: 'fee',
+      accountAuthCode: 'unavailable'
+    }
+  }));
+  const running = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((error: unknown) => error);
+  await flush();
+  fireReady();
+  const error = await running;
+  expect(error).toMatchObject({ message: "Offscreen call 'sendTransaction' failed: original send rejection" });
+  const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+  expect(snapshotCrashDiagnostics(error)).toEqual({});
+});
+
+it('a deadline and late valid execution payload cannot decorate the abort or its successor', async () => {
+  jest.useFakeTimers();
+  try {
+    const { __test, markOpStarted } = await loadProxy(true);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    const pending: Array<(response: unknown) => void> = [];
+    fakeChrome.runtime.sendMessage.mockImplementation(() => new Promise(resolve => pending.push(resolve)));
+    const expired = __test.dispatchCritical('newTransaction', ['acct', new Uint8Array([1]), false], 20);
+    const expiredResult = expired.promise.catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(0);
+    fireReady();
+    await jest.advanceTimersByTimeAsync(0);
+    markOpStarted(expired.op_id);
+    await jest.advanceTimersByTimeAsync(21);
+    fireReady();
+    await jest.advanceTimersByTimeAsync(0);
+    const abort = await expiredResult;
+    expect(abort).toBeInstanceOf(OperationAbortedError);
+    expect(snapshotCrashDiagnostics(abort)).toEqual({});
+    const successor = __test.dispatchCritical('newTransaction', ['acct', new Uint8Array([2]), false], null);
+    let settled = false;
+    const successorResult = successor.promise.catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    const oldReply = pending[0];
+    if (!oldReply) throw new Error('old operation never dispatched');
+    oldReply({
+      ok: false,
+      op_id: expired.op_id,
+      error: 'late original failure',
+      errorTransactionExecution: {
+        executionRoute: 'ordinary_new_transaction',
+        authObservation: 'observed',
+        authArgPresence: 'present',
+        authLayout: 'fee',
+        commitmentMatch: 'fee',
+        accountAuthCode: 'unavailable'
+      }
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    expect(__test.inFlightSize()).toBe(1);
+    expect(snapshotCrashDiagnostics(abort)).toEqual({});
+    const currentReply = pending[1];
+    if (!currentReply) throw new Error('successor never dispatched');
+    currentReply({ ok: false, op_id: successor.op_id, error: 'current original failure' });
+    await jest.advanceTimersByTimeAsync(0);
+    const error = await successorResult;
+    expect(error).toMatchObject({ message: "Offscreen call 'newTransaction' failed: current original failure" });
+    expect(snapshotCrashDiagnostics(error)).toEqual({});
+    expect(__test.inFlightSize()).toBe(0);
+    expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
