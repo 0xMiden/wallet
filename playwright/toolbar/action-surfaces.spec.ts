@@ -205,25 +205,33 @@ for (const theme of ['light', 'dark'] as const) {
       for (const extensionPage of context.pages().filter(item => item.url().startsWith(`chrome-extension://${id}/`)))
         await extensionPage.close();
       const protocol = await context.newCDPSession(ordinary);
+      await worker.evaluate(() => Reflect.set(globalThis, '__toolbarBeforeStop', true));
       let versionId = '';
+      let runningStatus = '';
       let sawStopped = false;
       protocol.on('ServiceWorker.workerVersionUpdated', event => {
         for (const version of event.versions) {
           if (version.scriptURL === worker.url()) {
-            versionId = version.versionId;
-            if (version.runningStatus === 'stopped') sawStopped = true;
+            if (!versionId && version.runningStatus === 'running') versionId = version.versionId;
+            if (version.versionId === versionId) {
+              runningStatus = version.runningStatus;
+              if (runningStatus === 'stopped') sawStopped = true;
+            }
           }
         }
       });
       await protocol.send('ServiceWorker.enable');
       await expect.poll(() => versionId).not.toBe('');
-      const restarted = context.waitForEvent('serviceworker', { timeout: 30000 });
-      void restarted.catch(() => undefined);
+      sawStopped = false;
       await protocol.send('ServiceWorker.stopWorker', { versionId });
       await expect.poll(() => sawStopped).toBe(true);
       const control = await context.newPage();
       await control.goto(`chrome-extension://${id}/fullpage.html`);
-      worker = await restarted;
+      await expect.poll(() => runningStatus, { timeout: 30000 }).toBe('running');
+      worker = context.serviceWorkers().find(item => new URL(item.url()).host === id)!;
+      await expect
+        .poll(() => worker.evaluate(() => Reflect.get(globalThis, '__toolbarBeforeStop')), { timeout: 30000 })
+        .toBeUndefined();
       await observePanel();
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
       await expect
