@@ -1,0 +1,30 @@
+name: Transaction execution diagnostic mutation proof
+on:
+  push:
+    branches: [ci/sentry-tx-diagnostics-mutations-v2-fab089e92]
+permissions:
+  contents: read
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bind frozen source
+        run: |
+          git show -s --format='%H %T %P' HEAD
+          git diff --exit-code fab089e925cb359b4f3117fe2cd9a48ca684812c HEAD -- . ':!.github/workflows/sentry-tx-proof.yml' ':!.github/tx-diagnostic-mutations.py'
+      - uses: ./.github/actions/yarn-install
+      - name: Remove observer, IPC and proposal boundaries independently
+        run: python3 .github/tx-diagnostic-mutations.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tx-diagnostic-mutation-proof
+          path: mutation-proof/
+          if-no-files-found: error
