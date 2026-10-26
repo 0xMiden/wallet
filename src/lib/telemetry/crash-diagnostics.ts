@@ -24,6 +24,18 @@ import {
   type BridgeSourceRoute
 } from './bridge-receive-failure';
 import {
+  annotateGuardianProving,
+  snapshotGuardianProving,
+  type GuardianProvingDiagnostics
+} from './guardian-proving-diagnostics';
+import { snapshotOffscreenDeadlineForCrash, type OffscreenDeadlineDiagnostics } from './offscreen-deadline-diagnostics';
+import {
+  clearProposalCreateDiagnostics,
+  snapshotProposalCreateDiagnostics,
+  type ProposalCreateDiagnostics
+} from './proposal-create-diagnostics';
+import { snapshotTerminalReport, type TerminalReportDiagnostics } from './terminal-report-diagnostics';
+import {
   annotateTransactionExecution,
   snapshotTransactionExecution,
   EXECUTION_DIAGNOSTIC_KEYS,
@@ -154,7 +166,10 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
 ];
 export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
-export type CrashDiagnostics = Partial<TransactionExecutionDiagnostics> &
+export type CrashDiagnostics = Partial<
+  ProposalCreateDiagnostics & GuardianProvingDiagnostics & OffscreenDeadlineDiagnostics & TerminalReportDiagnostics
+> &
+  Partial<TransactionExecutionDiagnostics> &
   WasmStartupEvidence &
   Partial<StartupEligibilityDiagnostics> & {
     operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
@@ -302,6 +317,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       guardianSigningKey: suppliedSigningKey,
       hotKeyRotationPending: suppliedRotationPending
     } = diagnostics;
+    if (suppliedStep !== undefined || suppliedCompletionStep !== undefined) annotateGuardianProving(error, undefined);
+    if ((suppliedStep !== undefined && suppliedStep !== 'proposal_create') || suppliedCompletionStep !== undefined)
+      clearProposalCreateDiagnostics(error);
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
     }
@@ -399,10 +417,17 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: () => Promise<T>): Promise<T> {
+async function annotatingRejection<T>(
+  diagnostics: CrashDiagnostics,
+  operation: () => Promise<T>,
+  onReject?: (error: unknown) => void
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
+    try {
+      onReject?.(error);
+    } catch {}
     annotateCrash(error, diagnostics);
     throw error;
   }
@@ -415,11 +440,13 @@ async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: 
 export function withProposalStep<T>(
   step: ProposalStep,
   operation: () => Promise<T>,
-  securityChange?: SecurityChangeAction
+  securityChange?: SecurityChangeAction,
+  onReject?: (error: unknown) => void
 ): Promise<T> {
   return annotatingRejection(
     securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange },
-    operation
+    operation,
+    onReject
   );
 }
 
@@ -541,6 +568,20 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   }
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
+  for (const key of [
+    'proposalCreateApi',
+    'proposalCreateFamily',
+    'guardianProvingSubstep',
+    'offscreenDeadlineMethod',
+    'offscreenDeadlineStage',
+    'queueAdmissionObservation',
+    'reapStartRelation'
+  ] as const)
+    delete snapshot[key];
+  if (snapshot.proposalStep === 'proposal_create') Object.assign(snapshot, snapshotProposalCreateDiagnostics(error));
+  Object.assign(snapshot, snapshotGuardianProving(error));
+  Object.assign(snapshot, snapshotOffscreenDeadlineForCrash(error));
+  Object.assign(snapshot, snapshotTerminalReport(error));
   return snapshot;
 }
 

@@ -159,11 +159,20 @@ it('names the signer facts beside the step on a Guardian authentication refusal,
   const loaded = await service();
   loaded.authFacts = facts;
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(refusal);
-  expect(snapshotCrashDiagnostics(refusal)).toEqual({ proposalStep: 'proposal_create', ...facts });
+  expect(snapshotCrashDiagnostics(refusal)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched',
+    ...facts
+  });
   const other = privateFailure();
   mockConsumeProposal.mockRejectedValueOnce(other);
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(other);
-  expect(snapshotCrashDiagnostics(other)).toEqual({ proposalStep: 'proposal_create' });
+  expect(snapshotCrashDiagnostics(other)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched'
+  });
 });
 
 it('names the signer facts on a Guardian authentication refusal while signing, for either signing path', async () => {
@@ -197,7 +206,11 @@ it('names the consume proposal rejection without wrapping the original Error', a
   mockConsumeProposal.mockRejectedValueOnce(error);
   const loaded = await service();
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(error);
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched'
+  });
 });
 
 it('keeps a reclaim build failure before persistence or proposal creation', async () => {
@@ -334,4 +347,26 @@ it.each([
     proposalCreateApi: 'consume_notes',
     proposalCreateFamily: family
   });
+});
+
+it('does not carry a reused consume rejection observation into later signing', async () => {
+  const loaded = await service();
+  const error = new Error('failed to get account: private');
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(['private'])).rejects.toBe(error);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalCreateFamily', 'sdk_account_read');
+  mockSignProposal.mockRejectedValueOnce(error);
+  await loaded.signAndCreateTransactionRequest('private-proposal').catch(() => {});
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('proposalCreateFamily');
+});
+
+it('clears an earlier inline proving observation when the same Error is rejected by creation', async () => {
+  const { annotateGuardianProving } = await import('lib/telemetry/guardian-proving-diagnostics');
+  const error = new Error('failed to get account: private');
+  annotateGuardianProving(error, { guardianProvingSubstep: 'prove_local' });
+  const loaded = await service();
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(['private'])).rejects.toBe(error);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalCreateFamily', 'sdk_account_read');
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('guardianProvingSubstep');
 });

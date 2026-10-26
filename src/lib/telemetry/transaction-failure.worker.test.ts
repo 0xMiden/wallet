@@ -1,10 +1,12 @@
 /** @jest-environment node */
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
 import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { captureCrash, stopCrashReporting } from './crash';
+import { annotateOffscreenDeadline } from './offscreen-deadline-diagnostics';
 import { reportTransactionFailure } from './transaction-failure';
 
 jest.mock('lib/settings/helpers', () => ({
@@ -260,4 +262,42 @@ it('sends none of a recovery phrase a report carries beside a closed name', asyn
   const wire = captured.join('\n');
   for (const word of ['avoid leave side', 'crush', 'gasp', 'student', 'interest']) expect(wire).not.toContain(word);
   expect(wire).not.toContain(name);
+});
+
+it('serializes only independent closed deadline queue and reap evidence without private producer values', async () => {
+  const privateValue = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
+  const abort = new OperationAbortedError(privateValue, 'deadline', {
+    started: true,
+    deadline: { owner: 'own', timer: 'started', killer: 'write' }
+  });
+  annotateOffscreenDeadline(abort, {
+    offscreenDeadlineMethod: 'guardianPipeline',
+    offscreenDeadlineStage: 'submitting'
+  });
+  reportTransactionFailure({ type: 'send', stage: 'proving', error: abort });
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'creating-proposal',
+    reason: 'queued_expired',
+    queueAdmissionObservation: 'in_progress_gate',
+    error: new Error(privateValue)
+  });
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'proving',
+    reason: 'stuck_reaped',
+    reap: { age: 'past_limit', attempt: 'not_started_here', startRelation: 'before_realm_cutoff' },
+    error: new Error(privateValue)
+  });
+  await settle();
+  expect(captured).toHaveLength(3);
+  const wire = captured.join('\n');
+  expect(wire).toContain('offscreenDeadlineMethod');
+  expect(wire).toContain('guardianPipeline');
+  expect(wire).toContain('submitting');
+  expect(wire).toContain('queueAdmissionObservation');
+  expect(wire).toContain('in_progress_gate');
+  expect(wire).toContain('reapStartRelation');
+  expect(wire).toContain('before_realm_cutoff');
+  expect(wire).not.toContain(privateValue);
 });

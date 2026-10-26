@@ -1,4 +1,4 @@
-import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianCache, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { clearGuardianAccountLocks, getGuardianCandidate } from 'lib/miden/guardian/serialize';
@@ -201,7 +201,7 @@ jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: async () => {},
   notifyBackgroundTransactionNotConfirmed: async () => {}
 }));
-jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: () => {}, reportProve: () => {} }));
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn(), reportProve: jest.fn() }));
 jest.mock('lib/telemetry/transaction-failure', () => ({
   __esModule: true,
   ...jest.requireActual('lib/telemetry/transaction-failure')
@@ -212,8 +212,8 @@ jest.mock('lib/settings/helpers', () => ({
 }));
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => false,
-  isExtension: () => true
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => true)
 }));
 
 const account: WalletAccount = {
@@ -435,7 +435,11 @@ it('reports the real consume proposal boundary once without changing terminal be
   expectTerminal(await run());
   expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
   await failureEvent('proposal_create');
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched'
+  });
 });
 
 it('sends the signer facts with a Guardian authentication refusal and no key, signature or identifier', async () => {
@@ -900,4 +904,150 @@ it('post-create sign_lock reaches actual cancellation and the real sanitized wir
   expect(mockSubmit).not.toHaveBeenCalled();
   await failureEventWith({ proposalStep: 'sign_lock' }, 'signing step signing_proposal');
   expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });
+});
+
+it.each(['extension', 'mobile'])(
+  'carries only the observed consume family through final serialization for %s',
+  async platform => {
+    const { isMobile, isExtension } = jest.requireMock('lib/platform');
+    isMobile.mockReturnValue(platform === 'mobile');
+    isExtension.mockReturnValue(platform === 'extension');
+    const error = Object.assign(privateFailure(), {
+      name: 'ConsumeNoteNotAuthenticatedError',
+      code: 'consume_notes_note_not_authenticated'
+    });
+    mockConsumeProposal.mockRejectedValueOnce(error);
+    expectTerminal(await run());
+    expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+    await failureEventWith(
+      {
+        proposalStep: 'proposal_create',
+        proposalCreateApi: 'consume_notes',
+        proposalCreateFamily: 'consume_note_authentication'
+      },
+      'stage signing'
+    );
+    expect(snapshotCrashDiagnostics(new Error('wrapper', { cause: error }))).not.toHaveProperty('proposalCreateFamily');
+    isMobile.mockReturnValue(false);
+    isExtension.mockReturnValue(true);
+  }
+);
+
+it.each(['local_prover_build', 'prove_local', 'proof_evidence'] as const)(
+  'observes only the escaping inline %s boundary',
+  async step => {
+    const error = privateFailure();
+    const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+    const prove = jest.fn(async () => {
+      throw error;
+    });
+    if (step === 'local_prover_build')
+      jest.spyOn(TransactionProver, 'newLocalProver').mockImplementationOnce(() => {
+        throw error;
+      });
+    else if (step === 'prove_local') mockExecute.mockResolvedValueOnce({ result, prove });
+    else
+      mockExecute.mockResolvedValueOnce({
+        get result() {
+          throw error;
+        },
+        prove: async () => ({
+          proof: {
+            nullifiers: () => [],
+            refBlockNumber: () => 1,
+            refBlockCommitment: () => accountRef('private'),
+            expirationBlockNumber: () => 2
+          },
+          submit: () => mockSubmit()
+        })
+      });
+    expect(await run()).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving' });
+    expectHookRejection(report, error);
+    expect(snapshotCrashDiagnostics(error)).toHaveProperty('guardianProvingSubstep', step);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await failureEventWith({ guardianProvingSubstep: step }, 'stage');
+  }
+);
+
+it('does not promote a swallowed proof accessor failure to terminal proving evidence', async () => {
+  const getter = jest.fn(() => {
+    throw privateFailure();
+  });
+  mockExecute.mockResolvedValueOnce({
+    result,
+    prove: async () => ({
+      proof: {
+        nullifiers: getter,
+        refBlockNumber: () => 1,
+        refBlockCommitment: () => accountRef('private'),
+        expirationBlockNumber: () => 2
+      },
+      submit: () => mockSubmit()
+    })
+  });
+  const stored = await run();
+  expect(stored?.status).toBe(ITransactionStatus.Completed);
+  expect(getter).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).toHaveBeenCalledTimes(1);
+  expect(requests).toHaveLength(0);
+});
+
+it('leaves a telemetry throw unobserved even when it reuses an earlier prove error', async () => {
+  const error = privateFailure();
+  const { annotateGuardianProving } = await import('lib/telemetry/guardian-proving-diagnostics');
+  annotateGuardianProving(error, { guardianProvingSubstep: 'prove_local' });
+  const telemetry = jest.requireMock('lib/telemetry/report-operation');
+  telemetry.reportProve.mockImplementationOnce(() => {
+    throw error;
+  });
+  expect(await run()).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving' });
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('guardianProvingSubstep');
+  expect(mockSubmit).not.toHaveBeenCalled();
+});
+
+it('observes a fallback constructor rejection without changing delegated calls', async () => {
+  const error = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  const prove = jest.fn(async () => {
+    throw new Error('remote rejection');
+  });
+  mockExecute.mockResolvedValueOnce({ result, prove });
+  jest.spyOn(TransactionProver, 'newLocalProver').mockImplementationOnce(() => {
+    throw error;
+  });
+  const transaction = { ...row(), delegateTransaction: true };
+  await Repo.transactions.put(transaction);
+  await generateTransaction(transaction, async () => new Uint8Array(), false, provider(account));
+  expect(report).not.toHaveBeenCalled();
+  expect(prove).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('guardianProvingSubstep', 'fallback_prover_build');
+  expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Queued);
+});
+
+it('reports the reliable submitting precondition rejection as its own boundary', async () => {
+  const error = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  const rejectCrossing = (changes: unknown) => {
+    if (
+      typeof changes === 'object' &&
+      changes !== null &&
+      Object.keys(changes).some(key => key === 'submitEvidence' || key.startsWith('submitEvidence.'))
+    )
+      throw error;
+  };
+  Repo.transactions.hook('updating', rejectCrossing);
+  try {
+    await run();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(snapshotCrashDiagnostics(report.mock.calls[0]?.[0].error)).toHaveProperty(
+      'guardianProvingSubstep',
+      'submitting_stage_write'
+    );
+    await failureEventWith({ guardianProvingSubstep: 'submitting_stage_write' }, 'stage');
+  } finally {
+    Repo.transactions.hook('updating').unsubscribe(rejectCrossing);
+  }
 });

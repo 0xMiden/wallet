@@ -9,6 +9,7 @@ import {
   isIndefiniteSubmitOutcomeError
 } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import type { QueueAdmissionObservation } from 'lib/miden/transaction/queue-admission-diagnostics';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
@@ -23,10 +24,16 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from './bridge-receive-failure';
 import { classifyError } from './classify';
+import { safeOwnDiagnosticData } from './closed-root-diagnostics';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { annotateGuardianProving, snapshotGuardianProving } from './guardian-proving-diagnostics';
+import { transferOffscreenDeadline } from './offscreen-deadline-diagnostics';
+import { transferProposalCreateDiagnostics } from './proposal-create-diagnostics';
 import assertions from './protocol-assertions.json';
+import type { ReapStartRelation } from './reap-start-diagnostics';
+import { annotateTerminalReport } from './terminal-report-diagnostics';
 import {
   AUTH_LAYOUTS,
   COMMITMENT_MATCHES,
@@ -265,6 +272,7 @@ export const EXECUTION_CAUSES = [
   'store',
   'rpc',
   'fetch_inputs',
+  'partial_blockchain_build',
   'block_after_reference',
   'account_not_in_store',
   'block_not_in_store',
@@ -334,6 +342,7 @@ export const REAP_AGES = ['missing_start', 'past_limit'] as const;
 export const REAPED_ATTEMPT_ORIGINS = ['started_here', 'not_started_here'] as const;
 
 export interface ReapSnapshot {
+  startRelation?: ReapStartRelation;
   age: (typeof REAP_AGES)[number];
   attempt: (typeof REAPED_ATTEMPT_ORIGINS)[number];
 }
@@ -396,6 +405,7 @@ export interface TransactionFailure {
   hiddenDuringSubmit?: boolean;
   /** Age bucket for a row that expired while queued; the timestamp and exact age are never reported. */
   queueAge?: QueueAgeBucket;
+  queueAdmissionObservation?: QueueAdmissionObservation;
   /** Whether this attempt's committed evidence shows that it reached the submit call. */
   submitCrossing?: (typeof SUBMIT_CROSSINGS)[number];
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -508,6 +518,7 @@ const EXECUTION_CAUSE_TEXT: ReadonlyArray<readonly [Exclude<ExecutionCause, 'oth
   ['store', /(?:^|: )storage error(?=:|$)/g],
   ['rpc', /(?:^|: )RPC error(?=:|$)/g],
   ['fetch_inputs', /failed to fetch transaction inputs from the data store/g],
+  ['partial_blockchain_build', /(?:^|: )error creating PartialBlockchain from internal data(?=:|$)/g],
   ['block_after_reference', /requested block \d+ is after transaction reference block \d+/g],
   ['account_not_in_store', /account with id \S+ not found in data store/g],
   ['block_not_in_store', /block with number \d+ not found in data store/g],
@@ -1001,6 +1012,17 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     delete inherited.reownPublished;
     delete inherited.reownBackgrounded;
     annotateCrash(report, inherited);
+    if (inherited.proposalStep === 'proposal_create') transferProposalCreateDiagnostics(failure.error, report);
+    annotateGuardianProving(report, snapshotGuardianProving(failure.error));
+    transferOffscreenDeadline(failure.error, report);
+    annotateTerminalReport(report, {
+      queueAdmissionObservation:
+        reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueAdmissionObservation') : undefined,
+      reapStartRelation:
+        reason === 'stuck_reaped'
+          ? safeOwnDiagnosticData(safeOwnDiagnosticData(failure, 'reap'), 'startRelation')
+          : undefined
+    });
     // Each is checked against its closed list there; a value the wallet does not define is dropped.
     const bridgeSource = failure.bridgeReceive;
     if (bridgeSource !== undefined) {

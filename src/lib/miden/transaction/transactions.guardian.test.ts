@@ -5078,9 +5078,8 @@ describe('generateTransaction — Guardian routing', () => {
     // BOTH the delegated (remote) prove AND the local fallback fail — a prover
     // outage the fallback can't rescue. The failure is at the 'proving' stage,
     // which runs BEFORE submit, so nothing reached the chain.
-    client.transactions.prove.mockRejectedValue(
-      new Error('failed to prove transaction: transport error: connection refused')
-    );
+    const fallbackFailure = new Error('failed to prove transaction: transport error: connection refused');
+    client.transactions.prove.mockRejectedValue(fallbackFailure);
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => {}),
@@ -5104,6 +5103,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     // Remote prove + local fallback both attempted, both failed.
     expect(client.transactions.prove).toHaveBeenCalledTimes(2);
+    expect(snapshotCrashDiagnostics(fallbackFailure)).toHaveProperty('guardianProvingSubstep', 'prove_fallback');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     // Requeued with a backoff — NOT terminal-failed — so the transfer completes
     // once the prover recovers; stage reset so the next cycle rebuilds from the top.
@@ -14732,4 +14732,75 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
+});
+
+it('records only directly examined admission decisions without extra eligibility reads', async () => {
+  jest.clearAllMocks();
+  txStore.length = 0;
+  mockGetMidenClient.mockResolvedValue({
+    client: makeClientApi(makeResult()),
+    syncState: jest.fn(async () => {}),
+    getAccount: jest.fn(async () => undefined)
+  });
+  mockGetOrCreateMultisigService.mockReset();
+  const { recordQueueAdmission, consumeQueueAdmission, pruneQueueAdmission } =
+    await import('./queue-admission-diagnostics');
+  pruneQueueAdmission([]);
+  const now = Math.floor(Date.now() / 1000);
+  const make = (id: string, fields: Record<string, unknown> = {}) => ({
+    id,
+    type: 'send',
+    accountId: 'guardian-acc',
+    secondaryAccountId: 'recipient',
+    faucetId: 'faucet',
+    amount: '1000',
+    status: ITransactionStatus.Queued,
+    initiatedAt: now,
+    queuedSeq: Number(id),
+    ...fields
+  });
+  const cooldown = jest.fn(() => now + 100),
+    recovery = jest.fn(() => {
+      throw new Error('must short circuit recovery');
+    }),
+    ready = jest.fn(() => undefined),
+    unexamined = jest.fn(() => {
+      throw new Error('must not examine after selected');
+    });
+  const rows = [make('1'), make('2', { awaitingRecoverySeed: true }), make('3'), make('4')];
+  for (const [index, getter] of [cooldown, recovery, ready, unexamined].entries())
+    Object.defineProperty(rows[index]!, 'nextEligibleAt', { get: getter });
+  for (const row of rows) txStore.push(row);
+  recordQueueAdmission(rows[3]!, 'selected');
+  let unblock!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => {
+      unblock = resolve;
+    }),
+    started = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+  mockGetOrCreateMultisigService.mockImplementationOnce(async () => {
+    entered();
+    await blocked;
+    throw new Error('stop after selected');
+  });
+  const running = generateTransactionsLoop(
+    jest.fn(async () => new Uint8Array()),
+    false,
+    makeGuardianProvider(true)
+  );
+  try {
+    await started;
+    expect(cooldown).toHaveBeenCalledTimes(2);
+    expect(recovery).not.toHaveBeenCalled();
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(unexamined).not.toHaveBeenCalled();
+    expect(consumeQueueAdmission(rows[0]!)).toBe('row_ineligible');
+    expect(consumeQueueAdmission(rows[1]!)).toBe('row_ineligible');
+    expect(consumeQueueAdmission(rows[2]!)).toBe('selected');
+    expect(consumeQueueAdmission(rows[3]!)).toBe('unavailable');
+  } finally {
+    unblock();
+    await running;
+  }
 });

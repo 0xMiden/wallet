@@ -73,6 +73,7 @@ import {
   type DiagnosticStep,
   type DiagnosticStepOutcome
 } from 'lib/telemetry/diagnostic-log';
+import { annotateGuardianProving, type GuardianProvingSubstep } from 'lib/telemetry/guardian-proving-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
 import {
   annotateTransactionExecution,
@@ -133,6 +134,7 @@ import {
   stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
+import { pruneQueueAdmission, recordQueueAdmission, type QueueAdmissionMember } from './queue-admission-diagnostics';
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
@@ -2383,6 +2385,11 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
   let execution = unobservedTransactionExecution('guardian_signed_request');
+  let escaped: { error: unknown; step: GuardianProvingSubstep } | undefined;
+  const observe = (error: unknown, step: GuardianProvingSubstep) => {
+    escaped = { error, step };
+    annotateGuardianProving(error, { guardianProvingSubstep: step });
+  };
   const runPipeline = async (hold: WasmLockHold) => {
     const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
@@ -2421,20 +2428,31 @@ const runGuardianPipeline = async (
       // prover on mobile (off the main thread via @miden/native-prover),
       // exactly like `proveWithFallback`'s localProverFactory and the
       // delegated fallback below; WASM local prover elsewhere.
-      const localProver = isMobile()
-        ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-        : TransactionProver.newLocalProver();
+      let localProver: ReturnType<typeof TransactionProver.newLocalProver>;
+      try {
+        localProver = isMobile()
+          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+          : TransactionProver.newLocalProver();
+      } catch (error) {
+        observe(error, 'local_prover_build');
+        throw error;
+      }
       // Reported like every other prove. This is the one that runs on mobile,
       // where there is no offscreen document and no delegation, so leaving it out
       // would make mobile the platform whose proves are invisible.
       // Local proving is deliberately unbounded — pause the lock watchdog for
       // its duration, exactly like proveWithFallback's local attempts (#775).
       const localStartedAt = performance.now();
+      let provePending = true;
       try {
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+        provePending = false;
         reportProve({ startedAt: localStartedAt, step: 'prove_local' });
       } catch (proveError) {
+        escaped = undefined;
+        annotateGuardianProving(proveError, undefined);
         reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+        if (provePending) observe(proveError, 'prove_local');
         throw proveError;
       }
     } else {
@@ -2459,6 +2477,7 @@ const runGuardianPipeline = async (
       // health — and this fallback exists precisely BECAUSE delegated proving was
       // failing under load, so it is the last path that should be silent about it.
       const proveStartedAt = performance.now();
+      let delegatedPending = true;
       try {
         // Safe to bound here in the strongest sense available: this pipeline drives
         // execute/prove/submit itself, so the deadline provably expires BEFORE any
@@ -2473,8 +2492,11 @@ const runGuardianPipeline = async (
           'Delegated guardian prove',
           () => assertStillHoldingLock(hold, 'before the remote re-prove')
         );
+        delegatedPending = false;
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
+        escaped = undefined;
+        annotateGuardianProving(proveError, undefined);
         // The delegated prove was the longest parking await in this hold, and the
         // fallback below is a WASM call on `executedTx` — an object borrowed from
         // the client's RefCell. If the watchdog evicted us while the delegated
@@ -2484,20 +2506,34 @@ const runGuardianPipeline = async (
         // checked before the fallback rather than only after it. Still pre-submit.
         assertStillHoldingLock(hold, 'before the local prove fallback');
         // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
-        if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
+        if (proveError instanceof WebAssembly.RuntimeError) {
+          if (delegatedPending) observe(proveError, 'prove_delegate');
+          throw proveError;
+        }
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         // The outage the fallback is covering for. `proveWithFallback` marks this
         // too, and without it a prover failing only on guardian operations would
         // raise no banner and produce no `service_prover` event.
         if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
-        const fallbackProver = isMobile()
-          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-          : TransactionProver.newLocalProver();
+        let fallbackProver: ReturnType<typeof TransactionProver.newLocalProver>;
+        try {
+          fallbackProver = isMobile()
+            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+            : TransactionProver.newLocalProver();
+        } catch (error) {
+          observe(error, 'fallback_prover_build');
+          throw error;
+        }
+        let fallbackPending = true;
         try {
           provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+          fallbackPending = false;
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
         } catch (fallbackError) {
+          escaped = undefined;
+          annotateGuardianProving(fallbackError, undefined);
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          if (fallbackPending) observe(fallbackError, 'prove_fallback');
           throw fallbackError;
         }
       }
@@ -2512,9 +2548,20 @@ const runGuardianPipeline = async (
     //
     // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
-    await setStage('submitting', {
-      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
-    });
+    let evidence: ReturnType<typeof readSubmitEvidence>;
+    try {
+      evidence = readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold);
+    } catch (error) {
+      observe(error, 'proof_evidence');
+      throw error;
+    }
+    try {
+      await setStage('submitting', { evidence });
+    } catch (error) {
+      observe(error, 'submitting_stage_write');
+      throw error;
+    }
+    escaped = undefined;
     assertStillHoldingLock(hold, 'before submit');
     if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
     onSubmitCallReached?.();
@@ -2533,6 +2580,7 @@ const runGuardianPipeline = async (
   try {
     return await withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
   } catch (error) {
+    annotateGuardianProving(error, escaped?.error === error ? { guardianProvingSubstep: escaped.step } : undefined);
     annotateTransactionExecution(error, execution);
     throw error;
   }
@@ -4550,7 +4598,11 @@ export const generateTransactionsLoop = async (
   guardianProvider: GuardianAccountProvider
 ): Promise<boolean | 'requeued' | void> => {
   await cancelStuckTransactions();
-  await cancelStaleQueuedTransactions();
+  let admissionMembers: readonly QueueAdmissionMember[] = [];
+  await cancelStaleQueuedTransactions(rows => {
+    admissionMembers = rows;
+    pruneQueueAdmission(rows);
+  });
 
   // Import any notes needed for queued transactions.
   //
@@ -4584,6 +4636,7 @@ export const generateTransactionsLoop = async (
   // Wait for other in progress transactions
   const inProgressTransactions = await getTransactionsInProgress();
   if (inProgressTransactions.length > 0) {
+    for (const member of admissionMembers) recordQueueAdmission(member, 'in_progress_gate');
     return;
   }
 
@@ -4600,6 +4653,7 @@ export const generateTransactionsLoop = async (
     (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
   );
   if (queuedTransactions.length === 0) {
+    pruneQueueAdmission([]);
     return;
   }
 
@@ -4610,7 +4664,14 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
+  const examined: QueueAdmissionMember[] = [];
+  const nextTransaction = queuedTransactions.find(tx => {
+    const ready = isQueuedRowReady(tx, now);
+    examined.push(tx);
+    recordQueueAdmission(tx, ready ? 'selected' : 'row_ineligible');
+    return ready;
+  });
+  pruneQueueAdmission(examined);
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong

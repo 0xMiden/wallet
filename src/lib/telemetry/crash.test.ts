@@ -13,8 +13,10 @@ import {
   stopCrashReporting
 } from './crash';
 import { annotateCrash } from './crash-diagnostics';
+import { observeProposalCreateRejection } from './proposal-create-diagnostics';
 import { REDACTED } from './redact';
 import { __resetRelayDiagnosticsForTest } from './relay-diagnostics';
+import { reportTransactionFailure } from './transaction-failure';
 import packageJson from '../../../package.json';
 
 jest.mock('lib/settings/helpers', () => ({
@@ -1111,4 +1113,47 @@ describe('diagnostic snapshots', () => {
       expect.objectContaining({ mechanism: { type: 'generic', handled: true } })
     ]);
   });
+});
+
+it('restores only root producer evidence after SDK and native-style enrichment before serialization', async () => {
+  initCrashReporting();
+  const error = new Error('failed to get input note: ' + ADDRESS);
+  observeProposalCreateRejection(error);
+  annotateCrash(error, { proposalStep: 'proposal_create' });
+  reportTransactionFailure({ type: 'consume', stage: 'creating-proposal', error });
+  await flushMicrotasks();
+  expect(captured).toHaveLength(1);
+  const reportable = captured[0];
+  const event: Record<string, unknown> = {
+    extra: {
+      walletDiagnostics: {
+        proposalCreateApi: 'consume_notes',
+        proposalCreateFamily: 'private-canary',
+        guardianProvingSubstep: 'private-canary',
+        offscreenDeadlineMethod: ADDRESS,
+        reapStartRelation: ADDRESS
+      },
+      account: ADDRESS
+    }
+  };
+  scrubEvent(event, { originalException: reportable });
+  expect(event.extra).toEqual({
+    walletDiagnostics: expect.objectContaining({
+      proposalCreateApi: 'consume_notes',
+      proposalCreateFamily: 'sdk_input_note_read'
+    })
+  });
+  event.extra = {
+    walletDiagnostics: { proposalCreateFamily: 'sdk_account_read', raw: ADDRESS },
+    nativePrivate: ADDRESS
+  };
+  scrubEvent(event, { originalException: reportable });
+  const wire = JSON.stringify(event);
+  expect(wire).toContain('sdk_input_note_read');
+  expect(wire).not.toContain('sdk_account_read');
+  expect(wire).not.toContain('private-canary');
+  expect(wire).not.toContain(ADDRESS);
+  expect(wire).not.toContain('guardianProvingSubstep');
+  expect(wire).not.toContain('offscreenDeadlineMethod');
+  expect(wire).not.toContain('reapStartRelation');
 });
