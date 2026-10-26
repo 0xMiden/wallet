@@ -234,7 +234,13 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             cache: 'no-store',
             signal: controller.signal
           });
-          if (!response.ok || !response.body) throw new Error('Upstream unavailable');
+          // Only the internal lease overload is a trusted non-OK body; every other URL still fails before a read.
+          const leaseOverload =
+            url === 'https://eligibility.internal/lease' &&
+            response.status === 503 &&
+            response.headers.get('Retry-After') === '30' &&
+            response.body;
+          if (!leaseOverload && (!response.ok || !response.body)) throw new Error('Upstream unavailable');
           reader = response.body.getReader();
           const decoder = new TextDecoder();
           let length = 0;
