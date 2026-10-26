@@ -95,7 +95,7 @@ function harness(options = {}) {
   const fetchImpl = async (url, init) => {
     calls.push({ url: String(url), init });
     if (String(url).startsWith('https://raw.githubusercontent.com/0xMiden/wallet-config/main/')) {
-      return options.policyResponse ? options.policyResponse(init) : Response.json(currentPolicy);
+      return options.policyResponse ? options.policyResponse(init, url) : Response.json(currentPolicy);
     }
     if (options.lookupResponse) return options.lookupResponse(init);
     return Response.json(options.place ?? { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
@@ -828,6 +828,7 @@ test('queued reservation expiry fails closed without starting a late paid lookup
   await new Promise(resolve => setTimeout(resolve, 60));
   assert.equal(h.paidCalls().length, 0);
   assert.equal(h.globalTargets.length, 1);
+  assert.equal(h.storage.values.get('budget'), undefined);
 });
 
 test('readiness and requests fail closed when the caller namespace binding is unavailable', async () => {
@@ -850,4 +851,26 @@ test('caller migration appends a class without recreating the original budget na
     config.durable_objects.bindings.some(b => b.name === 'CALLER_GUARD' && b.class_name === 'CallerEligibilityGuard')
   );
   assert.deepEqual(config.migrations.slice(1), [{ tag: 'v2', new_sqlite_classes: ['CallerEligibilityGuard'] }]);
+});
+
+
+test('caller rate state is shared across networks and survives caller object recreation', async () => {
+  const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' }, policyResponse: (_init, url) => Response.json(policy({ network: new URL(url).pathname.split('/').at(-1).replace('.json', '') })) });
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request({ query: 'network=mainnet' })).status, 200);
+  h.restart();
+  assert.equal((await h.request({ query: 'network=devnet' })).status, 429);
+  assert.equal(h.callerStates.size, 1);
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('caller cleanup expires local records without deleting the global paid-query budget', async () => {
+  const h = harness();
+  await h.request();
+  const entry = [...h.callerStates.values()][0];
+  assert.equal(entry.storage.values.size, 1);
+  h.advance(300_001);
+  await entry.guard.alarm();
+  assert.equal(entry.storage.values.size, 0);
+  assert.equal(h.storage.values.get('budget').count, 1);
 });
