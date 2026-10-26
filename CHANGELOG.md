@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [FIX][ios] Prepare future release screenshots automatically with quota-aware, resumable draft replacement while preserving the submitted 1.17.7 listing (#1906).
+
 - [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.
 - [CHANGE][ci] Standard store builds and explicit publication stages include Bread Devnet for Chrome after production Chrome, iOS and Android, with separate source-bound run evidence for each target.
 - [CHANGE][all] Unavailable startup reports name only the closed eligibility stage, failure category and existing retry outcome, without location, response data or identifiers.

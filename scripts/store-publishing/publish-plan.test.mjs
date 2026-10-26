@@ -831,3 +831,89 @@ test('iOS prepare and screenshot sync optionally restore an exact prior state ru
     assert.equal(validatePublishRequest({ ...request, stateRunId: '' }).needsState, false);
   }
 });
+
+function iosScreenshotJournal(version = '1.17.7') {
+  return {
+    schemaVersion: 1,
+    binding: {
+      appId: '6789341854',
+      bundleId: 'com.miden.bread',
+      version,
+      network: 'testnet',
+      sourceSha: sha,
+      manifestSha256: 'b'.repeat(64)
+    },
+    versionId: 'draft',
+    pending: null,
+    groups: [
+      {
+        locale: 'en-US',
+        displayType: 'APP_IPHONE_67',
+        localizationId: 'locale',
+        setId: 'large',
+        desired: ['d'.repeat(64)],
+        original: [],
+        images: [],
+        owned: []
+      }
+    ]
+  };
+}
+test('failed iOS screenshot state restores exact journal without fabricating binary upload evidence', () => {
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const plan = validatePublishRequest({ ...input, platform: 'ios', action, producerRunId: '', stateRunId: '80' });
+    const previous = snapshot(plan, { extraManifest: { action, outcome: 'failure' } });
+    const name = 'ios-6789341854-1.17.7-screenshots.json';
+    previous.files = { [name]: bytes(iosScreenshotJournal()) };
+    previous.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+    const context = { run: run('state', { conclusion: 'failure' }) };
+    assert.deepEqual(validateStateSnapshot(plan, previous, context), { [name]: iosScreenshotJournal() });
+    const submit = validatePublishRequest({
+      ...input,
+      platform: 'ios',
+      action: 'submit',
+      stateRunId: '80',
+      buildNumber: '19'
+    });
+    assert.throws(() => validateStateSnapshot(submit, previous, context), /manifest|attestation|release/i);
+    const bad = iosScreenshotJournal();
+    bad.binding.sourceSha = 'f'.repeat(40);
+    const data = bytes(bad);
+    assert.throws(
+      () =>
+        validateStateSnapshot(
+          plan,
+          {
+            ...previous,
+            files: { [name]: data },
+            manifest: { ...previous.manifest, files: [{ name, sha256: digest(data) }] }
+          },
+          context
+        ),
+      /journal/
+    );
+  }
+});
+test('failed iOS workflow exports only validated screenshot recovery evidence', async t => {
+  const { env, root } = await workspace(t);
+  await main('prepare', env);
+  const iosEnv = {
+    ...env,
+    PLATFORM: 'ios',
+    STORE_ACTION: 'prepare',
+    PRODUCER_RUN_ID: '',
+    OPERATION_OUTCOME: 'failure'
+  };
+  const name = 'ios-6789341854-1.17.7-screenshots.json';
+  await writeFile(join(root, 'state', name), bytes(iosScreenshotJournal()));
+  await writeFile(join(root, 'state', 'private-provider.log'), 'must-not-export');
+  await main('export', iosEnv);
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'export', name))), iosScreenshotJournal());
+  const manifest = JSON.parse(await readFile(join(root, 'export', 'manifest.json')));
+  assert.equal(manifest.outcome, 'failure');
+  assert.deepEqual(manifest.files, [{ name, sha256: digest(await readFile(join(root, 'export', name))) }]);
+  const invalid = iosScreenshotJournal();
+  invalid.privateUploadUrl = 'https://blob.apple.com/private';
+  await writeFile(join(root, 'state', name), bytes(invalid));
+  await assert.rejects(main('export', iosEnv), /journal/);
+});

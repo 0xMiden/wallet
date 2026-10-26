@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_RELEASE_NOTES, validateReleaseNotes } from './apple.mjs';
 import { safeStoreFailure } from './auth.mjs';
 import { validateRolloverSession, validateUploadSession } from './chrome.mjs';
+import { screenshotJournalName, validateScreenshotJournal } from './screenshot-journal.mjs';
 import { androidVersionCode, verifyReleaseSource } from './create-receipt.mjs';
 
 const repository = '0xMiden/wallet';
@@ -48,7 +49,9 @@ export function validatePublishRequest(input) {
     throw new Error('Action does not match platform');
   const inspectEdit = platform === 'android' && action === 'status' && Boolean(input.editId);
   const needsProducer = ['upload', 'submit', 'release'].includes(action) || inspectEdit;
+  const optionalScreenshotState = platform === 'ios' && ['prepare', 'sync-screenshots'].includes(action);
   const needsState =
+    (optionalScreenshotState && Boolean(input.stateRunId)) ||
     ['submit', 'release'].includes(action) ||
     (platform === 'android' && ['upload', 'sync-screenshots'].includes(action)) ||
     inspectEdit;
@@ -60,7 +63,10 @@ export function validatePublishRequest(input) {
     (needsProducer && !producerRunId) ||
     (!needsProducer && producerRunId) ||
     (needsState && !stateRunId) ||
-    (!needsProducer && stateRunId && !(platform === 'android' && action === 'sync-screenshots'))
+    (!needsProducer &&
+      stateRunId &&
+      !(platform === 'android' && action === 'sync-screenshots') &&
+      !optionalScreenshotState)
   )
     throw new Error('Explicit evidence run IDs do not match the action');
   const buildNumber = input.buildNumber || undefined;
@@ -294,7 +300,8 @@ export function validateStateSnapshot(
   const allowed = [
     recordName(evidencePlan),
     ...(plan.platform === 'android' ? ['android-edit.json'] : []),
-    ...(plan.platform === 'chrome' ? [journalName(plan)] : [])
+    ...(plan.platform === 'chrome' ? [journalName(plan)] : []),
+    ...(plan.platform === 'ios' ? [screenshotJournalName({ appId: storeId(plan), version: plan.version })] : [])
   ];
   if (!snapshot.files || Object.keys(snapshot.files).length !== manifest.files.length)
     throw new Error('State inventory mismatch');
@@ -313,6 +320,17 @@ export function validateStateSnapshot(
       throw new Error('Invalid publication state JSON');
     }
   }
+  const iosJournalName =
+    plan.platform === 'ios' ? screenshotJournalName({ appId: storeId(plan), version: plan.version }) : undefined;
+  const iosJournal = iosJournalName ? records[iosJournalName] : undefined;
+  if (iosJournal)
+    records[iosJournalName] = validateScreenshotJournal(iosJournal, {
+      appId: storeId(plan),
+      bundleId: identity(plan),
+      version: plan.version,
+      network: plan.network,
+      sourceSha: plan.sourceSha
+    });
   const journal = plan.platform === 'chrome' ? records[journalName(plan)] : undefined;
   if (rollover && !journal) throw new Error('A prior terminal Chrome journal is required for rollover');
   const evidenceReceipt = rollover ? { sha256: journal?.sha256 } : receipt;
@@ -334,9 +352,14 @@ export function validateStateSnapshot(
   if (
     run.conclusion === 'failure' &&
     !journal &&
+    !(
+      iosJournal &&
+      ['prepare', 'sync-screenshots', 'submit'].includes(plan.action) &&
+      ['prepare', 'sync-screenshots', 'submit'].includes(manifest.action)
+    ) &&
     !(plan.platform === 'android' && plan.action === 'status' && plan.editId)
   )
-    throw new Error('A failed state run requires a validated Chrome pending journal');
+    throw new Error('A failed state run requires a validated pending publication journal');
   const attestation = records[recordName(evidencePlan)];
   if (attestation) validateAttestation(evidencePlan, attestation, evidenceReceipt, publisherId);
   if (rollover) return { [journalName(plan)]: journal };
@@ -655,7 +678,8 @@ export async function main(command, env = process.env, dependencies = {}) {
     for (const name of [
       recordName(plan),
       ...(plan.platform === 'android' ? ['android-edit.json'] : []),
-      ...(plan.platform === 'chrome' ? [journalName(plan)] : [])
+      ...(plan.platform === 'chrome' ? [journalName(plan)] : []),
+      ...(plan.platform === 'ios' ? [screenshotJournalName({ appId: storeId(plan), version: plan.version })] : [])
     ]) {
       let bytes;
       try {
@@ -683,7 +707,17 @@ export async function main(command, env = process.env, dependencies = {}) {
         );
         continue;
       }
-      if (name === 'android-edit.json') validateEdit(plan, value, 0);
+      const iosScreenshots =
+        plan.platform === 'ios' && name === screenshotJournalName({ appId: storeId(plan), version: plan.version });
+      if (iosScreenshots)
+        validateScreenshotJournal(value, {
+          appId: storeId(plan),
+          bundleId: identity(plan),
+          version: plan.version,
+          network: plan.network,
+          sourceSha: plan.sourceSha
+        });
+      else if (name === 'android-edit.json') validateEdit(plan, value, 0);
       else if (name === journalName(plan) && plan.platform === 'chrome')
         validateChromeJournal(
           plan,
@@ -694,7 +728,9 @@ export async function main(command, env = process.env, dependencies = {}) {
           true
         );
       else validateAttestation(plan, value, receipt, env.CHROME_WEB_STORE_PUBLISHER_ID);
-      const cleanBytes = Buffer.from(`${JSON.stringify(cleanRecord(value, name === 'android-edit.json'), null, 2)}\n`);
+      const cleanBytes = Buffer.from(
+        `${JSON.stringify(iosScreenshots ? validateScreenshotJournal(value) : cleanRecord(value, name === 'android-edit.json'), null, 2)}\n`
+      );
       await privateWrite(resolve(path.export, name), cleanBytes);
       files.push({ name, sha256: digest(cleanBytes) });
     }
