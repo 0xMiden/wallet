@@ -302,7 +302,7 @@ test('empty optional iOS submit notes use the exact default and Unicode length u
 });
 
 test('release notes are rejected outside iOS submit and invalid content prevents every child dispatch', async () => {
-  for (const invalid of ['  \n', 'private\u0000text', 'private\u001btext', 'private\u0085text', 42, null]) {
+  for (const invalid of ['  \n', 'private\u0000text', 'private\u001btext', 'private\u007ftext', 42, null]) {
     const input = plan();
     input.targets['ios-testnet'].releaseNotes = invalid;
     const h = harness();
