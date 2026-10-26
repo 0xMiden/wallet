@@ -21,10 +21,13 @@ import { midenClientProxy } from './miden-client-proxy';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
+import * as CanonicalReads from '../recovery/canonical-reads';
 import { StorageContinuityError } from '../recovery/continuity';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from '../storage-health';
+
+jest.mock('../recovery/canonical-reads', () => ({ createRecoveryCanonicalReads: jest.fn() }));
 
 const mockRecoveryCommitment = jest.fn();
 const mockRecoveryGuardianState = jest.fn();
@@ -5266,6 +5269,100 @@ describe('Vault storage continuity', () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
     expect(mockStorageSets.slice(writes).flat()).not.toContain('miden_recovery_v1_1');
   });
+
+  it.each(['complete', 'new incident', 'pending read'])(
+    'Task4C1 actual Vault reconciliation handles %s',
+    async scenario => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      await Repo.transactions.put({
+        id: 'reconcile-actual',
+        accountId: 'retained',
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        attemptId: 'attempt',
+        submitEvidence: [
+          {
+            attemptId: 'attempt',
+            capturedAt: 1,
+            source: 'stage',
+            transactionId: 'transaction',
+            initialCommitment: 'state-4',
+            finalCommitment: 'state-5',
+            initialNonce: '4',
+            refBlock: 10,
+            refBlockCommitment: 'header',
+            outputNoteIds: [],
+            nullifiers: [],
+            expirationBlock: 30
+          }
+        ]
+      });
+      await vault.retainTransactionRecovery('reconcile-actual', { requestBytes: new Uint8Array([7, 8]), notes: [] });
+      await Repo.transactions.update('reconcile-actual', { restoredFromBackup: true, restoredFromJournal: true });
+      const prior = await vault.readRecoveryJournal();
+      if (!prior) throw new Error('Missing reconciliation fixture');
+      let release = () => {};
+      const pending = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const dispose = jest.fn();
+      const reads = jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockResolvedValue({
+        dispose,
+        identity: async () => undefined,
+        header: async () => 'header',
+        scan: async () => [],
+        node: {
+          blockCommitment: async () => 'header',
+          account: async () => {
+            if (scenario === 'pending read') await pending;
+            if (scenario === 'new incident')
+              markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+            return { ok: true, state: { blockNum: 20, commitment: 'state-5', nonce: '5' } };
+          },
+          noteInclusions: async () => new Map(),
+          nullifierHeight: async () => undefined
+        }
+      });
+      markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+      try {
+        const complete = scenario === 'complete';
+        const outcome = await vault.reconcileStorageRecovery().then(
+          value => ({ value, error: undefined }),
+          (error: unknown) => ({ value: undefined, error })
+        );
+        const unavailable = expect.objectContaining({ name: 'StorageUnavailableError' });
+        expect(outcome.error).toEqual(complete ? undefined : unavailable);
+        expect(outcome.value).toEqual(complete ? { reconciled: 1, retired: 0 } : undefined);
+        expect(await Repo.transactions.get('reconcile-actual')).toMatchObject({
+          status: complete ? ITransactionStatus.Completed : ITransactionStatus.Unconfirmed,
+          restoredFromBackup: true,
+          restoredFromJournal: true
+        });
+        const saved = await vault.readRecoveryJournal();
+        expect(saved?.sequence).toBe((prior?.sequence ?? 0) + (complete ? 1 : 0));
+        const resolved = expect.arrayContaining([
+          expect.objectContaining({
+            id: 'reconcile-actual',
+            resolved: { outcome: 'landed', at: expect.any(Number) },
+            row: expect.objectContaining({ submitEvidence: [expect.objectContaining({ landingSeenBy: 1 })] })
+          })
+        ]);
+        expect(saved?.entries).toEqual(complete ? resolved : prior.entries);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(dispose).toHaveBeenCalledTimes(1);
+        expect(getStorageHealth().status).toBe('unavailable');
+      } finally {
+        release();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        reads.mockReset();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+        await Repo.db.open();
+      }
+    }
+  );
 
   it('preserves retained vault identity and the journal when an SDK account disappears', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);

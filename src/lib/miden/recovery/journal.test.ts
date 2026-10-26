@@ -55,6 +55,30 @@ it('encrypts note contents and verifies a round trip without copying signer mate
   expect(JSON.stringify(storage.values)).not.toContain('account-1');
 });
 
+it('Task4C1 retirement readback failure preserves the last good private body and pending evidence', async () => {
+  const first = await journal.update(data);
+  storage.corruptReadback = true;
+  await expect(journal.replaceEntries(first, [], () => {})).rejects.toThrow();
+  storage.corruptReadback = false;
+  expect(await journal.read()).toEqual(first);
+});
+
+it('Task4C1 explicit retirement commits the new generation while retaining its future debit and grant', async () => {
+  const initial = data();
+  initial.entries.push({
+    kind: 'debit',
+    id: 'charged',
+    accountId: 'account-1',
+    initiatedAt: Math.floor(Date.now() / 1000) + 100,
+    spentUsd: 7n,
+    authorizationId: 'used'
+  });
+  const first = await journal.update(() => initial);
+  await expect(journal.replaceEntries(first, [first.entries[1]!], () => {})).resolves.toMatchObject({ sequence: 2 });
+  expect((await journal.read())?.entries).toEqual([initial.entries[1]]);
+  await expect(journal.replaceEntries(first, [], () => {})).rejects.toThrow();
+});
+
 it('deduplicates an unchanged snapshot without another encryption or storage write', async () => {
   const first = await journal.update(data);
   const writes = storage.writes;
