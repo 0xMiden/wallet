@@ -237,6 +237,17 @@ test('rate refusals never contact a durable object', async () => {
   assert.equal(colo.callerStates.size, 0);
 });
 
+test('validation and origin failures have distinct private bodies', async () => {
+  const h = harness();
+  const badRequest = await h.request({ query: 'network=invalid' });
+  assert.equal(badRequest.status, 400);
+  assert.deepEqual(await badRequest.json(), { error: 'bad_request' });
+  const forbidden = await h.request({ headers: { Origin: 'https://other.example' } });
+  assert.equal(forbidden.status, 403);
+  assert.deepEqual(await forbidden.json(), { error: 'forbidden' });
+  assert.equal(h.callerStates.size, 0);
+});
+
 test('overloaded caller objects fail closed without retrying', async () => {
   const h = harness();
   let attempts = 0;
@@ -246,6 +257,18 @@ test('overloaded caller objects fail closed without retrying', async () => {
   assert.deepEqual(await response.json(), { error: 'overloaded' });
   assert.equal(response.headers.get('Retry-After'), '30');
   assert.equal(attempts, 1);
+});
+
+test('an overloaded budget object returns the overload class without a paid lookup', async () => {
+  const h = harness();
+  let attempts = 0;
+  h.env.ELIGIBILITY_GUARD.get = () => ({ fetch: () => { attempts += 1; throw Object.assign(new Error('overloaded'), { overloaded: true }); } });
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'overloaded' });
+  assert.equal(response.headers.get('Retry-After'), '30');
+  assert.equal(attempts, 1);
+  assert.equal(h.paidCalls().length, 0);
 });
 
 test('one retryable caller object error gets a fresh stub and one bounded retry', async () => {

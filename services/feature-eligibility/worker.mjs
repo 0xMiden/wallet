@@ -331,8 +331,8 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
           await this.storage.setAlarm(now() + 86_400_000);
         }
         return reserved ? json(pathname === '/lease' ? { reserved: true, count: reserved } : { reserved: true }) : failure();
-      } catch {
-        return failure();
+      } catch (error) {
+        return error?.overloaded ? failure(503, 'overloaded', { 'Retry-After': '30' }) : failure();
       }
     }
 
@@ -453,8 +453,8 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
           }
         }
         return json({ network, version: currentPolicy.version, allowed });
-      } catch {
-        return failure();
+      } catch (error) {
+        return error?.overloaded ? failure(503, 'overloaded', { 'Retry-After': '30' }) : failure();
       }
     }
 
