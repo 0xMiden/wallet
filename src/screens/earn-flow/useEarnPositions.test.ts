@@ -968,6 +968,28 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(2);
       });
 
+      it('keeps two-owner polling and a page return inside ten requests per minute', async () => {
+        const starts: number[] = [];
+        jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue(['0x1111111111111111111111111111111111111111']);
+        jest.mocked(fetchEarnPositions).mockImplementation(async args => {
+          starts.push(...(args?.owners ?? []).map(() => Date.now()));
+          return liveResult;
+        });
+        const beganAt = Date.now();
+        const { rerender } = renderOnPage();
+        await advance(5_000);
+        onScreen = false;
+        rerender();
+        onScreen = true;
+        rerender();
+        await advance(0);
+        expect(starts).toHaveLength(4);
+
+        await advance(55_000);
+        const inWindow = starts.filter(at => at >= beganAt && at < beganAt + 60_000).length;
+        if (inWindow > 10) throw new Error(`positions budget exceeded: ${inWindow} owner requests in 60000ms`);
+      });
+
       it('a Retry moves the next poll to 10 s after it', async () => {
         const { result } = renderOnPage();
         await advance(0);

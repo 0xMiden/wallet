@@ -118,6 +118,29 @@ describe('fetchEarnPositions', () => {
     expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
   });
 
+  it('finishes an oversized owner read across rolling request windows', async () => {
+    jest.useFakeTimers();
+    try {
+      const fetchMock = serve();
+      const owners = Array.from({ length: 11 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
+      let settled = false;
+      const reading = fetchEarnPositions({ owners }).then(result => {
+        settled = true;
+        return result;
+      });
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(10);
+      expect(settled).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect((await reading).owners).toEqual(owners);
+      expect(fetchMock).toHaveBeenCalledTimes(11);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('reads only the positions of each owner on the host and chain the config names, never the catalogue', async () => {
     const fetchMock = serve();
 
