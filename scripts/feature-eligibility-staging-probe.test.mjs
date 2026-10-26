@@ -118,6 +118,7 @@ function fixture(options = {}) {
       if (name !== 'miden-elig-probe-40265000001-1') return envelope({ bindings: [] });
       if (!remote) return absent();
       if (suffix === '/settings') return envelope(remote.settings);
+      if (suffix === '/script-settings') return envelope(remote.scriptSettings);
       if (suffix === '/subdomain') return envelope({ enabled: true, previews_enabled: false });
       if (suffix === '/content/v2') {
         const body = new FormData();
@@ -151,7 +152,7 @@ function fixture(options = {}) {
           { name: 'PROBE_HASH_SECRET', type: 'secret_text' }
         ]
       };
-      remote = { bytes: files.get('/private/probe/staging-probe.mjs'), settings };
+      remote = { bytes: files.get('/private/probe/staging-probe.mjs'), settings, scriptSettings: structuredClone({ observability: settings.observability, logpush: false, tail_consumers: [] }) };
       options.mutateRemote?.(remote);
       if (options.deployError) throw options.deployError;
       return { exitCode: 0 };
@@ -912,6 +913,7 @@ test('local account adapter binds exact configured URL and rejects credential-ro
     ['/workers/subdomain', 'GET'],
     ['/workers/scripts?page=1&per_page=100', 'GET'],
     ['/workers/scripts/example/settings', 'GET'],
+    ['/workers/scripts/example/script-settings', 'GET'],
     ['/workers/scripts/example/subdomain', 'GET'],
     ['/workers/scripts/example/content/v2', 'GET'],
     ['/workers/scripts/example', 'DELETE']
@@ -1273,4 +1275,81 @@ test('CLI exact-manifest cleanup retains the closed failure without exercising o
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+const disabledObservability = () => ({ enabled: false, logs: { enabled: false, invocation_logs: false }, traces: { enabled: false } });
+
+test('cleanup requires independent script-level switches when version readback omits observability', async () => {
+  const f = await ownershipFixture({ mutate: settings => { delete settings.observability; } });
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.equal(result.cleanup, 'deleted');
+  assert.equal(deleted(f).length, 1);
+  const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
+  assert.ok(paths.includes('/workers/scripts/miden-elig-probe-40265000001-1/script-settings'));
+});
+
+for (const [gate, path] of [
+  ['script_observability', ['enabled']],
+  ['script_observability_logs', ['logs', 'enabled']],
+  ['script_observability_invocations', ['logs', 'invocation_logs']],
+  ['script_observability_traces', ['traces', 'enabled']]
+]) for (const [form, value] of [['missing', undefined], ['null', null], ['wrong_type', 'private-authority-canary'], ['different_value', true]]) {
+  test(`authoritative ${gate}/${form} refuses despite version-level explicit false`, async () => {
+    const f = await ownershipFixture();
+    let target = f.remote().scriptSettings.observability;
+    for (const key of path.slice(0, -1)) target = target[key];
+    if (value === undefined) delete target[path.at(-1)]; else target[path.at(-1)] = value;
+    const result = await createProbeController(f.effects).cleanup(manifest());
+    assert.deepEqual(result, { cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.events.filter(e => e[0] === 'api').at(-1)[2], '/workers/scripts/miden-elig-probe-40265000001-1/script-settings');
+    assert.doesNotMatch(JSON.stringify(result), /private-authority-canary/);
+  });
+}
+
+for (const [label, mutate, gate, form] of [
+  ['object absent', s => { delete s.observability; }, 'script_observability', 'missing'],
+  ['object null', s => { s.observability = null; }, 'script_observability', 'null'],
+  ['logs null', s => { s.observability.logs = null; }, 'script_observability_logs', 'null'],
+  ['traces array', s => { s.observability.traces = []; }, 'script_observability_traces', 'wrong_type'],
+  ['logpush enabled', s => { s.logpush = true; }, 'script_logpush', 'different_value'],
+  ['tail consumer', s => { s.tail_consumers = [{ service: 'private-tail-canary' }]; }, 'script_tail_consumers', 'different_value']
+]) test(`authoritative ${label} remains ambiguous or conflicting`, async () => {
+  const f = await ownershipFixture(); mutate(f.remote().scriptSettings);
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.deepEqual(result, { cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+  assert.equal(deleted(f).length, 0);
+});
+
+for (const value of [null, [], 'private-version-canary', { enabled: true }, { logs: null }, { traces: [] }])
+  test(`present malformed version observability refuses before authority read ${JSON.stringify(value)}`, async () => {
+    const f = await ownershipFixture(); f.remote().settings.observability = value;
+    const result = await createProbeController(f.effects).cleanup(manifest());
+    assert.equal(result.cleanup, 'blocked');
+    assert.equal(deleted(f).length, 0);
+    assert.ok(!f.events.some(e => e[0] === 'api' && e[2].endsWith('/script-settings')));
+  });
+
+test('authoritative all-false cannot bypass original content ownership', async () => {
+  const f = await ownershipFixture({ mutate: s => { delete s.observability; } });
+  f.remote().bytes = 'private-content-canary';
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.equal(result.cleanup, 'blocked');
+  assert.equal(deleted(f).length, 0);
+});
+
+for (const failure of ['auth', 'network', 'malformed', 'absent']) test(`script settings ${failure} is never ownership`, async () => {
+  const f = await ownershipFixture(); const api = f.effects.providerAPI;
+  f.effects.providerAPI = async (path, init) => {
+    if (!path.endsWith('/script-settings')) return api(path, init);
+    if (failure === 'network') throw new Error('private-network-canary');
+    if (failure === 'auth') return new Response('', { status: 403 });
+    if (failure === 'absent') return absent();
+    return Response.json({ success: true, errors: [], result: null });
+  };
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.equal(result.cleanup, 'blocked');
+  assert.equal(deleted(f).length, 0);
 });
