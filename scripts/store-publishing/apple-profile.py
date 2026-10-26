@@ -18,11 +18,21 @@ PROFILE_NAME = 'iOS Team Store Provisioning Profile: ' + BUNDLE
 LIMIT = 1024 * 1024
 
 
-def distribution_identities(text):
+def distribution_identities(text, certificate_records):
     identities = set(re.findall(r'^\s*\d+\)\s+([A-Fa-f0-9]{40})\s+"Apple Distribution: [^\n]+ \(' + TEAM + r'\)"', text, re.M))
     if not identities:
         raise ValueError('An installed distribution signing identity is required')
-    return {value.lower() for value in identities}
+    # Apple's SHA-1 labels join keychain records; certificate binding itself uses SHA-256.
+    fingerprints = {}
+    for sha256, label in re.findall(r'SHA-256 hash:\s*([A-Fa-f0-9]{64})\s*\nSHA-1 hash:\s*([A-Fa-f0-9]{40})', certificate_records):
+        fingerprints.setdefault(label.lower(), set()).add(sha256.lower())
+    allowed = set()
+    for label in identities:
+        matches = fingerprints.get(label.lower(), set())
+        if len(matches) != 1:
+            raise ValueError('Distribution identity has no unambiguous SHA256 certificate')
+        allowed.update(matches)
+    return allowed
 
 
 def utc(value):
@@ -48,7 +58,7 @@ def validate_profile(profile, identities, now=None):
     certificates = profile.get('DeveloperCertificates')
     if not isinstance(certificates, list) or not certificates or any(not isinstance(c, bytes) for c in certificates):
         raise ValueError('Invalid profile certificates')
-    if len({hashlib.sha1(cert).hexdigest() for cert in certificates} & identities) != 1:
+    if len({hashlib.sha256(cert).hexdigest() for cert in certificates} & identities) != 1:
         raise ValueError('Profile must match exactly one installed distribution identity')
     return identifier
 
@@ -112,7 +122,8 @@ def main():
     payload = private_bytes(args.directory / 'store.mobileprovision')
     decoded = subprocess.run(['/usr/bin/security', 'cms', '-D'], input=payload, capture_output=True, check=True).stdout
     profile = plistlib.loads(decoded)
-    identities = distribution_identities(private_bytes(args.directory / 'identities.txt').decode())
+    identities = distribution_identities(private_bytes(args.directory / 'identities.txt').decode(),
+                                           private_bytes(args.directory / 'certificate-fingerprints.txt').decode())
     install_profile(payload, profile, identities, args.directory, args.profiles_directory)
     print('Verified existing App Store profile installed')
 
