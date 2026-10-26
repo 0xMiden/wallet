@@ -2278,6 +2278,25 @@ describe('crash-report egress', () => {
 });
 
 describe('user-visible error reports', () => {
+  it('sends only the closed startup attempt evidence through the real crash wire', async () => {
+    consentOn();
+    const reporter = reportUserVisibleError as (...args: unknown[]) => void;
+    reporter('walletAccessUnavailableBody', 'startup', {
+      startupEligibilityStage: 'eligibility_retry', startupEligibilityReason: 'version_mismatch',
+      startupEligibilityRetry: 'retry_failed', raw: POISON.mnemonic12, account: POISON.compositePublicKey
+    });
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+      startupEligibilityStage: 'eligibility_retry', startupEligibilityReason: 'version_mismatch',
+      startupEligibilityRetry: 'retry_failed'
+    });
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('raw');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).not.toHaveProperty('account');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   beforeEach(() => {
     _resetUserVisibleErrorLimitsForTest();
   });
