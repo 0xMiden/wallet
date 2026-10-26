@@ -228,12 +228,12 @@ import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
-import { MidenMessageType, NoteTypeEnum } from '../types';
-import { getFinancialRecoveryBackend } from '../recovery/financial-backend';
 import { start } from './main';
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
 import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
+import { getFinancialRecoveryBackend } from '../recovery/financial-backend';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { MidenMessageType, NoteTypeEnum } from '../types';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
 
