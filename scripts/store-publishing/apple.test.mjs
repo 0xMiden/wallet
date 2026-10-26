@@ -33,7 +33,7 @@ function fixture(overrides = {}) {
     id: 'prerelease-1',
     attributes: { version: options.version, platform: 'IOS' }
   };
-  const state = { app, versions: [version], builds: [build], preRelease, reviews: [], items: [], ...overrides };
+  const state = { app, versions: [version], builds: [build], preRelease, reviews: [], items: [], localizations: [{ type: 'appStoreVersionLocalizations', id: 'locale-1', attributes: { locale: 'en-US', whatsNew: 'Existing release notes' } }], ...overrides };
   const calls = [];
   const client = {
     request: async (method, path, init = {}) => {
@@ -45,6 +45,10 @@ function fixture(overrides = {}) {
       }
       let result;
       if (method === 'GET' && url.pathname === `/v1/apps/${options.appId}`) result = { data: state.app };
+      else if (method === 'GET' && url.pathname.endsWith('/appStoreVersionLocalizations')) result = { data: state.localizations };
+      else if (method === 'PATCH' && url.pathname === '/v1/appStoreVersionLocalizations/locale-1') {
+        Object.assign(state.localizations[0].attributes, init.body.data.attributes); result = { data: state.localizations[0] };
+      }
       else if (method === 'GET' && url.pathname.endsWith('/appStoreVersions')) result = { data: state.versions };
       else if (method === 'GET' && url.pathname === '/v1/builds') result = { data: state.builds };
       else if (method === 'GET' && url.pathname === '/v1/builds/build-1/app')
@@ -80,7 +84,8 @@ const mutations = calls => calls.filter(call => call.method !== 'GET');
 const matchingDraft = () => ({
   type: 'reviewSubmissions',
   id: 'review-1',
-  attributes: { platform: 'IOS', state: 'READY_FOR_REVIEW' }
+  attributes: { platform: 'IOS', state: 'READY_FOR_REVIEW' },
+  relationships: { app: ref('apps', options.appId) }
 });
 const matchingItem = () => ({
   type: 'reviewSubmissionItems',
@@ -245,13 +250,14 @@ test('selected build must independently belong to the exact app and iOS marketin
 });
 
 test('an unrelated or already active review submission is never altered', async () => {
-  for (const change of ['active', 'other-item', 'multiple-items', 'multiple-drafts', 'empty']) {
+  for (const change of ['active', 'other-item', 'multiple-items', 'multiple-drafts', 'wrong-app', 'missing-app']) {
     const { client, state, calls } = fixture({ reviews: [matchingDraft()], items: [matchingItem()] });
     if (change === 'active') state.reviews[0].attributes.state = 'IN_REVIEW';
     if (change === 'other-item') state.items[0].relationships.appStoreVersion.data.id = 'other-version';
     if (change === 'multiple-items') state.items.push({ ...matchingItem(), id: 'other-item' });
     if (change === 'multiple-drafts') state.reviews.push({ ...matchingDraft(), id: 'other-draft' });
-    if (change === 'empty') state.items = [];
+    if (change === 'wrong-app') state.reviews[0].relationships.app.data.id = 'other-app';
+    if (change === 'missing-app') delete state.reviews[0].relationships.app;
     await assert.rejects(submit(client, options), /review|submission|draft/i);
     assert.deepEqual(mutations(calls), []);
   }
@@ -427,4 +433,66 @@ test('unsupported existing or requested policies refuse before any mutation', as
     await assert.rejects(submit(client, { ...options, ...change }), /release.*policy|release.*type/i);
     assert.deepEqual(mutations(calls), []);
   }
+});
+
+
+test('missing release notes fail before attaching a build or creating a review', async () => {
+  const { client, state, version, calls } = fixture();
+  state.localizations[0].attributes.whatsNew = null;
+  version.relationships.build = { data: null };
+  await assert.rejects(submit(client, options), /release notes|What's New/i);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('explicit notes fill only missing en-US text before review mutations', async () => {
+  const { client, state, calls } = fixture();
+  state.localizations[0].attributes.whatsNew = '';
+  const notes = 'Guardian recovery improvements.\nBug fixes.';
+  await submit(client, { ...options, releaseNotes: notes });
+  assert.equal(state.localizations[0].attributes.whatsNew, notes);
+  const first = mutations(calls)[0];
+  assert.equal(first.path, '/v1/appStoreVersionLocalizations/locale-1');
+  assert.deepEqual(first.body.data.attributes, { whatsNew: notes });
+  assert.equal(calls.some(c => c.path.includes('appScreenshots')), false);
+});
+
+test('existing notes are preserved even when replacement notes are supplied', async () => {
+  const { client, state, calls } = fixture();
+  await submit(client, { ...options, releaseNotes: 'Do not replace existing notes' });
+  assert.equal(state.localizations[0].attributes.whatsNew, 'Existing release notes');
+  assert.equal(mutations(calls).some(c => c.path.includes('Localizations')), false);
+});
+
+test('unique exact-app empty review draft with null platform is recovered without duplicate review', async () => {
+  const draft = matchingDraft(); draft.attributes.platform = null;
+  const { client, calls } = fixture({ reviews: [draft], items: [] });
+  await submit(client, options);
+  assert.deepEqual(mutations(calls).map(c => c.path), ['/v1/reviewSubmissionItems', '/v1/reviewSubmissions/review-1']);
+  assert.equal(mutations(calls)[0].body.data.relationships.appStoreVersion.data.id, 'version-1');
+});
+
+test('ambiguous or missing en-US localization is refused before any mutation', async () => {
+  for (const localizations of [[], [
+    { type: 'appStoreVersionLocalizations', id: 'a', attributes: { locale: 'en-US', whatsNew: 'a' } },
+    { type: 'appStoreVersionLocalizations', id: 'b', attributes: { locale: 'en-US', whatsNew: 'b' } }
+  ]]) {
+    const { client, calls } = fixture({ localizations });
+    await assert.rejects(submit(client, { ...options, releaseNotes: 'New notes' }), /localization/i);
+    assert.deepEqual(mutations(calls), []);
+  }
+});
+
+test('invalid release notes are refused before any request', async () => {
+  for (const releaseNotes of [' ', 'x'.repeat(4001), 'bad\0text', 42]) {
+    const { client, calls } = fixture();
+    await assert.rejects(submit(client, { ...options, releaseNotes }), /release notes/i);
+    assert.equal(calls.length, 0);
+  }
+});
+
+test('item creation failure retains only the closed Apple operation stage', async () => {
+  const { client } = fixture({ respond(method, url) {
+    if (method === 'POST' && url.pathname === '/v1/reviewSubmissionItems') throw Object.assign(new Error('Private provider detail'), { status: 409 });
+  }});
+  await assert.rejects(submit(client, options), e => e.stage === 'apple-review-item-create');
 });
