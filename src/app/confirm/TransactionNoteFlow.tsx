@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { Card } from 'components/ui/Card';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
@@ -20,13 +22,29 @@ const noteKindKeys: Record<NoteKind, string> = {
   unknown: 'unknownNoteScript'
 };
 
+const confirmationTokenMetadataRequests = new Map<string, Promise<AssetMetadata>>();
+
+export function loadConfirmationTokenMetadata(faucetId: string): Promise<AssetMetadata> {
+  const rpcUrl = getEffectiveRpcUrl();
+  const key = `${rpcUrl}\0${faucetId}`;
+  const pending = confirmationTokenMetadataRequests.get(key);
+  if (pending) return pending;
+  const request = fetchTokenMetadata(faucetId).finally(() => {
+    if (confirmationTokenMetadataRequests.get(key) === request) {
+      confirmationTokenMetadataRequests.delete(key);
+    }
+  });
+  confirmationTokenMetadataRequests.set(key, request);
+  return request;
+}
+
 const NoteAsset: React.FC<{ asset: AssetAmount }> = ({ asset }) => {
   const { t } = useTranslation();
   const assetKey = `${asset.faucetId}:${asset.amount}`;
   const [resolved, setResolved] = useState<{ key: string; label?: string }>();
   useEffect(() => {
     let cancelled = false;
-    fetchTokenMetadata(asset.faucetId)
+    loadConfirmationTokenMetadata(asset.faucetId)
       .then(metadata => {
         if (cancelled) return;
         setResolved({
