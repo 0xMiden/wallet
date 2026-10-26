@@ -5341,6 +5341,19 @@ describe('Vault storage continuity', () => {
     );
   });
 
+  it('validates retained stores through scoped reads when the ordinary wallet handle is closed', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    Repo.db.close();
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(true);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      await Repo.db.open();
+    }
+  });
+
   it('refuses stale recovery completion after a repeated storage incident', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
     markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
