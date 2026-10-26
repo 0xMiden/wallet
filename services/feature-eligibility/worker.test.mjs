@@ -81,6 +81,7 @@ function harness(options = {}) {
   const calls = [];
   const globalTargets = [];
   const callerStates = new Map();
+  const rateEvents = [];
   let clock = Date.UTC(2026, 9, 20, 12);
   let currentPolicy = options.policy ?? policy();
   const env = {
@@ -115,6 +116,7 @@ function harness(options = {}) {
   env.CALLER_GUARD = {
     idFromName: name => name,
     get: name => {
+      rateEvents.push({ binding: 'durable_object', key: name });
       let entry = callerStates.get(name);
       if (!entry) {
         entry = { storage: new MemoryStorage() };
@@ -122,6 +124,18 @@ function harness(options = {}) {
       }
       entry.guard ??= new service.CallerEligibilityGuard({ storage: entry.storage }, env);
       return { fetch: request => entry.guard.fetch(request) };
+    }
+  };
+  env.CALLER_RATE_LIMIT = {
+    limit: async ({ key }) => {
+      rateEvents.push({ binding: 'caller', key });
+      return { success: true };
+    }
+  };
+  env.COLO_RATE_LIMIT = {
+    limit: async ({ key }) => {
+      rateEvents.push({ binding: 'colo', key });
+      return { success: true };
     }
   };
   const request = async ({
@@ -143,6 +157,7 @@ function harness(options = {}) {
     calls,
     env,
     globalTargets,
+    rateEvents,
     callerStates,
     storage,
     guard,
@@ -177,6 +192,16 @@ test('returns only decisions and accepted policy version, using the edge caller 
     assert.ok(!JSON.stringify([...entry.storage.values]).includes('203.0.113.7'));
     assert.ok(!JSON.stringify([...entry.storage.values]).includes('country'));
   }
+});
+
+test('applies caller and colo rate bindings before routing to the caller object', async () => {
+  const h = harness();
+  const response = await h.request();
+  assert.equal(response.status, 200);
+  assert.deepEqual(h.rateEvents.map(event => event.binding), ['caller', 'colo', 'durable_object']);
+  assert.match(h.rateEvents[0].key, /^[a-f0-9]{64}$/);
+  assert.equal(h.rateEvents[1].key, 'colo:ZRH');
+  assert.equal(h.rateEvents[2].key, 'cache:ZRH');
 });
 
 test('enables swap for explicitly enabled Near Intents with a usable 1Click mapping', async () => {
