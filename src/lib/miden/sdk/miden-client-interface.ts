@@ -1653,6 +1653,24 @@ export class MidenClientInterface {
     );
   }
 
+  async restoreStorageRecovery(
+    command: import('../recovery/sdk-restore').SdkRecoveryCommand,
+    capability: StorageRecoveryCapability,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<void> {
+    const check = () => { assertStorageRecoveryAllowed(capability); assertLive(); };
+    check();
+    try {
+      const { restoreSdkRecovery } = await import('../recovery/sdk-restore');
+      check();
+      await restoreSdkRecovery(this.client, command, check);
+      check();
+    } catch (error) {
+      reportStorageFailure(error, { backend: 'sdk', operation: 'import' });
+      throw error;
+    }
+  }
+
   async initializeStorageGeneration(
     generation: string,
     previousGeneration: string | null,

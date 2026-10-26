@@ -4,6 +4,7 @@ import { fromSerializable, toSerializable } from './serialization';
 import type { RecoveryJournalData, RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
+import { type StorageRecoveryCapability, assertStorageRecoveryAllowed } from '../storage-health';
 
 export interface RecoveryStorage {
   get(keys: string[]): Promise<Record<string, unknown>>;
@@ -48,13 +49,40 @@ export class RecoveryJournal {
     }
   }
 
+  async repair(
+    expected: RecoveryJournalSnapshot,
+    capability: StorageRecoveryCapability
+  ): Promise<RecoveryJournalSnapshot> {
+    return withRecoveryStorageLock(async () => {
+      const check = async () => {
+        assertStorageRecoveryAllowed(capability);
+        await this.assertCurrent();
+        assertStorageRecoveryAllowed(capability);
+      };
+      await check();
+      const retained = await this.readCurrent(false);
+      await check();
+      if (!retained.snapshot || serialize(retained.snapshot) !== serialize(validateJournal(expected)))
+        throw new Error('Recovery journal continuity floor mismatch');
+      if (retained.degraded) {
+        await this.storage.set({ [POINTER_KEY]: { slot: retained.slot, sequence: retained.snapshot.sequence } });
+        await check();
+      }
+      const verified = await this.readCurrent(false);
+      await check();
+      if (verified.degraded || !verified.snapshot || serialize(verified.snapshot) !== serialize(expected))
+        throw new Error('Recovery journal repair readback mismatch');
+      return verified.snapshot;
+    });
+  }
+
   private async decrypt(value: unknown): Promise<RecoveryJournalSnapshot> {
     const decoded: unknown = await Passworder.decryptJson(payload(value), this.key);
     serialize(decoded);
     return validateJournal(fromSerializable(decoded));
   }
 
-  private async readCurrent(): Promise<{ snapshot?: RecoveryJournalSnapshot; slot: number; degraded?: boolean }> {
+  private async readCurrent(reportDamage = true): Promise<{ snapshot?: RecoveryJournalSnapshot; slot: number; degraded?: boolean }> {
     const values = await this.storage.get(RECOVERY_JOURNAL_KEYS);
     const pointer = values[POINTER_KEY];
     if (pointer === undefined && SLOT_KEYS.every(key => values[key] === undefined)) return { slot: 1 };
@@ -74,7 +102,7 @@ export class RecoveryJournal {
         if (snapshot.sequence !== sequence) throw new Error('Recovery journal pointer mismatch');
         return { snapshot, slot };
       } catch (error) {
-        this.onFailure(error);
+        if (reportDamage) this.onFailure(error);
       }
     }
     // A damaged pointer cannot choose between the slots. Keep the newest authenticated copy for recovery only.
@@ -90,7 +118,7 @@ export class RecoveryJournal {
       }
     }
     if (candidates.length > 0) {
-      this.onFailure(new Error('Recovery journal active generation unavailable'));
+      if (reportDamage) this.onFailure(new Error('Recovery journal active generation unavailable'));
       return candidates.sort((left, right) => right.snapshot.sequence - left.snapshot.sequence)[0]!;
     }
     throw new Error('Recovery journal unavailable');
