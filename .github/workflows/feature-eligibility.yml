@@ -73,6 +73,7 @@ jobs:
           .github/workflows/build-desktop.yml
           .github/workflows/build-store-artifacts.yml
           .github/workflows/publish-stores.yml
+          .github/workflows/store-screenshots.yml
           .github/workflows/ci.yml
           .github/workflows/e2e-android.yml
           .github/workflows/e2e-blockchain.yml
