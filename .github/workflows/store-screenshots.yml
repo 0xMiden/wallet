@@ -1,0 +1,60 @@
+name: Store screenshots
+
+on:
+  pull_request:
+    paths:
+      - 'store-listing/**'
+      - 'scripts/store-listing/**'
+      - 'scripts/store-publishing/**'
+      - '.github/workflows/store-screenshots.yml'
+      - '.github/workflows/publish-stores.yml'
+      - 'package.json'
+      - 'yarn.lock'
+      - 'jest.config.ts'
+      - 'playwright/e2e/harness/linked-pr-injection.test.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-screenshots-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eligibility:
+    name: Store screenshot eligibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: 'true'
+      CARGO_BUILD_JOBS: '2'
+      RAYON_NUM_THREADS: '2'
+      VIPS_CONCURRENCY: '2'
+      UV_THREADPOOL_SIZE: '2'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Check manifest, adapter, CLI and planner guards
+        run: >-
+          node --test --test-concurrency=2
+          scripts/store-listing/screenshots.test.mjs
+          scripts/store-publishing/screenshots.test.mjs
+          scripts/store-publishing/cli.test.mjs
+          scripts/store-publishing/publish-plan.test.mjs
+      - name: Install frozen technical-validator dependencies
+        timeout-minutes: 4
+        run: timeout 240s yarn install --frozen-lockfile --network-timeout 120000
+      - name: Check dependency declarations stayed unchanged
+        run: git diff --exit-code -- package.json yarn.lock
+      - name: Decode canonical screenshot files and check store eligibility
+        run: node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json
+      - name: Check legacy validation and dependency-injection boundaries
+        run: yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand

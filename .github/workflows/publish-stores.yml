@@ -25,7 +25,7 @@ on:
         description: Explicit store operation
         required: true
         type: choice
-        options: [status, prepare, begin-edit, upload, submit, release]
+        options: [status, prepare, begin-edit, upload, submit, release, sync-screenshots]
       network:
         description: Artifact network (Chrome supports testnet/devnet only)
         required: true
@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       state_run_id:
-        description: Previous state run (also required for Android edit inspection)
+        description: Previous state run (submit/release/Android upload/sync/edit inspection/Chrome resume)
         required: false
         type: string
       build_number:
