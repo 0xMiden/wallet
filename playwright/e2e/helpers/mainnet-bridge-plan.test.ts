@@ -12,6 +12,7 @@ import {
   roundTripReserve,
   TX_FEE_MULTIPLE,
   usdcReserve,
+  usdcxLoopsOrFail,
   usdcxShortfall,
   type MainnetBridgeChain
 } from './mainnet-bridge-plan';
@@ -151,5 +152,18 @@ describe('mainnet bridge loops', () => {
       `${address} holds 0 native base units, short of ${need} for two nights of bridge fees`
     );
     expect(feePrecheckProblem(address, need, need)).toBeUndefined();
+  });
+});
+
+describe('usdcxLoopsOrFail', () => {
+  it('keeps only the USDCx loops', () => {
+    expect(usdcxLoopsOrFail(bridgeLoops(CHAINS)).map(loop => loop.kind)).toEqual(expect.arrayContaining(['usdcx']));
+    expect(usdcxLoopsOrFail(bridgeLoops(CHAINS)).every(loop => loop.kind === 'usdcx')).toBe(true);
+  });
+
+  it('fails a night that would test no USDCx route', () => {
+    expect(() => usdcxLoopsOrFail(bridgeLoops([]))).toThrow(
+      'the mainnet config names no USDCx route with deposits enabled, so the bridge loop would test nothing'
+    );
   });
 });

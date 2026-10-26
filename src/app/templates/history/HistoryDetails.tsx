@@ -521,6 +521,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
           usdcxBurn: bridge?.usdcxBurn,
+          bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeReclaimNoteId: bridge?.reclaimNoteId,
           bridgeSubmitClaimed: bridge?.submitClaimed,
@@ -1367,7 +1368,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <BridgeClaimSection
                   entry={entry}
                   restoredFromBackup={transaction?.restoredFromBackup === true}
-                  destinationTxHash={usdcxDestinationTxHash}
+                  destinationTxHash={entry.usdcxBurn?.payout?.transactionHash ?? usdcxDestinationTxHash}
+                  sentAmount={transaction?.amount}
                 />
               </>
             )}

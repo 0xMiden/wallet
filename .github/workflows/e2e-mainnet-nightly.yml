@@ -14,10 +14,10 @@ jobs:
           node-version: 22
       - name: Restore and prove exact candidate content tree for global workflow contracts
         run: |
-          git fetch --no-tags --depth=1 origin a16d34151ed2d2fb2fcb4e7b0ee75adef9f10904
-          git show a16d34151ed2d2fb2fcb4e7b0ee75adef9f10904:.github/workflows/e2e-mainnet-nightly.yml > .github/workflows/e2e-mainnet-nightly.yml
+          git fetch --no-tags --depth=1 origin bdf101147c3053d7d4f19dd886769e5b8aaf8704
+          git show bdf101147c3053d7d4f19dd886769e5b8aaf8704:.github/workflows/e2e-mainnet-nightly.yml > .github/workflows/e2e-mainnet-nightly.yml
           git add .github/workflows/e2e-mainnet-nightly.yml
-          test "$(git write-tree)" = dbb2a5f75996b410ea6155195cb559a90a53b4e0
+          test "$(git write-tree)" = 09112f738c65a366c6298f621334e6886c4fc3b3
       - name: Combined publishing and coordinator regression tests without store access
         run: node --test scripts/store-publishing/*.test.mjs
       - name: Retained artifact and profile validation without signing

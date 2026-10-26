@@ -385,11 +385,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
         before: snapshot.balance.toString()
       });
       evidence.notes.push(`burn stages ${JSON.stringify(stages)}`);
-      return {
-        row,
-        burnNoteId,
-        payoutFromBlock: BigInt(usdcxBurn?.destinationBalanceBefore?.blockNumber ?? '0')
-      };
+      return { row, burnNoteId };
     },
     onGuardian
   );
@@ -484,7 +480,6 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
     const at = await waitForWalletPayoutConfirmation({
       readRows: () => wallet.readBridgedSendRows(),
       rowId: burned.row.id,
-      arcFromBlock: burned.payoutFromBlock,
       payout,
       key,
       arc: ctx.payoutReads ?? ctx.arc,
