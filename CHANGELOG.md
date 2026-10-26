@@ -6,6 +6,7 @@
 
 ### Changes
 
+- [FIX][extension,desktop] Keep the password field and Unlock button the same centered width in wide wallet windows.
 - [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).
 - [CHANGE][all] Failed transaction reports distinguish reached Guardian signing operations and locally observed execution authentication facts without sending request data.
 - [FIX][ios] Prepare future release screenshots automatically with quota-aware, resumable draft replacement while preserving the submitted 1.17.7 listing (#1906).
