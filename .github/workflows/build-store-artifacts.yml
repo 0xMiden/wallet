@@ -20,7 +20,7 @@ on:
         description: 'Explicit store artifact selection'
         required: true
         type: choice
-        default: chrome
+        default: all
         options:
           - chrome
           - ios
