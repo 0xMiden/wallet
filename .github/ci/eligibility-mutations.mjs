@@ -8,6 +8,21 @@ const original = readFileSync(worker, 'utf8');
 const settings = readFileSync(config, 'utf8');
 const cases = [
   {
+    name: 'caller rate state is shared across networks and survives caller object recreation',
+    prediction: 'Routing each network separately resets the caller limit and permits a third request.',
+    mutate: () => writeFileSync(worker, original.replace('`caller-v1:${caller}`', '`caller-v1:${caller}:${network}`'))
+  },
+  {
+    name: 'caller cleanup expires local records without deleting the global paid-query budget',
+    prediction: 'Skipping caller cleanup retains expired caller state after its alarm.',
+    mutate: () => {
+      const method = 'async alarm() {\n      await cleanup(this.storage);\n    }';
+      const offset = original.lastIndexOf(method);
+      assert.ok(offset >= 0);
+      writeFileSync(worker, original.slice(0, offset) + original.slice(offset).replace(method, 'async alarm() {}'));
+    }
+  },
+  {
     name: 'warm cache and per-caller rejection do not enter the global reservation object',
     prediction: 'Routing accepted requests back to the global object breaks cached eligibility and bypass isolation.',
     mutate: () => writeFileSync(worker, original.replace('env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName', 'env.ELIGIBILITY_GUARD.get(env.ELIGIBILITY_GUARD.idFromName'))
