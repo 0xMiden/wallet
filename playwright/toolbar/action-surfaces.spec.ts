@@ -40,7 +40,6 @@ for (const theme of ['light', 'dark'] as const) {
     const activate = () => execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
     try {
       let worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
-      const id = new URL(worker.url()).host;
       const panelCount = () => worker.evaluate(async () => {
         const contexts = await chrome.runtime.getContexts({});
         return contexts.filter(item => item.contextType === 'SIDE_PANEL').length;
