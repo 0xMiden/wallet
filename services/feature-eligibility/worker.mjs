@@ -195,7 +195,7 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
     const controller = new AbortController();
     let reader;
     let timer;
-    const deadline = new Promise((_, reject) => {
+    const expired = new Promise((_, reject) => {
       timer = setTimeout(
         () => {
           controller.abort();
@@ -206,7 +206,7 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
     });
     try {
       return await Promise.race([
-        deadline,
+        expired,
         (async () => {
           // Workers does not support redirect: 'error'; reject redirects before reading their body.
           const response = await fetcher(url, {
