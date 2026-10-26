@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
+      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
       - name: Verify store publishing and production artifact guards
         run: node --test scripts/store-publishing/*.test.mjs
       - name: Verify store artifact archive inspection
