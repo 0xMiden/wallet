@@ -59,6 +59,9 @@ import { ReactComponent as Explore } from './explore.svg';
 import { ReactComponent as EyeOff } from './eye-off.svg';
 import { ReactComponent as Eye } from './eye.svg';
 import { ReactComponent as FaceId } from './face-id.svg';
+import { ReactComponent as FactAlert } from './fact-alert.svg';
+import { ReactComponent as FactCheck } from './fact-check.svg';
+import { ReactComponent as FactCross } from './fact-cross.svg';
 import { ReactComponent as Failed } from './failed.svg';
 import { ReactComponent as Faucet } from './faucet.svg';
 import { ReactComponent as FileCopy } from './file-copy.svg';
@@ -164,6 +167,9 @@ export enum IconName {
   CopyNew = 'copy-new',
   BridgeIn = 'bridge-in',
   BridgeOut = 'bridge-out',
+  FactAlert = 'fact-alert',
+  FactCheck = 'fact-check',
+  FactCross = 'fact-cross',
   CrossChain = 'cross-chain',
   Download = 'download',
   Earn = 'earn',
@@ -330,6 +336,12 @@ const IconSwitch = (props: IconProps) => {
       return <BridgeIn {...props} />;
     case IconName.BridgeOut:
       return <BridgeOut {...props} />;
+    case IconName.FactAlert:
+      return <FactAlert {...props} />;
+    case IconName.FactCheck:
+      return <FactCheck {...props} />;
+    case IconName.FactCross:
+      return <FactCross {...props} />;
     case IconName.CrossChain:
       return <CrossChain {...props} />;
     case IconName.Download:

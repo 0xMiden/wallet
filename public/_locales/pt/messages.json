@@ -2817,8 +2817,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "Selecione uma das opções abaixo",
-    "englishSource": "Select an option below"
+    "message": "Seu Guardian confirma todas as transações e pode ajudá-lo a recuperar sua conta.",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "Verificando qual operador responde mais rápido…",
@@ -2869,8 +2869,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Um “Guardian” faz backup dos dados privados da sua conta e co-assina suas transações.",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Um Guardian faz backup dos dados privados da sua conta e confirma suas transações.",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Recuperar em um novo celular",
@@ -2885,8 +2885,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Seu “Guardian” assina junto com você. Ele nunca pode movimentar fundos por conta própria.",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "Seu Guardian confirma suas transações. Ele nunca pode movimentar fundos por conta própria.",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "Troque a qualquer momento",
@@ -2978,16 +2978,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Um Guardian é um serviço independente que <b>confirma todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "O que ele faz",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Co-assina todas as transações — nem seu dispositivo nem o Guardian podem movimentar fundos sozinhos. Ajuda você a recuperar sua conta caso perca seu dispositivo.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "Confirma todas as transações — nem seu dispositivo nem o Guardian podem movimentar fundos sozinhos. Ajuda você a recuperar sua conta caso perca seu dispositivo.",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "O que ele não pode fazer",
@@ -3002,8 +3002,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Você pode mudar para um Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem é co-signatário sofre alterações; sua conta e seus fundos permanecem os mesmos.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "Você pode mudar para um Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem confirma suas transações muda; sua conta e seus fundos permanecem os mesmos.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Entendi",
@@ -3390,8 +3390,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "A troca foi enviada, mas este dispositivo não conseguiu confirmar que ela foi concluída na chain. A carteira não pode confirmar isso por você — tanto as configurações do Guardian quanto o registro desta transação em Atividade mostrarão o novo Guardian de qualquer forma. Se uma transação posterior for recusada por não ter sido coassinada, execute a troca novamente.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "A troca foi enviada, mas este dispositivo não conseguiu confirmar se ela foi processada na cadeia de blocos. Nada na carteira pode confirmar isso para você — suas configurações do Guardian e a entrada de Atividade desta transação indicarão o novo Guardian de qualquer maneira. Se uma transação posterior for recusada porque não pôde ser confirmada, execute a troca novamente.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "Ainda não foi salva neste dispositivo.",
@@ -3418,8 +3418,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "Assim que a mudança for confirmada on-chain, o seu novo Guardian coassina todas as transações e o seu Guardian anterior deixa de poder coassinar pela sua conta.",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "Assim que a troca for confirmada na cadeia de blocos, seu novo Guardian reconhecerá todas as transações, e seu antigo Guardian não poderá mais reconhecer transações para sua conta.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "A troca foi confirmada na cadeia, mas este dispositivo não conseguiu salvar o endereço do novo Guardian. A carteira verifica isso automaticamente e solicitará que você o informe novamente se necessário — isso não iniciará outra troca. Se nenhum aviso aparecer, entre em contato com o suporte.",
@@ -3430,8 +3430,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Seu novo Guardian coassina todas as transações a partir de agora — seu antigo Guardian não pode mais coassinar transações da sua conta.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "Seu novo Guardian confirmará todas as transações a partir de agora — seu antigo Guardian não poderá mais confirmar transações para sua conta.",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "O endereço da sua carteira, seus fundos e seu histórico permanecem inalterados. Nada foi movimentado durante a rotação.",
@@ -3446,12 +3446,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "Seu novo “Guardian” co-assina",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "Seu novo Guardian reconhece",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "O novo “Guardian” co-assina assim que for confirmado",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "O novo Guardian reconhece a transação assim que ela for confirmada",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "Nada mudou",
@@ -3480,6 +3480,22 @@
   "recoveryPhraseCold": {
     "message": "Frase de recuperação (offline)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "A partir de agora, $newGuardian$ confirmará suas transações em vez de $oldGuardian$. Seu endereço, seus fundos e seu histórico permanecem exatamente os mesmos.",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "Aprovar com",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "Seu antigo Guardian não consegue bloquear isso",
@@ -3663,8 +3679,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "Seu guardian não está respondendo, portanto as transações não podem ser coassinadas.",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "Seu guardian não está respondendo, portanto as transações não podem ser confirmadas.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Trocar Guardian",
@@ -4046,8 +4062,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "Use uma “guardian” para recuperar o acesso e co-assinar esta conta.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "Use um guardian para recuperar e confirmar transações nesta conta.",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "Importar conta pública",
@@ -6869,6 +6885,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "Outros Guardians disponíveis",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "Não foi possível verificar o método de desbloqueio desta carteira. Tente novamente.",

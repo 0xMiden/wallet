@@ -36,7 +36,7 @@ const SETTLE_RETRY_MS = 50;
  * How long to keep re-checking before measuring anyway.
  *
  * The ancestor that moves is the `MobilePageLayers` layer holding the tab panes,
- * which a slide page above it moves between `x: '-24%'` and `0` on
+ * which a slide page above it moves between `translateX(-24%)` and none on
  * `pageSlideEntrance`, a 340ms tween. 3s is an order of magnitude beyond that,
  * wide enough to absorb an animation whose start was deferred on a loaded device.
  *

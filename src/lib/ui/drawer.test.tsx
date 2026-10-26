@@ -31,6 +31,18 @@ jest.mock('lib/mobile/back-handler', () => ({
 const liveBackHandlers = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
 
 describe('Drawer', () => {
+  it('installs the sheet keyframes once the drawer is on screen', () => {
+    document.getElementById('miden-sheet-keyframes')?.remove();
+    render(
+      <Drawer open onOpenChange={() => {}}>
+        <DrawerContent>
+          <DrawerTitle>Keyframes</DrawerTitle>
+        </DrawerContent>
+      </Drawer>
+    );
+    expect(document.head.querySelectorAll('#miden-sheet-keyframes')).toHaveLength(1);
+  });
+
   it('renders the open drawer through the local API and closes from the header button', () => {
     const onOpenChange = jest.fn();
 

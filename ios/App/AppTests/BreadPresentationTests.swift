@@ -220,6 +220,16 @@ final class BreadPresentationTests: XCTestCase {
                         "safeAreaInsets": ["top":54,"left":0,"right":0,"bottom":34]], in: nil, contentWorld: .page) as? Bool == true
     }
 
+    // The dApp browser builds its own WKWebView, so it turns off the same 60 fps rendering preference (#1864).
+    func testDappWebViewTurnsOffThe60FPSRenderingPreference() {
+        let owner = WKWebViewController()
+        owner.initWebview()
+        let preferences = owner.webViewForManagedClose?.configuration.preferences
+
+        XCTAssertNotNil(preferences)
+        XCTAssertEqual(preferences.flatMap { webKitFeatureIsEnabled("PreferPageRenderingUpdatesNear60FPSEnabled", in: $0) }, false)
+    }
+
     func testFullscreenRotationKeepsHostCoveredUntilFreshPaint() async throws {
         guard #available(iOS 16.0, *) else { throw XCTSkip("Geometry requests require iOS16") }
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("bread-rotation-regression")

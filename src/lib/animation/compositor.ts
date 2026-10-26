@@ -1,0 +1,177 @@
+/**
+ * Springs played as Web Animations on the compositor.
+ *
+ * WKWebView runs everything framer-motion drives from `requestAnimationFrame` at 60 fps, and a
+ * `linear()` easing too (see `spring-easing.ts`). A `transform` animation whose keyframes are the
+ * sampled spring, `linear` between stops, runs at the display's rate. So a short, frequent motion
+ * that must keep up with a 120 Hz panel (a tab switch, a press) is played here instead: the spring is
+ * solved up front, the element is set to its end state, and the keyframes carry it there.
+ *
+ * One animation per element: playing a spring on an element cancels the one played on it before,
+ * so a new motion takes over from the last. Callers read where the element is drawn
+ * (`currentScale`, a rect) before they play, to start from there.
+ */
+
+import { RefObject, useEffect, useMemo, useRef } from 'react';
+
+import type { Transition } from 'framer-motion';
+
+import { springKeyframeStops } from './spring-easing';
+
+export interface SpringKeyframes {
+  keyframes: Keyframe[];
+  /** Milliseconds. */
+  duration: number;
+}
+
+/**
+ * `transition` from `from` to `to` as keyframes, one per sampled stop: `frame` turns each value
+ * (`from + (to - from) * progress`, overshoot included) into a keyframe. `unit` is `'px'` for that
+ * distance as given, or `'scale'` to solve it in hundredths (a press, an icon pop). Null when the
+ * spring is too short to animate (no distance, or not a spring at all).
+ */
+export function springKeyframes(
+  transition: Transition,
+  from: number,
+  to: number,
+  frame: (value: number) => Keyframe,
+  unit: 'px' | 'scale'
+): SpringKeyframes | null {
+  const sampled = springKeyframeStops(transition, {
+    distance: unit === 'scale' ? (from - to) * 100 : from - to,
+    velocity: 0
+  });
+  if (!sampled) return null;
+  return {
+    duration: sampled.duration,
+    keyframes: sampled.stops.map(({ offset, progress }) => ({
+      ...frame(progress === 1 ? to : from + (to - from) * progress),
+      offset
+    }))
+  };
+}
+
+const running = new WeakMap<Element, Animation>();
+
+/** Cancels the animation `playKeyframes` or `playSpring` last started on `el`. */
+export function cancelSpring(el: Element): void {
+  running.get(el)?.cancel();
+  running.delete(el);
+}
+
+const NOT_STYLE = new Set(['offset', 'easing', 'composite']);
+
+function applyKeyframe(el: HTMLElement, keyframe: Keyframe): void {
+  for (const [key, value] of Object.entries(keyframe)) {
+    if (NOT_STYLE.has(key)) continue;
+    const property = key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+    if (value === null || value === undefined) el.style.removeProperty(property);
+    else el.style.setProperty(property, String(value));
+  }
+}
+
+/**
+ * Plays `keyframes` on `el` after cancelling the animation last started on it. `rest` is written to
+ * the element's style first, so it stays there once the animation (which fills nothing) ends; with
+ * no keyframes the element only moves to `rest`.
+ */
+export function playKeyframes(
+  el: HTMLElement,
+  keyframes: Keyframe[] | null,
+  duration: number,
+  rest: Keyframe
+): Animation | null {
+  cancelSpring(el);
+  applyKeyframe(el, rest);
+  if (!keyframes || typeof el.animate !== 'function') return null;
+  const animation = el.animate(keyframes, { duration, easing: 'linear', fill: 'none' });
+  // Start on this frame's timeline. Left unset, WebKit waits for the next frame, and the element
+  // paints at its end state for that frame.
+  const now = document.timeline?.currentTime;
+  if (typeof now === 'number') animation.startTime = now;
+  running.set(el, animation);
+  return animation;
+}
+
+/** `transition` from `from` to `to` on `el` (see `springKeyframes` and `playKeyframes`). */
+export function playSpring(
+  el: HTMLElement,
+  transition: Transition,
+  from: number,
+  to: number,
+  frame: (value: number) => Keyframe,
+  unit: 'px' | 'scale'
+): Animation | null {
+  const sampled = springKeyframes(transition, from, to, frame, unit);
+  return playKeyframes(el, sampled?.keyframes ?? null, sampled?.duration ?? 0, frame(to));
+}
+
+function computedMatrix(el: Element): DOMMatrixReadOnly | null {
+  const transform = getComputedStyle(el).transform;
+  return transform && transform !== 'none' ? new DOMMatrixReadOnly(transform) : null;
+}
+
+/** The scale `el` is drawn at, a running animation included. */
+export function currentScale(el: HTMLElement): number {
+  const matrix = computedMatrix(el);
+  return matrix ? Math.hypot(matrix.a, matrix.b) : 1;
+}
+
+export const scaleKeyframe = (value: number): Keyframe => ({ transform: `scale(${value})` });
+
+/** The pointer fields a press reads. */
+export type PressPointer = Pick<PointerEvent, 'pointerType' | 'button' | 'isPrimary'>;
+
+/** framer's press gesture rule: the primary touch or pen, or a mouse's main button. */
+export const isPrimaryPress = (event: PressPointer): boolean =>
+  event.pointerType === 'mouse' ? event.button === 0 : event.isPrimary !== false;
+
+export interface CompositorPressHandlers {
+  /** A keyboard press passes no pointer. */
+  onPointerDown: (event?: PressPointer) => void;
+  onPointerUp: () => void;
+  onPointerCancel: () => void;
+  onPointerLeave: () => void;
+}
+
+/**
+ * A press dip on the compositor: down scales `ref` to `scale`, up, cancel or leave bring it back to
+ * 1, each from the scale it is drawn at. Nothing happens while `enabled` is false, or on a pointer
+ * that is not a primary press.
+ */
+export function useCompositorPress(
+  ref: RefObject<HTMLElement>,
+  { scale, transition, enabled }: { scale: number; transition: Transition; enabled: boolean }
+): CompositorPressHandlers {
+  // A touch fires pointerleave after pointerup; a second release would restart the spring at rest speed.
+  const pressed = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el) cancelSpring(el);
+    };
+  }, [ref]);
+
+  return useMemo(() => {
+    const scaleTo = (target: number) => {
+      const el = ref.current;
+      if (el) playSpring(el, transition, currentScale(el), target, scaleKeyframe, 'scale');
+    };
+    const release = () => {
+      if (!pressed.current) return;
+      pressed.current = false;
+      scaleTo(1);
+    };
+    return {
+      onPointerDown: (event?: PressPointer) => {
+        if (!enabled || (event && !isPrimaryPress(event))) return;
+        pressed.current = true;
+        scaleTo(scale);
+      },
+      onPointerUp: release,
+      onPointerCancel: release,
+      onPointerLeave: release
+    };
+  }, [ref, scale, transition, enabled]);
+}

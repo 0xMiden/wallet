@@ -252,8 +252,51 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
   return Number(dispatch) < needed ? `a dispatch gets ${dispatch} minutes, under the ${needed} it needs` : undefined;
 };
 
+/** Store signing consumes a published tag, never the unpublished dependency links of a PR. */
+const immutableStoreWorkflow = (file: string, text: string): boolean => {
+  if (file !== 'build-store-artifacts.yml' || triggers(file, text).join(',') !== 'workflow_dispatch') return false;
+  const all = jobs(file, text);
+  if (all.map(job => job.id).sort().join(',') !== 'android,chrome,ios,prepare') return false;
+  const prepare = all.find(job => job.id === 'prepare');
+  if (
+    prepare === undefined ||
+    prepare.keys['if'] !==
+      "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}"
+  ) return false;
+  const checkedOut = (job: Job, path: string, ref: string): boolean => job.steps.some(step =>
+    usesOf(step) === 'actions/checkout@v4' && keyOf(step, 'path') === path && keyOf(step, 'ref') === ref &&
+    keyOf(step, 'persist-credentials') === 'false'
+  );
+  if (all.some(job =>
+    !checkedOut(job, 'automation', '${{ github.workflow_sha }}') ||
+    !checkedOut(job, 'source', '${{ inputs.source_sha }}') ||
+    job.steps.some(step => [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? ''))
+  )) return false;
+  const lines = prepare.steps.flatMap(step => step.lines);
+  if (
+    !lines.some(line => line.startsWith('node automation/scripts/store-publishing/create-receipt.mjs validate-request')) ||
+    !lines.some(line => line.startsWith('node automation/scripts/store-publishing/create-receipt.mjs validate-source')) ||
+    !lines.some(line => line.startsWith('gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"')) ||
+    !lines.includes('--json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/wallet-release.json"') ||
+    !lines.includes('TAG_SHA=$(git -C source rev-parse "refs/tags/$RELEASE_TAG^{commit}")') ||
+    !lines.includes('CHECKED_OUT_SHA=$(git -C source rev-parse HEAD)') ||
+    !lines.includes('--manifest-file source/public/manifest.json') ||
+    !lines.some(line => line.includes('--checkout-sha "$CHECKED_OUT_SHA" --package-file source/package.json')) ||
+    !lines.some(line => line.includes('--release-file "$RUNNER_TEMP/wallet-release.json" --tag-sha "$TAG_SHA"')) ||
+    !lines.includes('node services/feature-eligibility/check-deployment.mjs')
+  ) return false;
+  return all.filter(job => job.id !== 'prepare').every(job => {
+    const install = job.steps.filter(installs);
+    return job.keys['needs'] === 'prepare' &&
+      job.keys['if'] === `\${{ needs.prepare.outputs.build_${job.id} == 'true' }}` &&
+      install.length === 1 &&
+      keyOf(install[0]!, 'run') === 'yarn install --frozen-lockfile --production=false' &&
+      keyOf(install[0]!, 'working-directory') === 'source';
+  });
+};
+
 const workflowViolations = (file: string, text: string): string[] =>
-  guarded(file, text)
+  guarded(file, text) && !immutableStoreWorkflow(file, text)
     ? jobs(file, text).flatMap(job => {
         const why = violation(job);
         return why === undefined ? [] : [`${file} ${job.id}: ${why}`];
@@ -266,7 +309,7 @@ const workflowFiles = readdirSync(workflowsDir)
 const source = (file: string): string => readFileSync(resolve(workflowsDir, file), 'utf8');
 /** Every job the rule checks, and each as `<file> <job>`. */
 const guardedJobs = workflowFiles.flatMap(file =>
-  guarded(file, source(file))
+  guarded(file, source(file)) && !immutableStoreWorkflow(file, source(file))
     ? jobs(file, source(file))
         .filter(job => job.steps.some(installs))
         .map(job => ({ file, job }))
@@ -612,6 +655,36 @@ describe('the rule itself', () => {
     expect(() => jobs('x.yml', workflow('  push:', [frozen]).replace(/^ {4}(?=\S)/gm, '      '))).toThrow(
       'not job keys indented 4'
     );
+  });
+});
+
+describe('published immutable store artifact builds', () => {
+  const file = 'build-store-artifacts.yml';
+
+  it('recognizes only the dedicated validated release workflow as an intentional exception', () => {
+    const text = source(file);
+    expect(immutableStoreWorkflow(file, text)).toBe(true);
+    expect(workflowViolations(file, text)).toEqual([]);
+    expect(workflowViolations('another-release.yml', text)).toHaveLength(3);
+    expect(guardedNames.some(name => name.startsWith(`${file} `))).toBe(false);
+  });
+
+  it('rejects broadened events, mutable checkouts, missing release validation and unfrozen installation', () => {
+    const text = source(file);
+    const unsafe = [
+      text.replace('on:\n', 'on:\n  push:\n'),
+      text.replace("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)", 'true'),
+      text.replace(/ref: \$\{\{ inputs\.source_sha \}\}/g, 'ref: ${{ github.ref }}'),
+      text.replace(/ref: \$\{\{ github\.workflow_sha \}\}/g, 'ref: ${{ github.ref }}'),
+      text.replace('--json tagName,isDraft,isPrerelease', '--json tagName'),
+      text.replace('create-receipt.mjs validate-source', 'create-receipt.mjs skip-source-validation'),
+      text.replace(/run: yarn install --frozen-lockfile --production=false/g, 'run: yarn install'),
+      text.replace(/needs: prepare/g, 'needs: another-job')
+    ];
+    for (const altered of unsafe) {
+      expect(immutableStoreWorkflow(file, altered)).toBe(false);
+      expect(workflowViolations(file, altered)).toHaveLength(3);
+    }
   });
 });
 

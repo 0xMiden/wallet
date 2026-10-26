@@ -4,8 +4,9 @@
  * A warm dApp's live page is moved by the native morph. A cold one has no page yet (it reloads on restore), and a
  * plugin that refused the morph shows the page without one, so here the parked snapshot makes the trip instead. The
  * element is slot-sized and moves only by transform and opacity, which the compositor runs off the main thread; it
- * unmounts on its own finish, onto DappActive's identical loading snapshot. Under reduced motion, or in an engine
- * without `linear()` easing, it renders nothing.
+ * unmounts on its own finish, onto DappActive's identical loading snapshot. Its spring is sampled keyframes with
+ * linear timing between stops. Under reduced motion, or when the existing capability gate is closed, it renders
+ * nothing.
  */
 
 import React, { type FC, useLayoutEffect, useMemo, useRef } from 'react';
@@ -13,7 +14,7 @@ import React, { type FC, useLayoutEffect, useMemo, useRef } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 
-import { springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
+import { springKeyframeStops, springs, supportsLinearEasing } from 'lib/animation';
 import { getFallbackColor } from 'lib/dapp-browser';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 
@@ -46,11 +47,12 @@ export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const reduceMotion = useReducedMotion();
+  // The capability gate this path always had; the keyframes themselves do not need linear().
   const spring = useMemo(
     () =>
       reduceMotion || !supportsLinearEasing()
         ? null
-        : springToLinearEasing(springs.morphExpand, { distance: -PATH_UNITS }),
+        : springKeyframeStops(springs.morphExpand, { distance: -PATH_UNITS }),
     [reduceMotion]
   );
 
@@ -63,19 +65,17 @@ export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({
     boostRefreshRate(spring.duration);
     const dx = sourceRect.x - targetRect.x;
     const dy = sourceRect.y - targetRect.y;
+    const scaleFrom = sourceRect.width / targetRect.width;
     // Scaled to the card's width the slot-shaped snapshot is taller than the card, so it fades in over the first
     // quarter of the path rather than showing its overhang.
     const animation = element.animate(
-      [
-        {
-          transform: `translate(${dx}px, ${dy}px) scale(${sourceRect.width / targetRect.width})`,
-          opacity: 0,
-          offset: 0
-        },
-        { opacity: 1, offset: 0.25 },
-        { transform: 'none', opacity: 1, offset: 1 }
-      ],
-      { duration: spring.duration, easing: spring.easing, fill: 'forwards' }
+      spring.stops.map(({ offset, progress }) => {
+        const scale = scaleFrom + (1 - scaleFrom) * progress;
+        const transform =
+          progress === 1 ? 'none' : `translate(${dx * (1 - progress)}px, ${dy * (1 - progress)}px) scale(${scale})`;
+        return { transform, opacity: Math.min(1, Math.max(0, progress / 0.25)), offset };
+      }),
+      { duration: spring.duration, easing: 'linear', fill: 'forwards' }
     );
     animation.onfinish = () => onDoneRef.current();
     return () => animation.cancel();

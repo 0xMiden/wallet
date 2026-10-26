@@ -16,6 +16,8 @@ export interface GuardianLogoTileProps {
   /** The provider's id in `GUARDIAN_LOGOS`; unknown or absent (a custom endpoint) draws the generic avatar. */
   guardianId?: string;
   size?: GuardianLogoTileSize;
+  /** Ring it in `accent`: the provider a review is switching to. */
+  selected?: boolean;
   /** Layout only. */
   className?: string;
 }
@@ -31,9 +33,12 @@ const tile = cva(
         md: 'size-12 rounded-xl p-2.5',
         hero: 'size-22 rounded-full p-5',
         spotlight: 'size-23 rounded-3xl p-7 shadow-raised'
-      }
+      },
+      // The provider being chosen: the 2px `accent` ring a chosen choice card wears, inset like the
+      // card's so it stays inside the tile and the top of a scroller cannot clip it.
+      selected: { true: 'ring-2 ring-inset ring-accent-primary', false: '' }
     },
-    defaultVariants: { size: 'md' }
+    defaultVariants: { size: 'md', selected: false }
   }
 );
 
@@ -44,7 +49,12 @@ const tile = cva(
  * endpoint that matches no provider gets the generic guardian avatar. Decorative: callers name the
  * provider in text beside it.
  */
-export const GuardianLogoTile: React.FC<GuardianLogoTileProps> = ({ guardianId, size = 'md', className }) => {
+export const GuardianLogoTile: React.FC<GuardianLogoTileProps> = ({
+  guardianId,
+  size = 'md',
+  selected = false,
+  className
+}) => {
   // The id comes from the config document, so `constructor` must not read an inherited member.
   const entry =
     guardianId && Object.prototype.hasOwnProperty.call(GUARDIAN_LOGOS, guardianId)
@@ -56,7 +66,7 @@ export const GuardianLogoTile: React.FC<GuardianLogoTileProps> = ({ guardianId, 
       aria-hidden="true"
       data-testid="guardian-logo-tile"
       // A wordmark is wide, so it takes the tile's width with only a hairline of side padding.
-      className={cn(tile({ size }), entry && !entry.Mark && (size === 'md' ? 'px-1' : 'px-3'), className)}
+      className={cn(tile({ size, selected }), entry && !entry.Mark && (size === 'md' ? 'px-1' : 'px-3'), className)}
     >
       {entry?.Mark ? (
         <entry.Mark

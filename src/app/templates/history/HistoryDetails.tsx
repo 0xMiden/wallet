@@ -61,6 +61,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { cn } from 'lib/ui/util';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
@@ -893,7 +894,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>
                   )}
-                  {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
+                  {approximateUsdAmount && (
+                    // Under the summary badge it sits the same 8px from the badge as the status pill sits from it.
+                    <p
+                      className={cn('text-sm font-medium text-gray', historySummaryBadgeContent && !isBridge && 'mt-2')}
+                    >
+                      {approximateUsdAmount}
+                    </p>
+                  )}
                 </>
               )}
               <div className="mt-2">

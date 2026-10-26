@@ -2817,8 +2817,8 @@
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "Виберіть один із варіантів нижче",
-    "englishSource": "Select an option below"
+    "message": "Ваш Guardian підтверджує кожну транзакцію та може допомогти вам відновити доступ до вашого облікового запису.",
+    "englishSource": "Your Guardian acknowledges every transaction and can help you recover your account."
   },
   "meetGuardianChecking": {
     "message": "Перевіряємо, який оператор відповідає найшвидше…",
@@ -2869,8 +2869,8 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "«Guardian» створює резервну копію ваших приватних даних облікового запису та співпідписує ваші транзакції.",
-    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
+    "message": "Guardian створює резервну копію ваших приватних даних облікового запису та підтверджує ваші транзакції.",
+    "englishSource": "A Guardian backs up your private account data and acknowledges your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Відновлення на новому телефоні",
@@ -2885,8 +2885,8 @@
     "englishSource": "Your funds stay yours"
   },
   "guardianIntroFundsBody": {
-    "message": "Ваш «Guardian» підписує транзакції разом з вами. Він ніколи не може самостійно переказувати кошти.",
-    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+    "message": "Ваш Guardian підтверджує ваші транзакції. Він ніколи не може самостійно переміщувати кошти.",
+    "englishSource": "Your Guardian acknowledges your transactions. It can never move funds on its own."
   },
   "guardianIntroSwitchTitle": {
     "message": "Змінюйте в будь-який час",
@@ -2978,16 +2978,16 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian — це незалежна служба, яка <b>підтверджує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання.",
+    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Як це працює",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Підписує кожну транзакцію — ані ваш пристрій, ані «Guardian» не можуть самостійно переміщувати кошти. Допомагає відновити доступ до вашого облікового запису, якщо ви втратите свій пристрій.",
-    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
+    "message": "Засвідчує отримання кожної транзакції - ані ваш пристрій, ані Guardian не можуть самостійно переміщувати кошти. Допомагає відновити ваш обліковий запис у разі втрати пристрою.",
+    "englishSource": "Acknowledges every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
     "message": "Чого воно не може зробити",
@@ -3002,8 +3002,8 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Ви можете в будь-який час перейти на інший «Guardian» за допомогою своєї фрази відновлення. Змінюється лише особа, яка є співпідписантом; ваш обліковий запис та кошти залишаються незмінними.",
-    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
+    "message": "Ви можете перейти на іншого Guardian у будь-який час за допомогою своєї фрази відновлення. Змінюється лише особа, яка підтверджує ваші транзакції; ваш рахунок та кошти залишаються незмінними.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who acknowledges your transactions changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Зрозуміло",
@@ -3390,8 +3390,8 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Зміну надіслано, але цей пристрій не зміг підтвердити, що вона пройшла в мережі. Гаманець не може підтвердити це за вас — і налаштування Guardian, і запис цієї транзакції в Активності в будь-якому разі покажуть нового Guardian. Якщо пізніша транзакція буде відхилена через відсутність співпідпису, виконайте зміну ще раз.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Запит на зміну був відправлений, але цей пристрій не зміг підтвердити, що він пройшов у ланцюгу. Ніщо в гаманці не може підтвердити це за вас — ваші налаштування Guardian та запис про цю транзакцію в розділі «Активність» у будь-якому разі вкажуть ім’я нового Guardian. Якщо пізніша транзакція буде відхилена через неможливість її підтвердження, запустіть процедуру зміни ще раз.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be acknowledged, run the switch again."
   },
   "guardianSwitchLocalStateNotSavedTitle": {
     "message": "Ще не збережено на цьому пристрої.",
@@ -3418,8 +3418,8 @@
     "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
-    "message": "Щойно зміну буде підтверджено ончейн, новий Guardian співпідписуватиме кожну транзакцію, а попередній Guardian більше не зможе підписувати за ваш обліковий запис.",
-    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+    "message": "Після підтвердження зміни в ланцюгу ваш новий Guardian засвідчує отримання кожної транзакції, а ваш колишній Guardian більше не може засвідчувати отримання транзакцій для вашого рахунку.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian acknowledges every transaction and your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Зміну підтверджено в мережі, але цей пристрій не зміг зберегти адресу нового Guardian. Гаманець автоматично перевіряє це й за потреби попросить ввести її знову — це не почне нову зміну. Якщо запит не з’явиться, зверніться до служби підтримки.",
@@ -3430,8 +3430,8 @@
     "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Відтепер ваш новий Guardian підписує кожну транзакцію разом з вами — ваш старий Guardian більше не може підписувати транзакції для вашого рахунку.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+    "message": "Відтепер ваш новий Guardian засвідчує отримання кожної транзакції - ваш колишній Guardian більше не може засвідчувати отримання транзакцій для вашого рахунку.",
+    "englishSource": "Your new Guardian acknowledges every transaction from now on — your old Guardian can no longer acknowledge transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "Адреса вашого гаманця, кошти та історія залишаються незмінними. Під час ротації нічого не переміщувалося.",
@@ -3446,12 +3446,12 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchSuccessInfo1Title": {
-    "message": "Ваш новий «Guardian» здійснює спільне підписання",
-    "englishSource": "Your new Guardian co-signs"
+    "message": "Ваш новий Guardian засвідчує отримання транзакцій",
+    "englishSource": "Your new Guardian acknowledges"
   },
   "guardianSwitchUnconfirmedInfo1Title": {
-    "message": "Новий «Guardian» здійснює співпідпис після підтвердження",
-    "englishSource": "New Guardian co-signs once confirmed"
+    "message": "Після підтвердження зміни новий Guardian засвідчує отримання транзакцій",
+    "englishSource": "New Guardian acknowledges once confirmed"
   },
   "guardianSwitchSuccessInfo2Title": {
     "message": "Нічого не змінилося",
@@ -3480,6 +3480,22 @@
   "recoveryPhraseCold": {
     "message": "Фраза відновлення (холодне зберігання)",
     "englishSource": "Recovery phrase (cold)"
+  },
+  "guardianRotationExplainer": {
+    "message": "Відтепер ваші транзакції підтверджує $newGuardian$ замість $oldGuardian$. Ваша адреса, кошти та історія залишаються без змін.",
+    "englishSource": "From now on, $newGuardian$ acknowledges your transactions instead of $oldGuardian$. Your address, funds and history stay exactly the same.",
+    "placeholders": {
+      "newguardian": {
+        "content": "$1"
+      },
+      "oldguardian": {
+        "content": "$2"
+      }
+    }
+  },
+  "approveWith": {
+    "message": "Підтвердити за допомогою",
+    "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
     "message": "Ваш старий «Guardian» не може заблокувати це",
@@ -3663,8 +3679,8 @@
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
-    "message": "Ваш «guardian» не відповідає, тому транзакції не можуть бути підписані спільно.",
-    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+    "message": "Ваш guardian не відповідає, тому транзакції не можуть бути підтверджені.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be acknowledged."
   },
   "connectivityGuardianCta": {
     "message": "Змінити Guardian",
@@ -4046,8 +4062,8 @@
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "Скористайтеся «guardian», щоб відновити доступ до цього рахунку та стати співпідписувачем.",
-    "englishSource": "Use a guardian to recover and co-sign for this account."
+    "message": "Використовуйте guardian для відновлення та підтвердження транзакцій для цього рахунку.",
+    "englishSource": "Use a guardian to recover and acknowledge transactions for this account."
   },
   "importPublicAccount": {
     "message": "Імпортувати публічний обліковий запис",
@@ -6869,6 +6885,22 @@
         "content": "$2"
       }
     }
+  },
+  "guardianCardMetaShort": {
+    "message": "$operator$ · $location$",
+    "englishSource": "$operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "otherGuardiansAvailable": {
+    "message": "Інші доступні Guardians",
+    "englishSource": "Other Guardians available"
   },
   "couldNotCheckUnlockMethod": {
     "message": "Не вдалося перевірити спосіб розблокування цього гаманця. Спробуйте ще раз.",

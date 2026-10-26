@@ -27,6 +27,7 @@ import {
   type PublicClient
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { mainnet } from 'viem/chains';
 
 import {
   arcEndpoints,
@@ -46,6 +47,7 @@ import {
   SEPOLIA_LATE_PAYOUT_NOTE,
   submitDepositToMiden,
   waitForGatewayPayout,
+  waitForReceipt,
   waitForXReserveAttestation,
   XRESERVE_HARNESS_ABI,
   type ArcClock
@@ -2181,6 +2183,66 @@ describe('submitDepositToMiden', () => {
     );
     expect(chain.sent).toHaveLength(1);
     expect(chain.clock.slept).toEqual([2_000]);
+  });
+});
+
+describe('waitForReceipt chain budgets', () => {
+  const hash = hexOf(arcVectors.deposit.transactionHash);
+  const ethereum = { ...ARC_PAYOUT, chainId: 1, chain: mainnet, label: 'Ethereum' };
+
+  it('accepts an Ethereum mainnet receipt mined after the two-minute L2 deadline', async () => {
+    const clock = fakeClock();
+    const client = stubClient(() => (clock.now() >= 300_000 ? DEPOSIT_RECEIPT : null));
+    await expect(
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
+    ).resolves.toMatchObject({ status: 'success', blockNumber: 66290091n });
+    expect(clock.now()).toBe(300_000);
+  });
+
+  it('bounds an Ethereum mainnet receipt that never arrives', async () => {
+    const clock = fakeClock();
+    const client = stubClient(() => null);
+    await expect(
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
+    ).rejects.toThrow('has no receipt after 600000 ms');
+    expect(clock.now()).toBe(600_000);
+  });
+
+  it.each([ARC_PAYOUT, BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT])(
+    'keeps the two-minute receipt deadline on $label',
+    async payoutChain => {
+      const clock = fakeClock();
+      const client = stubClient(() => (clock.now() >= 150_000 ? DEPOSIT_RECEIPT : null));
+      await expect(
+        waitForReceipt(
+          [ARC_DRPC_URL],
+          { endpoints: [ARC_DRPC_URL], payoutChain, publicClient: () => client, clock },
+          hash
+        )
+      ).rejects.toThrow('has no receipt after 120000 ms');
+      expect(clock.now()).toBe(120_000);
+    }
+  );
+
+  it('rejects a reverted Ethereum mainnet receipt without waiting', async () => {
+    const clock = fakeClock();
+    const client = stubClient(() => ({ ...DEPOSIT_RECEIPT, status: '0x0' }));
+    await expect(
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
+    ).rejects.toThrow('Ethereum transaction ' + hash + ' reverted in block 66290091');
+    expect(clock.slept).toEqual([]);
   });
 });
 
