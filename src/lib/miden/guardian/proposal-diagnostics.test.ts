@@ -358,6 +358,8 @@ it('does not carry a reused consume rejection observation into later signing', a
   mockSignProposal.mockRejectedValueOnce(error);
   await loaded.signAndCreateTransactionRequest('private-proposal').catch(() => {});
   expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('proposalCreateFamily');
+  const { snapshotProposalCreateDiagnostics } = await import('lib/telemetry/proposal-create-diagnostics');
+  expect(snapshotProposalCreateDiagnostics(error)).toBeUndefined();
 });
 
 it('clears an earlier inline proving observation when the same Error is rejected by creation', async () => {

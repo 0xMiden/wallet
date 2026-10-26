@@ -4621,14 +4621,15 @@ it('binds the last accepted stage to the eligible owner and never to collateral 
     handleOffscreenStageEvent(ownerId, 'private-stage' as never);
     const collateral = __test.dispatchCritical('sendTransaction', [{}], null);
     const collateralResult = collateral.promise.catch((error: unknown) => error);
-    markOpStarted(collateral.op_id);
     await jest.advanceTimersByTimeAsync(0);
+    markOpStarted(collateral.op_id);
     await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 1);
     fireReady();
     await jest.advanceTimersByTimeAsync(0);
     const ownerError = await owner,
       otherError = await collateralResult;
     expect(ownerError).not.toBe(otherError);
+    expect(otherError).toMatchObject({ facts: { started: true, deadline: { owner: 'collateral' } } });
     expect(snapshotCrashDiagnostics(ownerError)).toMatchObject({
       offscreenDeadlineMethod: 'guardianPipeline',
       offscreenDeadlineStage: 'proving'
