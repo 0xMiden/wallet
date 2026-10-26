@@ -1,0 +1,191 @@
+import { addEventProcessor, getCurrentScope } from '@sentry/browser';
+
+import * as Repo from 'lib/miden/repo';
+import { isCrashReportingEnabledAsync } from 'lib/settings/helpers';
+import { initCrashReporting, scrubEvent, stopCrashReporting } from 'lib/telemetry/crash';
+
+import { judgeAndWrite } from './reconcile-unconfirmed';
+import { ITransactionStatus, type ISubmitEvidence, type ITransaction } from '../db/types';
+
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(async () => true)
+}));
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  sameWalletAccountId: (a: string, b: string) => a === b
+}));
+
+const NOW = 1800000000;
+const HEADER = `0x${'ab'.repeat(32)}`;
+const INITIAL = `0x${'bc'.repeat(32)}`;
+const FINAL = `0x${'cd'.repeat(32)}`;
+const ACCOUNT = 'mtst1private-proof-wait-account';
+const EXECUTING = 946237001234;
+const SUBMITTING = EXECUTING + 9000;
+const wire: string[] = [];
+const roots: unknown[] = [];
+let originalFetch: PropertyDescriptor | undefined;
+let previousDsn: string | undefined;
+
+const current = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+  attemptId: 'private-current-attempt',
+  capturedAt: NOW - 50,
+  source: 'stage',
+  preSubmitEnd: true,
+  refBlock: 100,
+  expirationBlock: 700,
+  ...overrides
+});
+const historical = (): ISubmitEvidence => ({
+  attemptId: 'private-historical-attempt',
+  capturedAt: NOW - 60,
+  source: 'stage',
+  transactionId: `0x${'de'.repeat(32)}`,
+  initialCommitment: INITIAL,
+  finalCommitment: FINAL,
+  initialNonce: '5',
+  outputNoteIds: [],
+  nullifiers: [],
+  refBlock: 100,
+  refBlockCommitment: HEADER,
+  expirationBlock: 700
+});
+const row = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+  id: 'private-proof-wait-row',
+  accountId: ACCOUNT,
+  type: 'consume',
+  status: ITransactionStatus.Unconfirmed,
+  initiatedAt: NOW - 120,
+  stage: 'submitting',
+  displayIcon: 'RECEIVE',
+  mayHaveSubmitted: true,
+  attemptId: 'private-current-attempt',
+  stageTimestamps: { executing: EXECUTING, submitting: SUBMITTING },
+  submitEvidence: [historical(), current()],
+  rawError: 'failed to submit proven transaction: grpc request failed for submit_proven_transaction: deadline exceeded',
+  ...overrides
+});
+const run = () =>
+  judgeAndWrite('private-proof-wait-row', {
+    nowSec: NOW,
+    cadenceMs: 3000,
+    node: {
+      blockCommitment: async () => HEADER,
+      account: async () => ({ ok: true, state: { blockNum: 750, commitment: INITIAL } }),
+      noteInclusions: async () => new Map(),
+      nullifierHeight: async () => null
+    }
+  });
+const settle = async () => {
+  for (let i = 0; i < 6; i++) await new Promise(resolve => setTimeout(resolve, 5));
+};
+
+beforeAll(() => {
+  originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  previousDsn = process.env.SENTRY_DSN;
+  addEventProcessor((event, hint) => {
+    roots.push(hint.originalException);
+    return event;
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    writable: true,
+    value: async (input: unknown, init?: { body?: unknown }) => {
+      if (String(input).includes('/envelope/')) wire.push(String(init?.body));
+      return { status: 200, headers: new Headers() };
+    }
+  });
+});
+afterAll(() => {
+  if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+  else Reflect.deleteProperty(globalThis, 'fetch');
+  if (previousDsn === undefined) delete process.env.SENTRY_DSN;
+  else process.env.SENTRY_DSN = previousDsn;
+});
+beforeEach(async () => {
+  wire.length = 0;
+  roots.length = 0;
+  jest.clearAllMocks();
+  process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
+  jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
+  await Repo.transactions.clear();
+  initCrashReporting({ listenToGlobals: false });
+});
+afterEach(async () => {
+  await settle();
+  stopCrashReporting();
+  getCurrentScope().clear();
+});
+
+interface AvailabilityCase {
+  expected: string;
+  overrides?: Partial<ITransaction>;
+  entry?: Partial<ISubmitEvidence>;
+  bucket?: string;
+}
+const cases: AvailabilityCase[] = [
+  { expected: 'current_attempt_missing', overrides: { attemptId: undefined } },
+  { expected: 'current_entry_missing', overrides: { attemptId: 'private-missing-attempt' } },
+  { expected: 'execution_time_invalid', overrides: { stageTimestamps: { submitting: SUBMITTING } } },
+  { expected: 'submit_time_invalid', overrides: { stageTimestamps: { executing: EXECUTING, submitting: NaN } } },
+  {
+    expected: 'time_order_invalid',
+    overrides: { stageTimestamps: { executing: EXECUTING, submitting: EXECUTING - 1 } }
+  },
+  { expected: 'reference_block_missing', entry: { refBlock: undefined } },
+  { expected: 'expiration_block_missing', entry: { expirationBlock: undefined } },
+  { expected: 'reference_block_invalid', entry: { refBlock: NaN } },
+  { expected: 'expiration_block_invalid', entry: { expirationBlock: Infinity } },
+  { expected: 'expiry_order_invalid', entry: { expirationBlock: 100 } },
+  {
+    expected: 'derived_wait_invalid',
+    overrides: { stageTimestamps: { executing: -Number.MAX_VALUE, submitting: Number.MAX_VALUE } }
+  },
+  { expected: 'derived_window_invalid', entry: { refBlock: -Number.MAX_VALUE, expirationBlock: Number.MAX_VALUE } },
+  { expected: 'available', bucket: 'under_half_window' }
+];
+
+it.each(cases)(
+  'retains only current calculation availability $expected through real verdict and serialized capture',
+  async ({ expected, overrides, entry, bucket }) => {
+    await Repo.transactions.put(row({ submitEvidence: [historical(), current(entry)], ...overrides }));
+    expect((await run()).kind).toBe('never-committed');
+    await settle();
+    expect(wire).toHaveLength(1);
+    const serialized = wire[0] ?? '';
+    expect(serialized).toContain('point node_verdict; never_committed; rule expired');
+    expect(serialized).toContain(`proof wait ${bucket ?? 'unavailable'}. authentication`);
+    expect(serialized).toContain('"level":"error"');
+    expect(serialized).toContain(`"proofWaitAvailability":"${expected}"`);
+    for (const secret of [
+      ACCOUNT,
+      HEADER,
+      INITIAL,
+      FINAL,
+      'private-current-attempt',
+      'private-historical-attempt',
+      String(EXECUTING),
+      String(SUBMITTING)
+    ])
+      expect(serialized).not.toContain(secret);
+    expect(await Repo.transactions.get('private-proof-wait-row')).toMatchObject({
+      status: ITransactionStatus.Failed,
+      neverCommittedAt: NOW
+    });
+    const nativeEvent: Record<string, unknown> = {
+      extra: { walletDiagnostics: { proofWaitAvailability: 'private-injected', raw: ACCOUNT } }
+    };
+    scrubEvent(nativeEvent, { originalException: roots[0] });
+    nativeEvent.extra = {
+      walletDiagnostics: { proofWaitAvailability: 'current_entry_missing', privateTimestamp: EXECUTING }
+    };
+    scrubEvent(nativeEvent, { originalException: roots[0] });
+    const nativeWire = JSON.stringify(nativeEvent);
+    expect(nativeWire).toContain(`"proofWaitAvailability":"${expected}"`);
+    expect(nativeWire).not.toContain('private-injected');
+    expect(nativeWire).not.toContain(ACCOUNT);
+    expect(nativeWire).not.toContain(String(EXECUTING));
+  }
+);
