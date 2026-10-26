@@ -5974,6 +5974,10 @@
     "message": "Zrealizuj zamiar",
     "englishSource": "Redeem intent"
   },
+  "earnDepositRowTitle": {
+    "message": "Wpłacono do Earn",
+    "englishSource": "Deposited to Earn"
+  },
   "earnWithdrawRowTitle": {
     "message": "Wypłata z programu Earn",
     "englishSource": "Withdraw from Earn"

@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Détails du retrait",
   "depositIntentLabel": "Déclaration d'intention de dépôt",
   "redeemIntentLabel": "Intention de rachat",
+  "earnDepositRowTitle": "Déposé sur Earn",
   "earnWithdrawRowTitle": "Retrait depuis Earn",
   "earnWithdrawRowVia": "Via Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Racheter",

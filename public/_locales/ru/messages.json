@@ -5972,6 +5972,10 @@
     "message": "Намерение погашения",
     "englishSource": "Redeem intent"
   },
+  "earnDepositRowTitle": {
+    "message": "Внесено в Earn",
+    "englishSource": "Deposited to Earn"
+  },
   "earnWithdrawRowTitle": {
     "message": "Вывод средств из Earn",
     "englishSource": "Withdraw from Earn"

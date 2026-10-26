@@ -5972,6 +5972,10 @@
     "message": "Einlösungsabsicht",
     "englishSource": "Redeem intent"
   },
+  "earnDepositRowTitle": {
+    "message": "In Earn eingezahlt",
+    "englishSource": "Deposited to Earn"
+  },
   "earnWithdrawRowTitle": {
     "message": "Auszahlung aus „Earn“",
     "englishSource": "Withdraw from Earn"

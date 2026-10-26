@@ -1750,6 +1750,24 @@ describe('HistoryView swap settlement status', () => {
 // note lands — but the position only exists once the solver-fulfilled Sepolia
 // lending leg settles, so the chip must track THAT leg, not the row status.
 describe('HistoryView earn-deposit status chip', () => {
+  it.each<[string, NonNullable<IHistoryEntry['earnDepositStatus']>]>([
+    ['Deposited to lending', 'pending'],
+    ['Deposited to lending', 'confirmed'],
+    ['Deposited to lending', 'failed'],
+    ['Deposited to Earn', 'pending'],
+    ['Deposited to Earn', 'confirmed'],
+    ['Deposited to Earn', 'failed']
+  ])('localizes %s while preserving %s settlement', (message, earnDepositStatus) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ txType: 'earn-deposit', message, earnDepositStatus })]}
+        fullHistory
+      />
+    );
+    expect(rowByTitle('earnDepositRowTitle')).toHaveAttribute('data-status', earnDepositStatus);
+  });
+
   const renderDeposit = (overrides: Partial<IHistoryEntry> = {}) => {
     const entry = makeEntry({
       txType: 'earn-deposit',

@@ -1316,6 +1316,7 @@
   "earnWithdrawDetailsTitle": "Szczegóły dotyczące wypłat",
   "depositIntentLabel": "Zgłoszenie zamiaru wpłaty",
   "redeemIntentLabel": "Zrealizuj zamiar",
+  "earnDepositRowTitle": "Wpłacono do Earn",
   "earnWithdrawRowTitle": "Wypłata z programu Earn",
   "earnWithdrawRowVia": "Przez Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Wykupienie",

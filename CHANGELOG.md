@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [FIX][all] Activity labels new and existing completed Earn deposits as "Deposited to Earn" instead of "Deposited to lending".
 - [CHANGE][ci] Add a trusted-main manual staging probe for isolated eligibility rate-limit bindings with bounded synthetic traffic and manifest-bound cleanup; account support remains unproven until live evidence (#1894).
 
 - [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.

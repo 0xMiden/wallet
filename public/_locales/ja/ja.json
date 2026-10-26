@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "出金の詳細",
   "depositIntentLabel": "預入の意思",
   "redeemIntentLabel": "利用の意思",
+  "earnDepositRowTitle": "Earnに入金済み",
   "earnWithdrawRowTitle": "Earnからの出金",
   "earnWithdrawRowVia": "Epoch経由 → Miden",
   "earnWithdrawStatusRedeeming": "引き換え",

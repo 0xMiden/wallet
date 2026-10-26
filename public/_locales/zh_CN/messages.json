@@ -5972,6 +5972,10 @@
     "message": "兑换意图",
     "englishSource": "Redeem intent"
   },
+  "earnDepositRowTitle": {
+    "message": "已存入 Earn",
+    "englishSource": "Deposited to Earn"
+  },
   "earnWithdrawRowTitle": {
     "message": "从“Earn”中提现",
     "englishSource": "Withdraw from Earn"

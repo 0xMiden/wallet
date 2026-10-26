@@ -1318,6 +1318,7 @@
   "earnWithdrawDetailsTitle": "Detalhes do saque",
   "depositIntentLabel": "Declaração de intenção de depósito",
   "redeemIntentLabel": "Intenção de resgate",
+  "earnDepositRowTitle": "Depositado no Earn",
   "earnWithdrawRowTitle": "Retirar do Earn",
   "earnWithdrawRowVia": "Via Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Resgate",
