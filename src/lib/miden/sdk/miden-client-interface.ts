@@ -140,6 +140,7 @@ import {
   noteConsumeRestriction,
   reclaimDisabledP2ideTarget
 } from '../helpers';
+import { initializeSdkGeneration, readSdkRecoverySnapshot } from '../recovery/sdk-snapshot';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -701,6 +702,7 @@ export class MidenClientInterface {
 
         const midenClient = await (assertCreation(),
         MidenClient.create({
+          autoSync: false,
           rpcUrl: getEffectiveRpcUrl(),
           noteTransportUrl: getEffectiveNoteTransportUrl(),
           noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
@@ -1633,6 +1635,30 @@ export class MidenClientInterface {
           `${unexpected} unrequested/duplicate, ${failures} failed`
       );
       return { imported, failures, saturated: false, nextNoteOffset };
+    } catch (error) {
+      reportStorageFailure(error, { backend: 'sdk', operation: 'mutate' });
+      throw error;
+    }
+  }
+
+  async readStorageContinuity(accountIds: string[], includeNotes: boolean, assertLive: AssertLive = noAssertLive) {
+    return readSdkStorage(() => readSdkRecoverySnapshot(this.client, accountIds, includeNotes, assertLive));
+  }
+
+  async initializeStorageGeneration(
+    generation: string,
+    previousGeneration: string | null,
+    epoch: number,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<void> {
+    const check = () => {
+      assertStorageHealthy(epoch);
+      assertLive();
+    };
+    check();
+    try {
+      await initializeSdkGeneration(this.client, generation, previousGeneration, check);
+      check();
     } catch (error) {
       reportStorageFailure(error, { backend: 'sdk', operation: 'mutate' });
       throw error;

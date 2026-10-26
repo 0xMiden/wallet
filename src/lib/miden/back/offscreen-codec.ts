@@ -165,6 +165,7 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  * storage, so it runs every call on the network the call names (#1482).
  */
 export interface OffscreenCallRequest {
+  recoveryAccess?: { epoch: number; expiresAt: number };
   storageHealth?: import('../storage-health').StorageHealth;
   target: typeof OFFSCREEN_TARGET;
   type: typeof OFFSCREEN_CALL;

@@ -392,6 +392,7 @@ export function registerNewWallet(
         const currentAccount = await vault.getCurrentAccount();
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
+        if (!(await vault.verifyStorageContinuity(true))) throw new Error('StorageUnavailableError');
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -432,6 +433,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
+        if (!(await vault.verifyStorageContinuity(true))) throw new Error('StorageUnavailableError');
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -473,6 +475,7 @@ export function registerImportedWallet(
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
+        if (!(await vault.verifyStorageContinuity(true))) throw new Error('StorageUnavailableError');
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -520,6 +523,7 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
+        const storageReady = await vault.verifyStorageContinuity();
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
         // design; letting that escape would leave the wallet permanently unopenable,
@@ -533,7 +537,7 @@ export function unlock(password?: string) {
         // whether a pipeline is mid-sign with it, and unlock() can run over an
         // already-Ready vault whose transaction loop is live (#878). Declining
         // the lock leaves the status at 'removing', which is the designed retry.
-        if ((await vault.fetchSeedPhraseStatus()) === 'removing') {
+        if (storageReady && (await vault.fetchSeedPhraseStatus()) === 'removing') {
           await navigator.locks
             .request('generate-transactions-loop', { ifAvailable: true }, async lock => {
               if (lock) await vault.removeSeedPhrase();
@@ -589,7 +593,9 @@ export function createHDAccount(walletType: WalletType, name?: string) {
         }
       }
 
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       const accounts = await vault.createHDAccount(walletType, name);
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       // A Guardian creation registers outside the WASM lock, so a lock can land meanwhile. The
       // `locked` state is built fresh on purpose; publishing into it would hand a locked popup
       // the account list. The vault holds the account, and the next unlock loads it (#1207).
@@ -696,7 +702,9 @@ export function importAccount(privateKey: string, name?: string) {
         }
       }
 
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+      if (!(await vault.verifyStorageContinuity())) throw new Error('StorageUnavailableError');
       accountsUpdated({ accounts });
       return accounts[accounts.length - 1]!.publicKey;
     })

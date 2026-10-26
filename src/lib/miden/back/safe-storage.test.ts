@@ -118,3 +118,18 @@ describe('safe-storage', () => {
     });
   });
 });
+
+it('latches provider quota failures without classifying authentication failures as storage loss', async () => {
+  const health = await import('../storage-health');
+  const key = await makeVaultKey();
+  await encryptAndSaveMany([['retained', { value: 'private' }]], key);
+  await expect(fetchAndDecryptOne('retained', await makeVaultKey())).rejects.toThrow();
+  expect(health.getStorageHealth().status).toBe('healthy');
+  try {
+    mockProvider.set.mockRejectedValueOnce(new DOMException('quota exceeded', 'QuotaExceededError'));
+    await expect(savePlain('next', 'value')).rejects.toMatchObject({ name: 'QuotaExceededError' });
+    expect(health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota', backend: 'independent' });
+  } finally {
+    await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+  }
+});

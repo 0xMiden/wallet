@@ -335,6 +335,7 @@ describe('MidenClientInterface', () => {
      * An exact key set forbids it — and anything else new — without naming it.
      */
     const CREATE_OPTION_KEYS = [
+      'autoSync',
       'feeFaucetId',
       'keystore',
       'noteTransportMaxRetries',
@@ -375,7 +376,9 @@ describe('MidenClientInterface', () => {
     });
 
     it('passes exactly the options it means to, so no observation flag can be added unnoticed', async () => {
-      expect(Object.keys(await createAndCaptureOptions()).sort()).toEqual(CREATE_OPTION_KEYS);
+      const options = await createAndCaptureOptions();
+      expect(options.autoSync).toBe(false);
+      expect(Object.keys(options).sort()).toEqual(CREATE_OPTION_KEYS);
     });
 
     it('relays through its transport with no in-call retries, leaving every retry to the delivery sweep', async () => {

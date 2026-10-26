@@ -17,11 +17,14 @@ import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from './defaults';
+import { midenClientProxy } from './miden-client-proxy';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
+import { StorageContinuityError } from '../recovery/continuity';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from '../storage-health';
 
 jest.setTimeout(30_000);
 
@@ -5187,5 +5190,119 @@ describe('Vault.importHotKeyPair', () => {
     const vault = await seedVault('pw', { accounts: [recovered] });
 
     await expect(vault.importHotKeyPair(recovered.publicKey, 'nope')).rejects.toThrow('importHotKeyInvalid');
+  });
+});
+
+describe('Vault storage continuity', () => {
+  let vault: Vault;
+  let generation: string | null;
+  let readSnapshot: jest.SpyInstance;
+  let initializeGeneration: jest.SpyInstance;
+  beforeEach(async () => {
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (_name: string, operation: () => Promise<unknown>) => operation()
+      }
+    });
+    const key = await Passworder.importVaultKey(new Uint8Array(32).fill(7));
+    await encryptAndSaveMany(
+      [
+        [keys.check, 'retained-vault'],
+        [keys.accounts, [{ publicKey: 'retained', name: 'Account', isPublic: true, type: WalletType.OnChain }]]
+      ],
+      key
+    );
+    vault = new Vault(key);
+    await Repo.metadata.put({ id: 'generation', generation: 'wallet-fixture', origin: 'migrated' });
+    generation = null;
+    readSnapshot = jest.spyOn(midenClientProxy, 'readStorageContinuity').mockImplementation(async () => ({
+      generation,
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes: [{ kind: 'note', id: 'private-note', noteFile: new Uint8Array([1, 2]), provenance: 'input' }]
+    }));
+    initializeGeneration = jest
+      .spyOn(midenClientProxy, 'initializeStorageGeneration')
+      .mockImplementation(async next => {
+        generation = next;
+      });
+  });
+  afterEach(() => {
+    readSnapshot.mockRestore();
+    initializeGeneration.mockRestore();
+  });
+
+  it('establishes an encrypted first checkpoint after coherent retained account reads', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const snapshot = await vault.readRecoveryJournal();
+    expect(snapshot).toMatchObject({
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      entries: [{ id: 'private-note', noteFile: new Uint8Array([1, 2]) }]
+    });
+    expect(await Repo.metadata.get('generation')).toMatchObject({ origin: 'authorized' });
+    const writes = mockStorageSets.length;
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    expect(mockStorageSets.slice(writes).flat()).not.toContain('miden_recovery_v1_1');
+  });
+
+  it('preserves retained vault identity and the journal when an SDK account disappears', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    readSnapshot.mockRejectedValueOnce(new StorageContinuityError());
+    try {
+      expect(await vault.verifyStorageContinuity()).toBe(false);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity' });
+      expect(await vault.fetchAccounts()).toEqual([expect.objectContaining({ publicKey: 'retained' })]);
+      expect(await vault.readRecoveryJournal()).toEqual(prior);
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('refuses a fresh wallet database before establishing retained expectations', async () => {
+    await Repo.metadata.put({ id: 'generation', generation: 'fresh', origin: 'fresh' });
+    try {
+      expect(await vault.verifyStorageContinuity()).toBe(false);
+      expect(initializeGeneration).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toBeUndefined();
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('requires the real journal and both store markers before clearing an incident', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    expect(await vault.checkStorageRecovery()).toBe(true);
+    expect(getStorageHealth().status).toBe('healthy');
+    expect(readSnapshot).toHaveBeenLastCalledWith(
+      ['retained'],
+      false,
+      expect.objectContaining({ expiresAt: expect.any(Number) })
+    );
+  });
+
+  it('refuses stale recovery completion after a repeated storage incident', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    readSnapshot.mockImplementationOnce(async () => {
+      markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+      return { generation, accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }], notes: [] };
+    });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('refuses a retired vault writer after reset without poisoning the replacement wallet', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    await removeMany([keys.check]);
+    await expect(vault.retainRecoveryEntries([])).rejects.toThrow('StorageUnavailableError');
+    expect(getStorageHealth().status).toBe('healthy');
+    expect(await vault.readRecoveryJournal()).toEqual(prior);
   });
 });

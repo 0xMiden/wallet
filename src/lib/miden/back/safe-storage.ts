@@ -3,6 +3,8 @@ import { Buffer } from 'buffer';
 import * as Passworder from 'lib/miden/passworder';
 import { getStorageProvider, StorageProvider } from 'lib/platform/storage-adapter';
 
+import { reportStorageFailure, type StorageHealthOperation } from '../storage-health';
+
 // Lazy-load storage provider to ensure platform detection has completed
 // (Tauri injects __TAURI_INTERNALS__ after initial script execution)
 let _storage: StorageProvider | null = null;
@@ -11,6 +13,15 @@ function getStorage(): StorageProvider {
     _storage = getStorageProvider();
   }
   return _storage;
+}
+
+async function observeProvider<T>(operation: StorageHealthOperation, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    reportStorageFailure(error, { backend: 'independent', operation });
+    throw error;
+  }
 }
 
 export async function isStored(storageKey: string) {
@@ -42,16 +53,17 @@ export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey)
 }
 
 export async function removeMany(keys: string[]) {
-  await getStorage().remove(await Promise.all(keys.map(wrapStorageKey)));
+  const wrapped = await Promise.all(keys.map(wrapStorageKey));
+  await observeProvider('mutate', () => getStorage().remove(wrapped));
 }
 
 export async function getPlain<T>(key: string): Promise<T | undefined> {
-  const items = await getStorage().get([key]);
+  const items = await observeProvider('get', () => getStorage().get([key]));
   return items[key] as T | undefined;
 }
 
 export function savePlain<T>(key: string, value: T) {
-  return getStorage().set({ [key]: value });
+  return observeProvider('mutate', () => getStorage().set({ [key]: value }));
 }
 
 /**
@@ -61,7 +73,7 @@ export function savePlain<T>(key: string, value: T) {
 export const STORAGE_ITEM_NOT_FOUND = 'Some storage item not found';
 
 async function fetchEncryptedOne<T>(key: string) {
-  const items = await getStorage().get([key]);
+  const items = await observeProvider('get', () => getStorage().get([key]));
   if (items[key] !== undefined) {
     return items[key] as T;
   } else {
@@ -73,7 +85,8 @@ async function saveEncrypted<T>(items: { [k: string]: T } | [string, T][]) {
   if (Array.isArray(items)) {
     items = iterToObj(items);
   }
-  await getStorage().set(items);
+  const values = items;
+  await observeProvider('mutate', () => getStorage().set(values));
 }
 
 function iterToObj(iter: [string, any][]) {

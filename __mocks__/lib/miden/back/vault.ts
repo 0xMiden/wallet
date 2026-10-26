@@ -39,6 +39,10 @@ export class Vault {
     return state.currentAccount?.publicKey ?? null;
   }
 
+  async verifyStorageContinuity() {
+    return true;
+  }
+
   async fetchAccounts() {
     return state.accounts;
   }

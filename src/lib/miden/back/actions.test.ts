@@ -107,6 +107,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 
 const mockVault = {
+  verifyStorageContinuity: jest.fn().mockResolvedValue(true),
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
   provideRecoverySeed: jest.fn(),
   fetchAccounts: jest.fn(),
@@ -510,12 +511,27 @@ describe('actions', () => {
 
   describe('unlock', () => {
     const unlockableVault = () => ({
+      verifyStorageContinuity: jest.fn().mockResolvedValue(true),
       fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
       fetchAccounts: jest.fn().mockResolvedValue([]),
       fetchSettings: jest.fn().mockResolvedValue({}),
       getCurrentAccount: jest.fn().mockResolvedValue(null),
       isOwnMnemonic: jest.fn().mockResolvedValue(true),
       insertKeySink: jest.fn()
+    });
+
+    it('keeps a retained vault authenticated without resuming seed removal when continuity is unavailable', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const vault = {
+        ...unlockableVault(),
+        verifyStorageContinuity: jest.fn().mockResolvedValue(false),
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
+        removeSeedPhrase: jest.fn()
+      };
+      Vault.setup.mockResolvedValueOnce(vault);
+      await unlock('pw');
+      expect(vault.removeSeedPhrase).not.toHaveBeenCalled();
+      expect(mockUnlocked).toHaveBeenCalledWith(expect.objectContaining({ vault }));
     });
 
     it('adopting the vault installs its insert-key sink for the realm (#878)', async () => {
@@ -599,6 +615,7 @@ describe('actions', () => {
     it.each(['stored', 'removing', 'removed', 'unavailable'])('unlocks with seed status %s', async status => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue(status),
         removeSeedPhrase: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
@@ -641,6 +658,7 @@ describe('actions', () => {
       // escaped unlock() the wallet could never be opened again: the status
       // stays 'removing', so every later unlock re-runs the same failing step.
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
         removeSeedPhrase: jest.fn().mockRejectedValue(new Error('Removal failed')),
         fetchAccounts: jest.fn().mockResolvedValue([]),
@@ -664,6 +682,7 @@ describe('actions', () => {
       // whether a pipeline is mid-sign with one, so it must not run beside the
       // loop. unlock() can land over an already-Ready vault whose loop is live.
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
         removeSeedPhrase: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
@@ -1186,6 +1205,7 @@ describe('actions', () => {
     it('creates new vault and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
@@ -1285,6 +1305,7 @@ describe('actions', () => {
     it('passes empty string when password is undefined', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
@@ -1306,6 +1327,7 @@ describe('actions', () => {
         { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
       ];
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
@@ -1392,6 +1414,7 @@ describe('actions', () => {
     it('passes empty strings when password and mnemonic are undefined', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        verifyStorageContinuity: jest.fn().mockResolvedValue(true),
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),

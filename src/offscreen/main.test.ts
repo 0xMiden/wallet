@@ -1037,6 +1037,63 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     ...extra
   });
 
+  it('permits only the same-extension named recovery read while ordinary dispatch remains blocked', async () => {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    const { MidenClientInterface } = jest.requireMock('lib/miden/sdk/miden-client-interface');
+    const snapshot = {
+      generation: 'sdk-1',
+      accounts: [{ accountId: 'account-1', nonce: '1', commitment: 'state-1' }],
+      notes: []
+    };
+    const read = jest.fn(async () => snapshot);
+    MidenClientInterface.createForRecovery = jest.fn(
+      async (capability: import('lib/miden/storage-health').StorageRecoveryCapability) => {
+        health.assertStorageRecoveryAllowed(capability);
+        return { readStorageContinuity: read };
+      }
+    );
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const request = () =>
+      callReq({
+        method: 'readStorageContinuity',
+        argsB64: [encodeArg(['account-1']), encodeArg(false)],
+        recoveryAccess: { epoch: health.getStorageHealth().epoch, expiresAt: Date.now() + 1000 }
+      });
+    const refused = jest.fn();
+    capturedListener!(request(), { id: 'another-extension' }, refused);
+    expect(refused).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: 'Unauthorized recovery read' }));
+    for (let i = 0; i < 2; i++) {
+      const response = jest.fn();
+      capturedListener!(request(), { id: 'wallet-extension' }, response);
+      await flush();
+      expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    }
+    expect(MidenClientInterface.createForRecovery).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(health.getStorageHealth().status).toBe('unavailable');
+    const ordinary = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('account-1')] }), {}, ordinary);
+    await flush();
+    expect(ordinary).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+    expect(G.__off.clientGetAccount).not.toHaveBeenCalled();
+  });
+
+  it('rejects a recovery permission attached to a mutating dispatch', async () => {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const response = jest.fn();
+    capturedListener!(
+      callReq({ method: 'syncState', recoveryAccess: { epoch: 0, expiresAt: Date.now() + 1000 } }),
+      { id: 'wallet-extension' },
+      response
+    );
+    await flush();
+    expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+    expect(G.__off.clientSyncState).not.toHaveBeenCalled();
+  });
+
   it('dispatches getAccount, serializes the Account, and echoes op_id (ok:true)', async () => {
     await loadModule();
     const sendResponse = jest.fn();

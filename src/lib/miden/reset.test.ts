@@ -5,11 +5,22 @@ _g.__resetTest = {
   prefStub: { keys: jest.fn(), remove: jest.fn(), clear: jest.fn(), set: jest.fn() }
 };
 
+const mockMetadataPut = jest.fn();
+const mockResetHealth = jest.fn(async () => {});
+jest.mock('lib/miden/storage-health', () => ({
+  getStorageHealth: () => ({ status: 'healthy', epoch: 0 }),
+  resetStorageHealthForLifecycle: () => mockResetHealth()
+}));
+jest.mock('lib/miden/recovery/lock', () => ({
+  withRecoveryStorageLock: (operation: () => Promise<unknown>) => operation()
+}));
+
 const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
 const mockTransactionsClear = jest.fn();
 const mockSpendingLimitsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
+  metadata: { put: (...args: unknown[]) => mockMetadataPut(...args) },
   db: {
     delete: () => mockDbDelete(),
     open: () => mockDbOpen()
@@ -133,6 +144,15 @@ beforeEach(() => {
 });
 
 describe('clearStorage', () => {
+  it('establishes a new authorized wallet generation for create and imported databases', async () => {
+    await clearStorage(false);
+    expect(mockMetadataPut).toHaveBeenCalledWith({
+      id: 'generation',
+      generation: expect.any(String),
+      origin: 'authorized'
+    });
+  });
+
   it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
     expect(mockTransactionsClear).toHaveBeenCalled();
