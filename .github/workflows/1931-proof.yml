@@ -1,0 +1,65 @@
+name: Issue1931 focused proof
+on:
+  push:
+    branches: ['ci/issue-1931-*']
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 85b85927f8836c1870d009e711c4f135326b7492
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Bind proof to source parent
+        run: test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+      - uses: actions/checkout@v4
+        with:
+          ref: '${{ env.SOURCE_SHA }}'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - name: Focused action and onboarding regressions
+        run: yarn jest src/background.test.ts src/app/PageRouter.test.tsx src/lib/extension/side-panel-handoff.test.ts src/app/App.test.tsx --runInBand --coverage=false
+      - name: Type check
+        run: yarn ts
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install native action and screenshot tools
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool imagemagick
+      - name: Install pinned Chromium
+        run: yarn playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Freeze isolated fixture before launch for public-vector import
+        run: |
+          node --input-type=module <<'JS'
+          const response = await fetch('http://127.0.0.1:8551/testnet.json');
+          if (!response.ok) throw new Error('Fixture config unavailable');
+          const document = await response.json();
+          document.mainnetCountdown = { enabled: true, launchAt: '2099-01-01T00:00:00Z' };
+          const saved = await fetch('http://127.0.0.1:8551/_fixture/config', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document)
+          });
+          if (!saved.ok) throw new Error('Fixture config refused');
+          JS
+      - name: Build real extension shell with fixture backend
+        run: yarn build:chrome
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_NETWORK: 'testnet'
+          MIDEN_E2E_TEST: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+      - name: Native action and theme evidence
+        run: xvfb-run -a -s '-screen 0 1600x1100x24' yarn playwright test --config playwright.toolbar.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue1931-native-action-evidence
+          path: test-results
+          retention-days: 7
