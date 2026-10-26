@@ -52,6 +52,10 @@ export interface RecoveryDebitEntry {
   initiatedAt: number;
   spentUsd?: bigint;
   authorizationId?: string;
+  retry?: {
+    previous: { initiatedAt: number; spentUsd?: bigint; authorizationId?: string };
+    queuedSeq: number;
+  };
 }
 
 export type RecoveryEntry = RecoveryNoteEntry | RecoveryTransactionEntry | RecoveryPolicyEntry | RecoveryDebitEntry;
