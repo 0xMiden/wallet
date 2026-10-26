@@ -2,7 +2,7 @@ import type { TestInfo } from '@playwright/test';
 
 import { HarnessFault } from './dapp-cells';
 import type { CommandServer, CommandResult } from './dapp-command-server';
-import type { MobileSurface, NativeKeyboardControls, NativeKeyboardLayout } from './dapp-mobile-device';
+import type { MobileSurface, NativeKeyboardControls, NativeKeyboardLayout, NativeRect } from './dapp-mobile-device';
 
 const INPUT_LABEL = 'Keyboard input';
 const INPUT_VALUE = 'Native typing 1837';
@@ -23,6 +23,8 @@ export interface NativeKeyboardJourneyInput {
   wallet: ScreenshotWallet;
   testInfo: Pick<TestInfo, 'outputPath' | 'attach'>;
 }
+
+const hasArea = (frame: NativeRect | null): boolean => frame !== null && frame.width > 0 && frame.height > 0;
 
 function assertFieldAboveKeyboard(layout: NativeKeyboardLayout): void {
   const { fieldFrame: field, webViewFrame: webView, keyboardTop } = layout;
@@ -102,7 +104,7 @@ async function waitForKeyboardDismissed(device: NativeKeyboardDevice): Promise<N
   for (let attempt = 0; attempt < KEYBOARD_WAIT_ATTEMPTS; attempt += 1) {
     latest = await device.keyboardLayout('A', INPUT_LABEL);
     // An unreadable or empty tree also reports no keyboard, so a complete read is what proves the dismissal.
-    if (!latest.keyboardVisible && latest.webViewFrame !== null && latest.fieldFrame !== null) return latest;
+    if (!latest.keyboardVisible && hasArea(latest.webViewFrame) && hasArea(latest.fieldFrame)) return latest;
     await sleep(250);
   }
   throw new HarnessFault(

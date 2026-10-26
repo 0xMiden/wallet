@@ -80,7 +80,7 @@ describe('native dApp keyboard journey', () => {
       fieldFrame: null,
       webViewFrame: null
     };
-    const context = setup([visible, visible, visible, empty, empty, empty, empty, empty]);
+    const context = setup([visible, visible, visible, ...Array.from({ length: 12 }, () => empty)]);
 
     await expect(runNativeKeyboardJourney({ surface: 'ios', ...context })).rejects.toThrow(/after dismissal/);
   });
