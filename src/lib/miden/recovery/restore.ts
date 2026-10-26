@@ -9,6 +9,13 @@ import { canonicalSpendingLimitIdentity } from '../spending-limits/identity';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
 import { assertStorageRecoveryAllowed, type StorageRecoveryCapability } from '../storage-health';
 
+export async function restoreWalletRecoveryGeneration(
+  _source: RecoveryJournalSnapshot,
+  _capability: StorageRecoveryCapability
+): Promise<void> {
+  throw new StorageContinuityError();
+}
+
 export async function restoreWalletRecoveryRows(
   source: RecoveryJournalSnapshot,
   capability: StorageRecoveryCapability

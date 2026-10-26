@@ -4,6 +4,7 @@ import { fromSerializable, toSerializable } from './serialization';
 import type { RecoveryJournalData, RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
+import { type StorageRecoveryCapability, StorageUnavailableError } from '../storage-health';
 
 export interface RecoveryStorage {
   get(keys: string[]): Promise<Record<string, unknown>>;
@@ -46,6 +47,13 @@ export class RecoveryJournal {
       this.onFailure(error);
       throw error;
     }
+  }
+
+  async repair(
+    _expected: RecoveryJournalSnapshot,
+    _capability: StorageRecoveryCapability
+  ): Promise<RecoveryJournalSnapshot> {
+    throw new StorageUnavailableError();
   }
 
   private async decrypt(value: unknown): Promise<RecoveryJournalSnapshot> {
