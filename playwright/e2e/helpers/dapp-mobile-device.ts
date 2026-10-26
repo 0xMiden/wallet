@@ -312,7 +312,7 @@ function imeKeyboardRect(text: string): NativeRect | null {
     if (typeValue === undefined || !/ime/i.test(typeValue)) continue;
     if (!/visible=true(?![A-Za-z0-9_])/i.test(line)) continue;
     const rect = imeLineRect(line);
-    if (rect !== null && rect.height > 0) return rect;
+    if (positive(rect)) return rect;
   }
   return null;
 }
@@ -341,9 +341,8 @@ export function parseAndroidKeyboardLayout(
   const webView = fieldIndex === null ? nodes.find(isWebView) : nodes.slice(0, fieldIndex).reverse().find(isWebView);
   const keyboard = nodes.find(node => /keyboard_view|input_view/i.test(node['resource-id'] ?? ''));
   const hierarchyKeyboard = keyboard ? androidFrame(keyboard.bounds) : null;
-  // Visibility follows a positive-height rectangle. mInputShown alone leaves the top null.
-  const keyboardFrame =
-    hierarchyKeyboard !== null && hierarchyKeyboard.height > 0 ? hierarchyKeyboard : imeKeyboardRect(inputMethod);
+  // Visibility follows a rectangle with positive width and height. mInputShown alone leaves the top null.
+  const keyboardFrame = positive(hierarchyKeyboard) ? hierarchyKeyboard : imeKeyboardRect(inputMethod);
   const fieldFrame = field ? androidFrame(field.bounds) : null;
   return {
     keyboardVisible: keyboardFrame !== null,
