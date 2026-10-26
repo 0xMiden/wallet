@@ -8,7 +8,13 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
-import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
+import {
+  BRIDGE_FEATURES,
+  type BridgeFeature,
+  featureAvailability,
+  geoFeatureGate,
+  type UnavailableReason
+} from './availability';
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
@@ -355,10 +361,14 @@ function startRefresh(state: NetworkState): Promise<void> {
 
 function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[] {
   const overrides = getE2eOverrides();
+  const earnGate = geoFeatureGate('earn', snapshot.geo);
   const reasons = BRIDGE_FEATURES.flatMap(feature => {
     const availability = featureAvailability(feature, snapshot, overrides);
-    // A pending startup decision lands on its own lookup, never through this document's poll.
-    return availability.state === 'unavailable' && availability.reason !== 'pending' ? [availability.reason] : [];
+    if (availability.state !== 'unavailable' || availability.reason === 'pending') return [];
+    // The startup decision is made once per page and lands on its own lookup, so no document poll can change it.
+    const fromStartupDecision =
+      feature === 'earnDeposit' && earnGate?.state === 'unavailable' && earnGate.reason === availability.reason;
+    return fromStartupDecision ? [] : [availability.reason];
   });
   // Swap is not a switched feature, but a failed read of the solver's pairs clears the same way: the solver comes back.
   const swapDown: UnavailableReason[] = snapshot.derived?.swap?.pairs.state === 'error' ? ['service-down'] : [];

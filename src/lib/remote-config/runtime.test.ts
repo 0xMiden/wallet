@@ -87,6 +87,7 @@ const mockFeatureAvailability = jest.fn(
 );
 jest.mock('./availability', () => ({
   BRIDGE_FEATURES: ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn', 'bridgeIn', 'bridgeOut'],
+  geoFeatureGate: jest.requireActual('./availability').geoFeatureGate,
   featureAvailability: (feature: string, snapshot: unknown, overrides: unknown) =>
     mockFeatureAvailability(feature, snapshot, overrides)
 }));
@@ -1051,6 +1052,60 @@ describe('the poll schedule', () => {
     await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
     expect(mockFetch).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the hourly cadence after a failed startup lookup', async () => {
+    mockAvailability = { earnDeposit: unavailable('service-down') };
+    seed(1);
+    serve(1);
+    mockLookup.mockResolvedValueOnce(null);
+    await initFeatureEligibility();
+    // The version retry's refresh is the only fetch; no document can clear the failed decision.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    holdFastPoll();
+    await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the hourly cadence while a held control is only geo-restricted', async () => {
+    mockAvailability = { earnDeposit: unavailable('restricted') };
+    seed(1);
+    serve(1);
+    await initFeatureEligibility();
+    holdFastPoll();
+    await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(0);
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still re-checks every 5 minutes for a document outage while the startup lookup is failed', async () => {
+    mockAvailability = { earnDeposit: unavailable('service-down'), fastBridgeOut: unavailable('service-down') };
+    seed(1);
+    serve(1);
+    mockLookup.mockResolvedValueOnce(null);
+    await initFeatureEligibility();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still re-checks every 5 minutes when Earn itself is down and the startup decision allows it', async () => {
+    mockLookup.mockImplementation(async (network, version) => ({
+      network,
+      version,
+      allowed: { wallet: true, earn: true, swap: true }
+    }));
+    mockAvailability = { earnDeposit: unavailable('service-down') };
+    seed(1);
+    serve(1);
+    await initFeatureEligibility();
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
