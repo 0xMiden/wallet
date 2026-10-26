@@ -1,0 +1,93 @@
+name: Transaction execution diagnostics green
+on:
+  push:
+    branches: [ci/sentry-tx-diagnostics-green-fab089e92]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bind frozen source
+        run: |
+          git show -s --format='%H %T %P' HEAD
+          git diff --exit-code fab089e925cb359b4f3117fe2cd9a48ca684812c HEAD -- . ':!.github/workflows/sentry-tx-proof.yml'
+      - uses: ./.github/actions/yarn-install
+        id: install
+      - name: Focused regressions and privacy guards
+        run: yarn jest --maxWorkers=2 src/lib/miden/guardian/index.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/offscreen-codec.test.ts src/lib/miden/sdk/custom-request-diagnostics.test.ts src/lib/miden/sdk/transaction-execution-diagnostics.test.ts src/lib/telemetry/transaction-execution-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/transaction-failure.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/guarantees.test.ts
+      - name: TypeScript
+        if: always() && steps.install.outcome == 'success'
+        run: yarn ts
+      - name: Named lint
+        if: always() && steps.install.outcome == 'success'
+        run: yarn eslint src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/back/miden-client-proxy.ts src/lib/miden/back/offscreen-codec.ts src/lib/miden/guardian/index.test.ts src/lib/miden/guardian/index.ts src/lib/miden/sdk/custom-request-diagnostics.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/transaction-execution-diagnostics.test.ts src/lib/miden/sdk/transaction-execution-diagnostics.ts src/lib/miden/transaction/index.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash-diagnostics.ts src/lib/telemetry/transaction-execution-diagnostics.test.ts src/lib/telemetry/transaction-execution-diagnostics.ts src/lib/telemetry/transaction-failure.ts src/offscreen/main.test.ts src/offscreen/main.ts
+  coverage:
+    name: Full coverage shard ${{ matrix.shard }}/3
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      JEST_COVERAGE_SHARD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bind frozen source
+        run: git diff --exit-code fab089e925cb359b4f3117fe2cd9a48ca684812c HEAD -- . ':!.github/workflows/sentry-tx-proof.yml'
+      - uses: ./.github/actions/yarn-install
+      - name: Full coverage shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: yarn test:coverage --maxWorkers=2 --shard="$SHARD/3" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+      - name: Count executed tests
+        run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tx-coverage-shard-${{ matrix.shard }}
+          path: |
+            coverage/coverage-final.json
+            coverage/test-count.json
+          if-no-files-found: error
+  coverage-gate:
+    name: Full coverage gate (95% unchanged)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
+        run: test "$SHARDS_RESULT" = success
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install coverage reporters outside source
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tx-coverage-shard-*
+          path: coverage-shards
+      - name: Enforce original global gate
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/tx-coverage-shard-1/coverage-final.json coverage-shards/tx-coverage-shard-2/coverage-final.json coverage-shards/tx-coverage-shard-3/coverage-final.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tx-coverage-summary
+          path: coverage/coverage-summary.json
+          if-no-files-found: error
