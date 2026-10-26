@@ -1,0 +1,53 @@
+name: Issue1948 final import correction
+on:
+  push:
+    branches:
+      - 'ci/1948-import-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo eb6770f1f4dd565b8fbfe1b0e5e5ff2194912090 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = eb6770f1f4dd565b8fbfe1b0e5e5ff2194912090
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Prove import-only identity
+        run: |
+          set -o pipefail
+          node .github/ci/issue1948-import-identity.cjs 2>&1 | tee proof/identity.log
+      - name: Corrected named lint
+        run: |
+          set -o pipefail
+          yarn eslint --max-warnings=0 src/lib/miden/back/main.test.ts 2>&1 | tee proof/lint.log
+      - name: Corrected complete named test suite
+        run: |
+          set -o pipefail
+          yarn jest src/lib/miden/back/main.test.ts --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Verify nonzero test execution
+        if: always()
+        run: |
+          node -e "const x=require('./proof/results.json');console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(x.numPassedTests<1||x.numFailedTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: task4a-import-v2
+          path: proof/
