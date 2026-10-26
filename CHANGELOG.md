@@ -8,6 +8,7 @@
 
 - [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
 - [CHANGE][all] The wallet uses the Epoch intents SDK 2.0.1, which reads the allocator's service configuration (allocator, arbiter and Compact addresses, lock tag, compact expiry, Miden recall buffer) from its `/health` route instead of compiled constants; the E2E fake allocators serve that shape.
+- [CHANGE][all] Earn positions are read every 10 s instead of every 30 s while an Earn page is on screen, and again each time an Earn page comes into view.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 

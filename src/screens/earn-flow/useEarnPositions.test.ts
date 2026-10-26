@@ -808,12 +808,6 @@ describe('useEarnPositions', () => {
     // Past the hook's own 3 s dedupe window, so a read again is SWR revalidating a key that comes back.
     const pastDedupe = () => act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
     const settle = () => act(() => new Promise(resolve => setTimeout(resolve, 100)));
-    // Date.now only: SWR's dedupe and poll timers stay real.
-    const thirtySecondsOn = () => {
-      const realNow = Date.now;
-      jest.spyOn(Date, 'now').mockImplementation(() => realNow() + 30_000);
-    };
-
     beforeEach(() => {
       onScreen = true;
     });
@@ -832,7 +826,7 @@ describe('useEarnPositions', () => {
       expect(fetchEarnPositions).not.toHaveBeenCalled();
     });
 
-    it('reads nothing when its page comes back within 30 s of its last read', async () => {
+    it('reads again once when its page comes back into view, whatever the age of its last read', async () => {
       jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       const { result, rerender } = renderOnPage();
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
@@ -841,22 +835,6 @@ describe('useEarnPositions', () => {
       onScreen = false;
       rerender();
       await pastDedupe();
-      onScreen = true;
-      rerender();
-      await settle();
-      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
-    }, 10_000);
-
-    it('reads again once when its page comes back 30 s after its last read', async () => {
-      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
-      const { result, rerender } = renderOnPage();
-      await waitFor(() => expect(result.current.positions).toHaveLength(1));
-      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
-
-      onScreen = false;
-      rerender();
-      await pastDedupe();
-      thirtySecondsOn();
       onScreen = true;
       rerender();
       await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
@@ -864,7 +842,7 @@ describe('useEarnPositions', () => {
       expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
     }, 10_000);
 
-    it('reads nothing when another Earn page mounts within 30 s of the last read', async () => {
+    it('reads again once when another Earn page mounts past the dedupe window', async () => {
       jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       const cache = new Map();
       let first: Earn | undefined;
@@ -881,8 +859,9 @@ describe('useEarnPositions', () => {
 
       await pastDedupe();
       rerender(pages(true));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
       await settle();
-      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
     }, 10_000);
 
     it('reads nothing on a reconnect', async () => {
@@ -978,34 +957,34 @@ describe('useEarnPositions', () => {
         jest.useRealTimers();
       });
 
-      it('polls 30 s after the last read began, not sooner', async () => {
+      it('polls 10 s after the last read began, not sooner', async () => {
         renderOnPage();
         await advance(0);
         expect(reads()).toBe(1);
 
-        await advance(29_900);
+        await advance(9_900);
         expect(reads()).toBe(1);
         await advance(200);
         expect(reads()).toBe(2);
       });
 
-      it('a Retry moves the next poll to 30 s after it', async () => {
+      it('a Retry moves the next poll to 10 s after it', async () => {
         const { result } = renderOnPage();
         await advance(0);
         expect(result.current.error).toBe('owner unavailable');
 
-        await advance(20_000);
+        await advance(6_000);
         act(() => result.current.refetch());
         await advance(0);
         expect(reads()).toBe(2);
 
-        await advance(29_900);
+        await advance(9_900);
         expect(reads()).toBe(2);
         await advance(200);
         expect(reads()).toBe(3);
       });
 
-      it('a failed read is retried 30 s after it began, and nothing sooner', async () => {
+      it('a failed read is retried 10 s after it began, and nothing sooner', async () => {
         // SWR's first error retry, were it on, would wait a random share of its interval; this pins it at 2x.
         jest.spyOn(Math, 'random').mockReturnValue(0.9);
         jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
@@ -1013,7 +992,7 @@ describe('useEarnPositions', () => {
         await advance(0);
         expect(result.current.loadError).toBe('lookup down');
 
-        await advance(29_900);
+        await advance(9_900);
         expect(reads()).toBe(1);
         await advance(200);
         expect(reads()).toBe(2);
@@ -1028,7 +1007,7 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(1);
 
         visibility.mockReturnValue('visible');
-        await advance(30_000);
+        await advance(10_000);
         expect(reads()).toBe(2);
       });
 
@@ -1041,13 +1020,13 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(1);
 
         online.mockReturnValue(true);
-        await advance(30_000);
+        await advance(10_000);
         expect(reads()).toBe(2);
       });
 
       it('no automatic read while its page is covered', async () => {
         const { rerender } = renderOnPage();
-        await advance(10_000);
+        await advance(3_400);
         expect(reads()).toBe(1);
 
         onScreen = false;
@@ -1080,18 +1059,18 @@ describe('useEarnPositions', () => {
             page(true, earn => (showing = earn))
           );
         const { rerender, unmount } = render(pages(true));
-        await advance(10_000);
+        await advance(3_400);
         expect(reads()).toBe(1);
 
         rerender(pages(false));
-        await advance(10_000);
+        await advance(3_400);
         act(() => showing?.refetch());
         await advance(0);
         expect(reads()).toBe(2);
 
-        await advance(10_000);
+        await advance(3_400);
         expect(reads()).toBe(2);
-        await advance(20_100);
+        await advance(6_700);
         expect(reads()).toBe(3);
 
         // The remaining page leaves too, after reads that re-armed every hook registered for the key: none is left.
@@ -1102,7 +1081,7 @@ describe('useEarnPositions', () => {
 
       it('an account switch re-arms from the new key', async () => {
         const { rerender } = renderOnPage();
-        await advance(10_000);
+        await advance(3_400);
         expect(reads()).toBe(1);
 
         mockAccount.publicKey = 'another-account';
@@ -1112,7 +1091,7 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(2);
         expect(getEarnDepositEvmAddresses).toHaveBeenLastCalledWith('another-account');
 
-        await advance(29_900);
+        await advance(9_900);
         expect(reads()).toBe(2);
         await advance(200);
         expect(reads()).toBe(3);
@@ -1250,7 +1229,7 @@ describe('useEarnPositions', () => {
       expect(result.current.positions[0]).toMatchObject({ withdrawable: '9.5', stale: true });
       expect(result.current.summary.totalDepositedUsd).toBe(10);
       expect(result.current.error).toBeUndefined();
-      // Its read began at mount, although the stored copy is less than 30 s old.
+      // Its read began at mount, although the stored copy is less than 10 s old.
       expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
 
       await act(async () => settleRead(laterResult));
