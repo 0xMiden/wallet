@@ -186,3 +186,18 @@ test('startup warning retains closed attempt diagnostics without attaching them 
   const other = jest.mocked(captureCrash).mock.calls[1]?.[0];
   expect(snapshotCrashDiagnostics(other)).not.toHaveProperty('startupEligibilityStage');
 });
+
+const uiCases = [
+  ['bridgeFeatureUnavailableBody', 'notice', { kind: 'feature_unavailable', featureUnavailableFeature: 'earnDeposit', featureUnavailableReason: 'service-down' }],
+  ['submissionUnanswered', 'status_screen', { kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown' }],
+  ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
+  ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }]
+] as const;
+it.each(uiCases)('carries exact UI producer evidence for %s through the reporting root', (id, surface, evidence) => {
+  Reflect.apply(reportUserVisibleError, undefined, [id, surface, evidence]);
+  const root = jest.mocked(captureCrash).mock.calls[0]?.[0];
+  const { kind: _kind, ...fields } = evidence;
+  expect(snapshotCrashDiagnostics(root)).toMatchObject({userErrorId: id, userErrorSurface: surface, ...fields});
+  expect(root).toBeInstanceOf(Error);
+  expect((root as Error).message).toBe(`User-visible error: ${id}; surface ${surface}`);
+});
