@@ -11,6 +11,7 @@
 - [CHANGE][ci] Add a trusted-main manual staging probe for isolated eligibility rate-limit bindings with bounded synthetic traffic and manifest-bound cleanup; account support remains unproven until live evidence (#1894).
 
 - [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.
+- [FIX][extension] Activity filters and other scrolling segmented controls can be dragged with the mouse in Chrome, while preserving clicks, keyboard navigation and native touch scrolling.
 - [CHANGE][ci] Standard store builds and explicit publication stages include Bread Devnet for Chrome after production Chrome, iOS and Android, with separate source-bound run evidence for each target.
 - [CHANGE][all] Unavailable startup reports name only the closed eligibility stage, failure category and existing retry outcome, without location, response data or identifiers.
 - [FIX][service] Isolate eligibility caller state while preserving the shared paid-query cap; this mitigates the singleton bottleneck but does not remove the Free invocation quota (#1888).
