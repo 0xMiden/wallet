@@ -1000,6 +1000,71 @@ describe('the E2E local http allowance', () => {
   });
 });
 
+describe('the on-ramp section', () => {
+  const CALIBUR = {
+    address: '0x00000cAbFc76478C1537dd418aB00967cBbE4AE6',
+    runtimeHash: '0xD8F2157116f6901840d009511732cb247c1ced614af48351f1c1e5d52deea1eb',
+    domainName: 'Calibur',
+    domainVersion: '1.0.0',
+    batchTtlSeconds: 86_400
+  };
+  const ONRAMP = { chainId: 11155111, calibur: CALIBUR };
+  const onramp = (value: unknown) => parseBridgeConfig(doc({ onramp: value }), 'testnet');
+
+  it('reads no section from a document that has none', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed && 'onramp' in parsed).toBe(false);
+  });
+
+  it('reads the chain and the Calibur contract, the address and the hash lowercase', () => {
+    expect(onramp(ONRAMP)?.onramp).toStrictEqual({
+      chainId: 11155111,
+      calibur: {
+        address: '0x00000cabfc76478c1537dd418ab00967cbbe4ae6',
+        runtimeHash: '0xd8f2157116f6901840d009511732cb247c1ced614af48351f1c1e5d52deea1eb',
+        domainName: 'Calibur',
+        domainVersion: '1.0.0',
+        batchTtlSeconds: 86_400
+      }
+    });
+  });
+
+  it('ignores a field it does not know', () => {
+    const parsed = onramp({ ...ONRAMP, token: { address: CALIBUR.address }, calibur: { ...CALIBUR, nonceKey: 1 } });
+    expect(parsed?.onramp).toStrictEqual(onramp(ONRAMP)?.onramp);
+  });
+
+  it.each([
+    ['no chain', { calibur: CALIBUR }],
+    ['a chain the document does not list', { ...ONRAMP, chainId: 1 }],
+    ['a chain that is not a number', { ...ONRAMP, chainId: '11155111' }],
+    ['no calibur', { chainId: 11155111 }],
+    ['a short address', { ...ONRAMP, calibur: { ...CALIBUR, address: '0x00000cAb' } }],
+    ['a short hash', { ...ONRAMP, calibur: { ...CALIBUR, runtimeHash: CALIBUR.address } }],
+    ['no runtime hash', { ...ONRAMP, calibur: { ...CALIBUR, runtimeHash: undefined } }],
+    ['an empty domain name', { ...ONRAMP, calibur: { ...CALIBUR, domainName: '' } }],
+    ['a domain version that is not text', { ...ONRAMP, calibur: { ...CALIBUR, domainVersion: 1 } }],
+    ['a zero TTL', { ...ONRAMP, calibur: { ...CALIBUR, batchTtlSeconds: 0 } }],
+    ['a fractional TTL', { ...ONRAMP, calibur: { ...CALIBUR, batchTtlSeconds: 1.5 } }],
+    ['a section that is not an object', 'calibur']
+  ])('rejects the document with %s', (_name, value) => {
+    expect(onramp(value)).toBeNull();
+  });
+
+  it('leaves the section out when its chain is one this build has no name for, and keeps the rest', () => {
+    const base = doc();
+    const body = {
+      ...base,
+      supportedEvmChains: { ...base.supportedEvmChains, newchain: { chainId: 424242, bridges: {} } },
+      onramp: { ...ONRAMP, chainId: 424242 }
+    };
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed && 'onramp' in parsed).toBe(false);
+    expect(parsed?.supportedEvmChains.sepolia?.chainId).toBe(11155111);
+  });
+});
+
 describe('the 1Click local E2E gate', () => {
   const configured = doc({
     swap: {

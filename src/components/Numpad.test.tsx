@@ -55,6 +55,18 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('Numpad', () => {
+  it('offers a decimal key for amount entry and respects disabled state', () => {
+    const onDecimal = jest.fn();
+    const { rerender, onDigit, onDelete } = renderNumpad({ onDecimal });
+    fireEvent.click(screen.getByRole('button', { name: 'decimalSeparator' }));
+    expect(onDecimal).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    rerender(<NamedNumpad onDigit={onDigit} onDelete={onDelete} onDecimal={onDecimal} disabled />);
+    fireEvent.click(screen.getByTestId('numpad-decimal'));
+    expect(onDecimal).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
   it('renders a button for every digit 1-9 and 0 plus a delete button', () => {
     renderNumpad();
 

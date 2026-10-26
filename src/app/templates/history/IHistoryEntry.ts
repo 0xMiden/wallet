@@ -3,10 +3,12 @@ import {
   IBridgeProvider,
   IOneClickTrackingData,
   IBridgedReceivePhase,
+  IBuyPhase,
   IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
+  ISellPhase,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
@@ -237,6 +239,23 @@ export interface IHistoryEntry {
    * status — is what the row's status chip must reflect.
    */
   earnDepositStatus?: IEarnDepositExtraInputs['epochStatus'];
+
+  // `buy` (fiat on-ramp) rows. The row is born Completed, so the phase, not the
+  // status, drives the row's status chip.
+  buyPhase?: IBuyPhase;
+  /** The fiat amount the user paid, as the user typed it (for example "20"). */
+  buyFiatAmount?: string;
+  /** The token amount, formatted for display. Absent until the provider reports it. */
+  buyTokenAmount?: string;
+  buyTokenSymbol?: string;
+
+  // `sell` (fiat off-ramp) rows. The row is born Completed, so the phase, not the
+  // status, drives the row's status chip.
+  sellPhase?: ISellPhase;
+  /** The amount sold, as Transak asked for it (for example "100"). */
+  sellAmount?: string;
+  /** The symbol of the Miden token that is really sold. */
+  sellTokenSymbol?: string;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

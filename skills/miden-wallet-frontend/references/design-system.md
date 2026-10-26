@@ -207,6 +207,7 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | --- | --- | --- | --- | --- |
 | `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`), and the one figure a page is about where no card holds it: Earn's total rewards, a vault's APY, a deposit or withdraw review's amount |
 | `text-entry-unit` | Nunito | 22 / 28 | 700 | The unit beside an entry or the balance ("USD") |
+| `text-entry-amount` | Nunito | 72 / 80 | 800 | The primary cash amount entry; longer amounts step down to display or hero-value to fit |
 | `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | Page titles: `TabHeader`, `PageHeader` and `FlowLayout` step titles; an onboarding step's title; passcode titles |
 | `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
 | `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name and outcome titles |

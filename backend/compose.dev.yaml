@@ -1,0 +1,9 @@
+services:
+  backend:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./src:/app/src:ro
+    restart: 'no'

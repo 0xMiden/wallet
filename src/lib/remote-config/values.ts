@@ -11,6 +11,7 @@ import {
   EARN_VAULT_LOGO,
   type EarnVaultConfig,
   epochCollateralFaucetId,
+  type OnrampConfig,
   type SupportedEvmChainConfig
 } from './schema';
 import { bridgeConfigBaseUrl } from './source';
@@ -175,6 +176,14 @@ export function hasMainnetLaunched(s: BridgeConfigSnapshot, now: number): boolea
 }
 
 /**
+ * The fiat on-ramp and off-ramp relay the document names: the chain it runs on and the Calibur contract the wallet
+ * signs for, addresses lowercase. Null when the document names none, or no document is accepted yet.
+ */
+export function selectOnramp(s: BridgeConfigSnapshot): OnrampConfig | null {
+  return s.config?.onramp ?? null;
+}
+
+/**
  * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
  * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
  */
@@ -201,6 +210,11 @@ export function selectNativeEthFaucets(s: BridgeConfigSnapshot): string[] {
   const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
   const faucets = chains.flatMap(chain => selectNativeEthFaucet(s, chain.chainId) ?? []);
   return [...new Set(faucets)];
+}
+
+/** Every token the bridge registry of the AggLayer chain `chainId` lists, or null while that read has not succeeded. */
+export function findAgglayerTokens(chainId?: number): BridgeToken[] | null {
+  return okValue(agglayerReads(getBridgeConfigSnapshot(), chainId)?.tokens);
 }
 
 export type { AgglayerDepositToken };
@@ -312,6 +326,11 @@ export function findEpochUsdcAddress(chainId: number): string | null {
 
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
+}
+
+/** The on-ramp relay's chain and Calibur contract. A buy or sell signs nothing while the document names none. */
+export function getOnramp(): OnrampConfig {
+  return getValue('onramp', selectOnramp);
 }
 
 /** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */

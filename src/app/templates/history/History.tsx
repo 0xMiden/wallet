@@ -51,9 +51,11 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
+  buyHistoryFieldsOf,
   earnWithdrawAmountFields,
   labelHistoryEntry,
   resolveConsumeExtraAmounts,
+  sellHistoryFieldsOf,
   resolveSwapHistoryFields,
   swapSettlementOf
 } from './transactionUtils';
@@ -978,6 +980,10 @@ async function fetchTransactionsAsHistoryEntries(
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
+    // A buy row is born Completed, so only this list reads it. Its progress is on `extraInputs`.
+    const buy = buyHistoryFieldsOf(tx);
+    // A sell row is born Completed in the same way. The value moves in its bridge-out row.
+    const sell = sellHistoryFieldsOf(tx);
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -1065,7 +1071,14 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
+      buyPhase: buy?.buyPhase,
+      buyFiatAmount: buy?.buyFiatAmount,
+      buyTokenAmount: buy?.buyTokenAmount,
+      buyTokenSymbol: buy?.buyTokenSymbol,
+      sellPhase: sell?.sellPhase,
+      sellAmount: sell?.sellAmount,
+      sellTokenSymbol: sell?.sellTokenSymbol
     } as IHistoryEntry;
 
     return entry;

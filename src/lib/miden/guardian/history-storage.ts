@@ -33,7 +33,8 @@ const checkpointSchema = z.object({
 
 const stateSchema = z.object({
   generation: z.string(),
-  checkpoints: z.record(checkpointSchema)
+  // zod 4: a record names its key schema; checkpoint ids are strings.
+  checkpoints: z.record(z.string(), checkpointSchema)
 });
 
 export async function readGuardianHistoryGeneration(): Promise<string> {

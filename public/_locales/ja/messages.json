@@ -1874,6 +1874,564 @@
     "message": "金額",
     "englishSource": "Amount"
   },
+  "cash": {
+    "message": "現金",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "購入",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "売却",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "買いまたは売り",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "お支払いください",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "あなたが売却する場合",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "プロバイダーを選択",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "USDCxを購入する",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "USDCxを売却する",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "カードまたは銀行振込",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "銀行振込",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "プロバイダープレビュー — チェックアウト機能はまだ接続されていません。",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "近日公開予定",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "$provider$ へ続く",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "このアカウントにはイーサリアムアドレスがないため、USDCxを購入することはできません。このウォレットで作成されたアカウントを使用してください。",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashNoEvmAddressSell": {
+    "message": "このアカウントにはイーサリアムアドレスがないため、USDCxを売却することはできません。このウォレットで作成されたアカウントを使用してください。",
+    "englishSource": "This account has no Ethereum address, so it cannot sell USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "このビルドではチェックアウト機能は利用できません。",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "チェックアウトを開始できませんでした。もう一度お試しください。",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "決済の詳細がご注文内容と一致しなかったため、決済画面が開きませんでした。もう一度お試しください。",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "チェックアウトは終了しました",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "送金先アドレスがお客様のウォレットと一致しなかったため、チェックアウトは終了しました。この画面からは支払いは行われませんでした。",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "cashCheckoutSellMismatch": {
+    "message": "この注文は、あなたの売却注文と一致しなかったため、チェックアウトが閉じられました。この画面からは何も送信されていません。",
+    "englishSource": "The checkout was closed because its order did not match your sale. Nothing was sent from this screen."
+  },
+  "cashSellDepositAddress": {
+    "message": "Transakの入金アドレス",
+    "englishSource": "Transak deposit address"
+  },
+  "cashSellBackendChecking": {
+    "message": "バックエンドでアドレスを確認中…",
+    "englishSource": "Checking the address with the backend…"
+  },
+  "cashSellBackendVerified": {
+    "message": "バックエンドによって検証されたアドレス",
+    "englishSource": "Address verified by backend"
+  },
+  "cashSellBackendMismatch": {
+    "message": "バックエンドが別のアドレスを指定しました。続行しないでください。",
+    "englishSource": "Backend named a different address. Do not continue."
+  },
+  "cashSellTokenChecking": {
+    "message": "$symbol$の残高を確認中…",
+    "englishSource": "Checking your $symbol$ balance…",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellTokenReady": {
+    "message": "まず、Midenからイーサリアムへブリッジします。これには約30分かかります。",
+    "englishSource": "Bridged from Miden to Ethereum first. This takes about 30 minutes."
+  },
+  "cashSellBlockedNoToken": {
+    "message": "このアカウントには、ブリッジが受け入れる$symbol$がないため、売却を開始できません。",
+    "englishSource": "This account has no $symbol$ that the bridge accepts, so the sale cannot start.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedAmbiguous": {
+    "message": "このアカウントには$symbol$トークンが複数存在するため、ウォレットは売却するトークンを選択できません。",
+    "englishSource": "More than one $symbol$ token is in this account, so the wallet cannot choose the one to sell.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedUnknownScale": {
+    "message": "$symbol$の小数点以下の桁数が不明であるため、ウォレットは金額を計算できません。",
+    "englishSource": "The decimals of $symbol$ are not known, so the wallet cannot calculate the amount.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedNotRegistered": {
+    "message": "このブリッジは、この$symbol$トークンとTransakが受け取るトークンを接続するものではありません。",
+    "englishSource": "The bridge does not connect this $symbol$ token to the token that Transak receives.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedAmount": {
+    "message": "ブリッジでは、この正確な金額の$symbol$を送金することはできません。小数点以下の桁数を減らして金額を指定して売却してください。",
+    "englishSource": "The bridge cannot send this exact amount of $symbol$. Sell an amount with fewer decimals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedBalance": {
+    "message": "$symbol$の残高は、売却額を下回っています。",
+    "englishSource": "Your $symbol$ balance is less than the amount of the sale.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedUnavailable": {
+    "message": "ウォレットがブリッジを読み取れませんでした。後ほど再度お試しください。",
+    "englishSource": "The wallet could not read the bridge. Try again later."
+  },
+  "cashSellDeadline": {
+    "message": "Transakは、$time$までこの注文を保持します。",
+    "englishSource": "Transak holds this order until $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellShortOfTime": {
+    "message": "ブリッジ処理には約30分を要するため、トークンが到着する前にこの注文が失効する可能性があります。その後、トークンはあなたのイーサリアムアドレスに残ります。",
+    "englishSource": "The bridge takes about 30 minutes, so this order can expire before your tokens arrive. The tokens then stay at your Ethereum address."
+  },
+  "cashSellBackToTransak": {
+    "message": "Transakに戻る",
+    "englishSource": "Back to Transak"
+  },
+  "cashSellUnreadableTitle": {
+    "message": "転送の詳細が見つかりません",
+    "englishSource": "Transfer details not found"
+  },
+  "cashSellUnreadable": {
+    "message": "ウォレットは、Transakページから入金先アドレスと金額を読み取ることができませんでした。",
+    "englishSource": "The wallet could not read the deposit address and amount from the Transak page."
+  },
+  "cashSellSendTitle": {
+    "message": "Transakを通じて$amount$の$symbol$を売却する",
+    "englishSource": "Sell $amount$ $symbol$ through Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "cashSellStartingTitle": {
+    "message": "$amount$の$symbol$の販売を開始します",
+    "englishSource": "Starting the sale of $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "cashSellStarting": {
+    "message": "送金に署名し、ブリッジ取引を送信する…",
+    "englishSource": "Signing the transfer and sending the bridge transaction…"
+  },
+  "cashSellToAddress": {
+    "message": "$address$ 宛て",
+    "englishSource": "To $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellFailedTitle": {
+    "message": "販売は開始されていません",
+    "englishSource": "Sale not started"
+  },
+  "cashSellRefused": {
+    "message": "ウォレットがリレーへの署名を拒否しました：$reason$",
+    "englishSource": "The wallet refused to sign the relay: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellOrderFailed": {
+    "message": "注文は失敗しました。",
+    "englishSource": "The order failed."
+  },
+  "cashSellOrderExpired": {
+    "message": "注文は失効しました。",
+    "englishSource": "The order expired."
+  },
+  "cashSellOrderCancelled": {
+    "message": "注文はキャンセルされました。",
+    "englishSource": "The order was cancelled."
+  },
+  "cashSellTimeout": {
+    "message": "注文は処理が進んでいません。Transakでステータスを確認してください。",
+    "englishSource": "The order did not move forward in time. Check its status in Transak."
+  },
+  "cashSellBridgeNotStarted": {
+    "message": "ブリッジ取引は開始されませんでした。アカウントからトークンが流出することはありませんでした。",
+    "englishSource": "The bridge transaction could not start. No tokens left your account."
+  },
+  "cashSellUnexpected": {
+    "message": "売却は開始されませんでした。アカウントからトークンが流出することはありませんでした。",
+    "englishSource": "The sale could not start. No tokens left your account."
+  },
+  "cashSellRelayTransaction": {
+    "message": "中継取引",
+    "englishSource": "Relay transaction"
+  },
+  "cashSellTapPaid": {
+    "message": "Transakページで「はい、支払いました」をタップして、売却を完了してください。",
+    "englishSource": "Tap \"Yes, I have paid\" on the Transak page to finish the sale."
+  },
+  "sellStatusHeader": {
+    "message": "売却",
+    "englishSource": "Sell"
+  },
+  "sellStatusProgressTitle": {
+    "message": "販売中",
+    "englishSource": "Sale in progress"
+  },
+  "sellStatusCompletedTitle": {
+    "message": "売却完了",
+    "englishSource": "Sale complete"
+  },
+  "sellStatusFailedTitle": {
+    "message": "売却に失敗しました",
+    "englishSource": "Sale failed"
+  },
+  "sellStatusProgressDescription": {
+    "message": "この画面を閉じて構いません。ウォレットは「アクティビティ」で売却の履歴を引き続き追跡します。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your sale in Activity."
+  },
+  "sellStatusCompletedDescription": {
+    "message": "Transakによる出金処理が完了しました。",
+    "englishSource": "Transak completed your payout."
+  },
+  "sellStatusFailedDescription": {
+    "message": "売却は成立しませんでした。",
+    "englishSource": "The sale did not complete."
+  },
+  "sellStepSubmitting": {
+    "message": "Midenでのブリッジ取引の送信",
+    "englishSource": "Sending the bridge transaction on Miden"
+  },
+  "sellStepBridging": {
+    "message": "イーサリアムへのブリッジ",
+    "englishSource": "Bridging to Ethereum"
+  },
+  "sellStepOnEthereum": {
+    "message": "イーサリアム上の資金",
+    "englishSource": "Funds on Ethereum"
+  },
+  "sellStepSent": {
+    "message": "Transak宛て",
+    "englishSource": "Sent to Transak"
+  },
+  "sellStepReceived": {
+    "message": "Transakが受け取った支払い",
+    "englishSource": "Payment received by Transak"
+  },
+  "sellStepCompleted": {
+    "message": "支払いが完了しました",
+    "englishSource": "Payout completed"
+  },
+  "sellFailureBridge": {
+    "message": "Midenでのブリッジ取引は失敗しました。",
+    "englishSource": "The bridge transaction failed on Miden."
+  },
+  "sellFailureBridgeMissing": {
+    "message": "ウォレットはこの売却に関するブリッジ取引を見つけることができませんでした。",
+    "englishSource": "The wallet could not find the bridge transaction of this sale."
+  },
+  "sellFailureOrderFailed": {
+    "message": "注文はTransakへの転送前に失敗しました。",
+    "englishSource": "The order failed before the transfer to Transak."
+  },
+  "sellFailureOrderExpired": {
+    "message": "注文が期限切れになったため、トークンがTransakに送られることはありませんでした。ブリッジされたトークンは、引き続きあなたのイーサリアムアドレスに残っています。",
+    "englishSource": "The order expired before your tokens could go to Transak. The bridged tokens stay at your Ethereum address."
+  },
+  "sellFailureExpired": {
+    "message": "Transakは、その注文が期限切れになったと報告しました。",
+    "englishSource": "Transak reported that the order expired."
+  },
+  "sellFailureCancelled": {
+    "message": "Transakの注文はキャンセルされました。",
+    "englishSource": "The Transak order was cancelled."
+  },
+  "sellFailureTransakFailed": {
+    "message": "Transakは、注文が失敗したと報告しました。",
+    "englishSource": "Transak reported that the order failed."
+  },
+  "sellFailureTransakRefunded": {
+    "message": "Transakは注文を返金しました。",
+    "englishSource": "Transak refunded the order."
+  },
+  "sellFailureTimeout": {
+    "message": "売却は7日以内に完了しませんでした。",
+    "englishSource": "The sale did not finish within 7 days."
+  },
+  "sellFailureRestored": {
+    "message": "この売却はバックアップから行われたため、ウォレットはそれを検証できませんでした。",
+    "englishSource": "This sale came from a backup, so the wallet could not verify it."
+  },
+  "sellFundsOnMiden": {
+    "message": "Midenアカウントからトークンが流出することはありません。",
+    "englishSource": "No tokens left your Miden account."
+  },
+  "sellFundsOnEthereum": {
+    "message": "ブリッジされたトークンはTransakに送られることはありません。それらはお客様のイーサリアムアドレスに残ります。",
+    "englishSource": "The bridged tokens are not sent to Transak. They stay at your Ethereum address."
+  },
+  "sellFundsAtTransak": {
+    "message": "Transakがお客様のトークンを保管しています。注文IDを明記の上、Transakのサポートまでご連絡ください。",
+    "englishSource": "Transak has your tokens. Contact Transak support with your order ID."
+  },
+  "sellDetailAmount": {
+    "message": "Amount",
+    "englishSource": "Amount"
+  },
+  "sellDetailDeadline": {
+    "message": "Transakの締切",
+    "englishSource": "Transak deadline"
+  },
+  "sellDetailDeadlineHint": {
+    "message": "この期限までに、トークンはイーサリアム上に存在している必要があります。",
+    "englishSource": "Your tokens must be on Ethereum before this time."
+  },
+  "sellDetailEvmAddress": {
+    "message": "あなたのイーサリアムアドレス",
+    "englishSource": "Your Ethereum address"
+  },
+  "sellDetailBridgeTransaction": {
+    "message": "ブリッジ取引",
+    "englishSource": "Bridge transaction"
+  },
+  "sellDetailTransakStatus": {
+    "message": "トランザクションのステータス",
+    "englishSource": "Transak status"
+  },
+  "sellDetailOrderId": {
+    "message": "注文ID",
+    "englishSource": "Order ID"
+  },
+  "sellRowTitle": {
+    "message": "$symbol$を売却",
+    "englishSource": "Sell $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "sellRowSubtitle": {
+    "message": "$amount$ $symbol$ via Transak",
+    "englishSource": "$amount$ $symbol$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusHeader": {
+    "message": "購入",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "USDCの購入",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "購入完了",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "購入に失敗しました",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "この画面を閉じて構いません。ウォレットは「アクティビティ」で注文の追跡を継続します。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "USDCがMidenアカウントに入金されました。",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "注文は成立しませんでした。お支払いを済ましている場合は、注文番号を明記の上、Transakのサポートまでご連絡ください。",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "注文の進捗状況",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$ステップ中の$current$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "支払い",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "イーサリアムに流入する資金",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "ブリッジ取引が送信されました",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Midenへのブリッジ",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Midenでの請求",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "完了",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$分",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "進捗状況を確認する",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "$symbol$を購入",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ via Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "小数点",
+    "englishSource": "Decimal point"
+  },
   "mainAssetBalanceIsZero": {
     "message": "Midenクレジット（主要資産）の残高はゼロです。手数料の支払いにMidenクレジットが必要です。",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."

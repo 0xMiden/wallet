@@ -42,6 +42,7 @@ jest.mock('app/icons/v2', () => ({
     Earn: 'Earn',
     More: 'More',
     ArrowUpDown: 'ArrowUpDown',
+    Cash: 'Cash',
     Key: 'Key'
   }
 }));
@@ -220,6 +221,12 @@ jest.mock('./transactionUtils', () => ({
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
+  // Buy rows: the real predicate and chip, so the buy branch of `buildRowProps` runs as it ships.
+  isBuyEntry: jest.requireActual('./transactionUtils').isBuyEntry,
+  buyStatusOf: jest.requireActual('./transactionUtils').buyStatusOf,
+  // Sell rows: the real predicate and chip, so the sell branch of `buildRowProps` runs as it ships.
+  isSellEntry: jest.requireActual('./transactionUtils').isSellEntry,
+  sellStatusOf: jest.requireActual('./transactionUtils').sellStatusOf,
   formatMoneyAmount: jest.requireActual('./transactionUtils').formatMoneyAmount,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
@@ -1915,6 +1922,89 @@ it('keeps an undated note visible without assigning a false date', () => {
   );
   expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
   expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+describe('HistoryView buy rows', () => {
+  const renderBuy = (overrides: Partial<IHistoryEntry> = {}) => {
+    const entry = makeEntry({
+      txType: 'buy',
+      message: 'Buy',
+      status: 2,
+      buyFiatAmount: '20',
+      buyTokenSymbol: 'USDC',
+      buyPhase: 'bridging',
+      ...overrides
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    return rowByTitle('buyRowTitle');
+  };
+
+  it('reads pending while the order is in progress, with the Cash glyph and no amount yet', () => {
+    const row = renderBuy();
+    expect(row).toHaveAttribute('data-status', 'pending');
+    expect(row).toHaveAttribute('data-subtitle', 'buyRowSubtitle');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-received');
+    expect(iconNameIn(row)).toBe('Cash');
+    expect(row).toHaveAttribute('data-amount-value', '');
+  });
+
+  it('reads confirmed once the order completed, with the positive token amount', () => {
+    const row = renderBuy({ buyPhase: 'completed', buyTokenAmount: '19.8' });
+    expect(row).toHaveAttribute('data-status', 'confirmed');
+    expect(row).toHaveAttribute('data-amount-value', '+19.8');
+    expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+  });
+
+  it('reads failed on a failed order, with the failure colour and no amount', () => {
+    const row = renderBuy({ buyPhase: 'failed', buyTokenAmount: '19.8' });
+    expect(row).toHaveAttribute('data-status', 'failed');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    expect(row).toHaveAttribute('data-amount-value', '');
+  });
+});
+
+describe('HistoryView sell rows', () => {
+  const renderSell = (overrides: Partial<IHistoryEntry> = {}) => {
+    const entry = makeEntry({
+      txType: 'sell',
+      message: 'Selling',
+      status: 2,
+      sellAmount: '100',
+      sellTokenSymbol: 'TRNSK',
+      sellPhase: 'bridging',
+      ...overrides
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    return rowByTitle('sellRowTitle');
+  };
+
+  it('reads pending while the sale is in progress, with the Cash glyph on the sent colour and the amount out', () => {
+    const row = renderSell();
+    expect(row).toHaveAttribute('data-status', 'pending');
+    expect(row).toHaveAttribute('data-subtitle', 'sellRowSubtitle');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-sent');
+    expect(iconNameIn(row)).toBe('Cash');
+    expect(row).toHaveAttribute('data-amount-value', '-100');
+    expect(row).toHaveAttribute('data-amount-symbol', 'TRNSK');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
+
+  it('reads confirmed when Transak completed the payout', () => {
+    expect(renderSell({ sellPhase: 'completed' })).toHaveAttribute('data-status', 'confirmed');
+  });
+
+  it('reads failed on a failed sale, with the failure colour and no amount', () => {
+    const row = renderSell({ sellPhase: 'failed' });
+    expect(row).toHaveAttribute('data-status', 'failed');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    expect(row).toHaveAttribute('data-amount-value', '');
+  });
+
+  it('opens the status page of the sale, not the details page', () => {
+    fireEvent.click(renderSell({ txId: 'sell-1' }));
+    expect(navigate).toHaveBeenCalledWith('/sell-status/sell-1');
+  });
 });
 
 // A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab

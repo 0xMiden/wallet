@@ -7,6 +7,8 @@ import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
+import { BuyOrderWatcher } from 'lib/miden/activity/BuyOrderWatcher';
+import { SellOrderWatcher } from 'lib/miden/activity/SellOrderWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
@@ -208,6 +210,8 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <NativeNoteAutoConsumeManager />
             <EarnIntentWatcher />
             <BridgeIntentWatcher />
+            <BuyOrderWatcher />
+            <SellOrderWatcher />
             <BadgeIssuanceManager />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on
                 the extension, where the service worker's `setupTransactionProcessor`

@@ -32,6 +32,10 @@ const OPERATION_BY_TYPE: Record<ITransactionType, TelemetryOperation> = {
   execute: 'tx_dapp',
   'bridged-send': 'tx_bridge',
   'bridged-receive': 'tx_bridge',
+  // A fiat buy ends as an inbound Agglayer bridge, and its failures are bridge failures.
+  buy: 'tx_bridge',
+  // A fiat sell starts as an outbound Agglayer bridge, and its failures before the relay are bridge failures.
+  sell: 'tx_bridge',
   'earn-deposit': 'tx_earn',
   'earn-withdraw': 'tx_earn',
   // One name for every operation on the account's own security, because the

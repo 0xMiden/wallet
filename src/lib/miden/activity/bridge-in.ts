@@ -1,4 +1,4 @@
-import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, AGGLAYER_TRNSK_FAUCET_ID } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
@@ -19,6 +19,7 @@ import { compareAccountIds } from './utils';
 import {
   IBridgeInInfo,
   IBridgedReceiveExtraInputs,
+  IBuyExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus
@@ -124,7 +125,7 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
     applied = true;
   });
   if (!applied) throw new Error('Bridge receipt requires a completed local consume');
-  await settleLinkedRows(info, delivered);
+  await settleLinkedRows(consumeId, info, delivered);
 }
 
 /**
@@ -151,15 +152,17 @@ export async function applyBridgeInToBatchNote(
     linked = { ...info, bridgeReceiveTxId: undefined };
   }
   // Never the batch row's receipt: tagged, it would hide itself and every other note it claimed from Activity.
-  await settleLinkedRows(linked, delivered);
+  await settleLinkedRows(consumeId, linked, delivered);
 }
 
 async function settleLinkedRows(
+  consumeId: string,
   info: IBridgeInInfo,
   delivered: Pick<ITransaction, 'amount' | 'faucetId' | 'transactionId'>
 ): Promise<void> {
-  if (!info.earnWithdrawTxId && !info.bridgeReceiveTxId) return;
-  const { updateEarnWithdrawPhase, updateBridgedReceivePhase } = await import('../transaction/complete');
+  if (!info.earnWithdrawTxId && !info.bridgeReceiveTxId && !info.buyTxId) return;
+  const { updateEarnWithdrawPhase, updateBridgedReceivePhase, updateBuyPhase } =
+    await import('../transaction/complete');
   if (info.earnWithdrawTxId) {
     if (!info.intentOwner) throw new Error('Bridge withdrawal has no intent owner');
     // Epoch named this note as the delivery, so with no delivered amount the withdrawal lands at the one it asked for.
@@ -187,6 +190,10 @@ async function settleLinkedRows(
       { midenNoteId: info.midenNoteId },
       { amount: delivered.amount, faucetId: delivered.faucetId, transactionId: delivered.transactionId }
     );
+  }
+  if (info.buyTxId) {
+    // The consume of the bought note is the last step of the buy.
+    await updateBuyPhase(info.buyTxId, 'completed', { midenNoteId: info.midenNoteId, consumeTxId: consumeId });
   }
 }
 
@@ -458,6 +465,42 @@ export async function takeAgglayerBridgeInInfo(args: {
   };
 }
 
+/**
+ * Match a consumed note to the oldest open buy row of the same account. The row must have a known token amount equal
+ * to the note amount, in base units, the same 1:1 comparison as `takeAgglayerBridgeInInfo`. When the TRNSK faucet id
+ * is configured, the note faucet must also be that faucet. A row that already has its own consume is skipped: that
+ * consume carries the link itself.
+ */
+export async function takeBuyBridgeInInfo(args: {
+  accountId: string;
+  faucetId: string;
+  amount: bigint;
+}): Promise<IBridgeInInfo | undefined> {
+  if (AGGLAYER_TRNSK_FAUCET_ID !== undefined && !compareAccountIds(AGGLAYER_TRNSK_FAUCET_ID, args.faucetId)) {
+    return undefined;
+  }
+  const matches = await Repo.transactions
+    .filter(tx => {
+      if (tx.type !== 'buy' || tx.restoredFromBackup || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      const inputs: IBuyExtraInputs | undefined = tx.extraInputs;
+      if (!inputs || inputs.consumeTxId || !inputs.tokenAmount) return false;
+      if (inputs.phase === 'completed' || inputs.phase === 'failed' || inputs.phase === 'payment') return false;
+      return /^\d+$/.test(inputs.tokenAmount) && BigInt(inputs.tokenAmount) === args.amount;
+    })
+    .toArray();
+  matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
+  const match = matches[0];
+  if (!match) return undefined;
+  const inputs: IBuyExtraInputs = match.extraInputs;
+  return {
+    provider: 'agglayer',
+    sourceAmount: inputs.fiatAmount,
+    sourceSymbol: inputs.tokenSymbol,
+    evmTxHash: inputs.relayTxHash,
+    buyTxId: match.id
+  };
+}
+
 /** A tracker the reconciler timed out after Circle attested its deposit, so its mint can still come. */
 function isAttestedTimeout(inputs: IBridgedReceiveExtraInputs): boolean {
   return inputs.phase === 'failed' && inputs.readyAt !== undefined && inputs.error === BRIDGE_DELIVERY_TIMED_OUT;
@@ -554,7 +597,8 @@ async function takeDeliveryInfo(accountId: string, note: AdoptableNote): Promise
   if (!senderAddress || !faucetId || amount === undefined) return undefined;
   return (
     (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: senderAddress, amount })) ??
-    (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: senderAddress, faucetId, amount }))
+    (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: senderAddress, faucetId, amount })) ??
+    (await takeBuyBridgeInInfo({ accountId, faucetId, amount }))
   );
 }
 
@@ -621,7 +665,14 @@ async function settleBatchRegistry(
 export async function adoptBridgeDeliveries(consumeId: string, notes: readonly AdoptableNote[]): Promise<void> {
   try {
     const consume = await Repo.transactions.where({ id: consumeId }).first();
-    if (!consume || consume.extraInputs?.bridgeIn) return;
+    if (!consume) return;
+    const queued: IBridgeInInfo | undefined = consume.extraInputs?.bridgeIn;
+    // The buy watcher links its consume at queue time, so that link is the receipt to apply, not a sign of adoption.
+    if (queued?.buyTxId) {
+      await applyBridgeInToConsumeRow(consumeId, queued);
+      return;
+    }
+    if (queued) return;
     const adopted = await adoptedNoteKeys(notes);
     const open = notes.filter(note => !adopted.has(noteIdKey(note.id)));
     if (open.length === 0) return;
@@ -807,7 +858,8 @@ export async function suppressedLinkedConsumeIds(transactions: ITransaction[]): 
     const id: string | undefined =
       tx.extraInputs?.swapOrderTxId ??
       tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
-      tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
+      tx.extraInputs?.bridgeIn?.bridgeReceiveTxId ??
+      tx.extraInputs?.bridgeIn?.buyTxId;
     return id ? [{ tx, id }] : [];
   });
   if (linked.length === 0) return new Set();

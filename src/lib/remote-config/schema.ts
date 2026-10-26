@@ -114,6 +114,32 @@ export interface EarnVaultConfig {
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;
+/** A 32-byte hash, lowercase. */
+export type Bytes32 = `0x${string}`;
+
+/** The longest EIP-712 domain name or version the on-ramp section carries. */
+export const MAX_ONRAMP_DOMAIN_TEXT_LENGTH = 64;
+
+/**
+ * The Calibur contract the fiat on-ramp and off-ramp sign for. The account's EVM address delegates to it under
+ * EIP-7702, every batch is signed in its EIP-712 domain, and the backend relays the batch through it.
+ */
+export interface CaliburConfig {
+  /** The implementation an account delegates to; it also ends the account's domain salt. */
+  address: EvmAddress;
+  /** The keccak256 of the deployed runtime bytecode. The backend pins it before each prepare and relay. */
+  runtimeHash: Bytes32;
+  domainName: string;
+  domainVersion: string;
+  /** How long a signed batch stays valid, in seconds. */
+  batchTtlSeconds: number;
+}
+
+/** The fiat on-ramp and off-ramp relay: the listed EVM chain it runs on and the Calibur contract it signs for. */
+export interface OnrampConfig {
+  chainId: number;
+  calibur: CaliburConfig;
+}
 
 /** The switch and moment behind the mainnet countdown banner. `launchAt` is epoch milliseconds, UTC. */
 export interface MainnetCountdownConfig {
@@ -224,6 +250,11 @@ export interface BridgeConfig {
    */
   guardians?: GuardianConfig[];
   /**
+   * The fiat on-ramp and off-ramp relay. Absent means the network has none, or names it on a chain this build
+   * does not know.
+   */
+  onramp?: OnrampConfig;
+  /**
    * The Earn vaults the wallet offers, in picker order. Present, and never empty, exactly when `features.earn` is
    * true.
    */
@@ -231,6 +262,7 @@ export interface BridgeConfig {
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
 // An ERC-20 symbol as the deposit picker shows it: 1 to 11 upper-case ASCII letters or digits. The same rule as the
 // config repo's validator (scripts/validate.mjs).
@@ -272,6 +304,11 @@ function section(value: unknown): Record<string, unknown> {
 
 function evmAddress(value: unknown): EvmAddress {
   if (typeof value !== 'string' || !EVM_ADDRESS.test(value)) return invalid();
+  return `0x${value.slice(2).toLowerCase()}`;
+}
+
+function bytes32(value: unknown): Bytes32 {
+  if (typeof value !== 'string' || !BYTES32.test(value)) return invalid();
   return `0x${value.slice(2).toLowerCase()}`;
 }
 
@@ -589,6 +626,31 @@ function readGuardians(value: unknown, url: (value: unknown) => string): Guardia
   return guardians;
 }
 
+// The chain is the one the batch is signed for, so it must be one the document lists. A chain this build has no
+// name for is a newer build's: the section is left out with it, as its routes are, and this build offers no on-ramp.
+function readOnramp(
+  value: unknown,
+  documentChainIds: unknown[],
+  chains: Record<string, SupportedEvmChainConfig>
+): OnrampConfig | undefined {
+  if (value === undefined) return undefined;
+  const onramp = section(value);
+  if (!isPositiveSafeInteger(onramp.chainId) || !documentChainIds.includes(onramp.chainId)) return invalid();
+  const calibur = section(onramp.calibur);
+  const config: OnrampConfig = {
+    chainId: onramp.chainId,
+    calibur: {
+      address: evmAddress(calibur.address),
+      runtimeHash: bytes32(calibur.runtimeHash),
+      domainName: guardianLabel(calibur.domainName, MAX_ONRAMP_DOMAIN_TEXT_LENGTH),
+      domainVersion: guardianLabel(calibur.domainVersion, MAX_ONRAMP_DOMAIN_TEXT_LENGTH),
+      batchTtlSeconds: isPositiveSafeInteger(calibur.batchTtlSeconds) ? calibur.batchTtlSeconds : invalid()
+    }
+  };
+  const known = Object.values(chains).some(chain => chain.chainId === config.chainId);
+  return known ? config : undefined;
+}
+
 const member = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
 
 // The USDC contract of each Epoch route, lowercase, by chain id: the markets a vault can name. Read from the document
@@ -709,6 +771,9 @@ function readConfig(
     if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
   const guardians = readGuardians(body.guardians, url);
+  // Every chain the document lists, known to this build or not; `supportedChains` has checked each id already.
+  const documentChainIds = Object.values(section(body.supportedEvmChains)).map(entry => section(entry).chainId);
+  const onramp = readOnramp(body.onramp, documentChainIds, supportedEvmChains);
   const limits = readLimits(body.limits);
   const geo = readGeoBlocks(body.geo, invalid);
   const features = section(body.features);
@@ -747,6 +812,7 @@ function readConfig(
       ...(oneClickConfig === undefined ? {} : { oneClick: oneClickConfig })
     },
     ...(guardians === undefined ? {} : { guardians }),
+    ...(onramp === undefined ? {} : { onramp }),
     ...(earn === undefined ? {} : { earn }),
     ...(geo === undefined ? {} : { geo })
   };

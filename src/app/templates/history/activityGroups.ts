@@ -34,6 +34,8 @@ export function activityCategoryOf(entry: { txType: ITransactionType }): Activit
     case 'consume':
     case 'bridged-send':
     case 'bridged-receive':
+    case 'buy':
+    case 'sell':
       return 'transfer';
     case 'swap':
       return 'swap';

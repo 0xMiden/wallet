@@ -18,6 +18,7 @@ const TOKEN_LOGOS: Record<string, TokenMark> = {
   MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
   ETH: { Logo: EthLogo, bg: 'bg-pure-black' },
   USDC: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' },
+  USDCx: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' },
   BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' }
 };
 

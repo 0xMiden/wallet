@@ -42,6 +42,8 @@ jest.mock('lib/fiat-currency', () => ({
 jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
+jest.mock('lib/miden/activity/BuyOrderWatcher', () => ({ BuyOrderWatcher: () => null }));
+jest.mock('lib/miden/activity/SellOrderWatcher', () => ({ SellOrderWatcher: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
 jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
 

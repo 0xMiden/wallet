@@ -3,7 +3,7 @@ import { TEST_SWAP_PAIRS, TEST_SWAP_SECTION } from 'lib/miden/swap/testing/regis
 import type { DerivedBridgeConfig, DerivedChainConfig, Probe } from 'lib/remote-config/derive';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
+import type { BridgeConfig, EarnVaultConfig, OnrampConfig } from 'lib/remote-config/schema';
 import type { SwapPairs } from 'lib/remote-config/swap-pairs';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 import type { EarnMarket, EpochRoute, EvmUsdc } from 'lib/remote-config/values';
@@ -64,6 +64,19 @@ export const TEST_NATIVE_ETH_SCALE = 10;
 /** The testnet Agglayer bridge account every bridge-out note targets, and the L1 bridge's networkID() it carries. */
 export const TEST_MIDEN_BRIDGE = '0x3b66e20b5088f25133b69216484652';
 export const TEST_EVM_NETWORK_ID = 0;
+/** Uniswap Calibur v1.1.0 on Sepolia, checksummed as the on-ramp signers hand it to the vault. */
+export const TEST_CALIBUR_ADDRESS: `0x${string}` = '0x00000cAbFc76478C1537dd418aB00967cBbE4AE6';
+/** The testnet document's on-ramp section, as `parseBridgeConfig` reads it: addresses lowercase. */
+export const TEST_ONRAMP: OnrampConfig = {
+  chainId: TEST_EVM_CHAIN_ID,
+  calibur: {
+    address: '0x00000cabfc76478c1537dd418ab00967cbbe4ae6',
+    runtimeHash: '0xd8f2157116f6901840d009511732cb247c1ced614af48351f1c1e5d52deea1eb',
+    domainName: 'Calibur',
+    domainVersion: '1.0.0',
+    batchTtlSeconds: 86_400
+  }
+};
 
 /**
  * A `lib/remote-config/values` stand-in resolving to the fixtures above; every getter is a jest.fn a suite can
@@ -82,7 +95,8 @@ export function remoteConfigValuesMock() {
     getEpochRoutes: jest.fn((): EpochRoute[] => [{ chainId: TEST_EVM_CHAIN_ID, usdc: TEST_EVM_USDC.address }]),
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
     getEarnVaults: jest.fn((): readonly EarnVaultConfig[] => TEST_EARN_VAULTS),
-    getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
+    getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC),
+    getOnramp: jest.fn(() => TEST_ONRAMP)
   };
 }
 
@@ -119,7 +133,8 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   },
   features: { earn: true, nearIntents: false },
   earn: { vaults: [...TEST_EARN_VAULTS] },
-  swap: TEST_SWAP_SECTION
+  swap: TEST_SWAP_SECTION,
+  onramp: TEST_ONRAMP
 };
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
