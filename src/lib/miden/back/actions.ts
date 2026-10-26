@@ -741,16 +741,21 @@ export async function checkpointFinancialRecovery(
 }
 
 export async function recoverWalletStorage(
-  operation: 'check' | 'rebuild',
+  operation: 'check' | 'rebuild' | 'reconcile',
   expectedEpoch: number
 ): Promise<import('../recovery/types').StorageRecoveryResult> {
   if (
     !Number.isSafeInteger(expectedEpoch) ||
     getStorageHealth().epoch !== expectedEpoch ||
-    (operation !== 'check' && operation !== 'rebuild')
+    (operation !== 'check' && operation !== 'rebuild' && operation !== 'reconcile')
   )
     throw new StorageUnavailableError();
   return withUnlocked(async ({ vault }) => {
+    if (operation === 'reconcile') {
+      const result = await vault.reconcileStorageRecovery();
+      if (store.getState().vault !== vault) throw new StorageUnavailableError();
+      return { recovered: false, ...result };
+    }
     let progress: import('../recovery/types').StorageRecoveryProgress | undefined;
     const recovered = await (operation === 'check'
       ? vault.checkStorageRecovery()

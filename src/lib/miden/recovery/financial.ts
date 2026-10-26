@@ -2,6 +2,7 @@ import type Dexie from 'dexie';
 
 import { StorageContinuityError } from './continuity';
 import { JOURNAL_MAX_ENTRIES } from './journal';
+import { matchesRecoveryDebit, resolveRecoveryDebit } from './retry-transition';
 import { toSerializable } from './serialization';
 import type { RecoveryDebitEntry, RecoveryEntry, RecoveryPolicyEntry } from './types';
 import { ITransaction, ITransactionStatus } from '../db/types';
@@ -92,8 +93,9 @@ export function verifyFinancialRecoveryEntries(
 ): void {
   for (const entry of expected) {
     if (entry.kind !== 'policy' && entry.kind !== 'debit') continue;
-    if (entry.kind === 'debit' && entry.initiatedAt < now - MAX_WINDOW_SECONDS) continue;
+    if (entry.kind === 'debit' && resolveRecoveryDebit(entry).initiatedAt < now - MAX_WINDOW_SECONDS) continue;
     const current = observed.find(item => item.kind === entry.kind && item.id === entry.id);
+    if (entry.kind === 'debit' && current?.kind === 'debit' && matchesRecoveryDebit(entry, current)) continue;
     if (JSON.stringify(toSerializable(current)) !== JSON.stringify(toSerializable(entry)))
       throw new StorageContinuityError();
   }
@@ -116,11 +118,12 @@ export async function readRetainedFinancialEntries(
           ...entry,
           configuration: config === undefined ? null : toPersistedSpendingLimit(parsePersistedSpendingLimit(config))
         });
-      } else if (entry.kind === 'debit' && entry.initiatedAt >= now - MAX_WINDOW_SECONDS) {
+      } else if (entry.kind === 'debit' && resolveRecoveryDebit(entry).initiatedAt >= now - MAX_WINDOW_SECONDS) {
         const row = await transactions.get(entry.id);
+        if (row && !sameWalletAccountId(row.accountId, entry.accountId)) throw new StorageContinuityError();
         const debit =
           row && !row.restoredFromBackup
-            ? recoveryDebit(row, entry.accountId, now)
+            ? recoveryDebit(row, entry.accountId, entry.retry ? 0 : now)
             : await recoveryDebits.get(entry.id);
         if (debit) found.push(debit);
       }

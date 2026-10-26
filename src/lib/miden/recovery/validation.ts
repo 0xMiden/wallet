@@ -21,6 +21,52 @@ function text(value: unknown): value is string {
 function nonce(value: unknown): value is string {
   return typeof value === 'string' && /^(0|[1-9]\d{0,19})$/.test(value);
 }
+function debitFields(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.initiatedAt === 'number' &&
+    Number.isSafeInteger(value.initiatedAt) &&
+    value.initiatedAt >= 0 &&
+    (value.spentUsd === undefined || (typeof value.spentUsd === 'bigint' && value.spentUsd >= 0n)) &&
+    (value.authorizationId === undefined || text(value.authorizationId)) &&
+    (value.spentUsd !== undefined || value.authorizationId !== undefined)
+  );
+}
+function retry(value: Record<string, unknown>): boolean {
+  if (value.retry === undefined) return true;
+  const transition = value.retry;
+  return (
+    record(transition) &&
+    keys(transition, ['previous', 'queuedSeq']) &&
+    typeof transition.queuedSeq === 'number' &&
+    Number.isSafeInteger(transition.queuedSeq) &&
+    transition.queuedSeq >= 0 &&
+    record(transition.previous) &&
+    keys(transition.previous, ['initiatedAt', 'spentUsd', 'authorizationId']) &&
+    debitFields(transition.previous) &&
+    transition.previous.spentUsd === value.spentUsd &&
+    transition.previous.authorizationId === value.authorizationId
+  );
+}
+function scans(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length <= 256 &&
+      value.every(
+        item =>
+          record(item) &&
+          keys(item, ['nullifier', 'nextBlock', 'anchorBlock', 'anchor', 'height']) &&
+          text(item.nullifier) &&
+          text(item.anchor) &&
+          [item.nextBlock, item.anchorBlock].every(
+            block => typeof block === 'number' && Number.isSafeInteger(block) && block >= 0
+          ) &&
+          item.nextBlock === Number(item.anchorBlock) + 1 &&
+          (item.height === undefined || item.height === item.anchorBlock)
+      ) &&
+      new Set(value.map(item => item.nullifier)).size === value.length)
+  );
+}
 export function isRecoveryScope(value: unknown): value is RecoveryScope {
   return (
     record(value) &&
@@ -55,12 +101,20 @@ function evidence(value: unknown): value is SubmitEvidenceFields {
 export function isRecoveryNote(value: unknown): value is RecoveryNoteEntry {
   if (!record(value) || !text(value.id) || value.kind !== 'note') return false;
   return (
-    keys(value, ['kind', 'id', 'accountId', 'noteFile', 'provenance', 'format']) &&
+    keys(value, ['kind', 'id', 'accountId', 'noteFile', 'provenance', 'format', 'scan']) &&
     (value.accountId === undefined || text(value.accountId)) &&
     value.noteFile instanceof Uint8Array &&
     value.noteFile.length > 0 &&
     (value.provenance === 'input' || value.provenance === 'output') &&
-    (value.format === undefined || value.format === 'full' || value.format === 'details')
+    (value.format === undefined || value.format === 'full' || value.format === 'details') &&
+    (value.scan === undefined ||
+      (record(value.scan) &&
+        keys(value.scan, ['nextBlock', 'anchorBlock', 'anchor']) &&
+        text(value.scan.anchor) &&
+        [value.scan.nextBlock, value.scan.anchorBlock].every(
+          item => typeof item === 'number' && Number.isSafeInteger(item) && item >= 0
+        ) &&
+        value.scan.nextBlock === Number(value.scan.anchorBlock) + 1))
   );
 }
 function entry(value: unknown): value is RecoveryEntry {
@@ -84,13 +138,9 @@ function entry(value: unknown): value is RecoveryEntry {
   if (value.kind === 'debit')
     return (
       text(value.accountId) &&
-      keys(value, ['kind', 'id', 'accountId', 'initiatedAt', 'spentUsd', 'authorizationId']) &&
-      typeof value.initiatedAt === 'number' &&
-      Number.isSafeInteger(value.initiatedAt) &&
-      value.initiatedAt >= 0 &&
-      (value.spentUsd === undefined || (typeof value.spentUsd === 'bigint' && value.spentUsd >= 0n)) &&
-      (value.authorizationId === undefined || text(value.authorizationId)) &&
-      (value.spentUsd !== undefined || value.authorizationId !== undefined)
+      keys(value, ['kind', 'id', 'accountId', 'initiatedAt', 'spentUsd', 'authorizationId', 'retry']) &&
+      debitFields(value) &&
+      retry(value)
     );
 
   if (value.kind === 'transaction' && value.row !== undefined) {
@@ -104,11 +154,30 @@ function entry(value: unknown): value is RecoveryEntry {
   return (
     value.kind === 'transaction' &&
     text(value.accountId) &&
-    keys(value, ['kind', 'id', 'accountId', 'requestBytes', 'mayHaveSubmitted', 'evidence', 'row']) &&
+    keys(value, [
+      'kind',
+      'id',
+      'accountId',
+      'requestBytes',
+      'mayHaveSubmitted',
+      'evidence',
+      'row',
+      'resolved',
+      'scans'
+    ]) &&
     value.requestBytes instanceof Uint8Array &&
     value.requestBytes.length > 0 &&
     typeof value.mayHaveSubmitted === 'boolean' &&
-    evidence(value.evidence)
+    evidence(value.evidence) &&
+    scans(value.scans) &&
+    (value.resolved === undefined ||
+      (record(value.resolved) &&
+        keys(value.resolved, ['outcome', 'at', 'transactionId']) &&
+        (value.resolved.outcome === 'landed' || value.resolved.outcome === 'never-committed') &&
+        typeof value.resolved.at === 'number' &&
+        Number.isSafeInteger(value.resolved.at) &&
+        value.resolved.at >= 0 &&
+        (value.resolved.transactionId === undefined || text(value.resolved.transactionId))))
   );
 }
 export function validateJournal(value: unknown): RecoveryJournalSnapshot {
