@@ -103,6 +103,16 @@ describe('native dApp keyboard journey', () => {
     );
   });
 
+  it('fails on a zero-area field frame before typing', async () => {
+    const zeroArea = { ...visible, fieldFrame: { x: 20, y: 120, width: 0, height: 48 } };
+    const context = setup([zeroArea]);
+
+    await expect(runNativeKeyboardJourney({ surface: 'android', ...context })).rejects.toThrow(
+      /native keyboard geometry is incomplete/
+    );
+    expect(context.device.typeText).not.toHaveBeenCalled();
+  });
+
   it('fails if the focused field is covered by the keyboard', async () => {
     const covered = { ...visible, keyboardTop: 140 };
     const context = setup([covered]);
