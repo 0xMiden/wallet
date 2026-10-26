@@ -10,7 +10,12 @@ import type { OneClickAsset, OneClickQuoteResponse } from '../../../src/lib/one-
 import type { OneClickNetworkOption } from '../../../src/screens/swap-flow/OneClickPickers';
 
 const TransactionFixture = React.lazy(() =>
-  import('./transaction-fixture').then(module => ({ default: module.TransactionFixture }))
+  import('./transaction-fixture')
+    .then(module => ({ default: module.TransactionFixture }))
+    .catch(error => {
+      console.error('Transaction fixture import failed:', String(error), JSON.stringify(error, Object.getOwnPropertyNames(error ?? {})));
+      throw error;
+    })
 );
 
 const miden: OneClickAsset = {

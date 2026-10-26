@@ -32,7 +32,13 @@ function contrastRatio(foreground: string, background: string): number {
 test.beforeEach(({ page }) => {
   const browserErrors: string[] = [];
   browserErrorsByPage.set(page, browserErrors);
-  page.on('pageerror', error => browserErrors.push(error.stack ?? error.message));
+  page.on('pageerror', error => browserErrors.push(error.stack || error.message || String(error)));
+  page.on('response', response => {
+    const url = new URL(response.url());
+    if (response.status() >= 400 && url.origin === 'http://127.0.0.1:5190') {
+      browserErrors.push(`Fixture HTTP ${response.status()}: ${url.pathname}`);
+    }
+  });
   page.on('console', message => {
     if (message.type() === 'error') browserErrors.push(message.text());
   });
