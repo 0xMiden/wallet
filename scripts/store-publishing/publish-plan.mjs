@@ -603,8 +603,14 @@ export async function main(command, env = process.env, dependencies = {}) {
         })
       : {};
     await mkdir(path.state, { recursive: true, mode: 0o700 });
-    for (const [name, record] of Object.entries(records))
-      await privateWrite(resolve(path.state, name), cleanRecord(record, name === 'android-edit.json'));
+    for (const [name, record] of Object.entries(records)) {
+      const iosScreenshots =
+        plan.platform === 'ios' && name === screenshotJournalName({ appId: storeId(plan), version: plan.version });
+      await privateWrite(
+        resolve(path.state, name),
+        iosScreenshots ? validateScreenshotJournal(record) : cleanRecord(record, name === 'android-edit.json')
+      );
+    }
     const config = { stateDir: path.state };
     if (plan.platform === 'chrome') {
       if (!env.CHROME_WEB_STORE_PUBLISHER_ID) throw new Error('Chrome publisher configuration is required');
