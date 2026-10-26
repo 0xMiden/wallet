@@ -352,6 +352,8 @@ export function parseAndroidKeyboardLayout(
   };
 }
 
+const IOS_KEY_READS = 3;
+const IOS_KEY_SETTLE_MS = 300;
 const MISSED_NODE_HINT = /edit|text|webview|keyboard|input/i;
 const MISSED_TREE_NODES = 25;
 const MISSED_TREE_CHARS = 4000;
@@ -614,15 +616,21 @@ export function iosDevice(
         return { keys, tree };
       };
       for (const character of Array.from(value)) {
-        let { keys, tree } = await readKeys();
-        let key = iosKeyFor(keys, character);
-        if (key === null) {
-          const mode = iosModeKeyFor(keys, character);
-          if (mode !== null) {
-            await tapKey(mode);
-            ({ keys, tree } = await readKeys());
-            key = iosKeyFor(keys, character);
-          }
+        let key: IosKey | null = null;
+        let modeTapped = false;
+        let tree = '';
+        // Right after a tap the keyboard can still be switching case, so a missing key gets a short bounded re-read.
+        for (let attempt = 0; attempt < IOS_KEY_READS && key === null; attempt += 1) {
+          if (attempt > 0) await new Promise<void>(resolve => setTimeout(resolve, IOS_KEY_SETTLE_MS));
+          const read = await readKeys();
+          tree = read.tree;
+          key = iosKeyFor(read.keys, character);
+          if (key !== null || modeTapped) continue;
+          const mode = iosModeKeyFor(read.keys, character);
+          if (mode === null) continue;
+          await tapKey(mode);
+          modeTapped = true;
+          attempt -= 1;
         }
         if (key === null) throw new HarnessFault(`iOS native key not found: ${character} ${iosMissedSummary(tree)}`);
         await tapKey(key);
