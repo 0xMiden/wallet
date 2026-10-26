@@ -423,7 +423,7 @@ describe('newTransaction (site 6)', () => {
       };
       Reflect.set(lazy.TransactionRequest, 'deserialize', jest.fn(() => request));
       const bytes = new Uint8Array([4, 19, 28]);
-      await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, true))).rejects.toBe(original);
+      await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, false))).rejects.toBe(original);
       const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
       expect(snapshotCrashDiagnostics(original)).toMatchObject({
         executionRoute: 'ordinary_new_transaction',
@@ -440,6 +440,7 @@ describe('newTransaction (site 6)', () => {
       expect(bytes).toEqual(new Uint8Array([4, 19, 28]));
       expect(harness.transport.prove).not.toHaveBeenCalled();
       expect(harness.submitProven).not.toHaveBeenCalled();
+      expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
     }
   );
 
