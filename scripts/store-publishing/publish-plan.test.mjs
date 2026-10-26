@@ -917,3 +917,26 @@ test('failed iOS workflow exports only validated screenshot recovery evidence', 
   await writeFile(join(root, 'state', name), bytes(invalid));
   await assert.rejects(main('export', iosEnv), /journal/);
 });
+
+
+test('iOS metadata recovery restores a submit journal across the absent build number boundary', () => {
+  const submit = validatePublishRequest({ ...input, platform: 'ios', action: 'submit', stateRunId: '80', buildNumber: '19' });
+  const previous = snapshot(submit, { extraManifest: { action: 'submit', outcome: 'failure' } });
+  const name = 'ios-6789341854-1.17.7-screenshots.json';
+  previous.files[name] = bytes(iosScreenshotJournal());
+  previous.manifest.files = Object.entries(previous.files).map(([name, value]) => ({ name, sha256: digest(value) }));
+  const context = { run: run('state', { conclusion: 'failure' }) };
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const metadata = validatePublishRequest({ ...input, platform: 'ios', action, producerRunId: '', stateRunId: '80' });
+    assert.deepEqual(validateStateSnapshot(metadata, previous, context), { [name]: iosScreenshotJournal() });
+    const wrongBuild = validatePublishRequest({ ...metadata, buildNumber: '20' });
+    assert.throws(() => validateStateSnapshot(wrongBuild, previous, context), /manifest|artifact|release/);
+    const invalid = structuredClone(previous);
+    invalid.manifest.intent.buildNumber = '0';
+    assert.throws(() => validateStateSnapshot(metadata, invalid, context), /build|manifest|release/);
+  }
+  const missingAttestation = structuredClone(previous);
+  missingAttestation.files = { [name]: previous.files[name] };
+  missingAttestation.manifest.files = [{ name, sha256: digest(previous.files[name]) }];
+  assert.throws(() => validateStateSnapshot(submit, missingAttestation, context), /attestation/);
+});
