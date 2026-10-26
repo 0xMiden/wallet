@@ -522,6 +522,20 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Native handles can materialize later; lifetime identity changes only on removal and a new session.
   const sessionLifetimes = useRef(new Map<string, symbol>());
+  // A same-event open parks the previous loading row inside the updater, so that commit already shows it
+  // parked. The effect persists each recorded id once the committed row is still parked, then drops the set.
+  const slotlessParkedIds = useRef(new Set<string>());
+  useEffect(() => {
+    const recorded = slotlessParkedIds.current;
+    if (recorded.size === 0) return;
+    for (const id of recorded) {
+      const state = sessionStates.find(candidate => candidate.session.id === id);
+      if (state?.status === 'parked' && sessionLifetimes.current.has(id)) {
+        void upsertPersistedSession({ ...toPersisted(state.session), origin: state.origin });
+      }
+    }
+    recorded.clear();
+  }, [sessionStates]);
   const pendingParks = useRef(new Map<string, PendingLegacyPark>());
   const openingSessions = useRef(new Map<string, symbol>());
   const listenerSetup = useRef<Promise<void>>(Promise.resolve());
@@ -1121,18 +1135,24 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           }
           return;
         }
-        updateSession(session.id, s => ({
-          ...s,
-          instance,
-          status: foregroundIdRef.current === session.id ? 'active' : 'parked',
-          // Stamp the principal from the URL this load actually starts at, rather
-          // than carrying over whatever origin the state (or a persisted record)
-          // happened to hold — a cold restore's persisted origin can be from a page
-          // this load is not opening. Unconfirmed until `urlChangeEvent` reports the
-          // document that really committed (a redirect can land elsewhere).
-          origin: parseOrigin(session.url),
-          originConfirmed: false
-        }));
+        updateSession(session.id, s => {
+          const returned: DappSessionState = {
+            ...s,
+            instance,
+            status: foregroundIdRef.current === session.id ? 'active' : 'parked',
+            // Stamp the principal from the URL this load actually starts at, rather
+            // than carrying over whatever origin the state (or a persisted record)
+            // happened to hold — a cold restore's persisted origin can be from a page
+            // this load is not opening. Unconfirmed until `urlChangeEvent` reports the
+            // document that really committed (a redirect can land elsewhere).
+            origin: parseOrigin(session.url),
+            originConfirmed: false
+          };
+          if (s.status === 'loading' && s.instance === null && returned.status === 'parked') {
+            slotlessParkedIds.current.add(session.id);
+          }
+          return returned;
+        });
       } catch (error) {
         if (managedClosings.current.has(token)) return;
         if (
@@ -1371,12 +1391,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // below will pick up foregroundId + slotRect and call openInternal
       // once the layout has reported a target rect.
       setSessionStates(prev => [
-        ...prev.map(
-          (state): DappSessionState =>
+        ...prev.map((state): DappSessionState => {
+          const returned: DappSessionState =
             state.session.id !== next.id && state.status === 'loading' && state.instance === null
               ? { ...state, status: 'parked', isLoading: false }
-              : state
-        ),
+              : state;
+          if (state.status === 'loading' && state.instance === null && returned.status === 'parked') {
+            slotlessParkedIds.current.add(state.session.id);
+          }
+          return returned;
+        }),
         {
           session: next,
           instance: null,
@@ -1845,12 +1869,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Committed before native answers, so DappActive mounts while the page is still small and its capsule can
       // return alongside it.
       setSessionStates(prev =>
-        prev.map(
-          (state): DappSessionState =>
+        prev.map((state): DappSessionState => {
+          const returned: DappSessionState =
             state.session.id !== id && state.status === 'loading' && state.instance === null
               ? { ...state, status: 'parked', isLoading: false }
-              : state
-        )
+              : state;
+          if (state.status === 'loading' && state.instance === null && returned.status === 'parked') {
+            slotlessParkedIds.current.add(state.session.id);
+          }
+          return returned;
+        })
       );
       updateSession(id, s => ({ ...s, status: 'active' }));
       setForegroundId(id);
@@ -1966,12 +1994,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // stays visible under the loading state until browserPageLoaded
       // fires — see DappActive for the crossfade.
       setSessionStates(prev =>
-        prev.map(
-          (state): DappSessionState =>
+        prev.map((state): DappSessionState => {
+          const returned: DappSessionState =
             state.session.id !== sessionId && state.status === 'loading' && state.instance === null
               ? { ...state, status: 'parked', isLoading: false }
-              : state
-        )
+              : state;
+          if (state.status === 'loading' && state.instance === null && returned.status === 'parked') {
+            slotlessParkedIds.current.add(state.session.id);
+          }
+          return returned;
+        })
       );
       if (!target.instance || target.isCold) {
         updateSession(sessionId, s => ({

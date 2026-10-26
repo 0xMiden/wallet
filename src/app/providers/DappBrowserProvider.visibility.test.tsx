@@ -2466,6 +2466,37 @@ describe('latest foreground intent across sessions', () => {
     await openManagedSession('second');
   }
 
+  interface RoundTripRecord {
+    id: string;
+    url?: string;
+    origin?: string;
+    title?: string;
+    favicon?: string | null;
+    openedAt?: number;
+    status?: string;
+    parkedAt?: number;
+  }
+
+  function isRoundTripRecord(value: unknown): value is RoundTripRecord {
+    return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string';
+  }
+
+  function installPersistedRoundTrip(seed: RoundTripRecord[] = []) {
+    const stored = seed.map(entry => ({ ...entry }));
+    mockUpsertSession.mockImplementation(session => {
+      if (!isRoundTripRecord(session)) return Promise.resolve();
+      const copy = { ...session };
+      const index = stored.findIndex(entry => entry.id === copy.id);
+      if (index === -1) stored.push(copy);
+      else stored[index] = copy;
+      return Promise.resolve();
+    });
+    mockLoadPersisted.mockImplementation(() => Promise.resolve(stored.map(entry => ({ ...entry }))));
+    return () => {
+      mockUpsertSession.mockImplementation(async () => {});
+    };
+  }
+
   it('parks a slotless open when a second open supersedes it', async () => {
     currentTree = render(<Tree />);
     await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
@@ -2522,6 +2553,106 @@ describe('latest foreground intent across sessions', () => {
     expect(statusOf('second')).toBe('parked');
     expect(parked()).toContain('second');
     expect(control().session?.id).toBe('origin');
+  });
+
+  it('remounts a slotless open that a second open parked', async () => {
+    const restoreStore = installPersistedRoundTrip();
+    const tree = render(<Tree />);
+    currentTree = tree;
+    try {
+      await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+      act(() => {
+        control().open(session('first'));
+        control().open(session('second'));
+      });
+      await settle();
+      expect(statusOf('first')).toBe('parked');
+      expect(statusOf('second')).toBe('loading');
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => expect(parked()).toEqual(['first']));
+    } finally {
+      restoreStore();
+    }
+  });
+
+  it('remounts a slotless session that a cold restore parked', async () => {
+    const restoreStore = installPersistedRoundTrip([{ ...session('cold'), parkedAt: 1 }]);
+    const tree = render(<Tree />);
+    currentTree = tree;
+    try {
+      await waitFor(() => expect(parked()).toEqual(['cold']));
+      act(() => control().open(session('first')));
+      await settle();
+      await act(async () => control().restore('cold'));
+      expect(statusOf('first')).toBe('parked');
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => {
+        expect(parked()).toContain('first');
+        expect(parked()).toContain('cold');
+      });
+    } finally {
+      restoreStore();
+    }
+  });
+
+  it('remounts a slotless session that a warm restore parked', async () => {
+    const restoreStore = installPersistedRoundTrip();
+    try {
+      const tree = await openForeground();
+      await act(async () => control().park('origin'));
+      act(() => control().setSlotRect(null));
+      act(() => control().open(session('second')));
+      await settle();
+      await act(async () => control().restore('origin'));
+      expect(statusOf('second')).toBe('parked');
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => expect(parked()).toContain('second'));
+    } finally {
+      restoreStore();
+    }
+  });
+
+  it('remounts a session whose open finished after the user left', async () => {
+    const restoreStore = installPersistedRoundTrip();
+    let releaseOpen: () => void = () => undefined;
+    mockOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          releaseOpen = resolve;
+        })
+    );
+    const tree = render(<Tree />);
+    currentTree = tree;
+    try {
+      act(() => {
+        control().open(session('first'));
+        control().setSlotRect(RECT);
+      });
+      await waitFor(() => expect(mockOpen).toHaveBeenCalled());
+      act(() => control().setSlotRect(null));
+      await waitFor(() => expect(control().session).toBeNull());
+      await act(async () => {
+        releaseOpen();
+      });
+      await waitFor(() => expect(statusOf('first')).toBe('parked'));
+      await settle();
+      tree.unmount();
+      currentTree = render(<Tree />);
+      await waitFor(() => expect(parked()).toContain('first'));
+    } finally {
+      await act(async () => {
+        releaseOpen();
+      });
+      restoreStore();
+      mockOpen.mockReset();
+      mockOpen.mockImplementation(async () => {});
+    }
   });
 
   it('parks the foreground after a superseded park once the slot leaves', async () => {
