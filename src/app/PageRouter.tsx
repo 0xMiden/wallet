@@ -160,7 +160,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <RootSuspenseFallback />;
 
         case 'welcome':
-          return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
+          return <Welcome />;
 
         default:
           return Woozie.Router.SKIP;
@@ -186,7 +186,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <RootSuspenseFallback />;
 
         default:
-          return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
+          return <Welcome />;
       }
     }
   ],
