@@ -4251,6 +4251,135 @@
     "message": "Saída: notes criado",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Fluxo de Notes",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "notes de saída",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "notes de saída, incluindo taxa",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Sem notes de entrada",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "notes de saída",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Input note details unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Some input note details are unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note sobre taxa de transação",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note sobre P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note do P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Outras notes de roteiro",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Script de Notes indisponível",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note contents unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Criado por",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Raiz do script",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Nenhum ativo listado",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Escala de valores desconhecida",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "unidades básicas",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Dados brutos da transação",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Detalhes do espaço de armazenamento indisponíveis",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Nenhuma alteração no armazenamento",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Slot do mapa",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Campo de valor",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Criado",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Atualizado",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Removido",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Operação indisponível",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Entradas alteradas",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Alteração no armazenamento",
     "englishSource": "Storage changed"

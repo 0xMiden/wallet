@@ -4252,6 +4252,130 @@
     "message": "Wynik: Utworzono plik „notes”",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Przepływ Note",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "notes dotyczące wyników",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "notes wyjściowe, w tym opłata",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Brak uwag notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "Brak notes dotyczących wyników",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Szczegóły note'a dotyczące wprowadzania danych niedostępne",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Niektóre szczegóły note'a dotyczące danych wejściowych są niedostępne",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note dotycząca opłaty transakcyjnej",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note dotycząca P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Inne note script",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Skrypt Note’ niedostępny",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Treść Note'a niedostępna",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Stworzone przez",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Katalog główny skryptów",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Brak aktywów w wykazie",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Skala kwot nieznana",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "jednostki bazowe",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Surowe dane transakcyjne",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Szczegóły poszczególnych note'ów nie są dostępne dla tej transakcji.",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Szczegóły poszczególnych note'ów nie są weryfikowane. Witryna udostępniła podgląd zapytania.",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Szczegóły dotyczące miejsca przechowywania niedostępne",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Brak zmian dotyczących przechowywania",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Slot mapy",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Pole wartości",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Utworzono",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Zaktualizowano",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Usunięto",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Operacja niedostępna",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Zmienione wpisy",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Zmiana lokalizacji przechowywania",
     "englishSource": "Storage changed"
