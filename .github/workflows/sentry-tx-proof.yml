@@ -1,0 +1,21 @@
+name: Transaction execution diagnostics proof
+on:
+  push:
+    branches: [ci/sentry-tx-diagnostics-red-sdk]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: ./.github/actions/yarn-install
+        id: install
+      - name: Prove source identity
+        run: git show -s --format='%H %T %P' HEAD
+      - name: Focused regressions
+        run: yarn jest --runInBand src/lib/miden/guardian/index.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/offscreen/main.test.ts src/lib/miden/back/miden-client-proxy.test.ts
