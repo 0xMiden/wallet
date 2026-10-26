@@ -1,12 +1,17 @@
 const completedStates = new Set([
-  'READY_FOR_SALE', 'READY_FOR_DISTRIBUTION', 'DEVELOPER_REMOVED_FROM_SALE',
-  'REMOVED_FROM_SALE', 'REPLACED_WITH_NEW_VERSION'
+  'READY_FOR_SALE',
+  'READY_FOR_DISTRIBUTION',
+  'DEVELOPER_REMOVED_FROM_SALE',
+  'REMOVED_FROM_SALE',
+  'REPLACED_WITH_NEW_VERSION'
 ]);
 
 function checkedOptions(options) {
-  if (!/^\d+$/.test(options?.appId ?? '') ||
-      !/^[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)+$/.test(options?.bundleId ?? '') ||
-      !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(options?.version ?? '')) {
+  if (
+    !/^\d+$/.test(options?.appId ?? '') ||
+    !/^[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)+$/.test(options?.bundleId ?? '') ||
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(options?.version ?? '')
+  ) {
     throw new Error('An exact Apple app identity and stable version are required');
   }
 }
@@ -22,8 +27,13 @@ function newerThan(left, right) {
 }
 
 function checkedVersion(value) {
-  if (value?.type !== 'appStoreVersions' || !value.id || value.attributes?.platform !== 'IOS' ||
-      typeof value.attributes.versionString !== 'string' || typeof value.attributes.appStoreState !== 'string') {
+  if (
+    value?.type !== 'appStoreVersions' ||
+    !value.id ||
+    value.attributes?.platform !== 'IOS' ||
+    typeof value.attributes.versionString !== 'string' ||
+    typeof value.attributes.appStoreState !== 'string'
+  ) {
     throw new Error('Apple version information is incomplete');
   }
   return value;
@@ -57,9 +67,14 @@ export async function prepare(client, options) {
   if (matching.length > 1) throw new Error('Apple version selection is ambiguous');
   if (matching.length === 1) {
     return {
-      platform: 'ios', appId: options.appId, version: options.version,
-      versionId: matching[0].id, state: matching[0].attributes.appStoreState,
-      reused: true, metadataPreserved: true, published: false
+      platform: 'ios',
+      appId: options.appId,
+      version: options.version,
+      versionId: matching[0].id,
+      state: matching[0].attributes.appStoreState,
+      reused: true,
+      metadataPreserved: true,
+      published: false
     };
   }
   if (versions.some(value => !completedStates.has(value.attributes.appStoreState))) {
@@ -68,23 +83,35 @@ export async function prepare(client, options) {
   if (versions.some(value => !newerThan(options.version, value.attributes.versionString))) {
     throw new Error('The new Apple version must be newer than every existing version');
   }
-  const response = await client.request('POST', '/v1/appStoreVersions', { body: { data: {
-    type: 'appStoreVersions',
-    attributes: { platform: 'IOS', versionString: options.version, releaseType: 'MANUAL' },
-    relationships: { app: { data: { type: 'apps', id: options.appId } } }
-  } } });
+  const response = await client.request('POST', '/v1/appStoreVersions', {
+    body: {
+      data: {
+        type: 'appStoreVersions',
+        attributes: { platform: 'IOS', versionString: options.version, releaseType: 'AFTER_APPROVAL' },
+        relationships: { app: { data: { type: 'apps', id: options.appId } } }
+      }
+    }
+  });
   const created = checkedVersion(response?.data);
-  if (created.attributes.versionString !== options.version || created.attributes.releaseType !== 'MANUAL' ||
-      created.attributes.appStoreState !== 'PREPARE_FOR_SUBMISSION') {
-    throw new Error('Apple created version does not match the requested manual-release skeleton');
+  if (
+    created.attributes.versionString !== options.version ||
+    created.attributes.releaseType !== 'AFTER_APPROVAL' ||
+    created.attributes.appStoreState !== 'PREPARE_FOR_SUBMISSION'
+  ) {
+    throw new Error('Apple created version does not match the requested automatic-release skeleton');
   }
   const related = await client.request('GET', `/v1/appStoreVersions/${created.id}/app`);
   if (related?.data?.id !== options.appId || related.data.attributes?.bundleId !== options.bundleId) {
     throw new Error('Apple created version has an unexpected app identity');
   }
   return {
-    platform: 'ios', appId: options.appId, version: options.version, versionId: created.id,
-    state: created.attributes.appStoreState, reused: false, published: false,
+    platform: 'ios',
+    appId: options.appId,
+    version: options.version,
+    versionId: created.id,
+    state: created.attributes.appStoreState,
+    reused: false,
+    published: false,
     metadataRequiresVerification: true
   };
 }

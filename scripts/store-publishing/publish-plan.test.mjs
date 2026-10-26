@@ -684,3 +684,60 @@ test('edit inspection execute/export retains exact bounded numeric version codes
   assert.deepEqual(manifest.result, result);
   assert.doesNotMatch(JSON.stringify(result), /secret-token/);
 });
+
+test('release notes are optional exact text for iOS submit only', () => {
+  const request = {
+    ...input,
+    platform: 'ios',
+    action: 'submit',
+    producerRunId: '42',
+    stateRunId: '80',
+    buildNumber: '19'
+  };
+  assert.equal(validatePublishRequest({ ...request, releaseNotes: '' }).releaseNotes, 'Various Fixes & Improvements');
+  const releaseNotes = 'Recovery improvements.\nBug fixes.';
+  assert.equal(validatePublishRequest({ ...request, releaseNotes }).releaseNotes, releaseNotes);
+  for (const change of [
+    { platform: 'chrome', buildNumber: '' },
+    { action: 'upload' },
+    { releaseNotes: ' ' },
+    { releaseNotes: 'x'.repeat(4001) },
+    { releaseNotes: 'a\0b' }
+  ]) {
+    assert.throws(() => validatePublishRequest({ ...request, releaseNotes, ...change }), /release notes/i);
+  }
+});
+
+test('workflow forwards iOS submit release notes as one exact argument', async t => {
+  const { env } = await workspace(t);
+  Object.assign(env, {
+    PLATFORM: 'ios',
+    STORE_ACTION: 'submit',
+    STATE_RUN_ID: '80',
+    BUILD_NUMBER: '19',
+    RELEASE_NOTES: 'Guardian improvements.\nBug fixes.'
+  });
+  let args;
+  await main('execute', env, {
+    run: async value => {
+      args = value;
+      return { platform: 'ios', state: 'WAITING_FOR_REVIEW' };
+    }
+  });
+  const index = args.indexOf('--release-notes');
+  assert.ok(index >= 0);
+  assert.equal(args[index + 1], env.RELEASE_NOTES);
+});
+
+test('the notes fallback is scoped to iOS submit and leaves other default actions untouched', () => {
+  for (const change of [
+    {},
+    { action: 'status', producerRunId: '' },
+    { platform: 'android', action: 'status', producerRunId: '' },
+    { platform: 'ios', action: 'prepare', producerRunId: '' },
+    { platform: 'ios', action: 'upload', buildNumber: '19' }
+  ]) {
+    const plan = validatePublishRequest({ ...input, ...change, releaseNotes: '' });
+    assert.equal(plan.releaseNotes, undefined);
+  }
+});

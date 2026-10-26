@@ -98,6 +98,57 @@ function buildsPath(options) {
 
 const stateOf = version => version.attributes?.appVersionState ?? version.attributes?.appStoreState;
 
+export const DEFAULT_RELEASE_NOTES = 'Various Fixes & Improvements';
+
+export function validateReleaseNotes(value) {
+  if (value === undefined || value === '') return undefined;
+  if (
+    typeof value !== 'string' ||
+    !value.trim() ||
+    [...value].length > 4000 ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)
+  ) {
+    throw new Error('Explicit release notes must contain 1-4000 characters without control characters');
+  }
+  return value;
+}
+
+async function releaseNotesTarget(client, version, notes) {
+  const localizations = await list(
+    client,
+    `/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations?limit=200`,
+    'appStoreVersionLocalizations'
+  );
+  const english = localizations.filter(item => item.attributes?.locale === 'en-US');
+  if (english.length !== 1) throw new Error('An exact unambiguous en-US localization is required');
+  const current = english[0].attributes.whatsNew;
+  if (current !== null && current !== undefined && typeof current !== 'string')
+    throw new Error('Invalid Apple release notes metadata');
+  if (current?.trim()) return null;
+  if (!notes) throw new Error("Explicit release notes are required for empty What's New metadata");
+  return english[0];
+}
+
+function submitClient(client) {
+  return {
+    async request(method, path, init) {
+      let stage = 'apple-submit-preflight';
+      if (method === 'PATCH' && path.startsWith('/v1/appStoreVersionLocalizations/'))
+        stage = 'apple-release-notes-update';
+      else if (method === 'PATCH' && path.startsWith('/v1/appStoreVersions/')) stage = 'apple-build-link';
+      else if (method === 'POST' && path === '/v1/reviewSubmissions') stage = 'apple-review-create';
+      else if (method === 'POST' && path === '/v1/reviewSubmissionItems') stage = 'apple-review-item-create';
+      else if (method === 'PATCH' && path.startsWith('/v1/reviewSubmissions/')) stage = 'apple-review-submit';
+      try {
+        return await client.request(method, path, init);
+      } catch (error) {
+        if (error && typeof error === 'object') error.stage = stage;
+        throw error;
+      }
+    }
+  };
+}
+
 function requireExactVersion(version, options) {
   if (version.attributes?.platform !== 'IOS' || version.attributes?.versionString !== options.version) {
     throw new Error('Apple version does not exactly match the requested iOS marketing version');
@@ -156,12 +207,13 @@ function requireLinkedBuild(version, build, releaseType = 'MANUAL') {
     throw new Error(`Apple version release policy changed or does not match ${releaseType}`);
 }
 
-async function requireReviewItems(client, review, version) {
+async function requireReviewItems(client, review, version, allowEmpty = false) {
   const items = await list(
     client,
     `/v1/reviewSubmissions/${review.id}/items?include=appStoreVersion&limit=50`,
     'reviewSubmissionItems'
   );
+  if (allowEmpty && items.length === 0) return false;
   if (
     items.length !== 1 ||
     items[0].relationships?.appStoreVersion?.data?.type !== 'appStoreVersions' ||
@@ -169,14 +221,15 @@ async function requireReviewItems(client, review, version) {
   ) {
     throw new Error('Apple review draft does not contain only the requested app version');
   }
+  return true;
 }
 
-async function existingReview(client, options, version) {
+async function existingReview(client, options, version, allowEmpty = false) {
   const reviews = await list(
     client,
     pathWithQuery('/v1/reviewSubmissions', {
       'filter[app]': options.appId,
-      'filter[platform]': 'IOS',
+      include: 'app',
       'filter[state]': [...ACTIVE_REVIEW_STATES].join(','),
       limit: '200'
     }),
@@ -195,9 +248,13 @@ async function existingReview(client, options, version) {
     throw new Error('Another Apple review submission is active; resolve it in the console first');
   }
   const review = active[0];
-  if (review.attributes.platform !== 'IOS') throw new Error('Apple review draft has an unexpected platform');
-  await requireReviewItems(client, review, version);
-  return review;
+  if (review.attributes.platform !== null && review.attributes.platform !== 'IOS')
+    throw new Error('Apple review draft has an unexpected platform');
+  if (review.relationships?.app?.data?.type !== 'apps' || review.relationships.app.data.id !== options.appId) {
+    throw new Error('Apple review draft app relationship does not match the requested app');
+  }
+  const hasItem = await requireReviewItems(client, review, version, allowEmpty);
+  return { ...review, hasItem };
 }
 
 /** Read current Apple resource states without changing a draft or submission. */
@@ -248,8 +305,11 @@ export async function upload(client, options) {
 /** Submit one existing draft/build while preserving its release policy unless an explicit change is requested. */
 export async function submit(client, options) {
   requireTarget(options, true);
-  const policy = options.releasePolicy ?? 'preserve-existing';
-  if (!['preserve-existing', 'manual', 'after-approval'].includes(policy)) throw new Error('Invalid Apple release policy');
+  const notes = validateReleaseNotes(options.releaseNotes) ?? DEFAULT_RELEASE_NOTES;
+  client = submitClient(client);
+  const policy = options.releasePolicy ?? 'after-approval';
+  if (!['preserve-existing', 'manual', 'after-approval'].includes(policy))
+    throw new Error('Invalid Apple release policy');
   await appIdentity(client, options);
   const version = await exactVersion(client, options);
   const existingType = version.attributes?.releaseType;
@@ -257,10 +317,21 @@ export async function submit(client, options) {
   const releaseType = policy === 'preserve-existing' ? existingType : policy === 'manual' ? 'MANUAL' : 'AFTER_APPROVAL';
   if (!EDITABLE_STATES.has(stateOf(version))) throw new Error('Apple version is not an editable draft');
   const build = await exactBuild(client, options);
-  let review = await existingReview(client, options, version);
+  let notesTarget = await releaseNotesTarget(client, version, notes);
+  let review = await existingReview(client, options, version, true);
   if (stateOf(version) === 'READY_FOR_REVIEW') {
-    if (!review) throw new Error('Apple ready-for-review version has no matching review draft');
+    if (!review?.hasItem) throw new Error('Apple ready-for-review version has no matching review draft');
     requireLinkedBuild(version, build, existingType);
+  }
+  if (notesTarget) {
+    // Re-read immediately before writing so existing release text is preserved.
+    notesTarget = await releaseNotesTarget(client, version, notes);
+    if (notesTarget)
+      await client.request('PATCH', `/v1/appStoreVersionLocalizations/${notesTarget.id}`, {
+        body: { data: { type: 'appStoreVersionLocalizations', id: notesTarget.id, attributes: { whatsNew: notes } } }
+      });
+    if (await releaseNotesTarget(client, version, notes))
+      throw new Error('Apple release notes update was not persisted');
   }
   const linked = version.relationships?.build?.data;
   const changeBuild = linked?.type !== 'builds' || linked.id !== build.id;
@@ -290,23 +361,33 @@ export async function submit(client, options) {
       ).data,
       'reviewSubmissions'
     );
-    await client.request('POST', '/v1/reviewSubmissionItems', {
-      body: {
-        data: {
-          type: 'reviewSubmissionItems',
-          relationships: {
-            reviewSubmission: linkage('reviewSubmissions', review.id),
-            appStoreVersion: linkage('appStoreVersions', version.id)
+  }
+  if (!review.hasItem) {
+    const beforeItem = await currentVersion(client, options, version);
+    if (!EDITABLE_STATES.has(stateOf(beforeItem))) throw new Error('Apple version is no longer an editable draft');
+    requireLinkedBuild(beforeItem, build, releaseType);
+    const currentReview = await existingReview(client, options, version, true);
+    if (!currentReview || currentReview.id !== review.id)
+      throw new Error('Apple review draft changed before adding its item');
+    if (!currentReview.hasItem)
+      await client.request('POST', '/v1/reviewSubmissionItems', {
+        body: {
+          data: {
+            type: 'reviewSubmissionItems',
+            relationships: {
+              reviewSubmission: linkage('reviewSubmissions', review.id),
+              appStoreVersion: linkage('appStoreVersions', version.id)
+            }
           }
         }
-      }
-    });
+      });
   }
   // Check persisted selection and exclusivity immediately before sending review.
   const current = await currentVersion(client, options, version);
   if (!EDITABLE_STATES.has(stateOf(current))) throw new Error('Apple version is no longer an editable draft');
   requireLinkedBuild(current, build, releaseType);
-  await requireReviewItems(client, review, current);
+  const finalReview = await existingReview(client, options, current);
+  if (!finalReview || finalReview.id !== review.id) throw new Error('Apple review draft changed before submission');
   const response = await client.request('PATCH', `/v1/reviewSubmissions/${review.id}`, {
     body: {
       data: {
