@@ -22,6 +22,7 @@ jobs:
       - name: Lint exact changed workflow contract
         run: yarn eslint playwright/e2e/harness/linked-pr-injection.test.ts
       - name: Format exact changed contract and retain patch
+        if: always()
         run: |
           yarn prettier --write playwright/e2e/harness/linked-pr-injection.test.ts
           git diff --binary -- playwright/e2e/harness/linked-pr-injection.test.ts > formatting.patch
