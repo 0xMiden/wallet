@@ -580,10 +580,10 @@ test('uploader error details are failures even when its process exits successful
   }
 });
 
-test('iOS submit preserves release policy by default and passes only explicit supported overrides', async () => {
+test('iOS submit defaults to after-approval and retains explicit supported overrides', async () => {
   for (const releasePolicy of ['preserve-existing', 'manual', 'after-approval']) {
     const c = context('ios');
-    const override = releasePolicy === 'preserve-existing' ? [] : ['--release-policy', releasePolicy];
+    const override = releasePolicy === 'after-approval' ? [] : ['--release-policy', releasePolicy];
     await run(['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', ...override], c.deps);
     assert.equal(c.calls.find(call => call[0] === 'operation')[3].releasePolicy, releasePolicy);
   }

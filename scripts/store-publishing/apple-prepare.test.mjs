@@ -7,7 +7,7 @@ const options = { appId: '6789341854', bundleId: 'com.miden.bread', version: '1.
 const app = { type: 'apps', id: options.appId, attributes: { bundleId: options.bundleId } };
 const version = (number, state = 'PREPARE_FOR_SUBMISSION') => ({
   type: 'appStoreVersions', id: `version-${number}`,
-  attributes: { versionString: number, platform: 'IOS', appStoreState: state, releaseType: 'MANUAL' }
+  attributes: { versionString: number, platform: 'IOS', appStoreState: state, releaseType: 'AFTER_APPROVAL' }
 });
 function transport(versions, created = version(options.version)) {
   const calls = [];
@@ -33,7 +33,7 @@ test('reuses the existing 1.17.7 draft without changing screenshots or metadata'
   assert.equal(client.calls.filter(c => c.method !== 'GET').length, 0);
 });
 
-test('creates a missing skeleton with manual release and no invented declarations', async () => {
+test('creates a missing skeleton with automatic release after approval and no invented declarations', async () => {
   const client = transport([version('1.17.6', 'READY_FOR_SALE')]);
   const result = await prepare(client, options);
   assert.equal(result.reused, false);
@@ -41,7 +41,7 @@ test('creates a missing skeleton with manual release and no invented declaration
   assert.deepEqual(client.calls.find(c => c.method === 'POST').data.body, {
     data: {
       type: 'appStoreVersions',
-      attributes: { platform: 'IOS', versionString: '1.17.7', releaseType: 'MANUAL' },
+      attributes: { platform: 'IOS', versionString: '1.17.7', releaseType: 'AFTER_APPROVAL' },
       relationships: { app: { data: { type: 'apps', id: options.appId } } }
     }
   });

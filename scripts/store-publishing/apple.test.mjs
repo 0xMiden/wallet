@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { release, status, submit, upload } from './apple.mjs';
-const options = { appId: '123456789', bundleId: 'com.miden.bread', version: '1.17.7', buildNumber: '19' };
+const options = { appId: '123456789', bundleId: 'com.miden.bread', version: '1.17.7', buildNumber: '19', releasePolicy: 'preserve-existing' };
 const ref = (type, id) => ({ data: { type, id } });
 
 function fixture(overrides = {}) {
@@ -583,4 +583,14 @@ test('a competing review appearing after item creation blocks submission', async
     mutations(f.calls).map(c => c.path),
     ['/v1/reviewSubmissionItems']
   );
+});
+
+
+test('standard submit changes an existing manual draft to automatic publication after approval', async () => {
+  const { client, version, calls } = fixture();
+  const result = await submit(client, { ...options, releasePolicy: undefined });
+  assert.equal(result.releaseType, 'AFTER_APPROVAL');
+  assert.equal(result.autoReleaseAfterApproval, true);
+  assert.equal(version.attributes.releaseType, 'AFTER_APPROVAL');
+  assert.equal(mutations(calls)[0].body.data.attributes.releaseType, 'AFTER_APPROVAL');
 });
