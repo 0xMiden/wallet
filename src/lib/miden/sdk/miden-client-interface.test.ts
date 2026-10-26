@@ -3306,7 +3306,8 @@ describe('MidenClientInterface', () => {
         });
 
         expect(onStage).toHaveBeenCalledWith('submitting', {
-          evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+          evidence: expect.objectContaining({ transactionId: 'tx-hex' }),
+          recovery: { requestBytes: expect.any(Uint8Array), notes: [] }
         });
         expect(order.indexOf('stamp:submitting')).toBeGreaterThan(-1);
         expect(order.indexOf('stamp:submitting')).toBeLessThan(order.indexOf('submit'));
