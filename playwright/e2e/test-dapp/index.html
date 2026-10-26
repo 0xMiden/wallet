@@ -30,6 +30,19 @@
       button {
         margin: 0 6px 6px 0;
       }
+      .keyboard-test-field {
+        display: grid;
+        gap: 4px;
+        margin: 12px 0;
+      }
+      .keyboard-test-field input,
+      .keyboard-test-field textarea {
+        box-sizing: border-box;
+        font: inherit;
+        font-size: 16px;
+        max-width: 100%;
+        width: 100%;
+      }
       pre {
         white-space: pre-wrap;
         word-break: break-all;
@@ -51,6 +64,16 @@
       <button data-command="session">Session</button>
       <button data-command="disconnect">Disconnect</button>
     </div>
+    <section aria-label="Native keyboard test">
+      <div class="keyboard-test-field">
+        <label for="keyboard-input">Keyboard input</label>
+        <input id="keyboard-input" type="text" aria-label="Keyboard input" autocomplete="off" />
+      </div>
+      <div class="keyboard-test-field">
+        <label for="keyboard-textarea">Keyboard notes</label>
+        <textarea id="keyboard-textarea" aria-label="Keyboard notes" rows="3"></textarea>
+      </div>
+    </section>
     <pre id="log" data-testid="test-dapp-log"></pre>
     <script type="module" src="/test-dapp.js"></script>
   </body>
