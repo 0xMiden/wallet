@@ -7,6 +7,7 @@
 ### Changes
 
 - [CHANGE][all] Failed transaction reports retain closed proposal, inline proving, queue admission, deadline progress and reaper timestamp observations without private transaction data.
+- [CHANGE][all] Removed the root `screenshots/` folder: the old App Store, iPad and Play marketing images (the canonical store screenshots are in `store-listing/assets/`) and the evidence images and capture fixtures from earlier changes.
 - [FIX][ci] Authorize staging probe and cleanup against exact configured-account metadata without user-token introspection.
 
 - [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).
