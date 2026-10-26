@@ -14,7 +14,6 @@ import 'lib/lock-up/run-checks';
 
 import App from 'app/App';
 import { WindowType, openInFullPage } from 'app/env';
-import { isPopupModeEnabled } from 'lib/popup-mode';
 import { initTheme } from 'lib/settings/theme';
 
 initTheme();
@@ -27,7 +26,7 @@ const root = createRoot(container!);
 root.render(<App env={{ windowType: WindowType.Popup }} />);
 
 const popups = browser.extension.getViews({ type: 'popup' });
-if (!popups.includes(window) || !isPopupModeEnabled()) {
+if (!popups.includes(window)) {
   openInFullPage();
   window.close();
 }

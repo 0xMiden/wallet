@@ -6,6 +6,8 @@
 
 ### Changes
 
+- [FIX][extension] Bread uses the sidebar by default, keeps onboarding in a full page, and uses the popup only when sidebar setup is unavailable.
+
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
 - [CHANGE][all] Removed the root `screenshots/` folder: the old App Store, iPad and Play marketing images (the canonical store screenshots are in `store-listing/assets/`) and the evidence images and capture fixtures from earlier changes.
