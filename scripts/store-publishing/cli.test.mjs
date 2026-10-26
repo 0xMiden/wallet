@@ -884,7 +884,6 @@ test('explicit iOS submit notes pass through unchanged and reject other operatio
   }
 });
 
-
 test('iOS submit uses the exact notes fallback when omitted or empty', async () => {
   for (const extra of [[], ['--release-notes', '']]) {
     const c = context('ios');
