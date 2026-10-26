@@ -1,4 +1,5 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
@@ -12,6 +13,8 @@ import { WalletType } from 'screens/onboarding/types';
 export enum WalletMessageType {
   FinancialRecoveryRequest = 'FINANCIAL_RECOVERY_REQUEST',
   FinancialRecoveryResponse = 'FINANCIAL_RECOVERY_RESPONSE',
+  StorageRecoveryRequest = 'STORAGE_RECOVERY_REQUEST',
+  StorageRecoveryResponse = 'STORAGE_RECOVERY_RESPONSE',
   // Aknowledge
   Acknowledge = 'CONNECT_AKNOWLEDGE',
   // Notifications
@@ -967,6 +970,15 @@ export interface FinancialRecoveryResponse extends WalletMessageBase {
   type: WalletMessageType.FinancialRecoveryResponse;
 }
 
+export interface StorageRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.StorageRecoveryRequest;
+  expectedEpoch: number;
+  operation: 'check' | 'rebuild';
+}
+export interface StorageRecoveryResponse extends WalletMessageBase, StorageRecoveryResult {
+  type: WalletMessageType.StorageRecoveryResponse;
+}
+
 export interface SignWordRequest extends WalletMessageBase {
   transactionId?: string;
   type: WalletMessageType.SignWordRequest;
@@ -1380,6 +1392,7 @@ export type WalletRequest =
   | SignDataRequest
   | SignTransactionRequest
   | FinancialRecoveryRequest
+  | StorageRecoveryRequest
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
@@ -1459,6 +1472,7 @@ export type WalletResponse =
   | SignDataResponse
   | SignTransactionResponse
   | FinancialRecoveryResponse
+  | StorageRecoveryResponse
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse

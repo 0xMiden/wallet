@@ -14,6 +14,7 @@ import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getStorageHealth } from 'lib/miden/storage-health';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -110,6 +111,7 @@ function deferAbortedOp(result: GuardianPendingNoteRecoveryResult, error: unknow
 }
 
 async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
+  if (getStorageHealth().status !== 'healthy') return 'wallet locked';
   if (isWalletLocked()) return 'wallet locked';
   try {
     if (!(await isSafeToRunNow())) return 'transaction in flight';
@@ -758,6 +760,21 @@ export function releaseGuardianRecoveriesOnLock(): void {
  */
 let recoveryQueue: Promise<void> = Promise.resolve();
 
+export function withGuardianStorageRecovery<T>(operation: () => Promise<T>): Promise<T> {
+  const result = recoveryQueue.then(operation);
+  recoveryQueue = result.then(
+    () => {},
+    () => {}
+  );
+  return result;
+}
+
+export function invalidateGuardianStorageRecovery(): void {
+  lockEpoch++;
+  reservations.clear();
+  forgetUnsupportedHistorySources();
+}
+
 /**
  * Start the detached pending-note recovery for a seed-recovered account, but
  * only once it cannot collide with a live transaction: the mandatory hot-key
@@ -776,6 +793,7 @@ let recoveryQueue: Promise<void> = Promise.resolve();
  * when the account is ineligible or busy right now.
  */
 export async function maybeStartGuardianRecovery(account: WalletAccount): Promise<boolean> {
+  if (getStorageHealth().status !== 'healthy') return false;
   if (!account.guardianNoteRecoveryPending) return false;
   if (account.requiresHotKeyRotation && !(await notesPassDueBeforeRotation(account))) return false;
   const held = reservations.get(account.publicKey);

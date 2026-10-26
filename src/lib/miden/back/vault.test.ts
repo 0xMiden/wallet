@@ -26,6 +26,22 @@ import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from '../storage-health';
 
+const mockRecoveryCommitment = jest.fn();
+const mockRecoveryGuardianState = jest.fn();
+jest.mock('lib/secure-hot-key/commitment', () => {
+  const actual = jest.requireActual('lib/secure-hot-key/commitment');
+  return {
+    ...actual,
+    commitmentFromPublicKeyHex: (...args: unknown[]) =>
+      mockRecoveryCommitment.getMockImplementation()
+        ? mockRecoveryCommitment(...args)
+        : actual.commitmentFromPublicKeyHex(...args)
+  };
+});
+jest.mock('../recovery/guardian-state', () => ({
+  readGuardianRecoveryAccount: (...args: unknown[]) => mockRecoveryGuardianState(...args)
+}));
+
 jest.setTimeout(30_000);
 
 const memoryStore: Record<string, any> = {};
@@ -229,7 +245,8 @@ jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   fetchGuardianCreateKey: (...a: unknown[]) => mockFetchGuardianCreateKey(...a),
   registerGuardianAccount: (...a: unknown[]) => mockRegisterGuardianAccount(...a),
-  resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
+  resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any])),
+  resolveChosenGuardianEndpoint: (account: { guardianEndpoint?: string }) => account.guardianEndpoint
 }));
 
 // normalizeHex mirrors the real strip-0x + lowercase so commitments compare equal.
@@ -5196,6 +5213,7 @@ describe('Vault.importHotKeyPair', () => {
 
 describe('Vault storage continuity', () => {
   let vault: Vault;
+  let fixtureKey: CryptoKey;
   let generation: string | null;
   let readSnapshot: jest.SpyInstance;
   let initializeGeneration: jest.SpyInstance;
@@ -5207,6 +5225,7 @@ describe('Vault storage continuity', () => {
       }
     });
     const key = await Passworder.importVaultKey(new Uint8Array(32).fill(7));
+    fixtureKey = key;
     await encryptAndSaveMany(
       [
         [keys.check, 'retained-vault'],
@@ -5341,6 +5360,20 @@ describe('Vault storage continuity', () => {
     );
   });
 
+  it('validates retained stores through scoped reads when the ordinary wallet handle is closed', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    Repo.db.close();
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(true);
+      expect(getStorageHealth().status).toBe('healthy');
+      await expect(Repo.metadata.get('generation')).resolves.toMatchObject({ generation: 'wallet-fixture' });
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      await Repo.db.open();
+    }
+  });
+
   it('refuses stale recovery completion after a repeated storage incident', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
     markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
@@ -5356,6 +5389,18 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it('does not clear an incident through a Vault retired before its recovery check', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+    vault.retire();
+    try {
+      await expect(vault.checkStorageRecovery()).resolves.toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
   it('refuses a retired vault writer after reset without poisoning the replacement wallet', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
     const prior = await vault.readRecoveryJournal();
@@ -5364,4 +5409,74 @@ describe('Vault storage continuity', () => {
     expect(getStorageHealth().status).toBe('healthy');
     expect(await vault.readRecoveryJournal()).toEqual(prior);
   });
+
+  it.each(['complete', 'retired vault', 'changed binding', 'new incident'])(
+    'explicit storage reconstruction handles %s',
+    async scenario => {
+      const account = {
+        publicKey: 'retained',
+        name: 'Account',
+        isPublic: false,
+        type: WalletType.Guardian,
+        hdIndex: -1,
+        authScheme: 'ecdsa',
+        hotPublicKey: '02'.repeat(33),
+        guardianEndpoint: 'https://guardian.example',
+        guardianOperatorCommitment: 'aa'
+      };
+      await encryptAndSaveMany(
+        [
+          [keys.accounts, [account]],
+          [keys.accAuthSecretKey(account.hotPublicKey), 'test-ciphertext']
+        ],
+        fixtureKey
+      );
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      const prior = await vault.readRecoveryJournal();
+      if (!prior) throw new Error('Missing journal fixture');
+      let sdkAccount = false;
+      generation = null;
+      readSnapshot.mockImplementation(async () => {
+        if (!sdkAccount) throw new StorageContinuityError();
+        return { generation, accounts: prior.accounts, notes: prior.entries.filter(entry => entry.kind === 'note') };
+      });
+      const restore = jest.spyOn(midenClientProxy, 'restoreStorageRecovery').mockImplementation(async command => {
+        if (command.kind === 'account') sdkAccount = true;
+        if (command.kind === 'generation') generation = command.generation;
+      });
+      mockRecoveryCommitment.mockResolvedValue('bb');
+      mockRecoveryGuardianState.mockImplementation(async () => {
+        if (scenario === 'retired vault') vault.retire();
+        if (scenario === 'changed binding')
+          await encryptAndSaveMany([[keys.accounts, [{ ...account, guardianEpoch: 1 }]]], fixtureKey);
+        if (scenario === 'new incident') markStorageUnavailable('quota', { backend: 'sdk', operation: 'mutate' });
+        return { accountBytes: new Uint8Array([1]), chainCommitment: 'state-4' };
+      });
+      await Repo.db.delete();
+      markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+      try {
+        const progress: import('../recovery/types').StorageRecoveryProgress[] = [];
+        await expect(vault.recoverStorage(value => progress.push(value))).resolves.toBe(scenario === 'complete');
+        expect(await vault.readRecoveryJournal()).toEqual(prior);
+        expect(progress.at(-1)?.phase).toBe(scenario === 'complete' ? 'complete' : 'accounts');
+        if (scenario === 'complete') {
+          expect(getStorageHealth().status).toBe('healthy');
+          expect(generation).toBe(prior.scope.sdkGeneration);
+          expect(await vault.fetchAccounts()).toEqual([
+            expect.objectContaining({ publicKey: 'retained', guardianNoteRecoveryPending: true })
+          ]);
+          expect(await Repo.metadata.get('generation')).toMatchObject({ generation: prior.scope.walletGeneration });
+        } else {
+          expect(getStorageHealth().status).toBe('unavailable');
+          expect(restore).not.toHaveBeenCalled();
+        }
+      } finally {
+        restore.mockRestore();
+        mockRecoveryCommitment.mockReset();
+        mockRecoveryGuardianState.mockReset();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+        await Repo.db.open();
+      }
+    }
+  );
 });

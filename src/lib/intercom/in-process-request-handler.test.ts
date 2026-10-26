@@ -12,12 +12,14 @@ import { processInProcessRequest } from './in-process-request-handler';
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
 const mockUnlock = jest.fn(async (_password: string) => undefined);
+const mockRecoverWalletStorage = jest.fn(async (_operation: string, _epoch: number) => ({ recovered: true }));
 const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
   outcome: 'measured',
   feeReserve: '315'
 }));
 jest.mock('lib/miden/back/actions', () => ({
+  recoverWalletStorage: (operation: string, epoch: number) => mockRecoverWalletStorage(operation, epoch),
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
@@ -29,6 +31,20 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 }));
 
 describe('processInProcessRequest', () => {
+  it('routes explicit recovery and its captured incident on both native adapters', async () => {
+    for (const adapter of ['MobileIntercomAdapter', 'DesktopIntercomAdapter']) {
+      await expect(
+        processInProcessRequest(
+          { type: WalletMessageType.StorageRecoveryRequest, operation: 'rebuild', expectedEpoch: 17 },
+          adapter
+        )
+      ).resolves.toEqual({ type: WalletMessageType.StorageRecoveryResponse, recovered: true });
+    }
+    expect(mockRecoverWalletStorage.mock.calls).toEqual([
+      ['rebuild', 17],
+      ['rebuild', 17]
+    ]);
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

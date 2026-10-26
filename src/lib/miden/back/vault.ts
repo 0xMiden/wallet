@@ -18,6 +18,7 @@ import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
+import { clearGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
@@ -46,6 +47,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
@@ -89,8 +91,11 @@ import {
   fetchGuardianCreateKey,
   getSignerDetailsFromAccount,
   registerGuardianAccount,
-  resolveGuardianEndpoint
+  resolveGuardianEndpoint,
+  resolveChosenGuardianEndpoint
 } from '../guardian/account';
+import { clearGuardianHistoryCheckpoints } from '../guardian/history-storage';
+import { WalletSigner } from '../guardian/signer';
 import { normalizeHex } from '../guardian/operator-map';
 import { decodeRecoveryCapture } from '../recovery/capture';
 import { checkContinuity, StorageContinuityError } from '../recovery/continuity';
@@ -100,15 +105,17 @@ import {
   verifyFinancialRecoveryEntries
 } from '../recovery/financial';
 import { RecoveryJournal } from '../recovery/journal';
+import { readGuardianRecoveryAccount } from '../recovery/guardian-state';
 import { withRecoveryStorageLock } from '../recovery/lock';
 import { fromSerializable } from '../recovery/serialization';
+import { restoreWalletRecoveryGeneration, restoreWalletRecoveryRows } from '../recovery/restore';
 import { verifyRetainedTransactionRows } from '../recovery/transaction-continuity';
 import { projectRecoveryTransaction } from '../recovery/transaction-record';
 import type { RecoveryCapture, RecoveryEntry, RecoveryJournalSnapshot } from '../recovery/types';
 import { validateJournal } from '../recovery/validation';
 import { readWalletGenerationForRecovery, validateWalletGeneration } from '../recovery/wallet-generation';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
-import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { canonicalWalletAccountId, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -124,10 +131,13 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import {
   assertStorageHealthy,
   assertStorageRecoveryAllowed,
+  captureStorageRecoveryGuard,
   getStorageHealth,
   markStorageUnavailable,
+  reportStorageFailure,
   StorageUnavailableError,
   validateStorageHealth,
+  withStorageRecoveryAccess,
   type StorageRecoveryCapability
 } from '../storage-health';
 
@@ -583,17 +593,32 @@ export class Vault {
       )
         throw new StorageContinuityError();
       if (capability && !journal) throw new StorageContinuityError();
-      const wallet = capability
-        ? await readWalletGenerationForRecovery(Repo.db.name)
-        : validateWalletGeneration(await Repo.metadata.get('generation'));
+      if (capability) await readWalletGenerationForRecovery(Repo.db.name);
       check();
-      const financial = await readFinancialRecoveryBaseline(accounts.map(account => account.publicKey));
-      check();
-      if (journal) {
-        verifyFinancialRecoveryEntries(journal.entries, financial);
-        await verifyRetainedTransactionRows(journal.entries);
-        check();
-      }
+      const recoveryStore = capability ? await Repo.openWalletRecoveryStore(capability) : undefined;
+      const database = recoveryStore ?? Repo.db;
+      const retained = await (async () => {
+        try {
+          check();
+          const wallet = validateWalletGeneration(await database.table('metadata').get('generation'));
+          check();
+          const financial = await readFinancialRecoveryBaseline(
+            accounts.map(account => account.publicKey),
+            Math.floor(Date.now() / 1000),
+            database
+          );
+          check();
+          if (journal) {
+            verifyFinancialRecoveryEntries(journal.entries, financial);
+            await verifyRetainedTransactionRows(journal.entries, database);
+            check();
+          }
+          return { wallet, financial };
+        } finally {
+          recoveryStore?.close();
+        }
+      })();
+      const { wallet, financial } = retained;
       return await withWasmClientLock(
         async hold => {
           check();
@@ -642,12 +667,339 @@ export class Vault {
   async checkStorageRecovery(): Promise<boolean> {
     return validateStorageHealth(async capability => {
       await getAccountsWriteQueue().add(async () => {
+        this.assertRealmSinkIsMine();
         assertStorageRecoveryAllowed(capability);
         await Repo.probeWalletStorage(capability);
         assertStorageRecoveryAllowed(capability);
         if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();
+        this.assertRealmSinkIsMine();
+        await Repo.openWalletConsumerForRecovery(capability);
+        assertStorageRecoveryAllowed(capability);
+        this.assertRealmSinkIsMine();
       });
     }, 5000);
+  }
+
+  async recoverStorage(
+    onProgress?: (progress: import('../recovery/types').StorageRecoveryProgress) => void
+  ): Promise<boolean> {
+    if (getStorageHealth().status === 'healthy') return this.checkStorageRecovery();
+    const epoch = getStorageHealth().epoch;
+    const deadline = Date.now() + 30_000;
+    const incidentCurrent = captureStorageRecoveryGuard();
+    const check = () => {
+      incidentCurrent();
+      this.assertRealmSinkIsMine();
+    };
+    try {
+      return await withRpcTimeout(
+        async () => {
+          check();
+          const accounts = await this.fetchAccounts();
+          check();
+          const identity = (values: WalletAccount[]) =>
+            JSON.stringify(
+              values.map(account => ({
+                id: account.publicKey,
+                type: account.type,
+                hot: account.hotPublicKey,
+                cold: account.coldPublicKey,
+                requiresRotation: account.requiresHotKeyRotation,
+                endpoint: account.guardianEndpoint,
+                operator: account.guardianOperatorCommitment,
+                epoch: account.guardianEpoch ?? 0,
+                scheme: account.authScheme
+              }))
+            );
+          const binding = identity(accounts);
+          const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+          const expected = await this.readRecoveryContinuity(epoch);
+          check();
+          const journal = new RecoveryJournal(this.vaultKey, getStorageProvider(), async () => {
+            check();
+            await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey);
+            check();
+          });
+          const snapshot = await journal.read();
+          check();
+          if (
+            !expected ||
+            !snapshot ||
+            snapshot.sequence < expected.sequence ||
+            snapshot.scope.network !== network ||
+            JSON.stringify(snapshot.scope) !== JSON.stringify(expected.scope) ||
+            accounts.length !== snapshot.accounts.length ||
+            accounts.some(
+              account =>
+                account.type !== WalletType.Guardian ||
+                !snapshot.accounts.some(floor => floor.accountId === account.publicKey)
+            ) ||
+            expected.accounts.some(
+              floor =>
+                !snapshot.accounts.some(
+                  account =>
+                    account.accountId === floor.accountId &&
+                    BigInt(account.nonce) >= BigInt(floor.nonce) &&
+                    (account.nonce !== floor.nonce || account.commitment === floor.commitment)
+                )
+            )
+          )
+            throw new StorageContinuityError();
+          const progress: import('../recovery/types').StorageRecoveryProgress = {
+            phase: 'accounts',
+            verifiedAccounts: 0,
+            expectedAccounts: accounts.length,
+            verifiedInputs: 0,
+            expectedInputs: snapshot.entries.filter(entry => entry.kind === 'note' && entry.provenance === 'input')
+              .length
+          };
+          const publishProgress = () => onProgress?.({ ...progress });
+          publishProgress();
+          const assertScope = async () => {
+            check();
+            const current = await this.fetchAccounts();
+            check();
+            if (identity(current) !== binding || `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network)
+              throw new StorageContinuityError();
+            const retained = await journal.read();
+            check();
+            if (
+              !retained ||
+              retained.sequence !== snapshot.sequence ||
+              JSON.stringify(retained.scope) !== JSON.stringify(snapshot.scope)
+            )
+              throw new StorageContinuityError();
+          };
+          const step = <T>(operation: (capability: StorageRecoveryCapability) => Promise<T>) =>
+            withStorageRecoveryAccess(epoch, Math.min(Date.now() + 5000, deadline), capability =>
+              getAccountsWriteQueue().add(async () => {
+                await assertScope();
+                assertStorageRecoveryAllowed(capability);
+                const result = await operation(capability);
+                check();
+                await assertScope();
+                assertStorageRecoveryAllowed(capability);
+                return result;
+              })
+            );
+          const { withGuardianStorageRecovery, invalidateGuardianStorageRecovery } =
+            await import('./guardian-recovery');
+          await assertScope();
+          return withGuardianStorageRecovery(async () => {
+            await assertScope();
+            for (const account of accounts) {
+              const floor = snapshot.accounts.find(item => item.accountId === account.publicKey);
+              if (!floor) throw new StorageContinuityError();
+              let observed: Awaited<ReturnType<typeof midenClientProxy.readStorageContinuity>> | undefined;
+              try {
+                observed = await step(capability =>
+                  withWasmClientLock(
+                    async hold => {
+                      const value = await midenClientProxy.readStorageContinuity(
+                        [account.publicKey],
+                        false,
+                        capability
+                      );
+                      assertWasmHoldCurrent(hold, 'after retained account recovery read');
+                      return value;
+                    },
+                    { label: 'storage-recovery-account-read' }
+                  )
+                );
+              } catch {
+                await assertScope();
+              }
+              if (
+                observed?.generation !== null &&
+                observed?.generation !== undefined &&
+                observed.generation !== snapshot.scope.sdkGeneration
+              )
+                throw new StorageContinuityError();
+              const existing = observed?.accounts.find(item => item.accountId === account.publicKey);
+              if (
+                existing &&
+                BigInt(existing.nonce) >= BigInt(floor.nonce) &&
+                (existing.nonce !== floor.nonce || existing.commitment === floor.commitment)
+              ) {
+                progress.verifiedAccounts++;
+                publishProgress();
+                continue;
+              }
+              const endpoint = resolveChosenGuardianEndpoint(account);
+              const publicKey = account.requiresHotKeyRotation
+                ? account.coldPublicKey
+                : (account.hotPublicKey ?? account.coldPublicKey);
+              if (!endpoint || !publicKey || !account.guardianOperatorCommitment || account.authScheme !== 'ecdsa')
+                throw new StorageContinuityError();
+              const signerCommitments = await withWasmClientLock(
+                async hold => {
+                  await assertScope();
+                  const values = new Map<string, string>();
+                  for (const key of [account.hotPublicKey, account.coldPublicKey]) {
+                    if (!key || values.has(key)) continue;
+                    const value = await commitmentFromPublicKeyHex(key);
+                    assertWasmHoldCurrent(hold, 'after recovery signer commitment');
+                    await assertScope();
+                    values.set(key, value);
+                  }
+                  return values;
+                },
+                { label: 'storage-recovery-signer' }
+              );
+              const commitment = signerCommitments.get(publicKey);
+              if (!commitment) throw new StorageContinuityError();
+              const signer = new WalletSigner(publicKey, commitment, async (key, word) => {
+                await assertScope();
+                const signature = await this.signWord(key, word);
+                await assertScope();
+                return signature;
+              });
+              const readSigner = {
+                commitment: signer.commitment,
+                publicKey: signer.publicKey,
+                scheme: signer.scheme,
+                signAccountIdWithTimestamp: signer.signAccountIdWithTimestamp.bind(signer),
+                signCommitment: signer.signCommitment.bind(signer),
+                signRequest: (
+                  id: string,
+                  timestamp: number,
+                  payload: import('@openzeppelin/guardian-client').RequestAuthPayload
+                ) =>
+                  withWasmClientLock(
+                    async hold => {
+                      await assertScope();
+                      const signature = await signer.signRequest(id, timestamp, payload);
+                      assertWasmHoldCurrent(hold, 'after recovery GET-state authentication');
+                      await assertScope();
+                      return signature;
+                    },
+                    { label: 'storage-recovery-auth' }
+                  )
+              };
+              const material = await readGuardianRecoveryAccount(
+                canonicalWalletAccountId(account.publicKey),
+                endpoint,
+                getEffectiveRpcUrl(),
+                readSigner,
+                assertScope
+              );
+              await assertScope();
+              await step(capability =>
+                withWasmClientLock(
+                  async hold => {
+                    await midenClientProxy.restoreStorageRecovery(
+                      {
+                        kind: 'account',
+                        material: {
+                          ...material,
+                          floor,
+                          guardianCommitment: account.guardianOperatorCommitment!,
+                          signerCommitments: [...signerCommitments.values()]
+                        }
+                      },
+                      capability
+                    );
+                    assertWasmHoldCurrent(hold, 'after retained account reconstruction');
+                  },
+                  { label: 'storage-recovery-account' }
+                )
+              );
+              progress.verifiedAccounts++;
+              publishProgress();
+            }
+            progress.phase = 'notes';
+            publishProgress();
+            for (const note of snapshot.entries) {
+              if (note.kind !== 'note' || note.provenance !== 'input') continue;
+              await step(capability =>
+                withWasmClientLock(
+                  async hold => {
+                    await midenClientProxy.restoreStorageRecovery(
+                      { kind: 'note', note, accountId: note.accountId ?? accounts[0]!.publicKey },
+                      capability
+                    );
+                    assertWasmHoldCurrent(hold, 'after retained note reconstruction');
+                  },
+                  { label: 'storage-recovery-note' }
+                )
+              );
+              progress.verifiedInputs++;
+              publishProgress();
+            }
+            progress.phase = 'validation';
+            publishProgress();
+            const recovered = await validateStorageHealth(
+              capability =>
+                getAccountsWriteQueue().add(async () => {
+                  const assertFinal = async () => {
+                    assertStorageRecoveryAllowed(capability);
+                    await assertScope();
+                    assertStorageRecoveryAllowed(capability);
+                  };
+                  await assertFinal();
+                  assertStorageRecoveryAllowed(capability);
+                  await Repo.probeWalletStorage(capability);
+                  await assertFinal();
+                  await restoreWalletRecoveryGeneration(snapshot, capability);
+                  await assertFinal();
+                  await restoreWalletRecoveryRows(snapshot, capability);
+                  await assertFinal();
+                  await withWasmClientLock(
+                    async hold => {
+                      await midenClientProxy.restoreStorageRecovery(
+                        { kind: 'generation', generation: snapshot.scope.sdkGeneration },
+                        capability
+                      );
+                      assertWasmHoldCurrent(hold, 'after recovered SDK generation');
+                    },
+                    { label: 'storage-recovery-generation' }
+                  );
+                  await assertFinal();
+                  await journal.repair(snapshot, capability);
+                  await assertFinal();
+                  const assertWrite = () => {
+                    check();
+                    assertStorageRecoveryAllowed(capability);
+                  };
+                  invalidateGuardianStorageRecovery();
+                  await clearGuardianHistoryCheckpoints(assertWrite);
+                  await assertFinal();
+                  for (const account of accounts) {
+                    await clearGuardianNoteRecoveryProgress(account.publicKey, assertWrite);
+                    await assertFinal();
+                  }
+                  assertStorageRecoveryAllowed(capability);
+                  await encryptAndSaveMany(
+                    [[accountsStrgKey, accounts.map(account => ({ ...account, guardianNoteRecoveryPending: true }))]],
+                    this.vaultKey,
+                    assertWrite
+                  );
+                  await assertFinal();
+                  const retainedAccounts = await this.fetchAccounts();
+                  await assertFinal();
+                  if (retainedAccounts.some(account => account.guardianNoteRecoveryPending !== true))
+                    throw new StorageContinuityError();
+                  if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();
+                  await Repo.openWalletConsumerForRecovery(capability);
+                  await assertFinal();
+                }),
+              Math.min(5000, deadline - Date.now())
+            );
+            if (recovered) {
+              progress.phase = 'complete';
+              publishProgress();
+            }
+            return recovered;
+          });
+        },
+        'wallet storage reconstruction',
+        { timeoutMs: 30_000, retries: 0 }
+      );
+    } catch (error) {
+      if (getStorageHealth().epoch === epoch && isRealmKeystoreInstalled({ insertKey: this.insertKeySink }))
+        reportStorageFailure(error, { backend: 'wallet', operation: 'validate' });
+      return false;
+    }
   }
 
   async fetchSeedPhraseStatus(): Promise<SeedPhraseStatus> {
