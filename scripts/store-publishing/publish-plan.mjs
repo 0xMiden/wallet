@@ -251,8 +251,17 @@ export function validateStateSnapshot(
   const manifest = snapshot?.manifest;
   const rollover = plan.platform === 'chrome' && plan.action === 'upload' && manifest?.intent?.version !== plan.version;
   const metadataEdit = plan.platform === 'android' && plan.action === 'sync-screenshots';
+  const iosMetadata = plan.platform === 'ios' && ['prepare', 'sync-screenshots'].includes(plan.action);
+  const priorBuild = manifest?.intent?.buildNumber;
+  if (
+    iosMetadata &&
+    priorBuild !== undefined &&
+    (typeof priorBuild !== 'string' || !/^[1-9][0-9]{0,2}$/.test(priorBuild))
+  )
+    throw new Error('Invalid prior iOS publication build number');
   const editOnlySource =
     plan.platform === 'android' && plan.action === 'upload' && manifest?.intent?.buildNumber === undefined;
+  const snapshotPlan = iosMetadata && plan.buildNumber === undefined ? { ...plan, buildNumber: priorBuild } : plan;
   const evidencePlan = editOnlySource
     ? { ...plan, buildNumber: undefined }
     : metadataEdit
@@ -273,7 +282,7 @@ export function validateStateSnapshot(
             editId: '',
             acknowledgement: 'none'
           })
-        : plan;
+        : snapshotPlan;
   if (
     rollover &&
     (evidencePlan.platform !== plan.platform ||
@@ -363,6 +372,10 @@ export function validateStateSnapshot(
   const attestation = records[recordName(evidencePlan)];
   if (attestation) validateAttestation(evidencePlan, attestation, evidenceReceipt, publisherId);
   if (rollover) return { [journalName(plan)]: journal };
+  if (iosMetadata) {
+    if (!iosJournal) throw new Error('Prior iOS screenshot journal is required for metadata recovery');
+    return { [iosJournalName]: records[iosJournalName] };
+  }
   if (metadataEdit) {
     validateEdit(plan, records['android-edit.json'], nowSeconds);
     return { 'android-edit.json': records['android-edit.json'] };

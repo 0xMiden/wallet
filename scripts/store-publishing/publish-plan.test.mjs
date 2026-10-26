@@ -918,9 +918,14 @@ test('failed iOS workflow exports only validated screenshot recovery evidence', 
   await assert.rejects(main('export', iosEnv), /journal/);
 });
 
-
 test('iOS metadata recovery restores a submit journal across the absent build number boundary', () => {
-  const submit = validatePublishRequest({ ...input, platform: 'ios', action: 'submit', stateRunId: '80', buildNumber: '19' });
+  const submit = validatePublishRequest({
+    ...input,
+    platform: 'ios',
+    action: 'submit',
+    stateRunId: '80',
+    buildNumber: '19'
+  });
   const previous = snapshot(submit, { extraManifest: { action: 'submit', outcome: 'failure' } });
   const name = 'ios-6789341854-1.17.7-screenshots.json';
   previous.files[name] = bytes(iosScreenshotJournal());

@@ -15,10 +15,10 @@ function fixture(count = 9) {
     attributes: { fileName, fileSize, sourceFileChecksum: checksum, assetDeliveryState: { state } }
   });
   const originals = Array.from({ length: count }, (_, i) => shot(`old${i}`, hash('md5', `old${i}`)));
-  const medium = shot('medium', hash('md5', 'canonical-0'));
+  const medium = desired.map((image, i) => shot(`medium${i}`, hash('md5', image.bytes)));
   const sets = new Map([
     ['large', structuredClone(originals)],
-    ['medium', [medium]]
+    ['medium', medium]
   ]);
   let serial = 0;
   let maximum = count;
@@ -42,7 +42,7 @@ function fixture(count = 9) {
     maxPolls: 1,
     sets: [
       { locale: 'en-US', displayType: 'APP_IPHONE_67', images: desired },
-      { locale: 'en-US', displayType: 'APP_IPHONE_61', images: [desired[0]] }
+      { locale: 'en-US', displayType: 'APP_IPHONE_61', images: desired }
     ],
     baselineSets: [
       {
@@ -124,11 +124,15 @@ function fixture(count = 9) {
       }
       const all = [...sets.values()].flat();
       const asset = all.find(x => path === `/v1/appScreenshots/${x.id}`);
-      if (asset && method === 'GET') return { data: structuredClone(asset) };
+      if (asset && method === 'GET') {
+        if (asset.attributes.assetDeliveryState.state === 'COMPLETE') fail('poll-after');
+        return { data: structuredClone(asset) };
+      }
       if (asset && method === 'PATCH') {
         fail('complete-before');
         asset.attributes.sourceFileChecksum = request.body.data.attributes.sourceFileChecksum;
-        asset.attributes.assetDeliveryState.state = 'COMPLETE';
+        asset.attributes.assetDeliveryState.state = fault === 'processing-failed' ? 'FAILED' : 'COMPLETE';
+        if (fault === 'processing-failed') fault = undefined;
         fail('complete-after');
         return { data: structuredClone(asset) };
       }
@@ -162,7 +166,9 @@ function fixture(count = 9) {
     sets,
     desired,
     bindings,
-    failSave: value => { failSaveAt = value; },
+    failSave: value => {
+      failSaveAt = value;
+    },
     setFault: value => {
       fault = value;
     },
@@ -182,7 +188,7 @@ async function assertCanonical(c) {
   );
   assert.deepEqual(
     c.sets.get('medium').map(x => x.id),
-    ['medium']
+    c.desired.map((_, i) => `medium${i}`)
   );
   assert.ok(c.maximum() <= 10);
   const before = c.calls.length;
@@ -196,6 +202,7 @@ for (const stage of [
   'bytes',
   'complete-before',
   'complete-after',
+  'poll-after',
   'delete-before',
   'delete-after',
   'order-before',
@@ -247,7 +254,8 @@ test('all groups and immutable draft states are checked before any screenshot mu
 test('ten original images also converge without exceeding quota', async () => assertCanonical(fixture(10)));
 test('post-request persistence failures retain enough intent for safe recovery', async () => {
   for (const save of [2, 4, 5, 7, 10, 16, 25]) {
-    const c = fixture(); c.failSave(save);
+    const c = fixture();
+    c.failSave(save);
     await assert.rejects(syncScreenshots(c.client, c.options()), /partial|journal/);
     await assertCanonical(c);
   }
@@ -256,15 +264,65 @@ test('unexplained remote mutations and wrong groups remain blocked on recovery',
   for (const change of [
     c => c.sets.get('large').reverse(),
     c => c.sets.get('large').pop(),
-    c => { c.sets.get('large')[0].attributes.sourceFileChecksum = 'e'.repeat(32); },
+    c => {
+      c.sets.get('large')[0].attributes.sourceFileChecksum = 'e'.repeat(32);
+    },
     c => c.sets.set('medium', []),
-    c => c.bindings.manifestSha256 = 'e'.repeat(64)
+    c => (c.bindings.manifestSha256 = 'e'.repeat(64))
   ]) {
-    const c = fixture(); c.setFault('bytes');
+    const c = fixture();
+    c.setFault('bytes');
     await assert.rejects(syncScreenshots(c.client, c.options()));
     change(c);
     const before = c.calls.length;
     await assert.rejects(syncScreenshots(c.client, c.options()), /drift|journal|pending|partial/i);
     assert.ok(c.calls.slice(before).every(x => x.method === 'GET'));
   }
+});
+
+test('a late visible pending reservation resumes only after one exact candidate appears', async () => {
+  const c = fixture();
+  c.setFault('reserve-after');
+  await assert.rejects(syncScreenshots(c.client, c.options()));
+  const delayed = c.sets.get('large').pop();
+  const before = c.calls.length;
+  await assert.rejects(syncScreenshots(c.client, c.options()), /pending|reconciliation/i);
+  assert.ok(c.calls.slice(before).every(x => x.method === 'GET'));
+  assert.equal(c.journal().pending.kind, 'reserve');
+  c.sets.get('large').push(delayed);
+  await assertCanonical(c);
+  assert.equal(c.calls.filter(x => x.method === 'POST' && x.path === '/v1/appScreenshots').length, 5);
+});
+
+test('multiple pending reservation candidates remain blocked without writes', async () => {
+  const c = fixture(8);
+  c.setFault('reserve-after');
+  await assert.rejects(syncScreenshots(c.client, c.options()));
+  const duplicate = structuredClone(c.sets.get('large').at(-1));
+  duplicate.id = 'unexplained';
+  c.sets.get('large').push(duplicate);
+  const before = c.calls.length;
+  await assert.rejects(syncScreenshots(c.client, c.options()), /drift|pending|partial/i);
+  assert.ok(c.calls.slice(before).every(x => x.method === 'GET'));
+  assert.equal(c.journal().pending.kind, 'reserve');
+});
+
+test('recorded failed reservations can retry while sufficient capacity preserves every original', async () => {
+  const c = fixture(3);
+  c.setFault('processing-failed');
+  await assert.rejects(syncScreenshots(c.client, c.options()), /FAILED|partial/);
+  assert.deepEqual(
+    c.sets
+      .get('large')
+      .filter(x => x.id.startsWith('old'))
+      .map(x => x.id),
+    ['old0', 'old1', 'old2']
+  );
+  assert.equal(
+    c.calls.some(x => x.method === 'DELETE'),
+    false
+  );
+  const failed = c.sets.get('large').find(x => x.attributes.assetDeliveryState.state === 'FAILED').id;
+  await assertCanonical(c);
+  assert.equal(c.calls.filter(x => x.method === 'DELETE' && x.path === `/v1/appScreenshots/${failed}`).length, 1);
 });
