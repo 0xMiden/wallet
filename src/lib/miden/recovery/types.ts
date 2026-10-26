@@ -21,6 +21,7 @@ export interface RecoveryNoteEntry {
   noteFile: Uint8Array;
   provenance: 'input' | 'output';
   format?: 'full' | 'details';
+  scan?: { nextBlock: number; anchorBlock: number; anchor: string };
 }
 
 export interface RecoveryCapture {
@@ -36,6 +37,16 @@ export interface RecoveryTransactionEntry {
   requestBytes: Uint8Array;
   mayHaveSubmitted: boolean;
   evidence: SubmitEvidenceFields;
+  resolved?: { outcome: 'landed' | 'never-committed'; at: number; transactionId?: string };
+  scans?: RecoveryNullifierScan[];
+}
+
+export interface RecoveryNullifierScan {
+  nullifier: string;
+  nextBlock: number;
+  anchorBlock: number;
+  anchor: string;
+  height?: number;
 }
 
 export interface RecoveryPolicyEntry {
@@ -52,6 +63,10 @@ export interface RecoveryDebitEntry {
   initiatedAt: number;
   spentUsd?: bigint;
   authorizationId?: string;
+  retry?: {
+    previous: { initiatedAt: number; spentUsd?: bigint; authorizationId?: string };
+    queuedSeq: number;
+  };
 }
 
 export type RecoveryEntry = RecoveryNoteEntry | RecoveryTransactionEntry | RecoveryPolicyEntry | RecoveryDebitEntry;
@@ -78,4 +93,6 @@ export interface StorageRecoveryProgress {
 export interface StorageRecoveryResult {
   recovered: boolean;
   progress?: StorageRecoveryProgress;
+  reconciled?: number;
+  retired?: number;
 }

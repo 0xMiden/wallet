@@ -2,7 +2,10 @@ import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
-import { assertStorageHealthy, initializeStorageHealth } from 'lib/miden/storage-health';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
+import { recoveryDebit } from '../recovery/financial';
+import { checkpointFinancialChange, verifyFinancialRecovery, withFinancialRecoveryLock } from '../recovery/financial-writer';
+import { toSerializable } from '../recovery/serialization';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import {
@@ -445,59 +448,21 @@ type RequeueWrite = 'written' | 'declined' | 'evidence-changed';
  * Unconfirmed, plus the entries' evidence against what Retry judged and wrote: pipeline stamps stay outside the lock,
  * so a stamp that lands after the judging read counts as a change.
  */
-const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimFeeContext): Promise<RequeueWrite> =>
-  Repo.db.transaction('rw', Repo.transactions, async (): Promise<RequeueWrite> => {
-    const live = await Repo.transactions.where({ id: txId }).first();
-    if (
-      live === undefined ||
-      (live.status !== ITransactionStatus.Failed && live.status !== ITransactionStatus.Unconfirmed) ||
-      live.stage !== plan.failedStage
-    ) {
-      return 'declined';
-    }
-    if (evidenceKey(live.submitEvidence) !== plan.baseline) return 'evidence-changed';
-    let decision: ReturnType<typeof claimFeeDecisions>[number] | undefined;
-    if (live.type === 'consume' && feeContext !== undefined) {
-      const ahead = await getClaimFeeAhead(live.accountId, txId);
-      [decision] = claimFeeDecisions(
-        [persistedClaimFeeNotes(live)],
-        ahead,
-        feeContext.vaultFeeAsset,
-        feeContext.nativeAssetId,
-        feeContext.verificationBaseFee
-      );
-      // Throw before modify: Dexie must preserve the refusal class and every field of the failed row.
-      if (decision?.shortfall) throw new ClaimFeeRefusedError();
-    }
-    let result: RequeueWrite = 'declined';
-    await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
-      // Re-checked against what the plan was made from: a write outside the verdict lock (a completion, a pipeline's
-      // stamp) can move the row after Retry read it. `false`, so Dexie skips the put rather than re-writing the
-      // unchanged clone.
-      if (
-        (dbTx.status !== ITransactionStatus.Failed && dbTx.status !== ITransactionStatus.Unconfirmed) ||
-        dbTx.stage !== plan.failedStage
-      ) {
-        return false;
-      }
-      if (evidenceKey(dbTx.submitEvidence) !== plan.baseline) {
-        result = 'evidence-changed';
-        return false;
-      }
-      // Cleared first, so the send branch below reads them as it always has.
+const requeueRow = (live: ITransaction, plan: RequeuePlan, initiatedAt: number, queuedSeq: number): ITransaction => {
+  const dbTx = { ...live };
+  // Cleared first, so the send branch below reads them as it always has.
       if (plan.clearFlags) {
         dbTx.mayHaveSubmitted = undefined;
         dbTx.cancelledInFlightAt = undefined;
       }
       dbTx.status = ITransactionStatus.Queued;
-      if (decision !== undefined) dbTx.feeAdmission = decision.admission;
-      dbTx.initiatedAt = Math.floor(Date.now() / 1000);
+      dbTx.initiatedAt = initiatedAt;
       // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
       // whole SECONDS, so the processing loop breaks ties on `queuedSeq` - and a
       // requeued row keeping its old (smaller) sequence would sort AHEAD of a
       // transaction queued in the same second, which is the opposite of the FIFO
       // order the tie-break exists to impose.
-      dbTx.queuedSeq = nextQueuedSeq();
+      dbTx.queuedSeq = queuedSeq;
       dbTx.processingStartedAt = undefined;
       dbTx.attemptId = undefined;
       delete dbTx.failureDiagnostics;
@@ -589,11 +554,91 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
           dbTx.mayHaveSubmitted = true;
         }
       }
+  return dbTx;
+};
+
+const retryIdentity = (row: ITransaction): string => JSON.stringify(toSerializable(row));
+
+const commitRequeue = async (txId: string, plan: RequeuePlan, candidate: ITransaction, original: string,
+  epoch: number, feeContext?: ClaimFeeContext): Promise<RequeueWrite> =>
+  Repo.db.transaction('rw', Repo.transactions, async (): Promise<RequeueWrite> => {
+    const live = await Repo.transactions.where({ id: txId }).first();
+    if (
+      live === undefined ||
+      (live.status !== ITransactionStatus.Failed && live.status !== ITransactionStatus.Unconfirmed) ||
+      live.stage !== plan.failedStage
+    ) {
+      return 'declined';
+    }
+    assertStorageHealthy(epoch);
+    if (evidenceKey(live.submitEvidence) !== plan.baseline || retryIdentity(live) !== original) return 'evidence-changed';
+    let decision: ReturnType<typeof claimFeeDecisions>[number] | undefined;
+    if (live.type === 'consume' && feeContext !== undefined) {
+      const ahead = await getClaimFeeAhead(live.accountId, txId);
+      [decision] = claimFeeDecisions(
+        [persistedClaimFeeNotes(live)],
+        ahead,
+        feeContext.vaultFeeAsset,
+        feeContext.nativeAssetId,
+        feeContext.verificationBaseFee
+      );
+      // Throw before modify: Dexie must preserve the refusal class and every field of the failed row.
+      if (decision?.shortfall) throw new ClaimFeeRefusedError();
+    }
+    let result: RequeueWrite = 'declined';
+    await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
+      // Re-checked against what the plan was made from: a write outside the verdict lock (a completion, a pipeline's
+      // stamp) can move the row after Retry read it. `false`, so Dexie skips the put rather than re-writing the
+      // unchanged clone.
+      if (
+        (dbTx.status !== ITransactionStatus.Failed && dbTx.status !== ITransactionStatus.Unconfirmed) ||
+        dbTx.stage !== plan.failedStage
+      ) {
+        return false;
+      }
+      assertStorageHealthy(epoch);
+      if (evidenceKey(dbTx.submitEvidence) !== plan.baseline || retryIdentity(dbTx) !== original) {
+        result = 'evidence-changed';
+        return false;
+      }
+      delete dbTx.failureDiagnostics;
+      Object.assign(dbTx, requeueRow(dbTx, plan, candidate.initiatedAt, candidate.queuedSeq!));
+      if (decision !== undefined) dbTx.feeAdmission = decision.admission;
       result = 'written';
       return undefined;
     });
     return result;
   });
+
+const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimFeeContext): Promise<RequeueWrite> => {
+  const epoch = getStorageHealth().epoch;
+  const prepare = async (): Promise<RequeueWrite> => {
+    const live = await Repo.transactions.where({ id: txId }).first();
+    assertStorageHealthy(epoch);
+    if (!live || (live.status !== ITransactionStatus.Failed && live.status !== ITransactionStatus.Unconfirmed)) return 'declined';
+    if (live.stage !== plan.failedStage || evidenceKey(live.submitEvidence) !== plan.baseline) return 'evidence-changed';
+    const original = retryIdentity(live);
+    const candidate = requeueRow(live, plan, Math.floor(Date.now() / 1000), nextQueuedSeq());
+    const debit = recoveryDebit(candidate, live.accountId, 0);
+    const previous = recoveryDebit(live, live.accountId, 0);
+    if (debit && previous) {
+      await verifyFinancialRecovery(live.accountId);
+      assertStorageHealthy(epoch);
+      await checkpointFinancialChange({ ...debit, retry: {
+        previous: { initiatedAt: previous.initiatedAt, spentUsd: previous.spentUsd, authorizationId: previous.authorizationId },
+        queuedSeq: candidate.queuedSeq!
+      } });
+      assertStorageHealthy(epoch);
+    }
+    const result = await commitRequeue(txId, plan, candidate, original, epoch, feeContext);
+    assertStorageHealthy(epoch);
+    if (result === 'written' && debit) await checkpointFinancialChange(debit);
+    return result;
+  };
+  const live = await Repo.transactions.where({ id: txId }).first();
+  assertStorageHealthy(epoch);
+  return live && recoveryDebit(live, live.accountId, 0) ? withFinancialRecoveryLock(prepare) : prepare();
+};
 
 /** Steps 1 to 6 under the row's verdict lock, judged at most twice. */
 const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promise<void> => {

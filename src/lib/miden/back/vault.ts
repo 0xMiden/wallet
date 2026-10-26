@@ -98,9 +98,13 @@ import { clearGuardianHistoryCheckpoints } from '../guardian/history-storage';
 import { normalizeHex } from '../guardian/operator-map';
 import { WalletSigner } from '../guardian/signer';
 import { decodeRecoveryCapture } from '../recovery/capture';
+import { createRecoveryCanonicalReads } from '../recovery/canonical-reads';
+import { reconcileRecoveryTransactions } from '../recovery/reconcile';
+import { retireRecoveryNotes } from '../recovery/retirement';
 import { checkContinuity, StorageContinuityError } from '../recovery/continuity';
 import {
   readFinancialRecoveryBaseline,
+  recoveryDebit,
   readRetainedFinancialEntries,
   verifyFinancialRecoveryEntries
 } from '../recovery/financial';
@@ -424,13 +428,13 @@ export class Vault {
     return this.recoveryJournal().read();
   }
 
-  async retainRecoveryEntries(entries: RecoveryEntry[]): Promise<void> {
+  async retainRecoveryEntries(entries: RecoveryEntry[], committedRetries: readonly string[] = []): Promise<void> {
     const epoch = getStorageHealth().epoch;
     try {
       const snapshot = await this.recoveryJournal(epoch).update(previous => {
         if (!previous) throw new StorageContinuityError();
         return { ...previous, entries };
-      });
+      }, committedRetries);
       await this.saveRecoveryContinuity(snapshot, epoch);
     } catch (error) {
       if (error instanceof StorageContinuityError && getStorageHealth().epoch === epoch)
@@ -442,6 +446,7 @@ export class Vault {
   async checkpointFinancialRecovery(accountId: string, value?: unknown): Promise<void> {
     const epoch = getStorageHealth().epoch;
     assertStorageHealthy(epoch);
+    this.assertRealmSinkIsMine();
     try {
       const previous = await this.readRecoveryJournal();
       if (!previous) throw new StorageContinuityError();
@@ -468,7 +473,30 @@ export class Vault {
         !sameWalletAccountId(next.configuration.accountId, owner.accountId)
       )
         throw new StorageContinuityError();
-      await this.retainRecoveryEntries([next]);
+      if (next.kind === 'debit' && next.retry) {
+        const row = await Repo.transactions.get(next.id);
+        assertStorageHealthy(epoch);
+        const charge = row && recoveryDebit(row, owner.accountId, 0);
+        if (!row || !charge || !sameWalletAccountId(row.accountId, owner.accountId) ||
+          (row.status !== ITransactionStatus.Failed && row.status !== ITransactionStatus.Unconfirmed) ||
+          charge.initiatedAt !== next.retry.previous.initiatedAt || charge.spentUsd !== next.spentUsd ||
+          charge.authorizationId !== next.authorizationId)
+          throw new StorageContinuityError();
+      }
+      const pending = previous.entries.find(entry => entry.kind === 'debit' && entry.id === next.id);
+      const committedRetries: string[] = [];
+      if (next.kind === 'debit' && !next.retry && pending?.kind === 'debit' && pending.retry) {
+        const row = await Repo.transactions.get(next.id);
+        assertStorageHealthy(epoch);
+        const charge = row && recoveryDebit(row, owner.accountId, 0);
+        if (!row || !charge || row.queuedSeq !== pending.retry.queuedSeq || charge.initiatedAt !== pending.initiatedAt ||
+          next.initiatedAt !== pending.initiatedAt || charge.spentUsd !== pending.spentUsd ||
+          next.spentUsd !== pending.spentUsd || charge.authorizationId !== pending.authorizationId ||
+          next.authorizationId !== pending.authorizationId) throw new StorageContinuityError();
+        committedRetries.push(next.id);
+      }
+      this.assertRealmSinkIsMine();
+      await this.retainRecoveryEntries([next], committedRetries);
       assertStorageHealthy(epoch);
     } catch (error) {
       if (error instanceof StorageContinuityError && getStorageHealth().epoch === epoch)
@@ -609,7 +637,9 @@ export class Vault {
           );
           check();
           if (journal) {
-            verifyFinancialRecoveryEntries(journal.entries, financial);
+            verifyFinancialRecoveryEntries(journal.entries, [
+              ...financial, ...await readRetainedFinancialEntries(journal.entries, Math.floor(Date.now() / 1000), database)
+            ]);
             await verifyRetainedTransactionRows(journal.entries, database);
             check();
           }
@@ -678,6 +708,60 @@ export class Vault {
         this.assertRealmSinkIsMine();
       });
     }, 5000);
+  }
+
+  async reconcileStorageRecovery(): Promise<{ reconciled: number; retired: number }> {
+    const epoch = getStorageHealth().epoch;
+    const deadline = Date.now() + 5000;
+    const network = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+    return withStorageRecoveryAccess(epoch, deadline, capability => getAccountsWriteQueue().add(async () => {
+      const check = () => {
+        assertStorageRecoveryAllowed(capability);
+        this.assertRealmSinkIsMine();
+        if (`${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` !== network) throw new StorageContinuityError();
+      };
+      check();
+      const journal = new RecoveryJournal(this.vaultKey, getStorageProvider(), async () => {
+        check();
+        await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey);
+        check();
+      });
+      let snapshot = await journal.read();
+      check();
+      const floor = await this.readRecoveryContinuity(epoch);
+      check();
+      if (!snapshot || !floor || snapshot.sequence < floor.sequence || snapshot.scope.network !== network ||
+        JSON.stringify(snapshot.scope) !== JSON.stringify(floor.scope)) throw new StorageContinuityError();
+      const retained = snapshot;
+      await withWasmClientLock(async hold => {
+        const sdk = await midenClientProxy.readStorageContinuity(retained.accounts.map(account => account.accountId), false, capability);
+        assertWasmHoldCurrent(hold, 'after recovery reconciliation identity');
+        check();
+        if (sdk.generation !== retained.scope.sdkGeneration) throw new StorageContinuityError();
+      }, { label: 'storage-reconciliation-identity' });
+      check();
+      const database = await Repo.openWalletRecoveryStore(capability);
+      try {
+        check();
+        const marker = validateWalletGeneration(await database.table('metadata').get('generation'));
+        check();
+        if (marker.generation !== retained.scope.walletGeneration) throw new StorageContinuityError();
+        const reads = await createRecoveryCanonicalReads();
+        check();
+        const retain = async (entries: RecoveryEntry[]) => {
+          check();
+          snapshot = await journal.replaceEntries(snapshot!, entries, check);
+          check();
+        };
+        const reconciled = await reconcileRecoveryTransactions({
+          snapshot: retained, database, node: reads.node, nullifiers: reads, deadline, assertCurrent: check, retain
+        });
+        check();
+        const retired = await retireRecoveryNotes({ snapshot: snapshot!, reads, deadline, assertCurrent: check, retain });
+        check();
+        return { reconciled, retired };
+      } finally { database.close(); }
+    }));
   }
 
   async recoverStorage(

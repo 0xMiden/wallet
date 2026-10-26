@@ -1,8 +1,9 @@
 import * as Passworder from '../passworder';
 import { withRecoveryStorageLock } from './lock';
 import { fromSerializable, toSerializable } from './serialization';
-import type { RecoveryJournalData, RecoveryJournalSnapshot } from './types';
+import type { RecoveryEntry, RecoveryJournalData, RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
+import { resolveRecoveryDebit } from './retry-transition';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
 import { type StorageRecoveryCapability, assertStorageRecoveryAllowed } from '../storage-health';
 
@@ -39,6 +40,52 @@ export class RecoveryJournal {
     private assertCurrent: () => Promise<void> = async () => {},
     private onFailure: (error: unknown) => void = () => {}
   ) {}
+
+  async replaceEntries(
+    expected: RecoveryJournalSnapshot,
+    entries: RecoveryEntry[],
+    assertAllowed: () => void
+  ): Promise<RecoveryJournalSnapshot> {
+    try {
+      return await withRecoveryStorageLock(async () => {
+        const check = async () => { assertAllowed(); await this.assertCurrent(); assertAllowed(); };
+        await check();
+        const current = await this.readCurrent();
+        await check();
+        if (current.degraded || !current.snapshot || serialize(current.snapshot) !== serialize(validateJournal(expected)))
+          throw new Error('Recovery journal changed');
+        const cutoff = Math.floor(Date.now() / 1000) - MAX_WINDOW_SECONDS;
+        const protectedEntries = current.snapshot.entries.filter(entry => entry.kind === 'policy' ||
+          (entry.kind === 'debit' && resolveRecoveryDebit(entry).initiatedAt >= cutoff));
+        for (const retained of protectedEntries) {
+          if (!entries.some(entry => serialize(entry) === serialize(retained)))
+            throw new Error('Recovery financial evidence required');
+        }
+        const next = validateJournal({ ...current.snapshot, entries, sequence: current.snapshot.sequence + 1 });
+        const plaintext = serialize(next);
+        if (serialize({ ...next, sequence: current.snapshot.sequence }) === serialize(current.snapshot))
+          return current.snapshot;
+        const encrypted = await Passworder.encryptJson(JSON.parse(plaintext), this.key);
+        await check();
+        const slot = 1 - current.slot;
+        const key = SLOT_KEYS[slot]!;
+        await this.storage.set({ [key]: encrypted });
+        await check();
+        const values = await this.storage.get([key]);
+        await check();
+        const verified = await this.decrypt(values[key]);
+        await check();
+        if (serialize(verified) !== plaintext) throw new Error('Recovery journal readback mismatch');
+        await this.storage.set({ [POINTER_KEY]: { slot, sequence: next.sequence } });
+        await check();
+        const readback = await this.readCurrent(false);
+        await check();
+        if (readback.degraded || !readback.snapshot || serialize(readback.snapshot) !== plaintext)
+          throw new Error('Recovery journal pointer readback mismatch');
+        return verified;
+      });
+    } catch (error) { this.onFailure(error); throw error; }
+  }
 
   async read(): Promise<RecoveryJournalSnapshot | undefined> {
     try {
@@ -127,7 +174,8 @@ export class RecoveryJournal {
   }
 
   async update(
-    change: (current: RecoveryJournalSnapshot | undefined) => RecoveryJournalData
+    change: (current: RecoveryJournalSnapshot | undefined) => RecoveryJournalData,
+    committedRetries: readonly string[] = []
   ): Promise<RecoveryJournalSnapshot> {
     try {
       return await withRecoveryStorageLock(async () => {
@@ -153,13 +201,15 @@ export class RecoveryJournal {
           throw new Error('Recovery account floor decreased');
         const cutoff = Math.floor(Date.now() / 1000) - MAX_WINDOW_SECONDS;
         const retainedEntries = previous?.entries.filter(
-          entry => entry.kind !== 'debit' || entry.initiatedAt >= cutoff
+          entry => entry.kind !== 'debit' || resolveRecoveryDebit(entry).initiatedAt >= cutoff
         );
         const entries = new Map(retainedEntries?.map(entry => [`${entry.kind}:${entry.id}`, entry]));
         for (const entry of proposed.entries) {
-          if (entry.kind === 'debit' && entry.initiatedAt < cutoff) continue;
+          if (entry.kind === 'debit' && resolveRecoveryDebit(entry).initiatedAt < cutoff) continue;
           const id = `${entry.kind}:${entry.id}`;
           const retained = entries.get(id);
+          if (retained?.kind === 'debit' && retained.retry && entry.kind === 'debit' && !entry.retry &&
+            !committedRetries.includes(entry.id)) continue;
           // A details fallback has default hints; it must not replace an imported file with its real tag and hint.
           if (
             entry.kind === 'note' &&
