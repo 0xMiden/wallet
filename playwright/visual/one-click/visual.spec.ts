@@ -109,3 +109,22 @@ test('captures exact inbound review to the connected Miden account', async ({ pa
   await expect(page.getByTestId('one-click-confirm')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('one-click-inbound-review.png') });
 });
+
+for (const [kind, actionKey] of [
+  ['epoch', 'depositERC20AndRegister'],
+  ['existing', 'collateral already in The Compact'],
+  ['slow', 'bridgeAsset'],
+  ['executor', 'depositForBurnWithHookAndFees']
+] as const) {
+  test(`captures the Bread bridge review for ${kind}`, async ({ page }, testInfo) => {
+    const theme = testInfo.project.name.endsWith('dark') ? '&dark' : '';
+    await page.goto(`/?bridge=${kind}${theme}`);
+    const guide = page.getByTestId('bridge-wallet-prompt-guide');
+    await expect(guide).toBeVisible();
+    await expect(guide).toContainText('abcdefghijklmnopabcdefghijklmnop');
+    await expect(guide).toContainText(actionKey);
+    await guide.scrollIntoViewIfNeeded();
+    await guide.screenshot({ path: testInfo.outputPath(`bridge-in-${kind}-guide.png`) });
+    await page.screenshot({ path: testInfo.outputPath(`bridge-in-${kind}-review.png`) });
+  });
+}
