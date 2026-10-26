@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 // Catches the button's 370px cap separating its edges/centre from a growing password field.
 async function expectAligned(page: Page) {
@@ -25,44 +25,63 @@ async function expectAligned(page: Page) {
   expect(geometry.visible).toBe(true);
 }
 
-for (const state of ['empty', 'focus', 'error', 'loading', 'locked']) {
-  test(`password field and Unlock stay aligned: ${state}`, async ({ page }, info) => {
-    const params = new URLSearchParams();
-    if (info.project.name.endsWith('dark')) params.set('dark', '');
-    if (state === 'loading' || state === 'locked') params.set(state, '');
-    await page.goto(`/?${params}`);
-    const input = page.locator('#unlock-password');
-    const submit = page.getByRole('button', { name: 'Unlock', exact: true });
-    await expect(submit).toBeVisible();
-    await page.evaluate(() => document.fonts.ready);
-    if (state === 'empty' || state === 'locked') {
-      await expect(submit).toBeDisabled();
-      if (state === 'locked') {
-        await expect(input).toBeDisabled();
-        await expect(page.getByTestId('unlock-error')).toContainText('blocked');
-      }
-    } else {
-      await input.fill('Synthetic layout password');
-      await expect(submit).toBeEnabled();
-      if (state === 'focus') {
-        await input.press('Tab'); // visibility toggle
-        await page.locator('form button[type="button"]').press('Tab');
-        await expect(submit).toBeFocused();
-        expect(await submit.evaluate(button => getComputedStyle(button).boxShadow)).not.toBe('none');
-      } else {
-        const before = await submit.boundingBox();
-        await submit.click();
-        if (state === 'loading') {
-          await expect(submit).toHaveAttribute('aria-busy', 'true');
-          await expect(submit).toBeDisabled();
-        } else {
-          await expect(page.getByTestId('unlock-error')).toHaveText('Incorrect password. Try again.');
-          await expect(submit).toBeEnabled();
-        }
-        expect(await submit.boundingBox()).toEqual(before);
-      }
-    }
-    await expectAligned(page);
-    await page.screenshot({ path: info.outputPath(`unlock-${state}.png`) });
-  });
+async function openUnlock(page: Page, info: TestInfo, state = '') {
+  const params = new URLSearchParams();
+  if (info.project.name.endsWith('dark')) params.set('dark', '');
+  if (state) params.set(state, '');
+  await page.goto(`/?${params}`);
+  const input = page.locator('#unlock-password');
+  const submit = page.getByRole('button', { name: 'Unlock', exact: true });
+  await expect(submit).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  return { input, submit };
 }
+
+test.afterEach(async ({ page }, info) => {
+  await expectAligned(page);
+  await page.screenshot({ path: info.outputPath('unlock.png') });
+});
+
+test('empty password keeps the disabled Unlock aligned', async ({ page }, info) => {
+  const { submit } = await openUnlock(page, info);
+  await expect(submit).toBeDisabled();
+});
+
+test('keyboard focus stays visible on the aligned Unlock', async ({ page }, info) => {
+  const { input, submit } = await openUnlock(page, info);
+  await input.fill('Synthetic layout password');
+  await expect(submit).toBeEnabled();
+  await input.press('Tab'); // visibility toggle
+  await page.locator('form button[type="button"]').press('Tab');
+  await expect(submit).toBeFocused();
+  expect(await submit.evaluate(button => getComputedStyle(button).boxShadow)).not.toBe('none');
+});
+
+test('a password error keeps Unlock in place', async ({ page }, info) => {
+  const { input, submit } = await openUnlock(page, info);
+  await input.fill('Synthetic layout password');
+  await expect(submit).toBeEnabled();
+  const before = await submit.boundingBox();
+  await submit.click();
+  await expect(page.getByTestId('unlock-error')).toHaveText('Incorrect password. Try again.');
+  await expect(submit).toBeEnabled();
+  expect(await submit.boundingBox()).toEqual(before);
+});
+
+test('the loading spinner keeps Unlock in place', async ({ page }, info) => {
+  const { input, submit } = await openUnlock(page, info, 'loading');
+  await input.fill('Synthetic layout password');
+  await expect(submit).toBeEnabled();
+  const before = await submit.boundingBox();
+  await submit.click();
+  await expect(submit).toHaveAttribute('aria-busy', 'true');
+  await expect(submit).toBeDisabled();
+  expect(await submit.boundingBox()).toEqual(before);
+});
+
+test('lockout keeps the field and disabled Unlock aligned', async ({ page }, info) => {
+  const { input, submit } = await openUnlock(page, info, 'locked');
+  await expect(submit).toBeDisabled();
+  await expect(input).toBeDisabled();
+  await expect(page.getByTestId('unlock-error')).toContainText('blocked');
+});

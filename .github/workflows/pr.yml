@@ -276,6 +276,10 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Check Unlock responsive layout
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.unlock-visual.config.ts
+
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
 
@@ -300,10 +304,6 @@ jobs:
       - name: Run 1Click visual acceptance
         timeout-minutes: 5
         run: yarn playwright test --config playwright.one-click-visual.config.ts
-
-      - name: Check Unlock responsive layout
-        timeout-minutes: 5
-        run: yarn playwright test --config playwright.unlock-visual.config.ts
 
       - name: Upload Unlock layout screenshots
         if: always()
