@@ -14,6 +14,9 @@ jobs:
         with:
           node-version: '22'
       - uses: ./.github/actions/yarn-install
+        id: install
       - run: yarn jest --runInBand src/lib/remote-config/geo-lookup.test.ts src/lib/remote-config/runtime.test.ts src/app/WalletAccessGate.test.tsx src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/egress-boundary.test.ts
-      - run: yarn ts
-      - run: yarn eslint src/lib/remote-config/geo.ts src/lib/remote-config/geo-lookup.ts src/lib/remote-config/runtime.ts src/app/WalletAccessGate.tsx src/lib/telemetry/user-visible-error.ts src/lib/telemetry/use-user-visible-error.ts src/lib/telemetry/crash-diagnostics.ts src/lib/remote-config/geo-lookup.test.ts src/lib/remote-config/runtime.test.ts src/app/WalletAccessGate.test.tsx src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/egress-boundary.test.ts
+      - if: always() && steps.install.outcome == 'success'
+        run: yarn ts
+      - if: always() && steps.install.outcome == 'success'
+        run: yarn eslint src/lib/remote-config/geo.ts src/lib/remote-config/geo-lookup.ts src/lib/remote-config/runtime.ts src/app/WalletAccessGate.tsx src/lib/telemetry/user-visible-error.ts src/lib/telemetry/use-user-visible-error.ts src/lib/telemetry/crash-diagnostics.ts src/lib/remote-config/geo-lookup.test.ts src/lib/remote-config/runtime.test.ts src/app/WalletAccessGate.test.tsx src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/egress-boundary.test.ts

@@ -196,7 +196,19 @@ describe('startup eligibility failure reporting', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     act(() => jest.advanceTimersByTime(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['walletAccessUnavailableBody', 'startup']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      source === 'endpoint bootstrap'
+        ? [
+            'walletAccessUnavailableBody',
+            'startup',
+            {
+              startupEligibilityStage: 'endpoint_overrides',
+              startupEligibilityReason: 'override_load_failed',
+              startupEligibilityRetry: 'not_attempted'
+            }
+          ]
+        : ['walletAccessUnavailableBody', 'startup']
+    ]);
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });

@@ -509,6 +509,22 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  // Startup evidence belongs to this displayed attempt, never an earlier cause.
+  delete snapshot.startupEligibilityStage;
+  delete snapshot.startupEligibilityReason;
+  delete snapshot.startupEligibilityRetry;
+  const startup = error instanceof Error ? diagnosticsByError.get(error) : undefined;
+  if (
+    startup?.userErrorId === 'walletAccessUnavailableBody' &&
+    startup.userErrorSurface === 'startup' &&
+    startup.startupEligibilityStage &&
+    startup.startupEligibilityReason &&
+    startup.startupEligibilityRetry
+  ) {
+    snapshot.startupEligibilityStage = startup.startupEligibilityStage;
+    snapshot.startupEligibilityReason = startup.startupEligibilityReason;
+    snapshot.startupEligibilityRetry = startup.startupEligibilityRetry;
+  }
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
   return snapshot;
