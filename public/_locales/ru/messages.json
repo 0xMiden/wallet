@@ -4450,7 +4450,7 @@
     "englishSource": "PSWAP note"
   },
   "otherNoteScript": {
-    "message": "Другие термины в сценарии «note»",
+    "message": "Другой скрипт note",
     "englishSource": "Other note script"
   },
   "unknownNoteScript": {

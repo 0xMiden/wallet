@@ -980,7 +980,7 @@
   "transactionOutputNotes": "notes de saída",
   "outputNotesIncludingFee": "notes de saída, incluindo taxa",
   "noInputNotes": "Sem notes de entrada",
-  "noOutputNotes": "notes de saída",
+  "noOutputNotes": "Sem notes de saída",
   "transactionFeeNote": "note sobre taxa de transação",
   "P2ID": "note sobre P2ID",
   "P2IDE": "note do P2IDE",

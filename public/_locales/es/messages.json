@@ -4408,7 +4408,7 @@
     "englishSource": "Note flow"
   },
   "transactionOutputNotes": {
-    "message": "notes finales",
+    "message": "notes de salida",
     "englishSource": "Output notes"
   },
   "outputNotesIncludingFee": {
@@ -4421,7 +4421,7 @@
     "rejectedSource": "No input notes"
   },
   "noOutputNotes": {
-    "message": "notes de salida",
+    "message": "Sin notes de salida",
     "englishSource": "No output notes"
   },
   "inputDetailsUnavailable": {
@@ -4472,7 +4472,7 @@
     "englishSource": "Script root"
   },
   "noNoteAssets": {
-    "message": "No hay activos cotizados",
+    "message": "No hay activos listados",
     "englishSource": "No assets listed"
   },
   "amountUnknown": {
