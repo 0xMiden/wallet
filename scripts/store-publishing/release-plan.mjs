@@ -37,7 +37,9 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
     if (!STORE_TARGETS.some(value => value.id === id)) throw new Error('Unknown release plan target');
     if (
       !object(entry) ||
-      Object.keys(entry).some(key => !['producerRunId', 'stateRunId', 'editId', 'acknowledgement', 'releaseNotes'].includes(key))
+      Object.keys(entry).some(
+        key => !['producerRunId', 'stateRunId', 'editId', 'acknowledgement', 'releaseNotes'].includes(key)
+      )
     )
       throw new Error('Unsupported target field or identity override');
   }
