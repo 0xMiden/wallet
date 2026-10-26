@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import sharp from 'sharp';
 
 const browserErrorsByPage = new WeakMap<Page, string[]>();
 
@@ -109,3 +110,44 @@ test('captures exact inbound review to the connected Miden account', async ({ pa
   await expect(page.getByTestId('one-click-confirm')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('one-click-inbound-review.png') });
 });
+
+for (const surface of ['modal', 'asset'] as const) {
+  for (const variant of ['main', 'partial'] as const) {
+    test(`captures production transaction ${surface} with ${variant} note details`, async ({ page }, testInfo) => {
+      const query = new URLSearchParams({ tx: surface });
+      if (variant === 'partial') query.set('partial', '');
+      if (testInfo.project.name.endsWith('dark')) query.set('dark', '');
+      await page.goto(`/?${query}`);
+      const flow = page.getByTestId('tx-note-flow');
+      await expect(flow).toBeVisible();
+      await expect(page.getByTestId('tx-note-account')).toBeVisible();
+      await expect(page.getByTestId('tx-note-inputs')).toBeVisible();
+      await expect(page.getByTestId('tx-note-outputs')).toBeVisible();
+      if (variant === 'main') {
+        await expect(page.getByText('No input notes')).toBeVisible();
+        await expect(page.getByTestId('tx-note-outputs').getByTestId('tx-note-item')).toHaveCount(3);
+        await expect(page.getByTestId('tx-note-outputs')).toContainText('P2ID');
+        await expect(page.getByTestId('tx-note-outputs')).toContainText('PSWAP');
+      } else {
+        await expect(page.getByTestId('tx-note-inputs').getByTestId('tx-note-item')).toHaveCount(1);
+        await expect(flow).toContainText('account-state');
+        await expect(flow).toContainText('orders');
+      }
+      if (surface === 'modal') await expect(page.getByTestId('dapp-confirmation-approve')).toBeVisible();
+      else await expect(page.getByTestId('tx-asset-view')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+      const scroller = surface === 'modal' ? page.locator('[role="dialog"] .overflow-y-auto') : page.getByTestId('tx-asset-scroll');
+      const capture = async (position: string) => {
+        const path = testInfo.outputPath(`transaction-${surface}-${variant}-${position}.png`);
+        await page.screenshot({ path, animations: 'disabled', caret: 'hide' });
+        const resized = await sharp(path).resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true }).toBuffer();
+        await sharp(resized).toFile(path);
+        await testInfo.attach(`transaction-${surface}-${variant}-${position}`, { path, contentType: 'image/png' });
+      };
+      await capture('top');
+      await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await capture('bottom');
+    });
+  }
+}

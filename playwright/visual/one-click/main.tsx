@@ -9,6 +9,10 @@ import { OneClickReview } from '../../../src/screens/swap-flow/OneClickReview';
 import type { OneClickAsset, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
 import type { OneClickNetworkOption } from '../../../src/screens/swap-flow/OneClickPickers';
 
+const TransactionFixture = React.lazy(() =>
+  import('./transaction-fixture').then(module => ({ default: module.TransactionFixture }))
+);
+
 const miden: OneClickAsset = {
   assetId: 'miden:usdcx',
   blockchain: 'miden',
@@ -87,6 +91,14 @@ const quote: OneClickQuoteResponse = {
 
 function App() {
   const params = new URLSearchParams(location.search);
+  if (params.has('tx')) {
+    return (
+      <TransactionFixture
+        surface={params.get('tx') === 'asset' ? 'asset' : 'modal'}
+        variant={params.has('partial') ? 'partial' : 'main'}
+      />
+    );
+  }
   const review = params.has('review');
   const inbound = params.has('inbound');
   const connected = params.has('connected');
