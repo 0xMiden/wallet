@@ -300,3 +300,74 @@ test('later idempotent cleanup records absence while preserving the failed origi
     await rm(root, { recursive: true, force: true });
   }
 });
+
+async function diskEvidence(originalBytes, cleanupBytes) {
+  const root = await mkdtemp(join(tmpdir(), 'probe-independent-evidence-'));
+  const privateDir = join(root, 'feature-eligibility-probe');
+  const currentManifest = buildProbeManifest(contextIdentityForTest(current), workerBytes, []);
+  try {
+    await mkdir(privateDir, { mode: 0o700 });
+    await writeFile(join(privateDir, 'manifest.json'), JSON.stringify(currentManifest), { mode: 0o600 });
+    if (originalBytes !== undefined) await writeFile(join(root, 'probe-result.json'), originalBytes, { mode: 0o600 });
+    if (cleanupBytes !== undefined)
+      await writeFile(join(root, 'probe-cleanup-result.json'), cleanupBytes, { mode: 0o600 });
+    const received = await main(['evidence'], {
+      RUNNER_TEMP: root,
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName,
+      PROBE_OPERATION: 'probe'
+    });
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/manifest.json'))), currentManifest);
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/result.json'))), received);
+    return received;
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+for (const [loss, original] of [
+  ['missing', undefined],
+  ['empty', ''],
+  ['truncated', '{"support":']
+]) {
+  for (const cleanup of ['absent', 'removed']) {
+    test(`independent ${cleanup} cleanup survives ${loss} original result without promoting support`, async () => {
+      const received = await diskEvidence(original, JSON.stringify({ ...result(), cleanup, reason: 'complete' }));
+      assert.equal(received.cleanup, cleanup);
+      assert.equal(received.support, 'unknown');
+      assert.equal(received.caller, 'unknown');
+      assert.equal(received.colo, 'unknown');
+      assert.notEqual(received.reason, 'complete');
+      assert.deepEqual(received.counts, result().counts);
+    });
+  }
+}
+
+const supportedResult = { ...result(), support: 'supported', caller: 'refused', colo: 'refused', reason: 'complete' };
+for (const [failure, cleanup] of [
+  ['missing', undefined],
+  ['empty', ''],
+  ['truncated', '{"cleanup":'],
+  ['blocked', JSON.stringify({ ...result(), cleanup: 'blocked', reason: 'complete' })],
+  ['absent but unsuccessful', JSON.stringify({ ...result(), reason: 'network' })],
+  ['removed but unsuccessful', JSON.stringify({ ...result(), cleanup: 'removed', reason: 'cleanup_failed' })],
+  ['unknown extra field', JSON.stringify({ ...result(), reason: 'complete', raw: 'never-publish' })]
+]) {
+  for (const [originalState, original] of [
+    ['lost', undefined],
+    ['supported', JSON.stringify(supportedResult)]
+  ]) {
+    test(`${failure} cleanup stays blocked with ${originalState} original result`, async () => {
+      const received = await diskEvidence(original, cleanup);
+      assert.equal(received.cleanup, 'blocked');
+      assert.equal(received.support, 'unknown');
+      assert.notEqual(received.reason, 'complete');
+      assert.doesNotMatch(JSON.stringify(received), /never-publish/);
+    });
+  }
+}
