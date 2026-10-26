@@ -586,7 +586,7 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 
 ## Four-target store routing
 
-- [ ] Prove four-target/staged routing regressions in CI.
-- [ ] Implement fixed target registry and safe staged coordinator.
-- [ ] Integrate standard build/publication routes and documentation.
+- [x] Prove four-target/staged routing regressions in CI.
+- [x] Implement fixed target registry and safe staged coordinator.
+- [x] Integrate standard build/publication routes and documentation.
 - [ ] Verify CI and hand off for independent normal review.
