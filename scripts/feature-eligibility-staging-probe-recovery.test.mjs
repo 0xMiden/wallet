@@ -204,22 +204,23 @@ test('same controller enforces remote ownership after recovery provenance is acc
   const calls = [];
   const effects = {
     context: current,
+    environment: { CLOUDFLARE_ACCOUNT_ID: 'account-for-recovery' },
     providerAPI: async (path, init = {}) => {
       calls.push([path, init.method]);
-      if (path === '/user/tokens/verify')
-        return Response.json({ success: true, errors: [], result: { status: 'active' } });
+      if (path === '/account')
+        return Response.json({ success: true, errors: [], result: { id: 'account-for-recovery' } });
       return Response.json({ success: false, errors: [{ code: 10007 }], result: null }, { status: 404 });
     }
   };
   assert.deepEqual(await cleanupRecovery(prepared, manifest(), effects), { cleanup: 'absent', reason: 'complete' });
   assert.deepEqual(
     calls.map(call => call[0]),
-    ['/user/tokens/verify', '/workers/scripts/miden-elig-probe-10001-2/settings']
+    ['/account', '/workers/scripts/miden-elig-probe-10001-2/settings']
   );
   assert.ok(calls.every(call => call[1] === 'GET'));
   effects.providerAPI = async path =>
-    path === '/user/tokens/verify'
-      ? Response.json({ success: true, errors: [], result: { status: 'active' } })
+    path === '/account'
+      ? Response.json({ success: true, errors: [], result: { id: 'account-for-recovery' } })
       : Response.json({ success: true, errors: [], result: { bindings: [] } });
   assert.equal((await cleanupRecovery(prepared, manifest(), effects)).cleanup, 'blocked');
 });
