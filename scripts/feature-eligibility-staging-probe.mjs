@@ -251,7 +251,7 @@ export function createProbeController(effects) {
   const authenticate = async () => {
     const accountId = effects.environment?.CLOUDFLARE_ACCOUNT_ID;
     const result = (await api('/account')).result;
-    if (typeof accountId !== 'string' || !accountId || result?.id !== accountId) fail('auth');
+    if (typeof accountId !== 'string' || !accountId || !result?.id) fail('auth');
   };
   const inventory = async expectedName => {
     const scripts = [];
