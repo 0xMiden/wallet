@@ -1,8 +1,13 @@
 name: Publish Store Release
+run-name: ${{ inputs.request_token && format('Store request {0}', inputs.request_token) || 'Publish Store Release' }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_token:
+        description: Optional coordinator dispatch correlation token
+        required: false
+        type: string
       release_tag:
         description: Published stable release tag (vX.Y.Z)
         required: true

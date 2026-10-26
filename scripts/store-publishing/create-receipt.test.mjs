@@ -181,7 +181,7 @@ test('workflow is manual, default-branch-only and validates the release before s
 
 test('workflow keeps automation and source checkouts pinned and signing out of artifact output', async () => {
   const source = readFileSync(new URL('../../.github/workflows/build-store-artifacts.yml', import.meta.url), 'utf8');
-  assert.equal((source.match(/ref: \$\{\{ github\.workflow_sha \}\}/g) ?? []).length, 4);
+  assert.equal((source.match(/ref: \$\{\{ github\.workflow_sha \}\}/g) ?? []).length, 5);
   assert.equal((source.match(/ref: \$\{\{ inputs\.source_sha \}\}/g) ?? []).length, 4);
   assert.equal((source.match(/run: yarn install --frozen-lockfile/g) ?? []).length, 3);
   assert.equal((source.match(/environment: wallet-store-signing/g) ?? []).length, 2);
