@@ -518,6 +518,10 @@ export class Vault {
     }
   }
 
+  async checkpointProviderReceipt(_value: unknown, _expectedEpoch: number): Promise<void> {
+    throw new Error('Provider receipt checkpoint unavailable');
+  }
+
   async retainTransactionRecovery(
     id: string,
     material: RecoveryCapture,
