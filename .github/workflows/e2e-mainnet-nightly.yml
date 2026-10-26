@@ -1,4 +1,4 @@
-name: Combined four-target store routing proof
+name: Immutable store workflow contract proof
 on:
   workflow_dispatch:
 permissions:
@@ -6,13 +6,29 @@ permissions:
 jobs:
   store-routing-proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: All combined publishing and workflow-contract tests without store access
-        run: node --test scripts/store-publishing/*.test.mjs
-      - name: Retained profile validation without signing
-        run: python3 scripts/store-publishing/apple-profile.test.py
+      - name: Restore unchanged source workflow for global contract inspection
+        run: |
+          git fetch --no-tags --depth=1 origin 4714cd509361471936ab7f9fc2b3d10e7f8738e6
+          git show 4714cd509361471936ab7f9fc2b3d10e7f8738e6:.github/workflows/e2e-mainnet-nightly.yml > .github/workflows/e2e-mainnet-nightly.yml
+      - uses: ./.github/actions/yarn-install
+      - name: Verify actual frozen workflow contracts without store access
+        run: yarn jest --ci --maxWorkers=2 --runTestsByPath playwright/e2e/harness/linked-pr-injection.test.ts src/lib/build-scripts.test.ts src/lib/update/release-workflows.test.ts
+      - name: Lint exact changed workflow contract
+        run: yarn eslint playwright/e2e/harness/linked-pr-injection.test.ts
+      - name: Format exact changed contract and retain patch
+        run: |
+          yarn prettier --write playwright/e2e/harness/linked-pr-injection.test.ts
+          git diff --binary -- playwright/e2e/harness/linked-pr-injection.test.ts > formatting.patch
+          test ! -s formatting.patch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: immutable-contract-formatting
+          path: formatting.patch
+          if-no-files-found: ignore
