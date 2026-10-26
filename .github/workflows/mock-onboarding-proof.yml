@@ -1,0 +1,44 @@
+name: Mock onboarding request diagnosis
+on:
+  push:
+    branches: ['ci/mock-onboarding-1933-*']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/inject-linked-web-sdk-pr
+      - uses: ./.github/actions/inject-linked-guardian-pr
+      - uses: ./.github/actions/yarn-install
+      - run: git diff --exit-code HEAD^ HEAD -- . ':!.github/workflows/mock-onboarding-proof.yml'
+      - name: Fixture transition cases
+        run: node --test scripts/start-e2e-eligibility.test.mjs
+      - name: Pure recovery entry cases
+        run: yarn test --runTestsByPath playwright/e2e/helpers/onboarding-entry.test.ts --maxWorkers=2 --ci
+      - uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_NETWORKS: testnet,mainnet
+      - name: Build mock Chrome
+        run: yarn build:chrome
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+      - name: Verify manifest
+        run: node -e "JSON.parse(require('fs').readFileSync('dist/chrome_unpacked/manifest.json','utf8'))"
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 12
+      - name: Identify exact missing request without waiving smoke assertion
+        run: xvfb-run -a yarn test:e2e playwright/tests/popup-smoke.spec.ts --grep 'loads UI without console errors' --retries=0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mock-onboarding-request-evidence
+          path: test-results
