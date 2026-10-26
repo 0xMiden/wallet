@@ -4,7 +4,7 @@ import test from 'node:test';
 import { syncScreenshots } from './screenshots.mjs';
 
 const hash = (kind, bytes) => createHash(kind).update(bytes).digest('hex');
-function fixture(count = 9) {
+function fixture(count = 9, timing) {
   const desired = Array.from({ length: 5 }, (_, i) => {
     const bytes = Buffer.from(`canonical-${i}`);
     return { path: `${i}.png`, bytes, size: bytes.length, format: 'png', sha256: hash('sha256', bytes) };
@@ -71,7 +71,8 @@ function fixture(count = 9) {
   });
   const client = {
     request: async (method, path, request) => {
-      calls.push({ method, path });
+      calls.push({ method, path, at: timing?.now() });
+      timing?.onRequest?.(method, path);
       const fail = stage => {
         if (fault === stage) {
           fault = undefined;
@@ -125,13 +126,15 @@ function fixture(count = 9) {
       const all = [...sets.values()].flat();
       const asset = all.find(x => path === `/v1/appScreenshots/${x.id}`);
       if (asset && method === 'GET') {
+        if (timing && asset.readyAt <= timing.now()) asset.attributes.assetDeliveryState.state = 'COMPLETE';
         if (asset.attributes.assetDeliveryState.state === 'COMPLETE') fail('poll-after');
         return { data: structuredClone(asset) };
       }
       if (asset && method === 'PATCH') {
         fail('complete-before');
         asset.attributes.sourceFileChecksum = request.body.data.attributes.sourceFileChecksum;
-        asset.attributes.assetDeliveryState.state = fault === 'processing-failed' ? 'FAILED' : 'COMPLETE';
+        asset.attributes.assetDeliveryState.state = fault === 'processing-failed' ? 'FAILED' : timing ? 'UPLOAD_COMPLETE' : 'COMPLETE';
+        if (timing) asset.readyAt = timing.now() + timing.delay;
         if (fault === 'processing-failed') fault = undefined;
         fail('complete-after');
         return { data: structuredClone(asset) };
@@ -325,4 +328,49 @@ test('recorded failed reservations can retry while sufficient capacity preserves
   const failed = c.sets.get('large').find(x => x.attributes.assetDeliveryState.state === 'FAILED').id;
   await assertCanonical(c);
   assert.equal(c.calls.filter(x => x.method === 'DELETE' && x.path === `/v1/appScreenshots/${failed}`).length, 1);
+});
+
+
+test('five slow Apple images share processing time inside the workflow budget', async () => {
+  let elapsed = 0;
+  const c = fixture(9, { now: () => elapsed, delay: 590000 });
+  const options = {
+    ...c.options(), maxPolls: 120, now: () => elapsed,
+    deadlineMs: 1500000, sleep: async ms => { elapsed += ms; }
+  };
+  // Sequential processing would consume 2950 seconds before API overhead.
+  assert.ok(5 * 590000 > 30 * 60000);
+  await syncScreenshots(c.client, options);
+  assert.ok(elapsed <= 600000, `group processing took ${elapsed}ms`);
+  const commits = c.calls.filter(x => x.method === 'PATCH' && x.path.startsWith('/v1/appScreenshots/'));
+  assert.equal(commits.length, 5);
+  assert.ok(commits.every(x => x.at === 0), 'commit all uploads before waiting');
+  assert.ok(c.maximum() <= 10);
+  assert.deepEqual(c.sets.get('large').map(x => x.attributes.sourceFileChecksum), c.desired.map(x => hash('md5', x.bytes)));
+  assert.deepEqual(c.sets.get('medium').map(x => x.id), c.desired.map((_, i) => `medium${i}`));
+  assert.equal(c.calls.filter(x => x.method === 'DELETE' && x.at === 0).length, 4, 'only quota-required evictions before verification');
+});
+
+test('shared deadline stops requests, preserves journal and resumes without duplicate reservations', async () => {
+  let elapsed = 0;
+  const c = fixture(4, { now: () => elapsed, delay: 590000 });
+  const options = () => ({ ...c.options(), maxPolls: 120, now: () => elapsed, deadlineMs: 10000,
+    sleep: async ms => { elapsed += ms; } });
+  await assert.rejects(syncScreenshots(c.client, options()), /deadline/i);
+  assert.ok(c.calls.every(x => x.at < 10000), 'no request launches after expiry');
+  assert.equal(c.calls.filter(x => x.method === 'POST').length, 5);
+  assert.equal(c.calls.filter(x => x.method === 'DELETE').length, 0);
+  assert.equal(c.journal().groups[0].owned.length, 5);
+  const persisted = c.journal();
+  elapsed = 600000;
+  await syncScreenshots(c.client, { ...options(), deadlineMs: 1500000 });
+  assert.equal(c.calls.filter(x => x.method === 'POST').length, 5);
+  assert.deepEqual(c.journal().binding, persisted.binding);
+  await assertCanonical(c);
+});
+
+test('expired deadline refuses even initial inventory', async () => {
+  const c = fixture();
+  await assert.rejects(syncScreenshots(c.client, { ...c.options(), deadlineMs: 10, now: () => 10 }), /deadline/i);
+  assert.equal(c.calls.length, 0);
 });
