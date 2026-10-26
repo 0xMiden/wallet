@@ -358,7 +358,8 @@ export async function submit(client, options = {}) {
   const result = await publish(client, options, 'DEFAULT_PUBLISH', ['PENDING_REVIEW', 'PUBLISHED']);
   const confirmed = await status(client, options);
   policyCheck(confirmed);
-  const alreadyPublic = confirmed.publishedItemRevisionStatus?.state === 'PUBLISHED' &&
+  const alreadyPublic =
+    confirmed.publishedItemRevisionStatus?.state === 'PUBLISHED' &&
     confirmed.publishedItemRevisionStatus.distributionChannels.some(channel => channel.crxVersion === options.version);
   if (alreadyPublic) exactRevision(confirmed.publishedItemRevisionStatus, options.version);
   else if (confirmed.submittedItemRevisionStatus?.state === 'PENDING_REVIEW')

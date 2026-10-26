@@ -280,9 +280,9 @@ test('replacing a rejected package uploads without cancelling or publishing it',
   assert.ok(client.calls.every(([, path]) => !path.endsWith(':cancelSubmission') && !path.endsWith(':publish')));
 });
 
-test('submit does not report success for a wrong-identity or unexpectedly public response', async () => {
+test('submit does not report success for a wrong-identity or unexpectedly deferred response', async () => {
   for (const response of [
-    published('PUBLISHED'),
+    published('STAGED'),
     { ...published('PENDING_REVIEW'), name: 'publishers/other/items/other' }
   ]) {
     const client = transport(snapshot(), uploaded(), response);
