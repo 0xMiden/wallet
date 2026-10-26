@@ -69,6 +69,31 @@ const pendingDeposit = (nonce: string, pollStartedAt: number) =>
     pollStartedAt
   });
 
+it.each([
+  ['still valid', () => String(Math.floor(Date.now() / 1000) + 11_400)],
+  ['missing', () => undefined],
+  ['malformed', () => 'not-an-expiry'],
+  ['already expired', () => String(Math.floor(Date.now() / 1000) - 1)]
+])('does not claim a deposit is reclaimable after sixteen minutes when compact expiry is %s', async (_name, expiry) => {
+  const intent = {
+    taskTypeString: 'bridge',
+    intentData: {},
+    intentNonce: 'long-lived',
+    compactExpires: expiry()
+  };
+  useEpochStore.setState({
+    flow: 'evm-to-miden',
+    status: 'pending',
+    intent,
+    pollStartedAt: Date.now() - 16 * 60_000
+  });
+  mockStatus.mockResolvedValue([{ chainId: MIDEN_DESTINATION_CHAIN_ID, status: 'pending' }]);
+
+  await useEpochStore.getState().poll();
+
+  expect(useEpochStore.getState()).toMatchObject({ status: 'pending', error: null });
+});
+
 describe('a poll that waits on the allocator', () => {
   beforeEach(() => {
     jest.useFakeTimers();
