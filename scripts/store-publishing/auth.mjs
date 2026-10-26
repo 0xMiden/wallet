@@ -40,7 +40,8 @@ const apiReasons = new Set([
   'invalidEdit',
   'changesInReview',
   'notFound',
-  'rateLimitExceeded'
+  'rateLimitExceeded',
+  'CHANGES_ALREADY_IN_REVIEW'
 ]);
 const failureStages = new Set([
   'store-operation',
@@ -82,8 +83,13 @@ async function apiFailure(response, label) {
     }
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.error;
     if (apiStatuses.has(body?.status)) error.apiStatus = body.status;
-    if (Array.isArray(body?.errors))
-      error.apiReasons = [...new Set(body.errors.map(item => item?.reason).filter(reason => apiReasons.has(reason)))];
+    const reasons = [
+      ...(Array.isArray(body?.errors) ? body.errors.map(item => item?.reason) : []),
+      ...(Array.isArray(body?.details)
+        ? body.details.filter(item => item?.['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo').map(item => item?.reason)
+        : [])
+    ];
+    error.apiReasons = [...new Set(reasons.filter(reason => apiReasons.has(reason)))];
   } catch {
     // Bodies and parse errors may contain credentials; keep only the HTTP status.
   } finally {
