@@ -75,7 +75,7 @@ const deniedCases: Array<{ decision: GeoLookup; status: string }> = [
 ];
 
 describe('WalletAccessGate startup only', () => {
-  it('waits for endpoint loading and the startup decision before mounting the wallet', async () => {
+  it('mounts the wallet once endpoints load, without waiting for the startup decision', async () => {
     const endpoints = deferred<void>();
     const decision = deferred<GeoLookup>();
     mockLoadEndpoints.mockReturnValue(endpoints.promise);
@@ -85,21 +85,42 @@ describe('WalletAccessGate startup only', () => {
         <p>Private wallet</p>
       </WalletAccessGate>
     );
-    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'loading');
     expect(screen.queryByText('Private wallet')).toBeNull();
+    expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
     expect(mockInitEligibility).not.toHaveBeenCalled();
     await act(async () => {
       endpoints.finish();
       await endpoints.promise;
     });
-    expect(mockInitEligibility).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('Private wallet')).toBeNull();
-    await act(async () => {
-      decision.finish(allowed);
-      await decision.promise;
-    });
     expect(screen.getByText('Private wallet')).toBeVisible();
     expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
+    expect(mockInitEligibility).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the restricted lock screen when a wallet:false decision arrives after mount', async () => {
+    const decision = deferred<GeoLookup>();
+    mockInitEligibility.mockReturnValue(decision.promise);
+    render(
+      <WalletAccessGate>
+        <p>Private wallet</p>
+      </WalletAccessGate>
+    );
+    await act(async () => {});
+    expect(screen.getByText('Private wallet')).toBeVisible();
+    expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
+    const restricted: GeoLookup = {
+      state: 'ready',
+      network: 'testnet',
+      version: 13,
+      allowed: { wallet: false, earn: false, swap: false }
+    };
+    await act(async () => {
+      decision.finish(restricted);
+      await decision.promise;
+    });
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'restricted');
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    expect(screen.getByTestId('wallet-access-retry')).toBeVisible();
   });
 
   it.each(deniedCases)('keeps the wallet unmounted after a $status startup result', async ({ decision, status }) => {
@@ -138,7 +159,7 @@ describe('WalletAccessGate startup only', () => {
     await act(async () => {});
     expect(screen.getByText('Private wallet')).toBeVisible();
     expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
-    expect(mockInitEligibility).not.toHaveBeenCalled();
+    expect(mockInitEligibility).toHaveBeenCalledTimes(1);
   });
 
   it('handles StrictMode effect replay without changing the startup decision', async () => {
@@ -216,7 +237,12 @@ describe('startup eligibility failure reporting', () => {
       mockInitEligibility.mockResolvedValue({ ...allowed, allowed: { ...allowed.allowed, wallet: false } });
     render(<WalletAccessGate>Private wallet</WalletAccessGate>);
     await act(async () => {});
-    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
+    if (status === 'loading') {
+      expect(screen.getByText('Private wallet')).toBeVisible();
+      expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
+    } else {
+      expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
+    }
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
