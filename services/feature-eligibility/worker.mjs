@@ -234,7 +234,13 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             cache: 'no-store',
             signal: controller.signal
           });
-          if (!response.ok || !response.body) throw new Error('Upstream unavailable');
+          // Only the internal lease overload is a trusted non-OK body; every other URL still fails before a read.
+          const leaseOverload =
+            url === 'https://eligibility.internal/lease' &&
+            response.status === 503 &&
+            response.headers.get('Retry-After') === '30' &&
+            response.body;
+          if (!leaseOverload && (!response.ok || !response.body)) throw new Error('Upstream unavailable');
           reader = response.body.getReader();
           const decoder = new TextDecoder();
           let length = 0;
@@ -246,7 +252,18 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             if (length > maxBytes) throw new Error('Upstream unavailable');
             text += decoder.decode(value, { stream: true });
           }
-          return JSON.parse(text + decoder.decode());
+          const decoded = text + decoder.decode();
+          if (!leaseOverload) return JSON.parse(decoded);
+          let body;
+          try {
+            body = JSON.parse(decoded);
+          } catch {
+            throw new Error('Upstream unavailable');
+          }
+          if (record(body) && Object.keys(body).length === 1 && body.error === 'overloaded') {
+            throw Object.assign(new Error('Upstream unavailable'), { overloaded: true });
+          }
+          throw new Error('Upstream unavailable');
         })()
       ]);
     } finally {
