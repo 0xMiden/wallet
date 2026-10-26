@@ -16,7 +16,7 @@ The main TypeScript/React application lives in `src/`. Put reusable UI in `src/c
 - `lib/woozie/` — hash-based router (`navigate`, `goBack`, `useLocation`, `<Link>`)
 - `lib/shared/types.ts` — message types
 
-Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemble each target. Browser tests are in `playwright/tests/`; blockchain, stress, iOS, and Android suites are under `playwright/e2e/`. Native shells live in `ios/`, `android/`, and `src-tauri/`; Capacitor plugins are in `packages/`. Static images and fonts belong in `src/assets/`, `public/`, `screenshots/`, and `fonts/` as appropriate.
+Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemble each target. Browser tests are in `playwright/tests/`; blockchain, stress, iOS, and Android suites are under `playwright/e2e/`. Native shells live in `ios/`, `android/`, and `src-tauri/`; Capacitor plugins are in `packages/`. Static images and fonts belong in `src/assets/`, `public/`, and `fonts/` as appropriate.
 
 ## Build, Test, and Development Commands
 
