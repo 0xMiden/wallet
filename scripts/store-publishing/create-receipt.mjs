@@ -137,7 +137,9 @@ export function validateAppleSigningMaterial(material) {
     const key = createPrivateKey(material.privateKey);
     if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') throw new Error('Wrong key type');
   } catch { throw new Error('Invalid Apple API private key'); }
-  return { ...material, certificate: decodeSigningBase64(material.certificateBase64) };
+  const profile = decodeSigningBase64(material.profileBase64);
+  if (profile.length > 1024 * 1024) throw new Error('Apple provisioning profile is too large');
+  return { ...material, certificate: decodeSigningBase64(material.certificateBase64), profile };
 }
 
 function writeJson(path, value) {
@@ -192,12 +194,13 @@ function main() {
     console.log('Private Android signing material prepared');
   } else if (mode === 'apple-signing-files') {
     const material = validateAppleSigningMaterial({ certificateBase64: process.env.APPLE_CERTIFICATE_P12_BASE64,
-      certificatePassword: process.env.APPLE_CERTIFICATE_PASSWORD, keyId: process.env.APP_STORE_CONNECT_KEY_ID,
+      certificatePassword: process.env.APPLE_CERTIFICATE_PASSWORD, profileBase64: process.env.APPLE_PROVISIONING_PROFILE_BASE64, keyId: process.env.APP_STORE_CONNECT_KEY_ID,
       issuerId: process.env.APP_STORE_CONNECT_ISSUER_ID, privateKey: process.env.APP_STORE_CONNECT_KEY_P8 });
     mkdirSync(values.directory, { recursive: true, mode: 0o700 });
     chmodSync(values.directory, 0o700);
     writeFileSync(resolve(values.directory, 'distribution.p12'), material.certificate, { flag: 'wx', mode: 0o600 });
     writeFileSync(resolve(values.directory, `AuthKey_${material.keyId}.p8`), material.privateKey, { flag: 'wx', mode: 0o600 });
+    writeFileSync(resolve(values.directory, 'store.mobileprovision'), material.profile, { flag: 'wx', mode: 0o600 });
     console.log('Private Apple signing material prepared');
   } else throw new Error('Choose validate-request, validate-source, production-settings, provenance, receipt, android-signing or apple-signing-files');
 }
