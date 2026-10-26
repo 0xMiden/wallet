@@ -164,7 +164,7 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
       />
       {usdcxPayout && (
         <DetailCard>
-          <UsdcxPayoutRows chainId={usdcxPayout.chainId} amount={usdcxPayout.amount} />
+          <UsdcxPayoutRows chainId={usdcxPayout.chainId} />
         </DetailCard>
       )}
     </div>

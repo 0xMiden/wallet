@@ -605,13 +605,12 @@ describe('USDCx burn review', () => {
     mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
-  it('submits the exact base-unit burn and shows Circle fee and the least payout', async () => {
+  it('submits the exact base-unit burn and shows Circle fee as varying, with no payout bound', async () => {
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
-    // The review now shows the payout Circle's fee leaves, where it used to show no payout figure at all.
-    expect(screen.getByText('usdcxPayoutFeeUpTo|0.1')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutAtLeast|4.900001')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() =>
       expect(initiateUsdcxBurn).toHaveBeenCalledWith(
@@ -711,15 +710,14 @@ describe('USDCx burn review', () => {
     );
   });
 
-  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
-  it('shows the Sepolia fee allowance and the payout it leaves', async () => {
+  // Circle took 2.5635 USDC from a Sepolia payout, above the 1.5 USDC allowance, so no fee bound or payout is shown.
+  it('shows the Sepolia fee as varying and promises no payout', async () => {
     mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=5.000001', 'amount=10');
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutFeeUpTo|1.5')).toBeInTheDocument();
-    expect(screen.getByText('youReceive')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutAtLeast|8.5')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
+    expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
   });
 });
