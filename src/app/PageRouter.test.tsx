@@ -43,7 +43,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
   pathname: '/',
   trigger: null
 };
-const mockEnv = { popup: false, fullPage: false };
+const mockEnv = { popup: false, fullPage: false, sidePanel: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
 // Whether the user has already answered the telemetry consent prompt. Read by
@@ -257,13 +257,21 @@ jest.mock('screens/contacts/ContactDetailPage', () => ({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-type Ctx = { ready?: boolean; locked?: boolean; hydrated?: boolean; popup?: boolean; fullPage?: boolean };
+type Ctx = {
+  ready?: boolean;
+  locked?: boolean;
+  hydrated?: boolean;
+  popup?: boolean;
+  fullPage?: boolean;
+  sidePanel?: boolean;
+};
 
 function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null) {
   mockLocation.pathname = pathname;
   mockLocation.trigger = trigger;
   mockEnv.popup = ctx.popup ?? false;
   mockEnv.fullPage = ctx.fullPage ?? false;
+  mockEnv.sidePanel = ctx.sidePanel ?? false;
   mockMiden.ready = ctx.ready ?? false;
   mockMiden.locked = ctx.locked ?? false;
   mockMiden.hydrated = ctx.hydrated ?? false;
@@ -913,4 +921,16 @@ describe('app/PageRouter - encoded route parameters', () => {
     renderAt('/contacts/mtst1%3Aabc', ready);
     expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
   });
+});
+
+it('unfinished onboarding from an action popup opens its full-page surface after hydration', () => {
+  renderAt('/some/not-ready/path', { popup: true, fullPage: false, locked: false, ready: false, hydrated: true });
+  expect(screen.getByTestId('open-in-full-page')).toBeInTheDocument();
+  expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+});
+
+it('unfinished sidebar onboarding also returns to the full-page surface', () => {
+  renderAt('/', { sidePanel: true, fullPage: false, locked: false, ready: false, hydrated: true });
+  expect(screen.getByTestId('open-in-full-page')).toBeInTheDocument();
+  expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
 });

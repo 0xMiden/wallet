@@ -200,87 +200,43 @@ afterAll(() => {
 
 // ── Chrome side-panel restore branch ────────────────────────────────────────
 
-describe('background.ts — Chrome side-panel restore', () => {
-  it('enables open-on-action-click when sidepanel_mode was saved and setup succeeds', async () => {
+describe('background toolbar fallback and recovery', () => {
+  it('migrates a saved preference without consulting it as policy', async () => {
     const chrome = makeChromeStub({ sidepanel_mode: true }, 'resolve');
     loadBackground({ target: 'chrome', chrome });
     await flush();
-
-    expect(chrome.storage.local.get).toHaveBeenCalledWith('sidepanel_mode', expect.any(Function));
+    expect(chrome.storage.local.get).not.toHaveBeenCalled();
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: true });
     expect(chrome.action.setPopup).toHaveBeenCalledWith({ popup: '' });
     expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
-    // Success path: no revert, no warning.
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
-    expect(warnSpy).not.toHaveBeenCalled();
   });
-
-  it('reverts to the popup and disables sidepanel_mode when panel setup rejects', async () => {
-    const chrome = makeChromeStub({ sidepanel_mode: true }, 'reject');
+  it('uses popup fallback when the sidebar API is unavailable', async () => {
+    const chrome = { ...makeChromeStub({}, 'resolve'), sidePanel: undefined };
     loadBackground({ target: 'chrome', chrome });
     await flush();
-
-    // First call opens the panel (empty popup), the catch restores 'popup.html'.
+    expect(chrome.action.setPopup).toHaveBeenLastCalledWith({ popup: 'popup.html' });
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
+  it('contains failures while clearing action state and installing fallback', async () => {
+    const chrome = makeChromeStub({}, 'reject', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(1, { popup: '' });
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
-    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[Background] Side panel restore failed, reverting to popup:',
-      expect.any(Error)
-    );
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('warns and keeps the saved mode when clearing the popup rejects', async () => {
-    const chrome = makeChromeStub({ sidepanel_mode: true }, 'resolve', 'reject');
-    loadBackground({ target: 'chrome', chrome });
-    await flush();
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[Background] Side panel restore could not clear the popup:',
-      expect.any(Error)
-    );
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
-
-  it('leaves no unhandled rejection when every restore call rejects', async () => {
-    const chrome = makeChromeStub({ sidepanel_mode: true }, 'reject', 'reject');
-    loadBackground({ target: 'chrome', chrome });
-    await flush();
-
-    expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
-    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[Background] Side panel restore could not clear the popup:',
-      expect.any(Error)
-    );
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[Background] Side panel restore failed, reverting to popup:',
-      expect.any(Error)
-    );
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[Background] Side panel restore could not restore the popup:',
-      expect.any(Error)
-    );
-    // The revert's storage write stays silent: the saved mode it failed to clear makes the next start retry.
-    expect(warnSpy).toHaveBeenCalledTimes(3);
-  });
-
-  it('does nothing when sidepanel_mode was not saved', async () => {
+  it('keeps the working sidebar if recording the migration fails', async () => {
     const chrome = makeChromeStub({}, 'resolve');
+    chrome.storage.local.set.mockRejectedValueOnce(new Error('storage failed'));
     loadBackground({ target: 'chrome', chrome });
     await flush();
-
-    expect(chrome.storage.local.get).toHaveBeenCalledTimes(1);
-    expect(chrome.action.setPopup).not.toHaveBeenCalled();
-    expect(chrome.sidePanel.setPanelBehavior).not.toHaveBeenCalled();
+    expect(chrome.action.setPopup).toHaveBeenCalledTimes(1);
+    expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
   });
-
-  it('skips the side-panel restore entirely on non-chrome targets', () => {
-    const chrome = makeChromeStub({ sidepanel_mode: true }, 'resolve');
-    // firefox: the `chrome` global is present but the TARGET_BROWSER guard is false.
+  it('does not change unsupported-browser popup fallback', () => {
+    const chrome = makeChromeStub({}, 'resolve');
     loadBackground({ target: 'firefox', chrome });
-
-    expect(chrome.storage.local.get).not.toHaveBeenCalled();
+    expect(chrome.action.setPopup).not.toHaveBeenCalled();
   });
 });
 
@@ -433,5 +389,31 @@ describe('background.ts — Safari browser action', () => {
     await flush();
 
     expect(warnSpy).toHaveBeenCalledWith('[Background] Could not open the full page:', err);
+  });
+});
+
+describe('sidebar-primary toolbar migration', () => {
+  it.each([{}, { sidepanel_mode: false }, { sidepanel_mode: true }])(
+    'does not let an old preference choose popup %p',
+    async saved => {
+      const chrome = makeChromeStub(saved, 'resolve');
+      loadBackground({ target: 'chrome', chrome });
+      await flush();
+      expect(chrome.action.setPopup).toHaveBeenCalledWith({ popup: '' });
+      expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+      expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ sidepanel_mode: false });
+    }
+  );
+  it('sidebar failure permits popup fallback without disabling the next startup retry', async () => {
+    const chrome = makeChromeStub({}, 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+    expect(chrome.action.setPopup).toHaveBeenCalledWith({ popup: 'popup.html' });
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ sidepanel_mode: false });
+    const recovered = makeChromeStub({ sidepanel_mode: false }, 'resolve');
+    loadBackground({ target: 'chrome', chrome: recovered });
+    await flush();
+    expect(recovered.action.setPopup).toHaveBeenCalledWith({ popup: '' });
+    expect(recovered.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
   });
 });
