@@ -1,9 +1,8 @@
-import type { StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
-
 import { useEffect, useRef } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { usePromptSlideActive } from 'components/ui/prompt-slide-active';
+import type { StartupEligibilityDiagnostics } from 'lib/remote-config/geo';
 
 import { reportUserVisibleError, UserErrorId, UserErrorSurface } from './user-visible-error';
 

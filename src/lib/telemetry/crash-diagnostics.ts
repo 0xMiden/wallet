@@ -1,11 +1,10 @@
+import { MidenMessageType } from 'lib/miden/types';
 import {
   STARTUP_ELIGIBILITY_STAGES,
   STARTUP_ELIGIBILITY_REASONS,
   STARTUP_ELIGIBILITY_RETRIES,
   type StartupEligibilityDiagnostics
 } from 'lib/remote-config/geo';
-
-import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 import {
   validateReownNativeFailure,
@@ -513,7 +512,7 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   delete snapshot.startupEligibilityStage;
   delete snapshot.startupEligibilityReason;
   delete snapshot.startupEligibilityRetry;
-  const startup = error instanceof Error ? diagnosticsByError.get(error) : undefined;
+  const startup = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
   if (
     startup?.userErrorId === 'walletAccessUnavailableBody' &&
     startup.userErrorSurface === 'startup' &&

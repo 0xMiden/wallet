@@ -1,12 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   STARTUP_ELIGIBILITY_STAGES,
   STARTUP_ELIGIBILITY_REASONS,
   STARTUP_ELIGIBILITY_RETRIES
 } from 'lib/remote-config/geo';
-
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import {
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
