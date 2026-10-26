@@ -1,7 +1,7 @@
 import * as Passworder from '../passworder';
 import { withRecoveryStorageLock } from './lock';
 import { fromSerializable, toSerializable } from './serialization';
-import type { RecoveryJournalData, RecoveryJournalSnapshot } from './types';
+import type { RecoveryEntry, RecoveryJournalData, RecoveryJournalSnapshot } from './types';
 import { validateJournal } from './validation';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
 import { type StorageRecoveryCapability, assertStorageRecoveryAllowed } from '../storage-health';
@@ -39,6 +39,14 @@ export class RecoveryJournal {
     private assertCurrent: () => Promise<void> = async () => {},
     private onFailure: (error: unknown) => void = () => {}
   ) {}
+
+  async replaceEntries(
+    _expected: RecoveryJournalSnapshot,
+    _entries: RecoveryEntry[],
+    _assertAllowed: () => void
+  ): Promise<RecoveryJournalSnapshot> {
+    throw new Error('Recovery reduction unavailable');
+  }
 
   async read(): Promise<RecoveryJournalSnapshot | undefined> {
     try {
