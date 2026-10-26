@@ -305,7 +305,7 @@ export async function submit(client, options) {
   requireTarget(options, true);
   const notes = validateReleaseNotes(options.releaseNotes);
   client = submitClient(client);
-  const policy = options.releasePolicy ?? 'preserve-existing';
+  const policy = options.releasePolicy ?? 'after-approval';
   if (!['preserve-existing', 'manual', 'after-approval'].includes(policy))
     throw new Error('Invalid Apple release policy');
   await appIdentity(client, options);
