@@ -344,7 +344,7 @@ export async function main(args, env = process.env) {
       try {
         const cleanup = await readJson(join(root, 'probe-cleanup-result.json'));
         sanitizeEvidence(null, cleanup, workerBytes);
-        ownershipCheck = cleanup.ownershipCheck;
+        ownershipCheck = undefined;
         requireValue(cleanup.reason === 'complete' && cleanup.cleanup !== 'blocked');
         result = { ...result, cleanup: cleanup.cleanup };
       } catch {
