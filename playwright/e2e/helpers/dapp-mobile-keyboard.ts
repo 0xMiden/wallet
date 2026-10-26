@@ -67,7 +67,9 @@ async function waitForExposedField(device: NativeKeyboardDevice, hiddenReason?: 
   let latest: NativeKeyboardLayout | undefined;
   for (let attempt = 0; attempt < KEYBOARD_WAIT_ATTEMPTS; attempt += 1) {
     latest = await device.keyboardLayout('A', INPUT_LABEL);
-    if (!latest.keyboardVisible && hiddenReason !== undefined) throw new HarnessFault(hiddenReason);
+    if (!latest.keyboardVisible && hiddenReason !== undefined) {
+      throw new HarnessFault(`${hiddenReason}: ${JSON.stringify(latest)}`);
+    }
     if (latest.keyboardVisible && latest.fieldFrame !== null) {
       assertFieldAboveKeyboard(latest);
       return latest;
