@@ -77,7 +77,7 @@ export function validateReleasePlan(plan, { stage, target = 'all' } = {}) {
 export function matchDispatchedRun(runs, intent) {
   if (!Array.isArray(runs) || !validToken(intent.token)) throw new Error('Invalid dispatch correlation');
   const matches = runs.filter(run => run?.display_title === `Store request ${intent.token}`);
-  if (matches.length !== 1) throw new Error('Cannot correlate exactly one trusted run; inspect uncertain dispatch');
+  if (matches.length !== 1) throw new Error('Cannot correlate exactly one trusted run (missing or multiple matches); inspect uncertain dispatch');
   const run = matches[0];
   if (
     !validRunId(run.id) || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 ||
