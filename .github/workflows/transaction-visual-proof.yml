@@ -1,0 +1,39 @@
+name: Transaction confirmation import diagnostic
+
+on:
+  push:
+    branches:
+      - ci/transaction-visual-*
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify exact source parent
+        run: test "$(git rev-parse HEAD^)" = "577e1dce29cc7768c9d9cbc595b3b764e6671b67"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Capture transaction confirmation
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.one-click-visual.config.ts --project mobile-light --grep "captures production transaction modal with zero inputs and three outputs"
+      - name: Upload visual artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transaction-import-diagnostic
+          path: test-results/one-click-visual/
+          if-no-files-found: warn
+          retention-days: 7
