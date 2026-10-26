@@ -680,6 +680,10 @@ export class Vault {
     }, 5000);
   }
 
+  async reconcileStorageRecovery(): Promise<{ reconciled: number; retired: number }> {
+    return { reconciled: 0, retired: 0 };
+  }
+
   async recoverStorage(
     onProgress?: (progress: import('../recovery/types').StorageRecoveryProgress) => void
   ): Promise<boolean> {
