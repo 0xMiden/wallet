@@ -1056,3 +1056,15 @@ test('reannotating an error for a different display cannot retain a startup atte
   annotateCrash(error, { userErrorId: 'usdcxFaucetUnavailable', userErrorSurface: 'review' });
   expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('startupEligibilityStage');
 });
+
+it.each(['walletAccessUnavailableBody', 'usdcxFaucetUnavailable'])(
+  'never inherits another startup attempt through a cause for %s', userErrorId => {
+    const inner = new Error('old attempt');
+    annotateCrash(inner, { userErrorId: 'walletAccessUnavailableBody', userErrorSurface: 'startup',
+      startupEligibilityStage: 'eligibility_lookup', startupEligibilityReason: 'version_mismatch',
+      startupEligibilityRetry: 'not_attempted' });
+    const outer = new Error('new display', { cause: inner });
+    annotateCrash(outer, { userErrorId, userErrorSurface: 'startup' });
+    expect(snapshotCrashDiagnostics(outer)).not.toHaveProperty('startupEligibilityStage');
+  }
+);
