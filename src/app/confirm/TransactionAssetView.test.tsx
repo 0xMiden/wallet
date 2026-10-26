@@ -3,12 +3,17 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import type { TxAssetView } from './decode';
+import type { NoteFlow } from './note-flow';
 import { TransactionAssetView } from './TransactionAssetView';
+import { TransactionNoteFlow } from './TransactionNoteFlow';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
 jest.mock('lib/miden/metadata/fetch', () => ({ fetchTokenMetadata: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: jest.fn() }));
 jest.mock('lib/shared/format', () => ({ formatAmount: (a: bigint, d: number) => `${a}/${d}` }));
 jest.mock('utils/string', () => ({ truncateAddress: (s: string) => `trunc(${s})` }));
 jest.mock('app/icons/v2', () => ({
@@ -37,6 +42,7 @@ const view = {
 };
 
 beforeEach(() => {
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://rpc.example');
   (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => ({
     decimals: 6,
     symbol: id === 'fA' ? 'miZK' : 'rETH'
@@ -281,5 +287,86 @@ describe('NFTs and unlisted assets (#1600)', () => {
 
     expect(screen.getByTestId('tx-unlisted-assets')).toHaveTextContent('unlistedAssetsWarning');
     expect(screen.getByText('assetChanges')).toBeInTheDocument();
+  });
+});
+
+describe('confirmation metadata request sharing', () => {
+  const metadata: AssetMetadata = { name: 'Shared token', symbol: 'SHARED', decimals: 6 };
+  const sharedView: TxAssetView = { ...view, incoming: [] };
+  const noteFlow = (amount: bigint): NoteFlow => ({
+    inputCount: 0,
+    inputs: [],
+    outputs: [{ kind: 'p2id', visibility: 'public', assets: [{ faucetId: 'fA', amount }] }]
+  });
+  const deferred = () => {
+    let resolve!: (value: AssetMetadata) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<AssetMetadata>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+
+  beforeEach(() => {
+    jest.mocked(fetchTokenMetadata).mockReset();
+  });
+
+  it('shares one pending lookup across summary and note rows while preserving each amount', async () => {
+    const pending = deferred();
+    jest.mocked(fetchTokenMetadata).mockReturnValue(pending.promise);
+    render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(metadata));
+    expect(screen.getByText('10/6 SHARED')).toBeInTheDocument();
+    expect(screen.getByText('2/6 SHARED')).toBeInTheDocument();
+  });
+
+  it('keeps equal faucets on different RPC URLs in separate pending requests', async () => {
+    const first = deferred();
+    const second = deferred();
+    jest
+      .mocked(getEffectiveRpcUrl)
+      .mockReturnValueOnce('https://rpc-one.example')
+      .mockReturnValue('https://rpc-two.example');
+    jest.mocked(fetchTokenMetadata).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    render(<TransactionAssetView view={sharedView} mode="verified" />);
+    render(<TransactionNoteFlow flow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      first.resolve({ ...metadata, symbol: 'FIRST' });
+      second.resolve({ ...metadata, symbol: 'SECOND' });
+    });
+    expect(screen.getByText('10/6 FIRST')).toBeInTheDocument();
+    expect(screen.getByText('2/6 SECOND')).toBeInTheDocument();
+  });
+
+  it('keeps a pending request available to a new subscriber after another unmounts', async () => {
+    const pending = deferred();
+    jest.mocked(fetchTokenMetadata).mockReturnValue(pending.promise);
+    const { rerender } = render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    rerender(<TransactionAssetView view={sharedView} mode="verified" />);
+    render(<TransactionNoteFlow flow={noteFlow(3n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(metadata));
+    expect(screen.getByText('10/6 SHARED')).toBeInTheDocument();
+    expect(screen.getByText('3/6 SHARED')).toBeInTheDocument();
+    expect(screen.queryByText('2/6 SHARED')).not.toBeInTheDocument();
+  });
+
+  it('releases a rejected shared request so a subsequent lookup can recover', async () => {
+    const pending = deferred();
+    jest.mocked(fetchTokenMetadata).mockReturnValueOnce(pending.promise).mockResolvedValue(metadata);
+    const first = render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    await act(async () => pending.reject(new Error('metadata unavailable')));
+    expect(screen.getByText('? unknown')).toBeInTheDocument();
+    expect(screen.getByText(/2 baseUnits/)).toBeInTheDocument();
+    first.unmount();
+    render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    await waitFor(() => expect(screen.getByText('10/6 SHARED')).toBeInTheDocument());
+    expect(screen.getByText('2/6 SHARED')).toBeInTheDocument();
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(2);
   });
 });

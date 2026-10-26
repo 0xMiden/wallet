@@ -4316,7 +4316,7 @@
     "englishSource": "Script root"
   },
   "noNoteAssets": {
-    "message": "上場資産なし",
+    "message": "記載された資産なし",
     "englishSource": "No assets listed"
   },
   "amountUnknown": {

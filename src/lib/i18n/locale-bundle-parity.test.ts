@@ -358,3 +358,27 @@ describe('locale files declare each key once', () => {
     expect(repeats).toEqual([]);
   });
 });
+
+it('preserves absence and technical meaning in transaction note translations', () => {
+  expect(loadFlat('es').noOutputNotes).toBe('Sin notes de salida');
+  expect(loadMessages('es').noOutputNotes?.message).toBe('Sin notes de salida');
+  const messages = [
+    { locale: 'es', key: 'transactionOutputNotes', expected: 'notes de salida' },
+    { locale: 'es', key: 'noOutputNotes', expected: 'Sin notes de salida' },
+    { locale: 'pt', key: 'noOutputNotes', expected: 'Sem notes de saída' },
+    { locale: 'ru', key: 'otherNoteScript', expected: 'Другой скрипт note' },
+    { locale: 'uk', key: 'otherNoteScript', expected: 'Інший скрипт note' },
+    { locale: 'es', key: 'noNoteAssets', expected: 'No hay activos listados' },
+    { locale: 'ja', key: 'noNoteAssets', expected: '記載された資産なし' },
+    { locale: 'ko', key: 'noNoteAssets', expected: '나열된 자산 없음' },
+    { locale: 'zh_CN', key: 'noNoteAssets', expected: '无资产列出' }
+  ];
+  for (const { locale, key, expected } of messages) {
+    expect(loadFlat(locale)[key]).toBe(expected);
+    const entry = loadMessages(locale)[key];
+    expect(entry?.message).toBe(expected);
+    expect(entry?.englishSource).toBe(enSource[key]);
+    expect(entry?.placeholders).toEqual(en[key]?.placeholders);
+  }
+  expect(loadFlat('pt').noOutputNotes).not.toBe(loadFlat('pt').transactionOutputNotes);
+});
