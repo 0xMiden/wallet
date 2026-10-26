@@ -36,9 +36,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     // TransactionResult on the SW side.
     TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
     // The inline dry run deserializes the request it executes.
-    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) },
-    TransactionProver: { newLocalProver: () => ({}) },
-    InputNoteState: { ConsumedAuthenticatedLocal: 'local-auth', ConsumedUnauthenticatedLocal: 'local-unauth' }
+    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) }
   };
 });
 
@@ -61,15 +59,6 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a)
   };
 });
-
-jest.mock('lib/miden/back/background-notification', () => ({
-  notifyBackgroundTransactionFailed: async () => {},
-  notifyBackgroundTransactionNotConfirmed: async () => {}
-}));
-jest.mock('lib/settings/helpers', () => ({
-  ...jest.requireActual('lib/settings/helpers'),
-  isCrashReportingEnabledAsync: jest.fn(async () => true)
-}));
 
 jest.mock('lib/miden/swap/fee-context', () => {
   const g = globalThis as any;
@@ -4483,101 +4472,86 @@ describe('closed execution error transport', () => {
   });
 });
 
-it('carries an actual ordinary SDK rejection through proxy reconstruction and cancellation to the real wire', async () => {
-  const previousDsn = process.env.SENTRY_DSN;
-  const previousProving = process.env.MIDEN_USE_OFFSCREEN_PROVING;
-  process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
-  process.env.MIDEN_USE_OFFSCREEN_PROVING = 'false';
-  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
-  const bodies: string[] = [];
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    writable: true,
-    value: async (_url: unknown, init?: { body?: unknown }) => {
-      const body = init?.body;
-      bodies.push(typeof body === 'string' ? body : ArrayBuffer.isView(body) ? new TextDecoder().decode(body) : '');
-      return { status: 200, headers: new Headers() };
+it('ignores otherwise valid execution metadata for an unrelated response method', async () => {
+  const { __test } = await loadProxy(true);
+  fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+    ok: false,
+    op_id: env.op_id,
+    error: 'original send rejection',
+    errorTransactionExecution: {
+      executionRoute: 'ordinary_new_transaction',
+      authObservation: 'observed',
+      authArgPresence: 'present',
+      authLayout: 'fee',
+      commitmentMatch: 'fee',
+      accountAuthCode: 'unavailable'
     }
-  });
-  const { midenClientProxy } = await loadProxy(true);
-  const { MidenClientInterface } = jest.requireActual<typeof import('../sdk/miden-client-interface')>(
-    '../sdk/miden-client-interface'
-  );
-  const { snapshotTransactionExecution } = await import('lib/telemetry/transaction-execution-diagnostics');
-  const Repo = await import('lib/miden/repo');
-  const { cancelTransaction } = await import('lib/miden/transaction/cancel');
-  const { ITransactionStatus } = await import('lib/miden/db/types');
-  const { initCrashReporting, stopCrashReporting } = await import('lib/telemetry/crash');
-  const original = new Error(
-    'assertion failed with error code: 15404814807981965102 private account 0xabcdef amount 987654321 https://private.example/path'
-  );
-  const execute = jest.fn(async () => {
-    throw original;
-  });
-  const accountRead = jest.fn();
-  const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.construct(MidenClientInterface, [
-    { transactions: { executeRequest: execute }, accounts: { get: accountRead } },
-    'testnet'
-  ]);
-  const request = Object.freeze({ authArg: () => ({}), adviceMap: () => ({ get: () => undefined }) });
-  G.__px.txRequestDeserialize.mockReturnValueOnce(request);
-  let produced: unknown;
-  fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
-    try {
-      await client.newTransaction('private-account', new Uint8Array([11, 12]), false);
-      throw new Error('SDK fixture unexpectedly succeeded');
-    } catch (error) {
-      produced = error;
-      return {
-        ok: false,
-        op_id: env.op_id,
-        error: original.message,
-        errorBeforeSubmit: true,
-        errorTransactionExecution: snapshotTransactionExecution(error)
-      };
-    }
-  });
-  initCrashReporting({ listenToGlobals: false });
+  }));
+  const running = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((error: unknown) => error);
+  await flush();
+  fireReady();
+  const error = await running;
+  expect(error).toMatchObject({ message: "Offscreen call 'sendTransaction' failed: original send rejection" });
+  const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+  expect(snapshotCrashDiagnostics(error)).toEqual({});
+});
+
+it('a deadline and late valid execution payload cannot decorate the abort or its successor', async () => {
+  jest.useFakeTimers();
   try {
-    const running = midenClientProxy
-      .newTransaction('private-account', new Uint8Array([11, 12]), false, async () => new Uint8Array())
-      .catch(error => error);
-    await flush();
+    const { __test, markOpStarted } = await loadProxy(true);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    const pending: Array<(response: unknown) => void> = [];
+    fakeChrome.runtime.sendMessage.mockImplementation(() => new Promise(resolve => pending.push(resolve)));
+    const expired = __test.dispatchCritical('newTransaction', ['acct', new Uint8Array([1]), false], 20);
+    const expiredResult = expired.promise.catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(0);
     fireReady();
-    const reconstructed: unknown = await running;
-    expect(produced).toBe(original);
-    expect(reconstructed).not.toBe(original);
-    const row: import('../db/types').ITransaction = {
-      id: 'private-execution-row',
-      type: 'execute',
-      accountId: 'private-account',
-      status: ITransactionStatus.GeneratingTransaction,
-      stage: 'sending',
-      initiatedAt: Math.floor(Date.now() / 1000),
-      displayIcon: 'SEND'
-    };
-    await Repo.transactions.put(row);
-    await cancelTransaction(row, reconstructed);
-    for (let index = 0; index < 5; index++) await new Promise(resolve => setTimeout(resolve, 5));
-    const envelope = bodies.find(body => body.includes('WalletTransactionFailure'));
-    expect(envelope).toBeDefined();
-    expect(envelope).toContain('"executionRoute":"ordinary_new_transaction"');
-    expect(envelope).toContain('"authArgPresence":"present"');
-    expect(envelope).toContain('"authLayout":"missing_preimage"');
-    expect(envelope).toContain('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH');
-    for (const sentinel of ['0xabcdef', '987654321', 'private.example', 'private-account', 'private-execution-row'])
-      expect(envelope).not.toContain(sentinel);
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith('private-account', request);
-    expect(accountRead).not.toHaveBeenCalled();
-    expect((await Repo.transactions.get(row.id))?.status).toBe(ITransactionStatus.Failed);
+    await jest.advanceTimersByTimeAsync(0);
+    markOpStarted(expired.op_id);
+    await jest.advanceTimersByTimeAsync(21);
+    fireReady();
+    await jest.advanceTimersByTimeAsync(0);
+    const abort = await expiredResult;
+    expect(abort).toBeInstanceOf(OperationAbortedError);
+    expect(snapshotCrashDiagnostics(abort)).toEqual({});
+    const successor = __test.dispatchCritical('newTransaction', ['acct', new Uint8Array([2]), false], null);
+    let settled = false;
+    const successorResult = successor.promise.catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    const oldReply = pending[0];
+    if (!oldReply) throw new Error('old operation never dispatched');
+    oldReply({
+      ok: false,
+      op_id: expired.op_id,
+      error: 'late original failure',
+      errorTransactionExecution: {
+        executionRoute: 'ordinary_new_transaction',
+        authObservation: 'observed',
+        authArgPresence: 'present',
+        authLayout: 'fee',
+        commitmentMatch: 'fee',
+        accountAuthCode: 'unavailable'
+      }
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    expect(__test.inFlightSize()).toBe(1);
+    expect(snapshotCrashDiagnostics(abort)).toEqual({});
+    const currentReply = pending[1];
+    if (!currentReply) throw new Error('successor never dispatched');
+    currentReply({ ok: false, op_id: successor.op_id, error: 'current original failure' });
+    await jest.advanceTimersByTimeAsync(0);
+    const error = await successorResult;
+    expect(error).toMatchObject({ message: "Offscreen call 'newTransaction' failed: current original failure" });
+    expect(snapshotCrashDiagnostics(error)).toEqual({});
+    expect(__test.inFlightSize()).toBe(0);
+    expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
   } finally {
-    stopCrashReporting();
-    if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
-    else Reflect.deleteProperty(globalThis, 'fetch');
-    if (previousDsn === undefined) delete process.env.SENTRY_DSN;
-    else process.env.SENTRY_DSN = previousDsn;
-    if (previousProving === undefined) delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
-    else process.env.MIDEN_USE_OFFSCREEN_PROVING = previousProving;
+    jest.useRealTimers();
   }
 });

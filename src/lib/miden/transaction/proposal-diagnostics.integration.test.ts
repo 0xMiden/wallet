@@ -23,6 +23,7 @@ const mockState: {
   proposalRequest?: Error;
   customAdvice?: Error;
   customBuild?: Error;
+  signLock?: Error;
   resultRead?: Error;
   resultSerialize?: Error;
   noInputNotes?: boolean;
@@ -164,7 +165,14 @@ jest.mock('../sdk/miden-client', () => ({
       }
     };
   },
-  withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => body(hold),
+  withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => {
+    if (mockState.signLock) {
+      const error = mockState.signLock;
+      delete mockState.signLock;
+      throw error;
+    }
+    return body(hold);
+  },
   withWasmLockWatchdogPaused: async <T>(body: () => Promise<T>) => body(),
   getCurrentWasmLockHold: () => hold,
   assertWasmHoldCurrent: () => {}
@@ -875,4 +883,21 @@ it('retains a typed post-create Guardian refusal through actual cancellation wit
   expect(mockExecute).not.toHaveBeenCalled();
   expect(mockSubmit).not.toHaveBeenCalled();
   await failureEventWith({ proposalStep: 'proposal_sign' }, 'guardian_http_400; guardian code invalid_input');
+});
+
+it('post-create sign_lock reaches actual cancellation and the real sanitized wire', async () => {
+  const original = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockConsumeProposal.mockImplementationOnce(async () => {
+    mockState.signLock = original;
+    return { id: 'private-proposal-id', nonce: 7, metadata: { proposalType: 'consume' } };
+  });
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+  expectHookRejection(report, original);
+  expect(mockSignProposal).not.toHaveBeenCalled();
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'sign_lock' }, 'signing step signing_proposal');
+  expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });
 });

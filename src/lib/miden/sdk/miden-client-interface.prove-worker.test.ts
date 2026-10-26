@@ -497,6 +497,38 @@ describe('newTransaction (site 6)', () => {
     expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
   });
 
+  it('throwing observer getters preserve a successful delegated fallback and its exact request bytes and calls', async () => {
+    const harness = buildHarness();
+    harness.delegated.fail = true;
+    const { client, withWasmClientLock } = await load(harness);
+    const lazy = await import('@miden-sdk/miden-sdk/lazy');
+    const first = Object.freeze({
+      get authArg() {
+        throw new Error('private first getter');
+      }
+    });
+    const second = Object.freeze({
+      get authArg() {
+        throw new Error('private fallback getter');
+      }
+    });
+    const deserialize = jest.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    Reflect.set(lazy.TransactionRequest, 'deserialize', deserialize);
+    const bytes = new Uint8Array([4, 29, 31]);
+    await expect(withWasmClientLock(async () => client.newTransaction('acct', bytes, true))).resolves.toBe(
+      harness.result
+    );
+    expect(harness.executeRequest).toHaveBeenCalledTimes(2);
+    expect(harness.executeRequest.mock.calls[0]?.[1]).toBe(first);
+    expect(harness.executeRequest.mock.calls[1]?.[1]).toBe(second);
+    expect(deserialize.mock.calls).toEqual([[bytes], [bytes]]);
+    expect(bytes).toEqual(new Uint8Array([4, 29, 31]));
+    expectWorkerProved(harness);
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(harness.order).toEqual(['worker prove', 'submitProven', 'apply']);
+    expect(harness.fakeClient.accounts.get).not.toHaveBeenCalled();
+  });
+
   it('a request that cannot deserialize records not_reached without executing', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
