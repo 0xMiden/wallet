@@ -5905,7 +5905,7 @@
     "englishSource": "Disconnect"
   },
   "declaredBySiteVerifying": {
-    "message": "Datos declarados por la página web — verificando mediante simulación…",
+    "message": "Datos declarados por la página web: verificando mediante simulación…",
     "englishSource": "Declared by site — verifying by simulation…"
   },
   "unverified": {

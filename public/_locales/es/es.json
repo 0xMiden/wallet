@@ -1301,7 +1301,7 @@
   "receivingTx": "Transacción de recepción",
   "preparing": "Preparando la conexión…",
   "disconnect": "Desconectar",
-  "declaredBySiteVerifying": "Datos declarados por la página web — verificando mediante simulación…",
+  "declaredBySiteVerifying": "Datos declarados por la página web: verificando mediante simulación…",
   "unverified": "sin verificar",
   "unverifiedToken": "Sin verificar",
   "unverifiedTokenDescription": "Este token no figura en la lista de tokens verificados de Miden. Cualquiera puede crear un token con cualquier nombre, así que comprueba el ID de faucet antes de confiar en él.",
