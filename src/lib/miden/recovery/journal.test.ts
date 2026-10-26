@@ -194,3 +194,13 @@ it('rejects fields outside the recovery schema before encrypting secret material
   expect(await journal.read()).toEqual(first);
   expect(JSON.stringify(storage.values)).not.toContain('must never');
 });
+
+
+it('recovers the latest verified generation when only the active pointer is lost', async () => {
+  await journal.update(data);
+  const latest = await journal.update(() => ({
+    ...data(), accounts: [{ accountId: 'account-1', nonce: '4', commitment: 'commitment-4' }]
+  }));
+  delete storage.values.miden_recovery_v1_active;
+  expect(await journal.read()).toEqual(latest);
+});
