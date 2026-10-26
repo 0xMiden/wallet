@@ -17,7 +17,6 @@ jest.mock('lib/telemetry/user-visible-error', () => ({
   ...jest.requireActual('lib/telemetry/user-visible-error'),
   reportUserVisibleError: jest.fn()
 }));
-jest.mock('components/ui/Spinner', () => ({ Spinner: () => <div /> }));
 jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Secondary: 'secondary' },
   Button: ({
@@ -138,7 +137,7 @@ describe('WalletAccessGate startup only', () => {
   });
 
   it('mounts the wallet when the startup lookup fails', async () => {
-    mockInitEligibility.mockResolvedValue({ state: 'failed' });
+    mockInitEligibility.mockResolvedValue({ state: 'failed', reason: 'http_5xx' });
     render(
       <WalletAccessGate>
         <p>Private wallet</p>
@@ -160,6 +159,24 @@ describe('WalletAccessGate startup only', () => {
     expect(screen.getByText('Private wallet')).toBeVisible();
     expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
     expect(mockInitEligibility).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the wallet when a wallet:true decision arrives after mount', async () => {
+    const decision = deferred<GeoLookup>();
+    mockInitEligibility.mockReturnValue(decision.promise);
+    render(
+      <WalletAccessGate>
+        <p>Private wallet</p>
+      </WalletAccessGate>
+    );
+    await act(async () => {});
+    const wallet = screen.getByText('Private wallet');
+    await act(async () => {
+      decision.finish(allowed);
+      await decision.promise;
+    });
+    expect(screen.getByText('Private wallet')).toBe(wallet);
+    expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
   });
 
   it('handles StrictMode effect replay without changing the startup decision', async () => {
@@ -218,31 +235,45 @@ describe('startup eligibility failure reporting', () => {
   afterEach(() => jest.useRealTimers());
 
   it.each(['decision', 'endpoint bootstrap'])('reports a visible %s failure after a full dwell', async source => {
-    if (source === 'decision') mockInitEligibility.mockResolvedValue({ state: 'failed' });
-    else mockLoadEndpoints.mockRejectedValue(new Error('private bootstrap failure'));
+    mockInitEligibility.mockResolvedValue({ state: 'failed', reason: 'http_5xx' });
+    if (source === 'endpoint bootstrap') mockLoadEndpoints.mockRejectedValue(new Error('private bootstrap failure'));
     render(<WalletAccessGate>Private wallet</WalletAccessGate>);
     await act(async () => {});
     expect(screen.getByText('Private wallet')).toBeVisible();
     act(() => jest.advanceTimersByTime(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     act(() => jest.advanceTimersByTime(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['walletAccessUnavailableBody', 'startup']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['walletAccessUnavailableBody', 'startup', { eligibilityFailure: 'http_5xx' }]
+    ]);
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['loading', 'restricted'])('keeps a %s startup result quiet', async status => {
-    if (status === 'loading') mockInitEligibility.mockReturnValue(new Promise(() => {}));
-    if (status === 'restricted')
-      mockInitEligibility.mockResolvedValue({ ...allowed, allowed: { ...allowed.allowed, wallet: false } });
+  it('bootstrap rejection with an allowed lookup reports nothing', async () => {
+    mockLoadEndpoints.mockRejectedValue(new Error('private bootstrap failure'));
     render(<WalletAccessGate>Private wallet</WalletAccessGate>);
     await act(async () => {});
-    if (status === 'loading') {
-      expect(screen.getByText('Private wallet')).toBeVisible();
-      expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
-    } else {
-      expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
-    }
+    expect(screen.getByText('Private wallet')).toBeVisible();
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps a loading startup result quiet', async () => {
+    mockInitEligibility.mockReturnValue(new Promise(() => {}));
+    render(<WalletAccessGate>Private wallet</WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByText('Private wallet')).toBeVisible();
+    expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps a restricted startup result quiet', async () => {
+    mockInitEligibility.mockResolvedValue({ ...allowed, allowed: { ...allowed.allowed, wallet: false } });
+    render(<WalletAccessGate>Private wallet</WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'restricted');
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
@@ -256,7 +287,7 @@ describe('startup eligibility failure reporting', () => {
   });
 
   it('drops a startup failure removed before its dwell completes', async () => {
-    mockInitEligibility.mockResolvedValue({ state: 'failed' });
+    mockInitEligibility.mockResolvedValue({ state: 'failed', reason: 'http_5xx' });
     const view = render(<WalletAccessGate>Private wallet</WalletAccessGate>);
     await act(async () => {});
     expect(screen.getByText('Private wallet')).toBeVisible();

@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).
 - [FIX][ci] Submit only the desired new Play full rollout and refuse ambiguous sibling releases.
 - [FIX][ci] Preserve sanitized Play submission failure stages and support read-only inspection of an existing release edit.
 - [CHANGE][ios] JavaScript-driven animations (requestAnimationFrame and the springs, layout animations and drags built on it) run at up to 120 fps on ProMotion iPhones and iPads, in the wallet and in dApps opened in the in-app browser: both WebViews turn off WebKit's preference for rendering near 60 fps, and keep it when an iOS version lacks the setting (#1864).
