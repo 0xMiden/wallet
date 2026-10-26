@@ -161,15 +161,25 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(panelCount).toBe(0);
       await worker.evaluate(async () => {
         await chrome.storage.local.set({ sidepanel_mode: false });
+        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
         await chrome.action.setPopup({ popup: 'popup.html' });
       });
       activate();
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      execFileSync('xdotool', ['key', 'Escape'], { timeout: 10000 });
+      await expect
+        .poll(() =>
+          worker.evaluate(
+            async () => (await chrome.runtime.getContexts({})).filter(item => item.contextType === 'POPUP').length
+          )
+        )
+        .toBe(0);
       activate();
       await expect.poll(panelCount).toBe(1);
       await capture('legacy-popup-recovered-on-later-action');
       await worker.evaluate(async () => {
         await chrome.storage.local.set({ sidepanel_mode: false });
+        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
         await chrome.action.setPopup({ popup: 'popup.html' });
       });
       await context.close();
