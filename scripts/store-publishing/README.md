@@ -197,9 +197,9 @@ node scripts/store-publishing/cli.mjs ios release \
 
 `prepare` reuses an existing matching version without editing its metadata. In particular, reuse the existing `1.17.7` draft and its screenshots untouched. For a future missing version, it creates an automatic-after-approval draft only if no other unreleased version conflicts. Complete and verify required screenshots, privacy, export compliance and review information before submission. Submission fills a missing What's New field with `Various Fixes & Improvements` or the explicit optional notes, preserving existing nonempty text.
 
-Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to automatic publication after approval. The existing `1.17.7` draft uses `AFTER_APPROVAL`, and future standard drafts use the same policy. Accepted review submission completes the standard command; Apple publishes after approval without a later release command. Public distribution is claimed only after a read-only store status confirms it.
+Wait for the exact uploaded build to finish processing. Submit selects only that version and build and defaults to `--release-policy after-approval`. The existing `1.17.7` draft uses `AFTER_APPROVAL`, and future standard drafts use the same policy. Accepted review submission completes the standard command; Apple publishes after approval without a later release command. Public distribution is claimed only after a read-only store status confirms it.
 
-The standard publishing workflow uses automatic publication after approval. Explicit CLI `preserve-existing` or `manual` policies remain available for authorized legacy recovery; they are not the standard release procedure.
+iOS submit retains explicit `--release-policy manual` and `--release-policy preserve-existing` opt-ins for authorized legacy recovery. The standard workflow uses automatic publication after approval. Optional `--release-notes` (workflow `release_notes`) fills only an empty existing en-US What's New field; existing nonempty text is preserved. Omitted or empty notes use exactly `Various Fixes & Improvements` for iOS submit; other operations receive no notes default. A unique empty review draft may be resumed only after its app relationship, target build and exclusive contents are verified.
 
 ### Android
 
