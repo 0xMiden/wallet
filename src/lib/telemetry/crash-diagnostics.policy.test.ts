@@ -50,6 +50,13 @@ import {
   RELAY_VISIBILITY
 } from './relay-diagnostics';
 import { EXECUTION_ROUTES, AUTH_OBSERVATIONS, AUTH_ARG_PRESENCE } from './transaction-execution-diagnostics';
+import {
+  FEATURE_UNAVAILABLE_FEATURES,
+  FEATURE_UNAVAILABLE_REASONS,
+  SUBMISSION_FEEDBACK_BRANCHES,
+  PENDING_RETRY_REASONS,
+  RECIPIENT_VALIDATION_STAGES
+} from './ui-producer-diagnostics';
 import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
@@ -176,4 +183,14 @@ it('states the retention of the diagnostic records once, apart from the 90 days 
   expect(ninetyDays.some(line => /diagnostic records/i.test(line))).toBe(false);
   expect(retention.filter(line => line.includes('Diagnostic records') && line.includes('30 days'))).toHaveLength(1);
   expect(section('Who processes this data')).not.toContain('Sentry are configured to delete data after 90 days');
+});
+
+it.each([
+  ['featureUnavailableFeature', FEATURE_UNAVAILABLE_FEATURES],
+  ['featureUnavailableReason', FEATURE_UNAVAILABLE_REASONS],
+  ['submissionFeedbackBranch', SUBMISSION_FEEDBACK_BRANCHES],
+  ['pendingRetryReason', PENDING_RETRY_REASONS],
+  ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES]
+] as const)('documents the exact closed UI producer values for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
 });

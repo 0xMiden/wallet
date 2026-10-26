@@ -1162,17 +1162,29 @@ it('restores only root producer evidence after SDK and native-style enrichment b
 it('retains the current UI producer root through both final scrubs without enrichment injection', async () => {
   _resetUserVisibleErrorLimitsForTest();
   initCrashReporting();
-  Reflect.apply(reportUserVisibleError, undefined, ['submissionUnanswered', 'status_screen', {
-    kind: 'submission_feedback', submissionFeedbackBranch: 'guardian_unanswered'
-  }]);
+  Reflect.apply(reportUserVisibleError, undefined, [
+    'submissionUnanswered',
+    'status_screen',
+    {
+      kind: 'submission_feedback',
+      submissionFeedbackBranch: 'guardian_unanswered'
+    }
+  ]);
   await flushMicrotasks();
   expect(captured).toHaveLength(1);
   const originalException = captured[0];
-  const event: Record<string, unknown> = {extra: {walletDiagnostics: {submissionFeedbackBranch: 'private-canary', recipientValidationStage: 'decoder_throw'}, raw: ADDRESS}};
-  scrubEvent(event, {originalException});
-  expect(event.extra).toEqual({walletDiagnostics: expect.objectContaining({submissionFeedbackBranch: 'guardian_unanswered'})});
-  event.extra = {walletDiagnostics: {submissionFeedbackBranch: 'grpc_unknown', raw: ADDRESS}};
-  scrubEvent(event, {originalException});
+  const event: Record<string, unknown> = {
+    extra: {
+      walletDiagnostics: { submissionFeedbackBranch: 'private-canary', recipientValidationStage: 'decoder_throw' },
+      raw: ADDRESS
+    }
+  };
+  scrubEvent(event, { originalException });
+  expect(event.extra).toEqual({
+    walletDiagnostics: expect.objectContaining({ submissionFeedbackBranch: 'guardian_unanswered' })
+  });
+  event.extra = { walletDiagnostics: { submissionFeedbackBranch: 'grpc_unknown', raw: ADDRESS } };
+  scrubEvent(event, { originalException });
   const wire = JSON.stringify(event);
   expect(wire).toContain('guardian_unanswered');
   expect(wire).not.toContain('grpc_unknown');

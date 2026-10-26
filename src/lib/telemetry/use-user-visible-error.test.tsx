@@ -185,14 +185,22 @@ describe('retained page activity', () => {
 });
 
 it('keeps dwell stable across fresh evidence objects and sends the latest branch', () => {
-  function EvidenceDisplay({branch}: {branch: string}) {
-    Reflect.apply(useUserVisibleError, undefined, ['submissionUnanswered', 'status_screen', undefined, {kind:'submission_feedback', submissionFeedbackBranch:branch}]);
+  function EvidenceDisplay({ branch }: { branch: string }) {
+    Reflect.apply(useUserVisibleError, undefined, [
+      'submissionUnanswered',
+      'status_screen',
+      undefined,
+      { kind: 'submission_feedback', submissionFeedbackBranch: branch }
+    ]);
     return null;
   }
-  const {rerender} = render(<EvidenceDisplay branch="grpc_unknown" />);
+  const { rerender } = render(<EvidenceDisplay branch="grpc_unknown" />);
   advance(500);
   rerender(<EvidenceDisplay branch="guardian_unanswered" />);
   advance(500);
   expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
-  expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {kind:'submission_feedback', submissionFeedbackBranch:'guardian_unanswered'});
+  expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {
+    kind: 'submission_feedback',
+    submissionFeedbackBranch: 'guardian_unanswered'
+  });
 });

@@ -42,6 +42,12 @@ import {
   type TransactionExecutionDiagnostics
 } from './transaction-execution-diagnostics';
 import {
+  annotateUiProducer,
+  snapshotUiProducer,
+  UI_PRODUCER_KEYS,
+  type UiProducerDiagnostics
+} from './ui-producer-diagnostics';
+import {
   USER_ERROR_SURFACES,
   isUserErrorId,
   type UserErrorId,
@@ -170,6 +176,7 @@ export type CrashDiagnostics = Partial<
   ProposalCreateDiagnostics & GuardianProvingDiagnostics & OffscreenDeadlineDiagnostics & TerminalReportDiagnostics
 > &
   Partial<TransactionExecutionDiagnostics> &
+  UiProducerDiagnostics &
   WasmStartupEvidence &
   Partial<StartupEligibilityDiagnostics> & {
     operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
@@ -354,6 +361,8 @@ function annotateCrashAtBoundary(
     const consumeVerdict = CONSUME_VERDICTS.find(value => value === suppliedConsumeVerdict);
     if (consumeVerdict !== undefined) safe.consumeVerdict = consumeVerdict;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
+    if (userErrorId !== undefined || suppliedSurface !== undefined)
+      annotateUiProducer(error, undefined, undefined, undefined);
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
     if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
@@ -620,6 +629,9 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   Object.assign(snapshot, snapshotGuardianProving(error));
   Object.assign(snapshot, snapshotOffscreenDeadlineForCrash(error));
   Object.assign(snapshot, snapshotTerminalReport(error));
+  for (const key of UI_PRODUCER_KEYS) delete snapshot[key];
+  const own = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
+  Object.assign(snapshot, snapshotUiProducer(error, own?.userErrorId, own?.userErrorSurface));
   return snapshot;
 }
 
