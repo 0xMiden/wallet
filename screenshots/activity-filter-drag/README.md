@@ -2,6 +2,8 @@
 
 Captured with Google Chrome **155.0.8059.86** on the connected MacBook, using the real extension's `sidepanel.html#/history` at **400 × 600**. The original Slack screenshot (`F0CBX4ESGQ5`) was retrieved and inspected before selecting this component.
 
+All five final acceptance scenarios explicitly assert `Target.getBrowserContexts` returns no off-the-record contexts and `chrome.extension.inIncognitoContext` is **false**. They run installed Google Chrome in a regular persistent test profile; the user's real profile is never opened. Earlier before/after captures used the same regular persistent-profile launch mechanism.
+
 The current Activity List filters are **All / Pending / Transfer / Swap / Earn / Others**. Their shared scrolling row measures `scrollWidth=513`, `clientWidth=400`.
 
 1. Open Activity in the extension side panel with All selected.
@@ -12,7 +14,7 @@ The current Activity List filters are **All / Pending / Transfer / Swap / Earn /
 | --- | --- |
 | ![Before](before.png) | ![After](after.png) |
 
-These are synthetic frontend fixtures in fresh temporary Chrome profiles: mock client, empty backend, no vault creation, mnemonic access, signing or transaction requests. The feed's loading placeholder is intentional; transaction data is unnecessary for testing the actual filter control. Page requests outside loopback are blocked.
+These are synthetic frontend fixtures in fresh temporary regular Chrome profiles: mock client, empty backend, no vault creation, mnemonic access, signing or transaction requests. The feed's loading placeholder is intentional; transaction data is unnecessary for testing the actual filter control. Page requests outside loopback are blocked.
 
 ## Re-run
 

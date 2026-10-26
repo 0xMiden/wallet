@@ -32,6 +32,11 @@ const test = base.extend({
         const browser = context.browser();
         if (!browser) throw new Error('Chrome browser is unavailable');
         const session = await browser.newBrowserCDPSession();
+        // Persistent launch uses Chrome's regular default profile, not an off-the-record context.
+        const contexts = await session.send('Target.getBrowserContexts');
+        expect(contexts.browserContextIds).toEqual([]);
+        const version = await session.send('Browser.getVersion');
+        console.log(`Regular Google Chrome: ${version.product}; off-the-record contexts: 0`);
         await session.send('Extensions.loadUnpacked', { path: extensionPath });
         await session.detach();
       }
@@ -55,6 +60,7 @@ async function activity(context: BrowserContext, id: string, entry = 'sidepanel.
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`chrome-extension://${id}/${entry}`);
+  expect(await page.evaluate(() => chrome.extension.inIncognitoContext)).toBe(false);
   await page
     .getByTestId('onboarding-welcome')
     .waitFor({ timeout: 45_000 })
