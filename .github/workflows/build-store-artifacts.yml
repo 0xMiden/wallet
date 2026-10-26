@@ -1,8 +1,13 @@
 name: Build Signed Store Artifacts
+run-name: ${{ inputs.request_token && format('Store request {0}', inputs.request_token) || 'Build Signed Store Artifacts' }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_token:
+        description: Optional coordinator dispatch correlation token
+        required: false
+        type: string
       release_tag:
         description: 'Published stable release tag (vX.Y.Z)'
         required: true
@@ -15,7 +20,7 @@ on:
         description: 'Explicit store artifact selection'
         required: true
         type: choice
-        default: chrome
+        default: all
         options:
           - chrome
           - ios
@@ -52,8 +57,52 @@ env:
   NODE_ENV: production
 
 jobs:
+  all-targets:
+    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform == 'all' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Checkout trusted release automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate all-target build plan
+        run: |
+          umask 077
+          mkdir -m 700 "$RUNNER_TEMP/store-all-targets"
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { validateBuildRequest } from './scripts/store-publishing/create-receipt.mjs';
+          if (process.env.GITHUB_RUN_ATTEMPT !== '1') throw new Error('All-target reruns require inspection and explicit recovery with the preserved coordinator journal');
+          const plan = validateBuildRequest({ releaseTag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA,
+            platform: process.env.PLATFORM, network: process.env.NETWORK, buildNumber: process.env.BUILD_NUMBER });
+          writeFileSync(process.env.RUNNER_TEMP + '/store-all-targets/store-build-plan.json', JSON.stringify({ schemaVersion: 1,
+            releaseTag: plan.releaseTag, sourceSha: plan.sourceSha, buildNumber: plan.buildNumber, targets: {} }));
+          NODE
+      - name: Build separate trusted producers in store priority order
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/store-publishing/release-plan.mjs --stage build --plan "$RUNNER_TEMP/store-all-targets/store-build-plan.json" --journal "$RUNNER_TEMP/store-all-targets/store-build-journal.json"
+      - name: Preserve independent producer run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WalletStoreBuildPlan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/store-all-targets/store-build-plan.json
+            ${{ runner.temp }}/store-all-targets/store-build-journal.json
+          if-no-files-found: warn
+          retention-days: 90
+
   prepare:
-    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    if: ${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform != 'all' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:

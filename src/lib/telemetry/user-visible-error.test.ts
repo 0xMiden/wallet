@@ -171,3 +171,18 @@ describe('user-visible error reports', () => {
     expect(Object.isFrozen(USER_ERROR_SURFACES)).toBe(true);
   });
 });
+
+test('startup warning retains closed attempt diagnostics without attaching them to unrelated reports', () => {
+  const diagnostics = {
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'config_not_advanced'
+  };
+  const reportWithDiagnostics = reportUserVisibleError as (...args: unknown[]) => void;
+  reportWithDiagnostics('walletAccessUnavailableBody', 'startup', diagnostics);
+  const error = jest.mocked(captureCrash).mock.calls[0]?.[0];
+  expect(snapshotCrashDiagnostics(error)).toMatchObject(diagnostics);
+  reportWithDiagnostics('usdcxFaucetUnavailable', 'review', diagnostics);
+  const other = jest.mocked(captureCrash).mock.calls[1]?.[0];
+  expect(snapshotCrashDiagnostics(other)).not.toHaveProperty('startupEligibilityStage');
+});
