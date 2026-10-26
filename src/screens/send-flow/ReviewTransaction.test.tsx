@@ -1843,6 +1843,7 @@ describe('ReviewTransaction — transfer type', () => {
 
     // Private by default: the plain CTA, no notice, a quiet summary.
     expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPayment');
+    expect(screen.queryByRole('button', { name: 'continue' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
     expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-emphasis', 'false');
 
@@ -1856,6 +1857,7 @@ describe('ReviewTransaction — transfer type', () => {
     expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-value', 'public');
     expect(within(screen.getByTestId('review-row-transfer-type')).getByText('public')).toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
+    expect(screen.queryByRole('button', { name: 'continue' })).not.toBeInTheDocument();
     expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
     expect(screen.getByTestId('review-public-notice')).toHaveAttribute('data-tone', 'warning');
     expect(screen.getByText('publicTransferNotice')).toBeInTheDocument();
