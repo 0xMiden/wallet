@@ -9,6 +9,7 @@
 - [CHANGE][ios] JavaScript-driven animations (requestAnimationFrame and the springs, layout animations and drags built on it) run at up to 120 fps on ProMotion iPhones and iPads, in the wallet and in dApps opened in the in-app browser: both WebViews turn off WebKit's preference for rendering near 60 fps, and keep it when an iOS version lacks the setting (#1864).
 - [CHANGE][ci] Manual store publishing builds signed production artifacts from an exact published release, requires telemetry configuration, and verifies app identity, network and artifact provenance before store submission.
 - [CHANGE][all] USDCx withdrawals read Confirmed on Circle's payout mint whatever its fee, show the amount received and Circle's fee, and flag a payout delayed past 2 hours; the review says the fee is deducted from the payout and varies, and the mainnet nightly bridge loop verifies each payout (#1877).
+- [FIX][mobile] Rapid dApp switching keeps the latest selection in front when older snapshot, visibility or morph work finishes (#1844).
 - [FIX][e2e] The mobile dApp journey's recipient-claim unit test keeps its runner on the fake clock, so the quiesce join no longer fails intermittently in CI.
 
 ## 1.17.7 (2026-10-25)
