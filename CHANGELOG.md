@@ -2,6 +2,8 @@
 
 ## 1.17.8 (TBD)
 
+- Preserve bounded staging-probe preflight failures without claiming unverified cleanup.
+
 ### Changes
 
 - [CHANGE][ci] Add a trusted-main manual staging probe for isolated eligibility rate-limit bindings with bounded synthetic traffic and manifest-bound cleanup; account support remains unproven until live evidence (#1894).

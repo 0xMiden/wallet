@@ -10,6 +10,18 @@ import { pathToFileURL } from 'node:url';
 
 const WORKFLOW = '.github/workflows/probe-feature-eligibility.yml';
 const LIMITS = { requests: 120, concurrency: 4, startsPerSecond: 8, durationMs: 60000 };
+const PREFLIGHT_STAGES = [
+  'environment',
+  'identity',
+  'authentication',
+  'inventory',
+  'absence',
+  'subdomain',
+  'preparation',
+  'deployment',
+  'verification',
+  'exercise'
+];
 const STATES = ['prepared', 'deploying', 'deployed', 'uncertain', 'cleaned', 'cleanup_blocked'];
 const START_INTERVAL_MS = 126;
 const REASONS = [
@@ -53,6 +65,23 @@ function validateIdentity(identity) {
     !/^[a-f0-9]{40}$/.test(identity.sourceSha)
   )
     fail('auth');
+}
+
+export function validatePreflight(receipt) {
+  if (!receipt || !same(Object.keys(receipt).sort(), ['deployment', 'identity', 'manifest', 'reason', 'stage']))
+    fail('invalid_response');
+  validateIdentity(receipt.identity);
+  if (
+    !PREFLIGHT_STAGES.includes(receipt.stage) ||
+    !REASONS.includes(receipt.reason) ||
+    !['absent', 'registered'].includes(receipt.manifest) ||
+    !['not_attempted', 'attempted'].includes(receipt.deployment) ||
+    (receipt.deployment === 'attempted' &&
+      (receipt.manifest !== 'registered' || !['deployment', 'verification', 'exercise'].includes(receipt.stage))) ||
+    (['deployment', 'verification', 'exercise'].includes(receipt.stage) && receipt.deployment !== 'attempted')
+  )
+    fail('invalid_response');
+  return receipt;
 }
 
 function trustedContext(context) {
@@ -438,11 +467,15 @@ export function createProbeController(effects) {
     let manifest;
     let directory;
     let attempted = false;
+    let registered = false;
+    let stage = 'identity';
     const save = async () => effects.privateFiles.write(join(directory, 'manifest.json'), canonical(manifest), 0o600);
     try {
       validateIdentity(identity);
       if (!trustedContext(effects.context) || !same(identity, contextIdentity(effects.context))) fail('auth');
+      stage = 'authentication';
       await authenticate();
+      stage = 'inventory';
       let resources;
       try {
         resources = await inventory(`miden-elig-probe-${identity.runId}-${identity.runAttempt}`);
@@ -450,14 +483,18 @@ export function createProbeController(effects) {
         fail(error?.reason === 'ownership_mismatch' ? 'ownership_mismatch' : 'inventory_incomplete');
       }
       manifest = buildProbeManifest(identity, workerBytes, resources);
+      stage = 'absence';
       if ((await api(`/workers/scripts/${manifest.scriptName}/settings`, 'GET', true)) !== null)
         fail('ownership_mismatch');
+      stage = 'subdomain';
       const subdomain = (await api('/workers/subdomain')).result?.subdomain;
       if (typeof subdomain !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain))
         fail('inventory_incomplete');
       if (effects.signal?.aborted) fail('bounds_reached');
+      stage = 'preparation';
       directory = await effects.privateFiles.createDirectory(0o700);
       await save();
+      registered = true;
       await effects.privateFiles.write(join(directory, 'staging-probe.mjs'), workerBytes, 0o600);
       await effects.privateFiles.write(join(directory, 'wrangler.json'), canonical(configFor(manifest)), 0o600);
       const bearer = effects.randomSecret();
@@ -470,6 +507,7 @@ export function createProbeController(effects) {
       );
       manifest.deploymentState = 'deploying';
       await save();
+      stage = 'deployment';
       attempted = true;
       const env = Object.fromEntries(
         ['PATH', 'HOME', 'TMPDIR', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']
@@ -515,11 +553,21 @@ export function createProbeController(effects) {
       }
       manifest.deploymentState = 'deployed';
       await save();
+      stage = 'verification';
       if (!(await owned(manifest))) fail('ownership_mismatch');
+      stage = 'exercise';
       await exercise(manifest, subdomain, bearer, result);
     } catch (error) {
       result.support = 'unknown';
       result.reason = reasonOf(error);
+      if (trustedContext(effects.context) && same(identity, contextIdentity(effects.context)))
+        result.preflight = validatePreflight({
+          identity: { ...identity },
+          stage,
+          manifest: registered ? 'registered' : 'absent',
+          deployment: attempted ? 'attempted' : 'not_attempted',
+          reason: result.reason
+        });
     } finally {
       if (directory) {
         if (attempted) {
@@ -677,8 +725,18 @@ export async function main(args, env = process.env) {
     !env.RUNNER_TEMP ||
     !/^[a-f0-9]{32}$/.test(env.CLOUDFLARE_ACCOUNT_ID || '') ||
     !env.CLOUDFLARE_API_TOKEN
-  )
-    return args[0] === 'cleanup' ? { ...result, cleanup: 'blocked' } : result;
+  ) {
+    if (args[0] === 'cleanup') return { ...result, cleanup: 'blocked' };
+    if (env.RUNNER_TEMP && trustedContext(createLocalProbeEffects(env).context))
+      result.preflight = validatePreflight({
+        identity: contextIdentity(createLocalProbeEffects(env).context),
+        stage: 'environment',
+        manifest: 'absent',
+        deployment: 'not_attempted',
+        reason: 'auth'
+      });
+    return result;
+  }
   const effects = createLocalProbeEffects(env);
   effects.workerBytes = await readFile(new URL('../services/feature-eligibility/staging-probe.mjs', import.meta.url));
   const aborter = new AbortController();

@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 import {
   buildProbeManifest,
   createLocalProbeEffects,
-  createProbeController
+  createProbeController,
+  validatePreflight
 } from './feature-eligibility-staging-probe.mjs';
 
 const WORKFLOW = '.github/workflows/probe-feature-eligibility.yml';
@@ -183,13 +184,25 @@ export async function cleanupRecovery(prepared, manifest, effects, controllerFac
 export function sanitizeEvidence(manifest, result, workerBytes) {
   if (manifest !== null) validateManifest(manifest, workerBytes);
   requireValue(
-    keys(result, ['support', 'caller', 'colo', 'cleanup', 'counts', 'reason']) &&
+    keys(result, [
+      'support',
+      'caller',
+      'colo',
+      'cleanup',
+      'counts',
+      'reason',
+      ...(Object.hasOwn(result || {}, 'preflight') ? ['preflight'] : [])
+    ]) &&
       ['supported', 'unknown'].includes(result.support) &&
       ['refused', 'unknown'].includes(result.caller) &&
       ['refused', 'unknown'].includes(result.colo) &&
       ['absent', 'removed', 'blocked'].includes(result.cleanup) &&
       REASONS.includes(result.reason)
   );
+  if (Object.hasOwn(result, 'preflight')) {
+    validatePreflight(result.preflight);
+    requireValue(result.support === 'unknown');
+  }
   requireValue(
     keys(result.counts, ['requests', 'allowed', 'limited', 'unavailable']) &&
       Object.values(result.counts).every(value => Number.isSafeInteger(value) && value >= 0 && value <= 120) &&
@@ -308,6 +321,8 @@ export async function main(args, env = process.env) {
     try {
       result = await readJson(join(root, 'probe-result.json'));
       sanitizeEvidence(manifest, result, workerBytes);
+      if (result.preflight)
+        requireValue(isDeepStrictEqual(result.preflight.identity, contextIdentity(effects.context)));
     } catch {
       result = { ...blocked(), reason: 'invalid_response' };
     }
@@ -318,7 +333,17 @@ export async function main(args, env = process.env) {
         requireValue(cleanup.reason === 'complete' && cleanup.cleanup !== 'blocked');
         result = { ...result, cleanup: cleanup.cleanup };
       } catch {
-        result = { ...result, support: 'unknown', cleanup: 'blocked', reason: 'cleanup_failed' };
+        const early =
+          manifest === null &&
+          result.preflight?.manifest === 'absent' &&
+          result.preflight?.deployment === 'not_attempted' &&
+          result.counts.requests === 0;
+        result = {
+          ...result,
+          support: 'unknown',
+          cleanup: 'blocked',
+          reason: early ? result.preflight.reason : 'cleanup_failed'
+        };
       }
     }
     const sanitized = sanitizeEvidence(manifest, result, workerBytes);
