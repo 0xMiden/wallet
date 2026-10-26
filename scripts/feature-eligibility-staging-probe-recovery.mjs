@@ -310,8 +310,8 @@ export async function main(args, env = process.env) {
       if (env.PROBE_OPERATION === 'probe') {
         const cleanup = await readJson(join(root, 'probe-cleanup-result.json'));
         sanitizeEvidence(null, cleanup, workerBytes);
-        if (cleanup.cleanup === 'blocked')
-          result = { ...result, support: 'unknown', cleanup: 'blocked', reason: 'cleanup_failed' };
+        result = { ...result, cleanup: cleanup.cleanup };
+        if (cleanup.cleanup === 'blocked') result = { ...result, support: 'unknown', reason: 'cleanup_failed' };
       }
       sanitizeEvidence(manifest, result, workerBytes);
     } catch {
