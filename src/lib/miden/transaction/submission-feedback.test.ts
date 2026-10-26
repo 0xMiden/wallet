@@ -174,11 +174,16 @@ describe('submissionFeedback (#1689)', () => {
 });
 
 it.each([
-  [REMOTE_PROVER_FAILED_ERROR,'prover_at_submit'],
-  [GUARDIAN_OUTAGE,'guardian_unanswered'],
-  [DEADLINE,'grpc_unknown'],
-  [TRANSACTION_STUCK_ERROR,'no_answer']
+  [REMOTE_PROVER_FAILED_ERROR, 'prover_at_submit'],
+  [GUARDIAN_OUTAGE, 'guardian_unanswered'],
+  [DEADLINE, 'grpc_unknown'],
+  [TRANSACTION_STUCK_ERROR, 'no_answer']
 ])('retains the selected existing unanswered branch', (error, branch) => {
-  const feedback=submissionFeedback(row({error}));
-  expect(feedback).toMatchObject({kind:'unanswered',messageKey:'submissionUnanswered',details:error,submissionFeedbackBranch:branch});
+  const feedback = submissionFeedback(row({ error }));
+  expect(feedback).toMatchObject({
+    kind: 'unanswered',
+    messageKey: 'submissionUnanswered',
+    details: error,
+    submissionFeedbackBranch: branch
+  });
 });

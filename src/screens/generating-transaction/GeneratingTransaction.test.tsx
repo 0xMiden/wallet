@@ -1676,10 +1676,41 @@ describe('user-visible transaction errors', () => {
     });
   };
   it('carries the current unanswered branch through the status screen', async () => {
-    mockRowState = { row: makeTx({status: ITransactionStatus.Unconfirmed, stage: 'submitting', error: 'Guardian request to https://private.invalid timed out after 10 ms'}), loaded: true };
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting',
+        error: 'Guardian request to https://private.invalid timed out after 10 ms'
+      }),
+      loaded: true
+    };
     await renderPage();
     act(() => jest.advanceTimersByTime(1000));
-    expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {kind: 'submission_feedback', submissionFeedbackBranch: 'guardian_unanswered'});
+    expect(reportUserVisibleError).toHaveBeenCalledWith('submissionUnanswered', 'status_screen', {
+      kind: 'submission_feedback',
+      submissionFeedbackBranch: 'guardian_unanswered'
+    });
+  });
+  it('reports the latest selected branch without restarting an unanswered dwell', async () => {
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting',
+        error: 'Guardian request to https://private.invalid timed out after 10 ms'
+      }),
+      loaded: true
+    };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(999));
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.Unconfirmed, stage: 'submitting', error: 'timed out' }),
+      loaded: true
+    };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['submissionUnanswered', 'status_screen', { kind: 'submission_feedback', submissionFeedbackBranch: 'no_answer' }]
+    ]);
   });
   const failRow = () => {
     mockRowState = {

@@ -1644,12 +1644,17 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     held();
     await click('retry');
     advance(1000);
-    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_pending_activity_retry_failed', 'notice', {kind: 'pending_retry', pendingRetryReason: 'guardian_hold'});
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_pending_activity_retry_failed', 'notice', {
+      kind: 'pending_retry',
+      pendingRetryReason: 'guardian_hold'
+    });
     expect(mockRequeue).toHaveBeenCalledTimes(1);
     expect(mockStart).not.toHaveBeenCalled();
   });
   const expectRawReport = () =>
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_pending_activity_retry_failed', 'notice']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'unexpected' }]
+    ]);
   const observeHeldCard = () => {
     let retryHeld: (() => Promise<void>) | undefined;
     const commits: Array<{
@@ -1936,8 +1941,8 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expectRawReport();
     advance(1);
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
-      ['raw_pending_activity_retry_failed', 'notice'],
-      ['raw_pending_activity_retry_failed', 'notice']
+      ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'unexpected' }],
+      ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'unexpected' }]
     ]);
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(2);

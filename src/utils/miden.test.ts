@@ -1,4 +1,4 @@
-import {snapshotRecipientValidation} from 'lib/telemetry/ui-producer-diagnostics';
+import { snapshotRecipientValidation } from 'lib/telemetry/ui-producer-diagnostics';
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
@@ -115,9 +115,16 @@ describe('Miden and Ethereum address utilities', () => {
   });
 });
 
-it.each([['unknown1private','prefix_rejected'],['mtst1account','decoder_throw']])('retains only the existing validation boundary for %s', (address,stage) => {
-  let observed:unknown;
-  try{isValidMidenAddress(address);}catch(error){observed=error;}
+it.each([
+  ['unknown1private', 'prefix_rejected'],
+  ['mtst1account', 'decoder_throw']
+])('retains only the existing validation boundary for %s', (address, stage) => {
+  let observed: unknown;
+  try {
+    isValidMidenAddress(address);
+  } catch (error) {
+    observed = error;
+  }
   expect(observed).toBeInstanceOf(MidenAddressError);
   expect(snapshotRecipientValidation(observed)).toBe(stage);
 });

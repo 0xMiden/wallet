@@ -15,7 +15,9 @@ it('binds the exact reporting root and pair, clearing invalid reused evidence', 
   annotateUiProducer(error, 'raw_pending_activity_retry_failed', 'notice', evidence);
   expect(snapshotCrashDiagnostics(error)).toHaveProperty('pendingRetryReason', 'row_missing');
   expect(snapshotCrashDiagnostics(new Error('wrapper', { cause: error }))).not.toHaveProperty('pendingRetryReason');
-  expect(snapshotUiProducer(new Error('wrapper', {cause: error}), 'raw_pending_activity_retry_failed', 'notice')).toBeUndefined();
+  expect(
+    snapshotUiProducer(new Error('wrapper', { cause: error }), 'raw_pending_activity_retry_failed', 'notice')
+  ).toBeUndefined();
   annotateCrash(error, { userErrorId: 'invalidAmount', userErrorSurface: 'field' });
   annotateCrash(error, { userErrorId: 'raw_pending_activity_retry_failed', userErrorSurface: 'notice' });
   expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('pendingRetryReason');

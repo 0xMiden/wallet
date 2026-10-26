@@ -832,7 +832,10 @@ describe('recipient address entry', () => {
   it('binds unexpected validation to the current form error and clears it for an empty recipient', () => {
     renderFlow();
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    expect(JSON.parse(screen.getByTestId('sr-evidence').textContent!)).toEqual({ kind: 'recipient_validation', recipientValidationStage: 'validator_exception' });
+    expect(JSON.parse(screen.getByTestId('sr-evidence').textContent!)).toEqual({
+      kind: 'recipient_validation',
+      recipientValidationStage: 'validator_exception'
+    });
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
     expect(screen.getByTestId('sr-evidence')).toHaveTextContent('null');
     expect(screen.getByTestId('sr-error')).toBeEmptyDOMElement();

@@ -450,11 +450,25 @@ describe('route availability report', () => {
   it('carries a known incoming route through the neutral notice without changing the dwell', () => {
     jest.useFakeTimers();
     jest.mocked(reportUserVisibleError).mockClear();
-    render(<RouteOptions route="agglayer" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...{fastFeature: 'fastBridgeIn' as const}} fastAvailability={DOWN} slowAvailability={AVAILABLE} />);
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...{ fastFeature: 'fastBridgeIn' as const }}
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+      />
+    );
     act(() => jest.advanceTimersByTime(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     act(() => jest.advanceTimersByTime(1));
-    expect(reportUserVisibleError).toHaveBeenCalledWith('bridgeFeatureUnavailableBody', 'notice', { kind: 'feature_unavailable', featureUnavailableFeature: 'fastBridgeIn', featureUnavailableReason: 'service-down' });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('bridgeFeatureUnavailableBody', 'notice', {
+      kind: 'feature_unavailable',
+      featureUnavailableFeature: 'fastBridgeIn',
+      featureUnavailableReason: 'service-down'
+    });
   });
 
   const mockReport = jest.mocked(reportUserVisibleError);
@@ -476,7 +490,13 @@ describe('route availability report', () => {
       />
     );
     act(() => jest.advanceTimersByTime(1000));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
   });
 
   it('reports nothing for a route held while the startup decision is pending', () => {
