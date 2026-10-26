@@ -13,4 +13,7 @@ jobs:
         with:
           node-version: 22
       - name: Profile material regression without native builds or credentials
-        run: node --test scripts/store-publishing/create-receipt.test.mjs
+        run: |
+          node --test scripts/store-publishing/*.test.mjs
+          python3 scripts/store-publishing/apple-profile.test.py
+          python3 scripts/store-publishing/inspect-artifact.test.py
