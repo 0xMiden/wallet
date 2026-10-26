@@ -5388,7 +5388,7 @@
     "englishSource": "All"
   },
   "sent": {
-    "message": "Enviadas",
+    "message": "Enviado",
     "englishSource": "Sent"
   },
   "pending": {
@@ -6025,7 +6025,7 @@
     "englishSource": "Transfer IDs"
   },
   "consumed": {
-    "message": "Consumido",
+    "message": "Consumidas",
     "englishSource": "Consumed"
   },
   "noteTypeLabel": {
