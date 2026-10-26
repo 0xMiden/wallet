@@ -89,6 +89,8 @@ for (const theme of ['light', 'dark'] as const) {
       activate();
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-reopened');
+      activate();
+      await expect.poll(panelCount).toBe(0);
       await worker.evaluate(async () => {
         await chrome.storage.local.set({ sidepanel_mode: false });
         await chrome.action.setPopup({ popup: 'popup.html' });
