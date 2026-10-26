@@ -47,13 +47,13 @@ export type UiEvidenceInput =
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage };
-export interface UiProducerDiagnostics {
+export type UiProducerDiagnostics = {
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
   pendingRetryReason?: PendingRetryReason;
   recipientValidationStage?: RecipientValidationStage;
-}
+};
 export const UI_PRODUCER_KEYS = [
   'featureUnavailableFeature',
   'featureUnavailableReason',
