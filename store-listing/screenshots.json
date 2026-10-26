@@ -11,165 +11,43 @@
       "images": [
         {
           "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/01.png",
-          "sha256": "799a3838dd9b3fb9fadbfc618522823076cd3ba20d08880aff4bf9604d615a16",
-          "size": 173334,
+          "sha256": "494db78ee59298af58d3652c2ed56c66a65dbd32db0259cb8ff8b777bcffea34",
+          "size": 773987,
           "width": 1320,
           "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "990af897-8f4b-4a86-88e1-0b0b47379140",
-            "fileName": "6-onboarding.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "3f0feddb0a80bad628cd83ebfdc3bca1"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "799a3838dd9b3fb9fadbfc618522823076cd3ba20d08880aff4bf9604d615a16"
-          }
+          "format": "png"
         },
         {
           "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/02.png",
-          "sha256": "af13d65f72eb866f2c1036174b490153a35855d22113de973d9bfb207d1f017c",
-          "size": 160511,
+          "sha256": "0d69be050d7ffed30979a29925b9cb798905aaef96be13a47a1c67095ba54d38",
+          "size": 517333,
           "width": 1320,
           "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "d185647f-d5f8-4cbf-b3da-90efadde9d85",
-            "fileName": "8-onboarding-protect.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "e4682ab3333525463813b1a22f408e33"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "af13d65f72eb866f2c1036174b490153a35855d22113de973d9bfb207d1f017c"
-          }
+          "format": "png"
         },
         {
           "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/03.png",
-          "sha256": "becb73b5366c542b90b530bcb9e2d38e2fb4eb467a6351943499425e95d1a2cb",
-          "size": 189271,
+          "sha256": "75d90b612043dc721ae5cd2c821c54a72e1397e193bf74e9591bfb0fe9fcbfd6",
+          "size": 973945,
           "width": 1320,
           "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "6a6459bc-c343-4fdd-b2d6-6eb6fe7d753c",
-            "fileName": "5-guardian.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "d8c798c183f9be8f4af94cda9e02c345"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "becb73b5366c542b90b530bcb9e2d38e2fb4eb467a6351943499425e95d1a2cb"
-          }
+          "format": "png"
         },
         {
           "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/04.png",
-          "sha256": "337248efc58aab29c54fcafa677b170a68bd2a0fe06bef089a04b8c21fc77cce",
-          "size": 181924,
+          "sha256": "5f705c9a4d8f8efa08fc68e52cc4f6a627fbcd32fe753a4631b6c5dbffe3b242",
+          "size": 620974,
           "width": 1320,
           "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "58ce66f9-1b54-458a-ace2-f2826ee99d3b",
-            "fileName": "1-home.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "ad0f70c79f4ae1dc6d51c73538b34993"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "337248efc58aab29c54fcafa677b170a68bd2a0fe06bef089a04b8c21fc77cce"
-          }
+          "format": "png"
         },
         {
           "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/05.png",
-          "sha256": "2f2c47a995dc8b100db6a7385a96a52bc4a502dfc543c0caff6755928280b22a",
-          "size": 214122,
+          "sha256": "f95bbd42eb2962e7ee5fda8f793a2ed499180b386ceb8794ca3ea6b1bb0c1c2d",
+          "size": 793081,
           "width": 1320,
           "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "a5ab49fb-75ff-4140-94a3-1691816f2866",
-            "fileName": "3-receive.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "c2214b0f5e059cf714dad970303e9f0b"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "2f2c47a995dc8b100db6a7385a96a52bc4a502dfc543c0caff6755928280b22a"
-          }
-        },
-        {
-          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/06.png",
-          "sha256": "932a4e86da6766b3e86521a203d719c7455207252cb7ab3a5512b65d07c520ca",
-          "size": 201154,
-          "width": 1320,
-          "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "391755e1-61c7-446b-a5f6-e15f5518cfc1",
-            "fileName": "4-dapp-browser.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "a6d234e3e596f4e4ef69954dd407f17c"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "932a4e86da6766b3e86521a203d719c7455207252cb7ab3a5512b65d07c520ca"
-          }
-        },
-        {
-          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/07.png",
-          "sha256": "7ffda613508169ba7b8edbf56501de377568ac0ddd7617b163624ab4d05f1728",
-          "size": 407616,
-          "width": 1320,
-          "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "991981b0-326b-47eb-ace6-2257ce581239",
-            "fileName": "9-dapp-faucet.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "9d634b1a3e6a56450f3fc12db15c5f1b"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "7ffda613508169ba7b8edbf56501de377568ac0ddd7617b163624ab4d05f1728"
-          }
-        },
-        {
-          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/08.png",
-          "sha256": "50b2dfd28d8bf419989fea1a9ffb0a6590eca72c442602c404ea9bf8c410860d",
-          "size": 137593,
-          "width": 1320,
-          "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "8806ab41-ab7e-4a4f-a8b3-649a0d23fc7c",
-            "fileName": "2-send.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "e2b5a553c7fcf074059f9d61df027f64"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "50b2dfd28d8bf419989fea1a9ffb0a6590eca72c442602c404ea9bf8c410860d"
-          }
-        },
-        {
-          "path": "store-listing/assets/ios/en-US/APP_IPHONE_67/09.png",
-          "sha256": "a43a06ddeddff20a830c633ee4e015b05167a62d780da322985b484acca79633",
-          "size": 200765,
-          "width": 1320,
-          "height": 2868,
-          "format": "png",
-          "source": {
-            "assetId": "3c8c14b8-7989-45a1-b6aa-e7200ce6fdfa",
-            "fileName": "7-send-review.png",
-            "checksum": {
-              "algorithm": "md5",
-              "value": "39708670ea1bd0b27d8eabfda7860eff"
-            },
-            "kind": "store-delivery-rendition",
-            "importSha256": "a43a06ddeddff20a830c633ee4e015b05167a62d780da322985b484acca79633"
-          }
+          "format": "png"
         }
       ]
     },
@@ -537,6 +415,79 @@
               "value": "74d417ff6bf001d8b3e788fa5ada097c2b6d1c3ba40a0103a8ee24ad878638d2"
             }
           }
+        }
+      ]
+    }
+  ],
+  "baselineSets": [
+    {
+      "platform": "ios",
+      "storeId": "6789341854",
+      "locale": "en-US",
+      "displayType": "APP_IPHONE_67",
+      "images": [
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "3f0feddb0a80bad628cd83ebfdc3bca1"
+          },
+          "assetId": "990af897-8f4b-4a86-88e1-0b0b47379140"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "e4682ab3333525463813b1a22f408e33"
+          },
+          "assetId": "d185647f-d5f8-4cbf-b3da-90efadde9d85"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "d8c798c183f9be8f4af94cda9e02c345"
+          },
+          "assetId": "6a6459bc-c343-4fdd-b2d6-6eb6fe7d753c"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "ad0f70c79f4ae1dc6d51c73538b34993"
+          },
+          "assetId": "58ce66f9-1b54-458a-ace2-f2826ee99d3b"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "c2214b0f5e059cf714dad970303e9f0b"
+          },
+          "assetId": "a5ab49fb-75ff-4140-94a3-1691816f2866"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "a6d234e3e596f4e4ef69954dd407f17c"
+          },
+          "assetId": "391755e1-61c7-446b-a5f6-e15f5518cfc1"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "9d634b1a3e6a56450f3fc12db15c5f1b"
+          },
+          "assetId": "991981b0-326b-47eb-ace6-2257ce581239"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "e2b5a553c7fcf074059f9d61df027f64"
+          },
+          "assetId": "8806ab41-ab7e-4a4f-a8b3-649a0d23fc7c"
+        },
+        {
+          "checksum": {
+            "algorithm": "md5",
+            "value": "39708670ea1bd0b27d8eabfda7860eff"
+          },
+          "assetId": "3c8c14b8-7989-45a1-b6aa-e7200ce6fdfa"
         }
       ]
     }
