@@ -4403,6 +4403,134 @@
     "message": "Создан файл «notes»",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Поток Note",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "Output notes",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "Выводные notes, включая комиссию",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Отсутствие вводных notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "No output notes",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Детали вводной note недоступны",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Некоторые детали вводной note недоступны",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note о комиссии за транзакцию",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Другие термины в сценарии «note»",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Скрипт «Note» недоступен",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Содержимое Note недоступно",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Создано",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Корень скрипта",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Активы не указаны",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Масштаб суммы неизвестен",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "базовые единицы",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Исходные данные транзакций",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Сведения о ячейке хранения недоступны",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Без изменений в хранении",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Слот карты",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Поле значения",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Создано",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Обновлено",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Удалено",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Операция недоступна",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Измененные записи",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Изменено хранилище",
     "englishSource": "Storage changed"

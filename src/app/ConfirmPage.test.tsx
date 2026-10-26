@@ -46,6 +46,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
     ConsumedExternal: 'ConsumedExternal'
   },
+  NoteType: { Private: 0, Public: 1 },
   SigningInputs: { deserialize: jest.fn() },
   SigningInputsType: { TransactionSummary: 'TransactionSummary', Arbitrary: 'Arbitrary', Blind: 'Blind' },
   Word: { deserialize: jest.fn() }
@@ -189,6 +190,11 @@ jest.mock('./confirm/TransactionAssetView', () => ({
       )}
     </div>
   ))
+}));
+
+jest.mock('./confirm/note-flow', () => ({
+  ...jest.requireActual('./confirm/note-flow'),
+  noteFlowFromSimulatedBytes: jest.fn(() => ({ inputCount: 0, inputs: [], outputs: [] }))
 }));
 
 // Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
@@ -1130,7 +1136,9 @@ describe('sign payload — signingInputs', () => {
     // the executed TransactionSummary (summaryToView), not a re-derivation.
     // Faucet ids are resolved to bech32 (metadata cache key), not hex.
     expect(mockTransactionAssetView).toHaveBeenCalledTimes(1);
-    const { view } = mockTransactionAssetView.mock.calls[0][0];
+    const { view, noteFlow } = mockTransactionAssetView.mock.calls[0][0];
+    expect(noteFlow).toMatchObject({ inputCount: 2, outputs: expect.any(Array) });
+    expect(noteFlow.outputs).toHaveLength(3);
     expect(view).toEqual({
       account: 'bech32:acc-id',
       outgoing: [

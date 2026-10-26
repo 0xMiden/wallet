@@ -4403,6 +4403,136 @@
     "message": "Notas de salida creadas",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Flujo de Notes",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "notes finales",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "notes de salida, incluidas las comisiones",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "No input notes",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "notes de salida",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Input note details unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Some input note details are unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note sobre las comisiones por transacción",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note sobre P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note de P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note de PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Otras notes de guion",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "El script «Note» no está disponible",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note contents unavailable",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Creado por",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Raíz del script",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "No hay activos cotizados",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Escala de importes desconocida",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "unidades básicas",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Datos brutos de las transacciones",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "No hay datos disponibles sobre las ranuras de almacenamiento",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "No hay cambios en el almacenamiento",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Ranura de mapa",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Campo de valor",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Creado",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Actualizado",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Eliminado",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Operación no disponible",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Entradas modificadas",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Almacenamiento modificado",
     "englishSource": "Storage changed"

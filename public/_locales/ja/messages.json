@@ -4403,6 +4403,130 @@
     "message": "notes が出力されました",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Noteフロー",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "出力notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "出力notes（手数料を含む）",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "入力notesなし",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "出力notesなし",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "入力noteの詳細が利用できません",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "一部の入力noteの詳細は利用できません",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "取引手数料に関するnote",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "その他のnoteスクリプト",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Noteスクリプトは利用不可",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Noteの内容は利用できません",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "作成者：",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "スクリプトのルート",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "上場資産なし",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "金額の単位は不明",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "基本単位",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "生の取引データ",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "この取引に関する個々のnoteの詳細は利用できません。",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "個々のnoteの詳細は確認されていません。リクエストのプレビューは当サイトが提供したものです。",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "ストレージスロットの詳細が利用できません",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "ストレージの変更なし",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "マップスロット",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "値のスロット",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "作成",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "更新済み",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "削除済み",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "操作は利用できません",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "変更された項目",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "保存先が変更されました",
     "englishSource": "Storage changed"

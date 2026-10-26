@@ -4403,6 +4403,130 @@
     "message": "notes 파일이 생성되었습니다.",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Note 흐름",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "출력notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "수수료를 포함한 출력 내역notes",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "입력 notes 없음",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "출력notes 없음",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "입력 note 세부 정보를 확인할 수 없음",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "일부 입력 note 세부 정보는 확인할 수 없습니다",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "거래 수수료 관련 note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "기타 note 스크립트",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note 스크립트 사용 불가",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note의 내용을 확인할 수 없음",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "작성자:",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "스크립트 루트",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "상장된 자산 없음",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "금액 단위 미상",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "기본 단위",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "원시 거래 데이터",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "이 거래에 대한 개별 note 세부 정보는 확인할 수 없습니다.",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "개별 note의 세부 내용은 확인되지 않았습니다. 해당 사이트에서 요청 미리보기를 제공했습니다.",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "저장 슬롯 세부 정보를 확인할 수 없음",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "저장 관련 변경 사항 없음",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "맵 슬롯",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "값 입력란",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "생성됨",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "업데이트됨",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "삭제됨",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "사용할 수 없는 작업",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "수정된 항목",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "저장소가 변경되었습니다",
     "englishSource": "Storage changed"

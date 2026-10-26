@@ -4403,6 +4403,130 @@
     "message": "Output notes created",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Note flow",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "Output notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "Output notes, including fee",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "No input notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "No output notes",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Input note details unavailable",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Some input note details are unavailable",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "Transaction fee note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Other note script",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note script unavailable",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note contents unavailable",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Created by",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Script root",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "No assets listed",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Amount scale unknown",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "base units",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Raw transaction data",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Storage slot details unavailable",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "No storage changes",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Map slot",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Value slot",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Created",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Updated",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Removed",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Operation unavailable",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Entries changed",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Storage changed",
     "englishSource": "Storage changed"

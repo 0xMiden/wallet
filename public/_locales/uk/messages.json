@@ -4403,6 +4403,132 @@
     "message": "Створено вихідний файл «notes»",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Потік Note",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "Вихідні notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "Вихідні notes, включаючи комісію",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Немає вхідних notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "Відсутність вихідних notes",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Деталі вхідної note недоступні",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Деякі деталі вхідної note недоступні",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "note щодо комісії за транзакцію",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "note щодо P2ID",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "note P2IDE",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "note PSWAP",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Інші правила написання «note»",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Скрипт «Note» недоступний",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Зміст Note недоступний",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Створено",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Корінь скрипту",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Активи не вказані",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Масштаб суми невідомий",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "базові одиниці",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Необроблені дані транзакцій",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Individual note details are unavailable for this transaction.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "Individual note details are not verified. The site supplied the request preview.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Деталі про слот зберігання недоступні",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Жодних змін щодо зберігання",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Слот карти",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Поле значення",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Створено",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Оновлено",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Вилучено",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "Операція недоступна",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Змінені записи",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Змінено місце зберігання",
     "englishSource": "Storage changed"

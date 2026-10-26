@@ -4403,6 +4403,130 @@
     "message": "輸出：已建立 notes",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Note流",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "輸出notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "輸出notes，包含手續費",
+    "englishSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "無輸入notes",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "無輸出notes",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "無法取得輸入note的詳細資訊",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "部分輸入note的詳細資訊無法取得",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "交易手續費note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "其他note腳本",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note 腳本不可用",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note 內容無法顯示",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "由",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "腳本根",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "無資產列出",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "金額單位不明",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "基本單位",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "原始交易資料",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "此筆交易無法提供個別note的詳細資訊。",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "個別note的詳細資訊未經核實。該網站提供了請求預覽。",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "儲存槽詳細資訊無法取得",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "無儲存變更",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "映射槽位",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "價值欄位",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "建立",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "已更新",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "已移除",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "該操作不可用",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "已修改的條目",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "儲存方式已變更",
     "englishSource": "Storage changed"

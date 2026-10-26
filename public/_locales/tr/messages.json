@@ -4403,6 +4403,131 @@
     "message": "Çıktı note'ları oluşturuldu",
     "englishSource": "Output notes created"
   },
+  "transactionNoteFlow": {
+    "message": "Note akışı",
+    "englishSource": "Note flow"
+  },
+  "transactionOutputNotes": {
+    "message": "Çıktı notes",
+    "englishSource": "Output notes"
+  },
+  "outputNotesIncludingFee": {
+    "message": "Output notes, including fee",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Output notes, including fee"
+  },
+  "noInputNotes": {
+    "message": "Giriş notes yok",
+    "englishSource": "No input notes"
+  },
+  "noOutputNotes": {
+    "message": "Çıktı notes yok",
+    "englishSource": "No output notes"
+  },
+  "inputDetailsUnavailable": {
+    "message": "Giriş note'sinin ayrıntıları mevcut değil",
+    "englishSource": "Input note details unavailable"
+  },
+  "additionalInputDetailsUnavailable": {
+    "message": "Bazı giriş note'sindeki ayrıntılar mevcut değildir",
+    "englishSource": "Some input note details are unavailable"
+  },
+  "transactionFeeNote": {
+    "message": "İşlem ücreti note",
+    "englishSource": "Transaction fee note"
+  },
+  "P2ID": {
+    "message": "P2ID note",
+    "englishSource": "P2ID note"
+  },
+  "P2IDE": {
+    "message": "P2IDE note",
+    "englishSource": "P2IDE note"
+  },
+  "PSWAP": {
+    "message": "PSWAP note",
+    "englishSource": "PSWAP note"
+  },
+  "otherNoteScript": {
+    "message": "Diğer note metni",
+    "englishSource": "Other note script"
+  },
+  "unknownNoteScript": {
+    "message": "Note komut dosyası kullanılamıyor",
+    "englishSource": "Note script unavailable"
+  },
+  "noteDetailsUnavailable": {
+    "message": "Note'un içeriği mevcut değil",
+    "englishSource": "Note contents unavailable"
+  },
+  "noteSender": {
+    "message": "Oluşturuldu:",
+    "englishSource": "Created by"
+  },
+  "noteScriptRoot": {
+    "message": "Script kökü",
+    "englishSource": "Script root"
+  },
+  "noNoteAssets": {
+    "message": "Listelenen varlık yok",
+    "englishSource": "No assets listed"
+  },
+  "amountUnknown": {
+    "message": "Miktar ölçeği bilinmiyor",
+    "englishSource": "Amount scale unknown"
+  },
+  "baseUnits": {
+    "message": "temel birimler",
+    "englishSource": "base units"
+  },
+  "rawTransactionData": {
+    "message": "Ham işlem verileri",
+    "englishSource": "Raw transaction data"
+  },
+  "verifiedNoteDetailsUnavailable": {
+    "message": "Bu işlem için bireysel note ayrıntıları mevcut değildir.",
+    "englishSource": "Individual note details are unavailable for this transaction."
+  },
+  "declaredNoteDetailsUnavailable": {
+    "message": "note'un ayrıntıları doğrulanmamıştır. Talep önizlemesi site tarafından sağlanmıştır.",
+    "englishSource": "Individual note details are not verified. The site supplied the request preview."
+  },
+  "storageDetailsUnavailable": {
+    "message": "Depolama yuvası ayrıntıları mevcut değil",
+    "englishSource": "Storage slot details unavailable"
+  },
+  "noStorageChanges": {
+    "message": "Depolama değişiklikleri yok",
+    "englishSource": "No storage changes"
+  },
+  "storageMapSlot": {
+    "message": "Harita yuvası",
+    "englishSource": "Map slot"
+  },
+  "storageValueSlot": {
+    "message": "Değer alanı",
+    "englishSource": "Value slot"
+  },
+  "storageOperationcreate": {
+    "message": "Oluşturuldu",
+    "englishSource": "Created"
+  },
+  "storageOperationupdate": {
+    "message": "Güncellendi",
+    "englishSource": "Updated"
+  },
+  "storageOperationremove": {
+    "message": "Kaldırıldı",
+    "englishSource": "Removed"
+  },
+  "storageOperationunknown": {
+    "message": "İşlem kullanılamıyor",
+    "englishSource": "Operation unavailable"
+  },
+  "storageEntriesChanged": {
+    "message": "Değiştirilen girişler",
+    "englishSource": "Entries changed"
+  },
   "storageChanged": {
     "message": "Depolama alanı değiştirildi",
     "englishSource": "Storage changed"
