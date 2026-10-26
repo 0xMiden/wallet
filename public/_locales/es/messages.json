@@ -3753,7 +3753,7 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Configuración» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
+    "message": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Ajustes» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
     "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
@@ -3873,7 +3873,7 @@
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
   },
   "encryptedWalletFileExportFailedAccount": {
-    "message": "El archivo cifrado de la cartera no se ha creado porque no se ha podido realizar una copia de seguridad de $accountName$. Revela y guarda la clave privada de esa cuenta desde «Configuración», luego elimínala e inténtalo de nuevo.",
+    "message": "El archivo cifrado de la cartera no se ha creado porque no se ha podido realizar una copia de seguridad de $accountName$. Revela y guarda la clave privada de esa cuenta desde «Ajustes», luego elimínala e inténtalo de nuevo.",
     "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
     "placeholders": {
       "accountname": {
@@ -4022,7 +4022,7 @@
     "englishSource": "You're Earning!"
   },
   "viewInActivities": {
-    "message": "Ver en Actividades",
+    "message": "Ver en Actividad",
     "englishSource": "View in Activities"
   },
   "viewDetails": {
