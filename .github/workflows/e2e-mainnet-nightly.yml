@@ -14,3 +14,19 @@ jobs:
           node-version: 22
       - name: Store publishing unit and workflow contracts without store access
         run: node --test scripts/store-publishing/*.test.mjs
+      - uses: ./.github/actions/yarn-install
+      - name: Existing build and release workflow contracts
+        run: yarn jest --ci --maxWorkers=2 --runTestsByPath src/lib/build-scripts.test.ts src/lib/update/release-workflows.test.ts
+      - name: Type check
+        run: yarn ts
+      - name: Format changed source and retain exact patch
+        run: |
+          yarn prettier --write package.json .github/workflows/build-store-artifacts.yml .github/workflows/publish-stores.yml scripts/store-publishing/all-target-routing.test.mjs scripts/store-publishing/build-chrome-devnet.mjs scripts/store-publishing/build-chrome-devnet.test.mjs scripts/store-publishing/create-receipt.mjs scripts/store-publishing/create-receipt.test.mjs scripts/store-publishing/targets.mjs scripts/store-publishing/targets.test.mjs scripts/store-publishing/release-plan.mjs scripts/store-publishing/release-plan.test.mjs scripts/store-publishing/README.md
+          git diff --binary > formatting.patch
+          test ! -s formatting.patch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: four-target-formatting
+          path: formatting.patch
+          if-no-files-found: ignore
