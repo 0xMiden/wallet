@@ -26,7 +26,7 @@ export interface NativeKeyboardJourneyInput {
 
 function assertFieldAboveKeyboard(layout: NativeKeyboardLayout): void {
   const { fieldFrame: field, webViewFrame: webView, keyboardTop } = layout;
-  if (field === null || webView === null || keyboardTop === null) {
+  if (field === null || field.width <= 0 || field.height <= 0 || webView === null || keyboardTop === null) {
     throw new HarnessFault(`native keyboard geometry is incomplete: ${JSON.stringify(layout)}`);
   }
   const fieldRight = field.x + field.width;
