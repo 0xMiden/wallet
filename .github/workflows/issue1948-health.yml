@@ -1,0 +1,54 @@
+name: Issue1948 health checkpoint
+on:
+  push:
+    branches:
+      - 'ci/1948-health-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo c97bdabd4723d07e6308cbe340b95d1332b6d8ab | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = c97bdabd4723d07e6308cbe340b95d1332b6d8ab
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Health and wallet database tests
+        run: |
+          set -o pipefail
+          yarn jest --runInBand --runTestsByPath src/lib/miden/storage-health.test.ts src/lib/miden/repo.storage-loss.test.ts src/lib/miden/repo.test.ts --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: TypeScript
+        run: |
+          set -o pipefail
+          yarn tsc --noEmit --pretty false 2>&1 | tee proof/types.log
+      - name: Source lint and format
+        run: |
+          set -o pipefail
+          yarn eslint 'src/lib/miden/back/actions.ts' 'src/lib/miden/back/main.ts' 'src/lib/miden/back/miden-client-proxy.ts' 'src/lib/miden/back/offscreen-codec.ts' 'src/lib/miden/back/offscreen-prover.ts' 'src/lib/miden/back/sync-manager.ts' 'src/lib/miden/back/transaction-processor.test.ts' 'src/lib/miden/back/transaction-processor.ts' 'src/lib/miden/front/useSyncTrigger.ts' 'src/lib/miden/repo.storage-loss.test.ts' 'src/lib/miden/repo.ts' 'src/lib/miden/sdk/miden-client-interface.test.ts' 'src/lib/miden/sdk/miden-client-interface.ts' 'src/lib/miden/storage-health.test.ts' 'src/lib/miden/storage-health.ts' 'src/lib/miden/transaction/index.ts' 'src/lib/miden/transaction/retry.ts' 'src/lib/store/utils/fetchBalances.test.ts' 'src/offscreen/main.test.ts' 'src/offscreen/main.ts' --max-warnings 0 2>&1 | tee proof/lint.log
+          yarn prettier --check 'src/lib/miden/back/actions.ts' 'src/lib/miden/back/main.ts' 'src/lib/miden/back/miden-client-proxy.ts' 'src/lib/miden/back/offscreen-codec.ts' 'src/lib/miden/back/offscreen-prover.ts' 'src/lib/miden/back/sync-manager.ts' 'src/lib/miden/back/transaction-processor.test.ts' 'src/lib/miden/back/transaction-processor.ts' 'src/lib/miden/front/useSyncTrigger.ts' 'src/lib/miden/repo.storage-loss.test.ts' 'src/lib/miden/repo.ts' 'src/lib/miden/sdk/miden-client-interface.test.ts' 'src/lib/miden/sdk/miden-client-interface.ts' 'src/lib/miden/storage-health.test.ts' 'src/lib/miden/storage-health.ts' 'src/lib/miden/transaction/index.ts' 'src/lib/miden/transaction/retry.ts' 'src/lib/store/utils/fetchBalances.test.ts' 'src/offscreen/main.test.ts' 'src/offscreen/main.ts' 2>&1 | tee proof/format.log
+      - name: Assert executed tests
+        if: always()
+        run: |
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('proof/results.json'));console.log(JSON.stringify({passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(x.numPassedTests<1||x.numFailedTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: health-checkpoint-v1
+          path: proof/
