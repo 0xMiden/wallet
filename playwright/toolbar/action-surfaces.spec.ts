@@ -118,6 +118,27 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(panelCount).toBe(1);
       await capture('old-popup-preference-recovered-after-restart');
       expect(context.pages().some(p => p.url().includes('/popup.html'))).toBe(false);
+      activate();
+      await expect.poll(panelCount).toBe(0);
+      const id = new URL(worker.url()).host;
+      const stopped = new Promise<void>(resolve => worker.once('close', () => resolve()));
+      const restarted = context.waitForEvent('serviceworker', { timeout: 30000 });
+      const protocol = await context.newCDPSession(ordinary);
+      await protocol.send('ServiceWorker.enable');
+      await protocol.send('ServiceWorker.stopAllWorkers');
+      await stopped;
+      const control = await context.newPage();
+      await control.goto(`chrome-extension://${id}/fullpage.html`);
+      worker = await restarted;
+      await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      await expect
+        .poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior()))
+        .toEqual({ openPanelOnActionClick: true });
+      await control.close();
+      await ordinary.bringToFront();
+      activate();
+      await expect.poll(panelCount).toBe(1);
+      await capture('native-action-after-worker-stop-and-wake');
     } finally {
       await context.close();
       rmSync(root, { recursive: true, force: true });
