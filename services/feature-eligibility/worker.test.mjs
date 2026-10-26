@@ -82,6 +82,8 @@ function harness(options = {}) {
   const globalTargets = [];
   const callerStates = new Map();
   const rateEvents = [];
+  const callerRate = new Map();
+  const coloRate = new Map();
   let clock = Date.UTC(2026, 9, 20, 12);
   let currentPolicy = options.policy ?? policy();
   const env = {
@@ -129,13 +131,23 @@ function harness(options = {}) {
   env.CALLER_RATE_LIMIT = {
     limit: async ({ key }) => {
       rateEvents.push({ binding: 'caller', key });
-      return { success: true };
+      const entry = callerRate.get(key) ?? { count: 0, window: clock };
+      if (clock - entry.window >= 60_000) { entry.count = 0; entry.window = clock; }
+      const success = entry.count < Number(env.CALLER_REQUESTS_PER_MINUTE);
+      if (success) entry.count += 1;
+      callerRate.set(key, entry);
+      return { success };
     }
   };
   env.COLO_RATE_LIMIT = {
     limit: async ({ key }) => {
       rateEvents.push({ binding: 'colo', key });
-      return { success: true };
+      const entry = coloRate.get(key) ?? { count: 0, window: clock };
+      if (clock - entry.window >= 10_000) { entry.count = 0; entry.window = clock; }
+      const success = entry.count < (options.coloLimit ?? 5000);
+      if (success) entry.count += 1;
+      coloRate.set(key, entry);
+      return { success };
     }
   };
   const request = async ({
@@ -609,12 +621,13 @@ test('zero query budget never contacts MaxMind', async () => {
   assert.equal(h.paidCalls().length, 0);
 });
 
-test('enforces a persisted per-caller request limit even when decisions are cached', async () => {
+test('enforces the per-caller edge limit even when decisions are cached', async () => {
   const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
   assert.equal((await h.request()).status, 200);
   assert.equal((await h.request()).status, 200);
   const response = await h.request();
   assert.equal(response.status, 429);
+  assert.deepEqual(await response.json(), { error: 'rate_limited' });
   assert.equal(response.headers.get('Retry-After'), '60');
   assert.equal(h.paidCalls().length, 1);
   h.restart();
@@ -627,19 +640,23 @@ test('cleanup drops expired caller records while preserving the paid-query count
   const h = harness();
   await h.request();
   h.advance(300_001);
-  await h.guard.alarm();
-  assert.equal([...h.storage.values.keys()].filter(key => key.startsWith('caller:')).length, 0);
-  assert.equal(h.storage.values.get('budget').count, 1);
+  const entry = [...h.callerStates.values()][0];
+  await entry.guard.alarm();
+  assert.equal([...entry.storage.values.keys()].filter(key => key.startsWith('caller:')).length, 0);
+  assert.equal(h.storage.values.get('budget').count, 4);
 });
 
 test('cleanup traverses multiple bounded pages without deleting active callers', async () => {
   const h = harness();
-  for (let i = 0; i < 130; i += 1) h.storage.values.set(`caller:${String(i).padStart(3, '0')}`, { expires: 0 });
-  h.storage.values.set('caller:zzz', { expires: Number.MAX_SAFE_INTEGER });
-  await h.guard.alarm();
-  assert.equal(h.storage.values.get('cleanup-cursor'), 'caller:127');
-  await h.guard.alarm();
-  assert.deepEqual([...h.storage.values.keys()], ['caller:zzz']);
+  await h.request();
+  const entry = [...h.callerStates.values()][0];
+  entry.storage.values.clear();
+  for (let i = 0; i < 130; i += 1) entry.storage.values.set(`caller:${String(i).padStart(3, '0')}`, { expires: 0 });
+  entry.storage.values.set('caller:zzz', { expires: Number.MAX_SAFE_INTEGER });
+  await entry.guard.alarm();
+  assert.equal(entry.storage.values.get('cleanup-cursor'), 'caller:127');
+  await entry.guard.alarm();
+  assert.deepEqual([...entry.storage.values.keys()], ['caller:zzz']);
 });
 
 test('manual main deployment selects only the workflow SHA and rejects untrusted refs', async () => {
@@ -799,11 +816,11 @@ test('warm cache and per-caller rejection do not enter the global reservation ob
   assert.equal(h.callerStates.size, 1);
 });
 
-test('one caller storage queue cannot block another caller warm cache', async () => {
+test('a queued storage transaction does not block another warm cache hit in the same colo', async () => {
   const h = harness();
   await h.request();
   await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } });
-  assert.equal(h.callerStates.size, 2);
+  assert.equal(h.callerStates.size, 1);
   const first = [...h.callerStates.values()][0];
   let release;
   const originalQueue = first.storage.queue;
@@ -820,7 +837,7 @@ test('one caller storage queue cannot block another caller warm cache', async ()
     release();
     first.storage.queue = originalQueue;
   }
-  assert.equal(h.globalTargets.length, 2);
+  assert.equal(h.globalTargets.length, 1);
 });
 
 test('all caller objects share the existing nearly exhausted persisted global budget', async () => {
@@ -835,7 +852,7 @@ test('all caller objects share the existing nearly exhausted persisted global bu
   h.restart();
   assert.equal((await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.10' } })).status, 503);
   assert.equal(h.paidCalls().length, 1);
-  assert.equal(h.callerStates.size, 4);
+  assert.equal(h.callerStates.size, 1);
 });
 
 test('queued reservation expiry fails closed without starting a late paid lookup or retry', async () => {
@@ -897,5 +914,5 @@ test('caller cleanup expires local records without deleting the global paid-quer
   h.advance(300_001);
   await entry.guard.alarm();
   assert.equal(entry.storage.values.size, 0);
-  assert.equal(h.storage.values.get('budget').count, 1);
+  assert.equal(h.storage.values.get('budget').count, 4);
 });
