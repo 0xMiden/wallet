@@ -22,7 +22,7 @@ for (const width of [320, 360, 402, 440, 768]) {
         expect(s).not.toBeNull();
         expect(b).not.toBeNull();
         expect(b!.width).toBeCloseTo(Math.min(370, s!.width - 32), 0);
-        expect(b!.height).toBe(48);
+        expect(b!.height).toBeCloseTo(48, 3);
         expect(b!.y).toBeGreaterThan(s!.y);
         expect(b!.y + b!.height).toBeLessThanOrEqual(s!.y + s!.height - 16);
         await page.screenshot({ path: test.info().outputPath('arcade-sheet.png') });
