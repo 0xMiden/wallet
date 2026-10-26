@@ -5259,6 +5259,26 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  it.each(['spending limit', 'charged transaction'])('refuses recovery after partial loss of %s', async lost => {
+    await Repo.spendingLimits.put({ accountId: 'retained', limit: '5000000', revision: 'policy-1', createdAt: 1, updatedAt: 1 });
+    await Repo.transactions.put({
+      id: 'debit-1', accountId: 'retained', type: 'send', status: ITransactionStatus.Failed,
+      initiatedAt: Math.floor(Date.now() / 1000), spentUsd: 4000000n, displayIcon: 'FAILED', neverCommittedAt: 1
+    });
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    if (lost === 'spending limit') await Repo.spendingLimits.delete('retained');
+    else await Repo.transactions.delete('debit-1');
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(await vault.readRecoveryJournal()).toEqual(prior);
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
   it('refuses a fresh wallet database before establishing retained expectations', async () => {
     await Repo.metadata.put({ id: 'generation', generation: 'fresh', origin: 'fresh' });
     try {
