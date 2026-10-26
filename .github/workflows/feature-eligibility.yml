@@ -85,8 +85,8 @@ jobs:
           assert.equal(manifest.identity.sourceSha, process.env.GITHUB_SHA);
           console.log('Generated probe config captured from exact source:', process.env.GITHUB_SHA);
           NODE
-          env -i PATH="$PATH" HOME="$RUNNER_TEMP/generated-probe-proof" TMPDIR="$RUNNER_TEMP" CI=true WRANGLER_SEND_METRICS=false npx --yes wrangler@4.151.3 deploy --dry-run --no-bundle --config "$RUNNER_TEMP/generated-probe-proof/dry-run/wrangler.json" --secrets-file "$RUNNER_TEMP/generated-probe-proof/dry-run/secrets.json" --outdir "$RUNNER_TEMP/generated-probe-proof/output"
-          test -s "$RUNNER_TEMP/generated-probe-proof/output/staging-probe.js"
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/generated-probe-proof" TMPDIR="$RUNNER_TEMP" CI=true WRANGLER_SEND_METRICS=false npx --yes wrangler@4.151.3 deploy --dry-run --no-bundle --config "$RUNNER_TEMP/generated-probe-proof/dry-run/wrangler.json" --secrets-file "$RUNNER_TEMP/generated-probe-proof/dry-run/secrets.json"
+          test -s "$RUNNER_TEMP/generated-probe-proof/dry-run/staging-probe.mjs"
       - name: Validate Worker bundle and bindings
         run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
 
