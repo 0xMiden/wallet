@@ -99,12 +99,15 @@ async function waitForTypedValue(page: PageCommandSender): Promise<void> {
 
 async function waitForKeyboardDismissed(device: NativeKeyboardDevice): Promise<NativeKeyboardLayout> {
   let latest: NativeKeyboardLayout | undefined;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < KEYBOARD_WAIT_ATTEMPTS; attempt += 1) {
     latest = await device.keyboardLayout('A', INPUT_LABEL);
-    if (!latest.keyboardVisible) return latest;
+    // An unreadable or empty tree also reports no keyboard, so a complete read is what proves the dismissal.
+    if (!latest.keyboardVisible && latest.webViewFrame !== null && latest.fieldFrame !== null) return latest;
     await sleep(250);
   }
-  throw new HarnessFault(`the keyboard remained visible after dismissal: ${JSON.stringify(latest)}`);
+  throw new HarnessFault(
+    `the keyboard was not confirmed dismissed by a complete read after dismissal: ${JSON.stringify(latest)}`
+  );
 }
 
 async function attachFailureScreenshot(input: NativeKeyboardJourneyInput): Promise<string | null> {
