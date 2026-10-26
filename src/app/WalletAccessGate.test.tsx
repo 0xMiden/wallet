@@ -196,7 +196,19 @@ describe('startup eligibility failure reporting', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     act(() => jest.advanceTimersByTime(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['walletAccessUnavailableBody', 'startup']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      source === 'endpoint bootstrap'
+        ? [
+            'walletAccessUnavailableBody',
+            'startup',
+            {
+              startupEligibilityStage: 'endpoint_overrides',
+              startupEligibilityReason: 'override_load_failed',
+              startupEligibilityRetry: 'not_attempted'
+            }
+          ]
+        : ['walletAccessUnavailableBody', 'startup']
+    ]);
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
@@ -230,4 +242,63 @@ describe('startup eligibility failure reporting', () => {
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+test('endpoint prerequisite failure keeps the gate closed and names only its startup branch', async () => {
+  jest.useFakeTimers();
+  jest.mocked(reportUserVisibleError).mockClear();
+  mockLoadEndpoints.mockRejectedValueOnce(new Error('private account=0x123 https://private.example'));
+  try {
+    render(
+      <WalletAccessGate>
+        <span>Private wallet</span>
+      </WalletAccessGate>
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'unavailable');
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    expect(mockInitEligibility).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).toHaveBeenCalledWith('walletAccessUnavailableBody', 'startup', {
+      startupEligibilityStage: 'endpoint_overrides',
+      startupEligibilityReason: 'override_load_failed',
+      startupEligibilityRetry: 'not_attempted'
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a rejected eligibility initializer is not mislabeled as endpoint override failure', async () => {
+  jest.useFakeTimers();
+  jest.mocked(reportUserVisibleError).mockClear();
+  mockInitEligibility.mockRejectedValueOnce(new Error('private failure'));
+  try {
+    render(
+      <WalletAccessGate>
+        <span>Private wallet</span>
+      </WalletAccessGate>
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('walletAccessUnavailableBody', 'startup', {
+      startupEligibilityStage: 'config_initialization',
+      startupEligibilityReason: 'config_initialization_failed',
+      startupEligibilityRetry: 'not_attempted'
+    });
+    expect(screen.queryByText('Private wallet')).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
 });

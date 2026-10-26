@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  STARTUP_ELIGIBILITY_STAGES,
+  STARTUP_ELIGIBILITY_REASONS,
+  STARTUP_ELIGIBILITY_RETRIES
+} from 'lib/remote-config/geo';
+import {
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
   REOWN_REQUEST_AGES,
@@ -65,6 +70,9 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],
+  ['startup eligibility reason', STARTUP_ELIGIBILITY_REASONS],
+  ['startup eligibility retry', STARTUP_ELIGIBILITY_RETRIES],
   ["the node's consume verdict", CONSUME_VERDICTS],
   ['storage owner', STORAGE_OWNERS],
   ['storage operation', STORAGE_OPERATIONS],
