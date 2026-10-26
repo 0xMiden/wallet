@@ -1,6 +1,8 @@
 import React, { StrictMode, useEffect, useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type { GeoLookup } from 'lib/remote-config/geo';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -395,4 +397,17 @@ describe('startup eligibility failure reporting', () => {
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+describe('published disclosures of the startup check', () => {
+  it.each(['docs/privacy/index.md', 'docs/tos/index.md', 'docs/compliance/index.md'])(
+    '%s says a failed check opens the wallet with Earn and Swap unavailable',
+    path => {
+      const text = readFileSync(join(__dirname, '..', '..', path), 'utf8');
+      expect(text).toContain(
+        'Without a successful startup eligibility decision, the wallet opens with Earn and Swap unavailable.'
+      );
+      expect(text).not.toContain('a failed startup check keeps wallet access closed');
+    }
+  );
 });
