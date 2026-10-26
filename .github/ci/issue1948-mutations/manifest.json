@@ -1,0 +1,140 @@
+{
+  "source": "b16184bfee204acff79fbdc61858ab19c88b25d9",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "candidate_packet": "1f19e3621717686ea520c4d1c494f27b296f1eeb2f0860c92ef4965276b8e704",
+  "mutants": [
+    {
+      "id": "retention-order",
+      "path": "src/lib/miden/transaction/retry.ts",
+      "before": "await checkpointFinancialChange({",
+      "after": "void checkpointFinancialChange({",
+      "suites": [
+        "src/lib/miden/transaction/retry.recovery.test.ts"
+      ],
+      "pattern": "Task4C1 retry waits for independent candidate retention",
+      "expected_assertion": "Task4C1 retry waits for independent candidate retention"
+    },
+    {
+      "id": "frozen-time",
+      "path": "src/lib/miden/transaction/retry.ts",
+      "before": "requeueRow(dbTx, plan, candidate.initiatedAt, candidate.queuedSeq!)",
+      "after": "requeueRow(dbTx, plan, candidate.initiatedAt + 1, candidate.queuedSeq!)",
+      "suites": [
+        "src/lib/miden/transaction/retry.recovery.test.ts"
+      ],
+      "pattern": "Task4C1 retry retains the exact renewed timestamp",
+      "expected_assertion": "Task4C1 retry retains the exact renewed timestamp"
+    },
+    {
+      "id": "exact-debit",
+      "path": "src/lib/miden/recovery/retry-transition.ts",
+      "before": "equal(expected, actual) ||",
+      "after": "expected.id === actual.id ||",
+      "suites": [
+        "src/lib/miden/recovery/retry-transition.test.ts"
+      ],
+      "pattern": "Task4C1 pending retry accepts only",
+      "expected_assertion": "Task4C1 pending retry accepts only"
+    },
+    {
+      "id": "future-reservation",
+      "path": "src/lib/miden/recovery/retry-transition.ts",
+      "before": "retry && retry.previous.initiatedAt > candidate.initiatedAt",
+      "after": "false && retry && retry.previous.initiatedAt > candidate.initiatedAt",
+      "suites": [
+        "src/lib/miden/recovery/retry-transition.test.ts"
+      ],
+      "pattern": "Task4C1 pending retry preserves",
+      "expected_assertion": "Task4C1 pending retry preserves"
+    },
+    {
+      "id": "trusted-siblings",
+      "path": "src/lib/miden/recovery/reconcile.ts",
+      "before": "proofRows.set(live.id, { ...live, restoredFromBackup: false });",
+      "after": "if (live.id === row.id) proofRows.set(live.id, { ...live, restoredFromBackup: false });",
+      "suites": [
+        "src/lib/miden/recovery/reconcile.test.ts"
+      ],
+      "pattern": "Task4C1 includes all trusted restored siblings",
+      "expected_assertion": "Task4C1 includes all trusted restored siblings"
+    },
+    {
+      "id": "verdict-retention-order",
+      "path": "src/lib/miden/recovery/reconcile.ts",
+      "before": "entries[entries.indexOf(entry)] = next;\n          await context.retain(entries);",
+      "after": "entries[entries.indexOf(entry)] = next;",
+      "suites": [
+        "src/lib/miden/recovery/reconcile.test.ts"
+      ],
+      "pattern": "Task4C1 retains a positive verdict before changing",
+      "expected_assertion": "Task4C1 retains a positive verdict before changing"
+    },
+    {
+      "id": "full-nullifier",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "updates.some(update => update.nullifier === identity.nullifier)",
+      "after": "updates.length > 0",
+      "suites": [
+        "src/lib/miden/recovery/retirement.test.ts"
+      ],
+      "pattern": "Task4C1 rejects a wrong full nullifier",
+      "expected_assertion": "Task4C1 rejects a wrong full nullifier"
+    },
+    {
+      "id": "canonical-bracket",
+      "path": "src/lib/miden/recovery/retirement.ts",
+      "before": "if (before !== after) continue;",
+      "after": "if (false) continue;",
+      "suites": [
+        "src/lib/miden/recovery/retirement.test.ts"
+      ],
+      "pattern": "Task4C1 rejects retirement when the canonical header bracket",
+      "expected_assertion": "Task4C1 rejects retirement when the canonical header bracket"
+    },
+    {
+      "id": "outstanding-read",
+      "path": "src/lib/miden/recovery/read-turn.ts",
+      "before": "active.has(scope) || ",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/canonical-reads.test.ts"
+      ],
+      "pattern": "holds the real outstanding RPC across a fresh reader",
+      "expected_assertion": "holds the real outstanding RPC across a fresh reader"
+    },
+    {
+      "id": "late-deadline",
+      "path": "src/lib/miden/recovery/read-turn.ts",
+      "before": "if (Date.now() >= deadline) throw new Error('Recovery read deadline expired');",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/canonical-reads.test.ts"
+      ],
+      "pattern": "holds the real outstanding RPC across a fresh reader",
+      "expected_assertion": "holds the real outstanding RPC across a fresh reader"
+    },
+    {
+      "id": "financial-account",
+      "path": "src/lib/miden/recovery/financial.ts",
+      "before": "if (row && !sameWalletAccountId(row.accountId, entry.accountId)) throw new StorageContinuityError();",
+      "after": "",
+      "suites": [
+        "src/lib/miden/recovery/financial.test.ts"
+      ],
+      "pattern": "Task4C1 retained financial reads reject",
+      "expected_assertion": "Task4C1 retained financial reads reject"
+    },
+    {
+      "id": "pending-rpc-lifetime",
+      "path": "src/lib/miden/recovery/canonical-reads.ts",
+      "before": "if (disposed && pending === 0 && !freed)",
+      "after": "if (disposed && !freed)",
+      "suites": [
+        "src/lib/miden/recovery/canonical-reads.test.ts"
+      ],
+      "pattern": "Task4C1 disposes a timed-out RPC",
+      "expected_assertion": "Task4C1 disposes a timed-out RPC"
+    }
+  ]
+}
