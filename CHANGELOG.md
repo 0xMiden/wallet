@@ -6,6 +6,8 @@
 
 ### Changes
 
+- [FIX][all] Shed eligibility floods before durable objects and cache decisions per colo while preserving the global query budget.
+
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
 - [CHANGE][all] Removed the root `screenshots/` folder: the old App Store, iPad and Play marketing images (the canonical store screenshots are in `store-listing/assets/`) and the evidence images and capture fixtures from earlier changes.
