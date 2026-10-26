@@ -2345,7 +2345,7 @@ describe('MidenClientInterface', () => {
       expect(keystore.sign).not.toBe(signCallback);
     });
 
-    it('createGuardianMidenWallet returns accountId + hot/cold key material', async () => {
+    it('createGuardianMidenWallet returns account material and retains hold checks inside its storage guard', async () => {
       const fakeMidenClient = buildFakeMidenClient();
       const keys = {
         hotPublicKey: 'hot-pub',
@@ -2390,15 +2390,20 @@ describe('MidenClientInterface', () => {
       const assertLive = jest.fn();
       const result = await client.createGuardianMidenWallet(new Uint8Array([9]), createKey, assertLive);
 
-      // The caller fetched createKey before this hold (#1207) and forwards it
-      // straight through; the caller's hold re-check goes through as itself:
-      // any other function drops every re-check the vault's hold relies on.
+      // The wrapper retains the caller's hold check while adding the storage epoch check.
       expect(createGuardianAccount).toHaveBeenCalledWith(
         fakeMidenClient,
         createKey,
         expect.any(Uint8Array),
-        assertLive
+        expect.any(Function)
       );
+      const calls = createGuardianAccount.mock.calls;
+      const call = calls[0];
+      if (!call) throw new Error('Missing Guardian creation call');
+      const callback: unknown = Reflect.get(call, 3);
+      if (typeof callback !== 'function') throw new Error('Missing guarded hold callback');
+      Reflect.apply(callback, undefined, []);
+      expect(assertLive).toHaveBeenCalledTimes(1);
       expect(result).toEqual({
         accountId: 'guardian-id',
         keys,

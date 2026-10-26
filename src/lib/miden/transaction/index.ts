@@ -51,6 +51,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
@@ -594,8 +595,11 @@ const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDet
   let opened = false;
   let settled = false;
   const gate: SubmitGate = async evidence => {
+    assertStorageHealthy();
+    const healthEpoch = getStorageHealth().epoch;
     if (settled) return false;
     await stamp('submitting', { evidence });
+    assertStorageHealthy(healthEpoch);
     if (settled) return false;
     opened = true;
     return true;
@@ -754,6 +758,7 @@ function scheduleRequeueWake(
   const hardExpiresAt = chainStartedAt + MAX_REQUEUE_WAKE_LIFETIME_MS;
   const timer = setTimeout(() => {
     requeueWakes.delete(txId);
+    if (getStorageHealth().status !== 'healthy') return;
     void (async () => {
       try {
         await safeGenerateTransactionsLoop(signCallback, false, guardianProvider);
@@ -1381,6 +1386,9 @@ export const generateTransaction = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
+  const healthEpoch = getStorageHealth().epoch;
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1407,6 +1415,7 @@ export const generateTransaction = async (
       guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
   };
   try {
+    assertStorageHealthy(healthEpoch);
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
   } finally {
     // Never let the release become the pipeline's outcome. On mobile and desktop
@@ -2572,8 +2581,10 @@ const runWriteLeaf = async <T>(
   leaf: () => Promise<T>
 ): Promise<T> => {
   try {
+    assertStorageHealthy();
     return await leaf();
   } catch (error) {
+    if (getStorageHealth().status !== 'healthy') throw error;
     if (
       attempt !== undefined &&
       offscreen &&
@@ -4549,6 +4560,9 @@ export const generateTransactionsLoop = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ): Promise<boolean | 'requeued' | void> => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
+  const loopHealthEpoch = getStorageHealth().epoch;
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
 
@@ -4578,6 +4592,7 @@ export const generateTransactionsLoop = async (
   try {
     await importAllNotes();
   } catch (e) {
+    if (getStorageHealth().status !== 'healthy') throw e;
     logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
   }
 
@@ -4616,8 +4631,10 @@ export const generateTransactionsLoop = async (
   // Call safely to cancel transaction and unlock records if something goes wrong
   beginAttemptInThisRealm(nextTransaction.id);
   try {
+    assertStorageHealthy(loopHealthEpoch);
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
+    if (getStorageHealth().status !== 'healthy') throw e;
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
     // offscreen bus re-attaches a forwarded code as `errorCode`). web-sdk 0.16
@@ -4829,7 +4846,7 @@ export const safeGenerateTransactionsLoop = async (
 ): Promise<TransactionsLoopOutcome> => {
   return navigator.locks
     .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
-      if (!lock) return 'idle';
+      if (!lock || getStorageHealth().status !== 'healthy') return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
       if (result === true) return 'processed';

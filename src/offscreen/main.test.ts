@@ -20,7 +20,12 @@
  * (which doesn't export any of the symbols this module needs).
  */
 
-import { encodeArg, OFFSCREEN_SIGN_REQUEST, OFFSCREEN_SUBMIT_GATE } from 'lib/miden/back/offscreen-codec';
+import {
+  encodeArg,
+  OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_SUBMIT_GATE,
+  OFFSCREEN_STORAGE_HEALTH
+} from 'lib/miden/back/offscreen-codec';
 import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
@@ -658,7 +663,13 @@ function installChromeMock() {
     runtime: {
       // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
       sendMessage: jest.fn((m?: { type?: string }) =>
-        Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
+        Promise.resolve(
+          m?.type === OFFSCREEN_STORAGE_HEALTH
+            ? { status: 'healthy', epoch: 0 }
+            : m?.type === OFFSCREEN_SUBMIT_GATE
+              ? { ok: true }
+              : undefined
+        )
       ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
@@ -833,7 +844,7 @@ describe('offscreen/main — startup / init()', () => {
     });
     await loadModule();
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('init failed'), expect.any(Error));
-    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
   });
 
   // Issue #260 flip-prep #4: the doc marks its own realm at module top so the

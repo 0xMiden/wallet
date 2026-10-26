@@ -5,6 +5,7 @@
 // activity module's full init chain.
 import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
@@ -123,11 +124,16 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     });
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
+    const healthEpoch = getStorageHealth().epoch;
+    assertStorageHealthy(healthEpoch);
     return withUnlocked(async ({ vault }) => {
+      assertStorageHealthy(healthEpoch);
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
   swapHotKey: async (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => {
+    const healthEpoch = getStorageHealth().epoch;
+    assertStorageHealthy(healthEpoch);
     // Fire `accountsUpdated` after the vault swap so the SW's Effector store
     // reflects the new hotPublicKey. Without this, storage is correct but the
     // Effector snapshot served via frontStore stays at the pre-rotation
@@ -145,27 +151,34 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // clearing its flag) would drop one of the two writes.
     return withUnlocked(({ vault }) =>
       getAccountsWriteQueue().add(async () => {
+        assertStorageHealthy(healthEpoch);
         const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
         accountsUpdated(updated);
       })
     );
   },
   setGuardianEndpoint: async (accountPublicKey: string, guardianEndpoint: string) => {
+    const healthEpoch = getStorageHealth().epoch;
+    assertStorageHealthy(healthEpoch);
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
     // (and every popup pulling from it) reflects the new per-account endpoint.
     // Otherwise the popup keeps resolving the old guardian for this account.
     return withUnlocked(({ vault }) =>
       getAccountsWriteQueue().add(async () => {
+        assertStorageHealthy(healthEpoch);
         const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
         accountsUpdated(updated);
       })
     );
   },
   markHotKeyRotatedOut: async (accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) => {
+    const healthEpoch = getStorageHealth().epoch;
+    assertStorageHealthy(healthEpoch);
     // Same shape as swapHotKey: queued, then broadcast, but only a verdict the vault
     // accepted (the stored key is still the judged one) moves the Effector snapshot.
     return withUnlocked(({ vault }) =>
       getAccountsWriteQueue().add(async () => {
+        assertStorageHealthy(healthEpoch);
         const { written, ...updated } = await vault.markHotKeyRotatedOut(
           accountPublicKey,
           hotPublicKey,
@@ -190,6 +203,8 @@ export const reconcileUnconfirmedInWorker = (): Promise<void> =>
  * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
  */
 export async function startTransactionProcessing(): Promise<void> {
+  await initializeStorageHealth();
+  if (getStorageHealth().status !== 'healthy') return;
   if (isProcessing) {
     processingRequested = true;
     return;
@@ -239,7 +254,7 @@ export async function startTransactionProcessing(): Promise<void> {
     // elsewhere (MAX_QUEUED_AGE / MAX_WAIT_BEFORE_CANCEL).
     const maxAttempts = 60;
 
-    while (attempts < maxAttempts) {
+    while (attempts < maxAttempts && getStorageHealth().status === 'healthy') {
       attempts++;
       console.log('[TransactionProcessor] Loop attempt', attempts);
       const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultGuardianProvider);
@@ -283,7 +298,8 @@ export async function startTransactionProcessing(): Promise<void> {
     // Extension-only: `isExtension()`, never `browser !== null`, because the mobile build's polyfill alias makes
     // `browser` non-null there too. Arming it there would waste a vault probe and a queue read for an alarm that's
     // a no-op off the extension's service worker.
-    if (isExtension() && browser && !processingRequested) await armQueuedRowWake(browser);
+    if (getStorageHealth().status === 'healthy' && isExtension() && browser && !processingRequested)
+      await armQueuedRowWake(browser);
     isProcessing = false;
     if (processingRequested) {
       processingRequested = false;
@@ -299,6 +315,7 @@ export async function startTransactionProcessing(): Promise<void> {
  * retry backoff (#215).
  */
 async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
+  if (getStorageHealth().status !== 'healthy') return;
   if (!isUnlocked(store.getState())) return;
   try {
     const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
@@ -382,6 +399,7 @@ async function clearHealDiagnostic(): Promise<void> {
  * if that (or any other error) still fails, escalate rather than swallow.
  */
 async function healStuckTransactions(): Promise<void> {
+  if (getStorageHealth().status !== 'healthy') return;
   try {
     await cancelStuckTransactions();
     // First-call success: clear any diagnostic left by earlier failed ticks.

@@ -18,6 +18,12 @@ import {
 
 import { ITransaction, ITransactionStatus } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
+import {
+  assertStorageHealthy,
+  assertStorageRecoveryAllowed,
+  reportStorageFailure,
+  type StorageRecoveryCapability
+} from './storage-health';
 
 export enum Table {
   Transactions = 'transactions',
@@ -304,7 +310,7 @@ function defineSchema(target: Dexie): void {
 // concerns collide. It applies to every `modify` on this database, including the schema upgrades
 // above, which walk the whole table.
 function buildTridentDb(name: string): Dexie {
-  const target = new Dexie(name, { modifyChunkSize: 25 });
+  const target = new Dexie(name, { modifyChunkSize: 25, chromeTransactionDurability: 'strict' });
   defineSchema(target);
   installWalletStorageDiagnostics(target);
   return target;
@@ -325,10 +331,12 @@ function observeWalletStorage<T>(
     // Keep the invoked promise's chain and Dexie's active transaction zone.
     return invoke().then(undefined, (error: unknown) => {
       annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+      reportStorageFailure(error, { backend: 'wallet', operation });
       throw error;
     });
   } catch (error) {
     annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+    reportStorageFailure(error, { backend: 'wallet', operation });
     throw error;
   }
 }
@@ -354,9 +362,18 @@ function installWalletStorageDiagnostics(target: Dexie): void {
         const store = stores.length === 1 ? stores[0] : undefined;
         const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
         try {
-          return down.transaction(...args);
+          if (args[1] !== 'readonly') assertStorageHealthy();
+          const native = down.transaction(...args);
+          if ('addEventListener' in native && typeof native.addEventListener === 'function') {
+            const observe = () =>
+              reportStorageFailure(Reflect.get(native, 'error'), { backend: 'wallet', operation: 'transaction' });
+            native.addEventListener('error', observe);
+            native.addEventListener('abort', observe);
+          }
+          return native;
         } catch (error) {
           annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
+          reportStorageFailure(error, { backend: 'wallet', operation: 'transaction' });
           throw error;
         }
       };
@@ -379,15 +396,21 @@ function installWalletStorageDiagnostics(target: Dexie): void {
               cursor === null ? null : observeWalletCursor(cursor, owner)
             );
           const mutate: DBCoreTable['mutate'] = (...args) =>
-            observeWalletStorage(() => table.mutate(...args), owner, 'mutate').then(
-              (response: DBCoreMutateResponse) => {
-                // DBCore resolves partial failures; Dexie builds the public aggregate later.
-                for (const failure of Object.values(response.failures)) {
-                  annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
-                }
-                return response;
+            observeWalletStorage(
+              () => {
+                assertStorageHealthy();
+                return table.mutate(...args);
+              },
+              owner,
+              'mutate'
+            ).then((response: DBCoreMutateResponse) => {
+              // DBCore resolves partial failures; Dexie builds the public aggregate later.
+              for (const failure of Object.values(response.failures)) {
+                annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
+                reportStorageFailure(failure, { backend: 'wallet', operation: 'mutate' });
               }
-            );
+              return response;
+            });
           return { ...table, get, getMany, query, count, openCursor, mutate };
         }
       };
@@ -397,6 +420,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 
   const open = target.open;
   const rejectOpen = (error: unknown): never => {
+    reportStorageFailure(error, { backend: 'wallet', operation: 'open' });
     // A failed upgrade can already identify a table through Dexie's error links.
     const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
     if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
@@ -406,6 +430,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
   };
   const observedOpen: Dexie['open'] = function (this: Dexie, ...args) {
     try {
+      assertStorageHealthy();
       return open.apply(this, args).then(undefined, rejectOpen);
     } catch (error) {
       return rejectOpen(error);
@@ -828,5 +853,28 @@ export async function importDb(dump: string): Promise<void> {
       await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);
     });
+  }
+}
+
+/** A disposable store probes strict commit/readback without granting ordinary wallet writes. */
+export async function probeWalletStorage(capability: StorageRecoveryCapability): Promise<void> {
+  assertStorageRecoveryAllowed(capability);
+  const probe = new Dexie(`miden-storage-probe-${crypto.randomUUID()}`, { chromeTransactionDurability: 'strict' });
+  probe.version(1).stores({ probe: 'id' });
+  try {
+    await probe.open();
+    assertStorageRecoveryAllowed(capability);
+    const table = probe.table<{ id: string; value: string }, string>('probe');
+    await table.put({ id: 'probe', value: 'strict-readback' });
+    assertStorageRecoveryAllowed(capability);
+    const readback = await table.get('probe');
+    if (readback?.value !== 'strict-readback') throw new Error('Storage probe readback mismatch');
+    assertStorageRecoveryAllowed(capability);
+  } catch (error) {
+    reportStorageFailure(error, { backend: 'wallet', operation: 'validate' });
+    throw error;
+  } finally {
+    probe.close();
+    await probe.delete();
   }
 }

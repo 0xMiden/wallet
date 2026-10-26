@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { IDBDatabase, IDBObjectStore } from 'fake-indexeddb';
+import { IDBDatabase, IDBObjectStore, IDBTransaction } from 'fake-indexeddb';
 
 import { ITransaction, ITransactionStatus } from './db/types';
 
@@ -8,6 +8,7 @@ describe('storage-loss regression', () => {
   let sequence = 0;
 
   beforeEach(async () => {
+    localStorage.clear();
     jest.resetModules();
     const { createSchemaFor } = await import('./repo');
     target = createSchemaFor(`storage-loss-${Date.now()}-${sequence++}`);
@@ -73,6 +74,54 @@ describe('storage-loss regression', () => {
     expect(nextMutation).toBe('blocked');
     await expect(transactions.get('must-not-land')).resolves.toBeUndefined();
     await expect(transactions.get('retained')).resolves.toEqual(row('retained'));
+  });
+
+  it('blocks the next mutation after a native transaction commit abort with a backing-store error', async () => {
+    await target.open();
+    const transactions = target.table<ITransaction, string>('transactions');
+    const originalDispatch = IDBTransaction.prototype.dispatchEvent;
+    let failed = false;
+    jest.spyOn(IDBTransaction.prototype, 'dispatchEvent').mockImplementation(function (this: IDBTransaction, event) {
+      if (!failed && this.db.name === target.name && this.mode === 'readwrite' && event.type === 'complete') {
+        failed = true;
+        Object.defineProperty(this, 'error', {
+          configurable: true,
+          value: new DOMException('Backing store I/O error', 'UnknownError')
+        });
+        // The request already succeeded. The native commit boundary reports abort instead of complete.
+        const abort: unknown = Reflect.get(this, '_abort');
+        if (typeof abort !== 'function') throw new Error('Missing fake-indexeddb abort boundary');
+        Reflect.apply(abort, this, [null]);
+        return true;
+      }
+      return originalDispatch.call(this, event);
+    });
+
+    await expect(transactions.add(row('commit-failed'))).rejects.toMatchObject({ name: 'AbortError' });
+    const health = await import('./storage-health');
+    expect(health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'backing-store' });
+    expect(failed).toBe(true);
+    await expect(transactions.add(row('after-commit-failure'))).rejects.toThrow('StorageUnavailableError');
+    await expect(transactions.get('after-commit-failure')).resolves.toBeUndefined();
+  });
+
+  it('blocks a later mutation when a sibling realm reports an unavailable snapshot', async () => {
+    await target.open();
+    const health = await import('./storage-health');
+    health.adoptStorageHealth({
+      status: 'unavailable',
+      epoch: 5,
+      reason: 'quota',
+      backend: 'sdk',
+      operation: 'sync',
+      time: 1
+    });
+    await expect(target.table<ITransaction, string>('transactions').add(row('after-sibling-failure'))).rejects.toThrow(
+      'StorageUnavailableError'
+    );
+    await expect(
+      target.table<ITransaction, string>('transactions').get('after-sibling-failure')
+    ).resolves.toBeUndefined();
   });
 
   it('allows a healthy wallet mutation to commit', async () => {

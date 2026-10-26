@@ -46,6 +46,7 @@ import {
   setConnectivityReporter,
   type ConnectivityCategory
 } from 'lib/miden/activity/connectivity-state';
+import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CALL,
   OFFSCREEN_CONNECTIVITY_EVENT,
@@ -119,6 +120,14 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  adoptStorageHealth,
+  assertStorageHealthy,
+  configureStorageHealthTransport,
+  getStorageHealth,
+  initializeStorageHealth,
+  subscribeStorageHealth
+} from 'lib/miden/storage-health';
 import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
@@ -282,9 +291,19 @@ setOperationTransport(async event => {
 const proveWorker = new ProveWorkerClient();
 installLocalProveTransport(proveWorker);
 
+configureStorageHealthTransport(async () =>
+  chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_STORAGE_HEALTH })
+);
+subscribeStorageHealth(health => {
+  if (health.status === 'unavailable') {
+    void chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_STORAGE_FAILURE, health }).catch(() => {});
+  }
+});
+
 let initPromise: Promise<void> | null = null;
 
 async function init() {
+  await initializeStorageHealth();
   // Force WASM init (lazy entry doesn't auto-load) so the wasm-bindgen `wasm`
   // namespace is populated and `initThreadPool` can call into it.
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
@@ -1478,6 +1497,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       return;
     }
     adoptEndpoints(msg.endpoints);
+    adoptStorageHealth(msg.storageHealth);
+    await stepBeforeSubmit(initializeStorageHealth);
     await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
     if (!dispatch) {
@@ -1533,7 +1554,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // the poison hook had already dropped (issue #775). Same reasoning as the
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
+      assertStorageHealthy();
+      const healthEpoch = getStorageHealth().epoch;
       const client = await stepBeforeSubmit(getOrCreateClient);
+      assertStorageHealthy(healthEpoch);
       // The client build is a parking await inside the hold — its eager genesis fetch
       // goes to the very node a `syncState` dispatch is now bounded against (above),
       // so an eviction here is reachable rather than theoretical. An eviction abandons

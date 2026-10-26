@@ -1,3 +1,4 @@
+import { assertStorageHealthy, initializeStorageHealth } from 'lib/miden/storage-health';
 // Service-worker-side helpers for the offscreen prover document.
 //
 // Why offscreen: the wallet's MV3 service worker can't spawn Web Workers, so
@@ -133,12 +134,15 @@ export async function hasOffscreenDocument(): Promise<boolean> {
 }
 
 export async function ensureOffscreenDocument(): Promise<void> {
+  await initializeStorageHealth();
+  assertStorageHealthy();
   // Cheap re-check before locking — common case is doc already up.
   if (await hasOffscreenDocument()) return;
   await withLifecycleLock(async () => {
     // Re-check inside the lock; another caller may have created it while
     // we were queued.
     if (await hasOffscreenDocument()) return;
+    assertStorageHealthy();
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_URL,
       // 'WORKERS' is the documented justification for needing Web Workers.

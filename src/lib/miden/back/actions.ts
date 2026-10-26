@@ -52,6 +52,7 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
+import { initializeStorageHealth } from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
   getEffectiveNetworkName,
@@ -166,6 +167,7 @@ function syncRealmInsertKeySink() {
 }
 
 export async function init() {
+  await initializeStorageHealth();
   console.log('[Actions.init] Starting...');
   // This realm's one SDK client signs every inline write with the vault (#878):
   // installed once, here, before anything can ask it to sign. Every realm that

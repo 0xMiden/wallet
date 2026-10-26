@@ -2,6 +2,7 @@ import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { assertStorageHealthy, initializeStorageHealth } from 'lib/miden/storage-health';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import {
@@ -596,6 +597,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
 
 /** Steps 1 to 6 under the row's verdict lock, judged at most twice. */
 const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promise<void> => {
+  assertStorageHealthy();
   let acknowledged = options.acknowledged;
   for (let judging = 0; judging < 2; judging += 1) {
     const tx = await Repo.transactions.where({ id: txId }).first();
@@ -617,6 +619,8 @@ const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promi
  * Guardian candidate: it runs in the UI realm, which on the extension holds no Guardian service.
  */
 export const requeueFailedTransaction = async (txId: string, options: RetryOptions = {}): Promise<void> => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
   const turn = await inVerdictTurn(txId, () => retryUnderVerdictLock(txId, options), {
     waitMs: RETRY_VERDICT_WAIT_MS
   });
@@ -635,6 +639,8 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
 
 /** Retries the saved delivery, or a source withdrawal proven not to have been sent. */
 export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
+  await initializeStorageHealth();
+  assertStorageHealthy();
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
   // Same rule as `isRequeueableTransaction`, and it matters more here: resubmit
@@ -650,5 +656,6 @@ export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   // Dynamic import: lib/epoch statically imports lib/miden/activity, which
   // re-exports this module, so the domain service is loaded only on Retry.
   const { retryEarnWithdrawal } = await import('lib/epoch');
+  assertStorageHealthy();
   await retryEarnWithdrawal(txId);
 };

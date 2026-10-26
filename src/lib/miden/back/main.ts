@@ -39,6 +39,7 @@ import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { adoptStorageHealth, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -51,6 +52,7 @@ import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
+import { OFFSCREEN_STORAGE_HEALTH, OFFSCREEN_STORAGE_FAILURE } from './offscreen-codec';
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
 import { NoteExportType } from '../sdk/constants';
 import {
@@ -269,6 +271,7 @@ function registerOffscreenSignHandler(): void {
           line?: string;
           id?: unknown;
           scope?: unknown;
+          health?: unknown;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -285,6 +288,11 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    if (m.type === OFFSCREEN_STORAGE_HEALTH || m.type === OFFSCREEN_STORAGE_FAILURE) {
+      if (m.type === OFFSCREEN_STORAGE_FAILURE) adoptStorageHealth(m.health);
+      void initializeStorageHealth().then(() => sendResponse(getStorageHealth()));
+      return true;
+    }
     if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
       if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
       const id = m.id;

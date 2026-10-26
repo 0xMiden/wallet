@@ -6,6 +6,7 @@ import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activi
 import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -175,6 +176,11 @@ async function getVault() {
 }
 
 export function doSync(force = false): Promise<void> {
+  return initializeStorageHealth().then(() => doSyncWithHealthyStorage(force));
+}
+
+function doSyncWithHealthyStorage(force: boolean): Promise<void> {
+  if (getStorageHealth().status !== 'healthy') return Promise.resolve();
   // Reclaim finished transactions' result blobs. This is the extension realm's ONLY driver for it
   // - the `miden-sync` alarm and the popup's SyncRequest both arrive here - so removing this call
   // stops the extension reclaiming anything at all.
@@ -212,13 +218,18 @@ export function doSync(force = false): Promise<void> {
 }
 
 async function runSync(force: boolean): Promise<void> {
+  await initializeStorageHealth();
+  assertStorageHealthy();
+  const healthEpoch = getStorageHealth().epoch;
   try {
     // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
     // the state sent to the offscreen document would be the build's network (#1482).
     await whenEndpointOverridesLoaded();
+    assertStorageHealthy();
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();
+    assertStorageHealthy(healthEpoch);
     if (!exists) return;
 
     // [Lock 1] THE sync for the whole app. The timeout bounds only the
@@ -264,9 +275,11 @@ async function runSync(force: boolean): Promise<void> {
       await withWasmClientLock(
         async () => {
           if (inlineWasm) {
+            assertStorageHealthy(healthEpoch);
             await midenClientProxy.syncState();
             return;
           }
+          assertStorageHealthy(healthEpoch);
           await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' } : undefined
@@ -842,7 +855,10 @@ async function runSync(force: boolean): Promise<void> {
           // The queue asks this right before each row it writes, after every await of the lap, so a lock that landed
           // since the gate above queues nothing. A lock refuses every note alike, so it ends the pass rather than
           // falling back note by note.
-          const canSign = () => isUnlocked(store.getState());
+          const canSign = () =>
+            getStorageHealth().status === 'healthy' &&
+            getStorageHealth().epoch === healthEpoch &&
+            isUnlocked(store.getState());
           // ONE transaction per batch: each consume pays its own fee, so a backlog
           // claimed note-by-note charges N fees for what settles in one. A Miden tx is
           // atomic, so a single un-consumable note fails the whole batch; the `true`

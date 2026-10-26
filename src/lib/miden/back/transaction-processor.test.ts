@@ -40,6 +40,9 @@ const mockPolyfill = {
 };
 
 jest.mock('webextension-polyfill', () => mockPolyfill);
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => mockPolyfill.storage.local
+}));
 
 const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();

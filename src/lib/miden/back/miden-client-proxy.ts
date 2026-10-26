@@ -47,6 +47,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
@@ -620,6 +621,8 @@ async function dispatchOp(
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
+    await initializeStorageHealth();
+    assertStorageHealthy();
     await ensureOffscreenDocument();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
@@ -668,7 +671,9 @@ async function dispatchOp(
       started: false
     });
 
+    assertStorageHealthy();
     const envelope: OffscreenCallRequest = {
+      storageHealth: getStorageHealth(),
       target: OFFSCREEN_TARGET,
       type: OFFSCREEN_CALL,
       op_id,
@@ -801,6 +806,8 @@ export async function handleOffscreenSignRequest(
  * while the crossing is written finds it recorded, which only keeps the candidate.
  */
 export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest): Promise<OffscreenSubmitGateResponse> {
+  assertStorageHealthy();
+  const healthEpoch = getStorageHealth().epoch;
   const { op_id } = msg;
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
@@ -809,6 +816,7 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   } catch (err) {
     return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
   }
+  assertStorageHealthy(healthEpoch);
   return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while recording its submit` };
 }
 
