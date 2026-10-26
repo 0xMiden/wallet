@@ -8,6 +8,7 @@
 - [FIX][ci] Preserve sanitized Play submission failure stages and support read-only inspection of an existing release edit.
 - [CHANGE][ios] JavaScript-driven animations (requestAnimationFrame and the springs, layout animations and drags built on it) run at up to 120 fps on ProMotion iPhones and iPads, in the wallet and in dApps opened in the in-app browser: both WebViews turn off WebKit's preference for rendering near 60 fps, and keep it when an iOS version lacks the setting (#1864).
 - [CHANGE][ci] Manual store publishing builds signed production artifacts from an exact published release, requires telemetry configuration, and verifies app identity, network and artifact provenance before store submission.
+- [CHANGE][all] USDCx withdrawals read Confirmed on Circle's payout mint whatever its fee, show the amount received and Circle's fee, and flag a payout delayed past 2 hours; the review says the fee is deducted from the payout and varies, and the mainnet nightly bridge loop verifies each payout (#1877).
 
 ## 1.17.7 (2026-10-25)
 
@@ -26,7 +27,6 @@
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).
 - [CHANGE][all] Failure reports include the node's closed consume verdict, the RPC endpoint for an unknown submit, the matching attempt's closed submit-crossing status, and, for an expired transaction, the prior failure's fixed identity, an expiry-relative proof-wait bucket and a queue-age bucket from the 30-minute TTL without sending raw failure text, timestamps, identifiers or exact counts (#1843).
-- [CHANGE][all] USDCx withdrawals read Confirmed on Circle's payout mint whatever its fee, show the amount received and Circle's fee, and flag a payout delayed past 2 hours; the review says the fee is deducted from the payout and varies, and the mainnet nightly bridge loop verifies each payout (#1877).
 ### Features
 
 - [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
