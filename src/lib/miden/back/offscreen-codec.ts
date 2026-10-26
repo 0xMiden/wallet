@@ -14,6 +14,8 @@
 // imports below are TYPE-ONLY — erased at compile time, so they pull no module
 // into either bundle and the zero-runtime-dependency rule still holds.
 
+import type { TransactionExecutionDiagnostics } from 'lib/telemetry/transaction-execution-diagnostics';
+
 import type { EndpointState } from '../../miden-chain/effective-endpoints';
 import type { ConnectivityCategory } from '../activity/connectivity-state';
 import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
@@ -209,6 +211,7 @@ export type OffscreenCallResponse =
       errorName?: string;
       errorReason?: string;
       errorBeforeSubmit?: true;
+      errorTransactionExecution?: TransactionExecutionDiagnostics;
     };
 
 /**

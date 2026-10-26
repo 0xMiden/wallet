@@ -20,6 +20,10 @@ const order: string[] = [];
 const mockState: {
   requestSerialize?: Error;
   clientBuild?: Error;
+  proposalRequest?: Error;
+  customAdvice?: Error;
+  customBuild?: Error;
+  signLock?: Error;
   resultRead?: Error;
   resultSerialize?: Error;
   noInputNotes?: boolean;
@@ -49,6 +53,10 @@ const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({
   metadata: { proposalType: 'custom' }
 }));
 const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
+const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
+  if (mockState.customAdvice) throw mockState.customAdvice;
+  return {};
+});
 const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume' } }));
 const mockSubmit = jest.fn(async () => ({ apply: async () => {} }));
 const executedNote = {
@@ -95,19 +103,30 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args),
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
+  prepareCustomExecution: (...args: unknown[]) => mockPrepareCustom(...args),
   abandonCandidate: (...args: unknown[]) => mockAbandon(...args),
-  createTransactionProposalRequest: async () => ({
-    serialize: () => {
-      if (mockState.requestSerialize) throw mockState.requestSerialize;
-      return new Uint8Array([7, 8]);
-    }
-  }),
+  createTransactionProposalRequest: async () => {
+    if (mockState.proposalRequest) throw mockState.proposalRequest;
+    return {
+      authArg: () => undefined,
+      serialize: () => {
+        if (mockState.requestSerialize) throw mockState.requestSerialize;
+        return new Uint8Array([7, 8]);
+      }
+    };
+  },
   syncState: async () => {}
 }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  TransactionProver: { newLocalProver: () => ({}) }
+  TransactionProver: { newLocalProver: () => ({}) },
+  TransactionRequest: {
+    deserialize: () => {
+      if (mockState.customBuild) throw mockState.customBuild;
+      return { extendAdviceMap: () => ({ authArg: () => undefined, serialize: () => oldBytes }) };
+    }
+  }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
@@ -146,7 +165,14 @@ jest.mock('../sdk/miden-client', () => ({
       }
     };
   },
-  withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => body(hold),
+  withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => {
+    if (mockState.signLock) {
+      const error = mockState.signLock;
+      delete mockState.signLock;
+      throw error;
+    }
+    return body(hold);
+  },
   withWasmLockWatchdogPaused: async <T>(body: () => Promise<T>) => body(),
   getCurrentWasmLockHold: () => hold,
   assertWasmHoldCurrent: () => {}
@@ -684,7 +710,12 @@ it('reports a failed pipeline client build after the co-sign as the client build
   expect(mockExecute).not.toHaveBeenCalled();
   expect(mockSubmit).not.toHaveBeenCalled();
   await failureEventWith({ proposalStep: 'client_build', proposalGuard: undefined }, consumeAtSending);
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'client_build' });
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'client_build',
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'not_reached',
+    authArgPresence: 'unavailable'
+  });
 });
 
 describe('with the offscreen pipeline', () => {
@@ -797,4 +828,76 @@ describe('a claim that fails while recording its result after the guardian sync'
       Repo.transactions.hook('updating').unsubscribe(rejectComplete);
     }
   });
+});
+
+it.each(['proposal_sign', 'custom_advice', 'custom_request_build', 'proposal_request'])(
+  'post-create %s reaches actual cancellation and the sanitized wire with the original error',
+  async step => {
+    const error = privateFailure();
+    const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+    if (step === 'proposal_sign') mockSignProposal.mockRejectedValueOnce(error);
+    if (step === 'proposal_request') mockState.proposalRequest = error;
+    const custom = step === 'custom_advice' || step === 'custom_request_build';
+    if (custom) mockSignProposal.mockResolvedValueOnce({ metadata: { proposalType: 'custom' } });
+    if (step === 'custom_advice') mockState.customAdvice = error;
+    if (step === 'custom_request_build') mockState.customBuild = error;
+    const stored = await run(account, custom);
+    expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+    expectHookRejection(report, error);
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await failureEventWith({ proposalStep: step }, 'signing step signing_proposal');
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: step });
+  }
+);
+
+it('observes the actual inline Guardian request through cancellation and the real sanitized wire', async () => {
+  const original = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockExecute.mockRejectedValueOnce(original);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'executing' });
+  expectHookRejection(report, original);
+  expect(mockExecute).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith(
+    {
+      executionRoute: 'guardian_signed_request',
+      authObservation: 'observed',
+      authArgPresence: 'absent',
+      authLayout: 'absent',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    },
+    'authentication preparation unavailable; layout absent; commitment match unavailable; account code unavailable'
+  );
+});
+
+it('retains a typed post-create Guardian refusal through actual cancellation without sending its text', async () => {
+  const original = Object.assign(privateFailure(), { name: 'GuardianHttpError', status: 400, code: 'invalid_input' });
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockSignProposal.mockRejectedValueOnce(original);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+  expectHookRejection(report, original);
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'proposal_sign' }, 'guardian_http_400; guardian code invalid_input');
+});
+
+it('post-create sign_lock reaches actual cancellation and the real sanitized wire', async () => {
+  const original = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockConsumeProposal.mockImplementationOnce(async () => {
+    mockState.signLock = original;
+    return { id: 'private-proposal-id', nonce: 7, metadata: { proposalType: 'consume' } };
+  });
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+  expectHookRejection(report, original);
+  expect(mockSignProposal).not.toHaveBeenCalled();
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'sign_lock' }, 'signing step signing_proposal');
+  expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });
 });
