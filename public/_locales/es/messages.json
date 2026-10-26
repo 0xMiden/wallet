@@ -45,11 +45,11 @@
     "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
   },
   "bridgeRouteEpoch": {
-    "message": "Rápido · Epoch",
+    "message": "Rápida · Epoch",
     "englishSource": "Fast · Epoch"
   },
   "bridgeRouteAgglayer": {
-    "message": "Lento · Agglayer",
+    "message": "Lenta · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
   "bridgeRouteUnavailableBody": {
@@ -253,7 +253,7 @@
     "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
-    "message": "$count$ Transacciones restauradas. No se han podido leer algunas fuentes de Guardian. La recuperación se volverá a intentar la próxima vez que desbloquees la cartera.",
+    "message": "Se han restaurado $count$ transacciones. No se han podido leer algunas fuentes de Guardian. La recuperación se volverá a intentar la próxima vez que desbloquees la cartera.",
     "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
     "placeholders": {
       "count": {
@@ -262,7 +262,7 @@
     }
   },
   "payload": {
-    "message": "Carga útil",
+    "message": "Detalles",
     "englishSource": "Payload"
   },
   "bridgeDepositTitle": {
@@ -270,7 +270,7 @@
     "englishSource": "Miden Bridge"
   },
   "bridgeDepositHeading": {
-    "message": "Confirma tu ingreso",
+    "message": "Confirma tu depósito",
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
@@ -282,7 +282,7 @@
     "englishSource": "You receive"
   },
   "bridgeDepositBridgeOption": {
-    "message": "Opción «Bridge»",
+    "message": "Opción de bridge",
     "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
@@ -331,7 +331,7 @@
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "$name$. Actívalo para cambiar a esta dApp.",
+    "message": "$name$. Activa esta opción para cambiar a esta dApp.",
     "englishSource": "$name$. Activate to switch to this dApp.",
     "placeholders": {
       "name": {
@@ -430,7 +430,7 @@
     }
   },
   "settingsVersion": {
-    "message": "Versión$version$",
+    "message": "Versión $version$",
     "englishSource": "Version $version$",
     "placeholders": {
       "version": {
@@ -439,7 +439,7 @@
     }
   },
   "unlockBrandName": {
-    "message": "Pan",
+    "message": "Bread",
     "englishSource": "Bread"
   },
   "earnAssetOnNetwork": {
@@ -459,7 +459,7 @@
     "englishSource": "Deposited"
   },
   "earnMetricTotalEarned": {
-    "message": "Total devengado",
+    "message": "Total ganado",
     "englishSource": "Total Earned"
   },
   "earnMetricDailyAvg": {
@@ -471,11 +471,11 @@
     "englishSource": "Time Active"
   },
   "earnMetricStarted": {
-    "message": "Iniciado",
+    "message": "Inicio",
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~ $estimate$ · en $apy$ APY",
+    "message": "~ $estimate$ · con un APY del $apy$",
     "englishSource": "~ $estimate$ · at $apy$ APY",
     "placeholders": {
       "estimate": {
@@ -511,11 +511,11 @@
     "englishSource": "Out of Miden"
   },
   "earnDepositMore": {
-    "message": "Ingresar más",
+    "message": "Depositar más",
     "englishSource": "Deposit more"
   },
   "earnWithdrawAmount": {
-    "message": "Importe de la retirada",
+    "message": "Importe a retirar",
     "englishSource": "Withdraw Amount"
   },
   "earnWithdrawalLabel": {
@@ -539,19 +539,19 @@
     "englishSource": "Withdrawing…"
   },
   "earnWithdrawNotOwned": {
-    "message": "Esta posición no es propiedad de la cuenta EVM derivada de la cartera actual.",
+    "message": "Esta posición no pertenece a la cuenta EVM derivada de la cartera actual.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
-    "message": "Ha fallado la retirada sin gas.",
+    "message": "No se pudo completar la retirada sin gas.",
     "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
-    "message": "Tasa de rendimiento anual (APY) actual",
+    "message": "APY actual",
     "englishSource": "Current APY"
   },
   "earnDeposit": {
-    "message": "Depósito",
+    "message": "Depositar",
     "englishSource": "Deposit"
   },
   "earnTvlLabel": {
@@ -587,7 +587,7 @@
     "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
   },
   "earnAuditedLabel": {
-    "message": "Auditado",
+    "message": "Auditada",
     "englishSource": "Audited"
   },
   "earnDepositAmountTitle": {
@@ -595,7 +595,7 @@
     "englishSource": "Deposit Amount"
   },
   "earnOpenPosition": {
-    "message": "Posición abierta",
+    "message": "Abrir posición",
     "englishSource": "Open position"
   },
   "earnProjection1Month": {
@@ -624,7 +624,7 @@
     }
   },
   "earnCollateralLabel": {
-    "message": "Garantías",
+    "message": "Garantía",
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
@@ -648,7 +648,7 @@
     "englishSource": "Estimated time"
   },
   "earnEstimatedTimeValue": {
-    "message": "unos 30 segundos",
+    "message": "~30 segundos",
     "englishSource": "~30 seconds"
   },
   "earnNoEvmAddress": {
@@ -676,7 +676,7 @@
     "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
-    "message": "Obtener una tasa de rendimiento anual (APY) combinada del $apy$",
+    "message": "APY combinado del $apy$",
     "englishSource": "Earning $apy$ blended APY",
     "placeholders": {
       "apy": {
@@ -730,7 +730,7 @@
     "englishSource": "Deposit Amount"
   },
   "earnSeeAll": {
-    "message": "Ver todo",
+    "message": "Ver todas",
     "englishSource": "See All"
   },
   "earnNoActivePositionsTitle": {
@@ -785,11 +785,11 @@
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Pan",
+    "message": "Bread",
     "englishSource": "Bread"
   },
   "appDesc": {
-    "message": "Una cartera de navegador para Miden: blockchain",
+    "message": "Una cartera para navegador de la blockchain de Miden",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
@@ -805,7 +805,7 @@
     "englishSource": "Profile"
   },
   "settings": {
-    "message": "Configuración",
+    "message": "Ajustes",
     "englishSource": "Settings"
   },
   "myBadges": {
@@ -955,7 +955,7 @@
     "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
-    "message": "DApps autorizadas",
+    "message": "dApps autorizadas",
     "englishSource": "Authorized DApps"
   },
   "versionLabel": {
@@ -968,7 +968,7 @@
     }
   },
   "resetPermissionsConfirmation": {
-    "message": "¿Estás seguro de que quieres restablecer los permisos de\n $origin$?",
+    "message": "¿Seguro que quieres restablecer los permisos de\n $origin$?",
     "englishSource": "Are you sure you want to reset permissions for\n $origin$?",
     "placeholders": {
       "origin": {
@@ -977,7 +977,7 @@
     }
   },
   "clickToRevealField": {
-    "message": "Haz clic para mostrar este campo",
+    "message": "Pulsa para mostrar este campo",
     "englishSource": "Click to reveal this field"
   },
   "accounts": {
@@ -989,11 +989,11 @@
     "englishSource": "Card Color"
   },
   "lock": {
-    "message": "Cerrar con llave",
+    "message": "Bloquear",
     "englishSource": "Lock"
   },
   "importedAccount": {
-    "message": "Importado",
+    "message": "Importada",
     "englishSource": "Imported"
   },
   "networks": {
@@ -1009,7 +1009,7 @@
     "englishSource": "Back to swap"
   },
   "skip": {
-    "message": "Saltar",
+    "message": "Omitir",
     "englishSource": "Skip"
   },
   "okGotIt": {
@@ -1017,7 +1017,7 @@
     "englishSource": "Got it"
   },
   "changelogTitle": {
-    "message": "Pan actualizado",
+    "message": "Bread se ha actualizado",
     "englishSource": "Bread updated"
   },
   "update": {
@@ -1037,7 +1037,7 @@
     "englishSource": "Account:"
   },
   "analytics": {
-    "message": "Análisis",
+    "message": "Analíticas",
     "englishSource": "Analytics"
   },
   "cancel": {
@@ -1045,7 +1045,7 @@
     "englishSource": "Cancel"
   },
   "cancelled": {
-    "message": "Cancelado",
+    "message": "Cancelada",
     "englishSource": "Cancelled"
   },
   "notConfirmed": {
@@ -1153,7 +1153,7 @@
     "englishSource": "Alert"
   },
   "defaultAccountName": {
-    "message": "Cuenta$accountNumber$",
+    "message": "Cuenta $accountNumber$",
     "englishSource": "Account $accountNumber$",
     "placeholders": {
       "accountnumber": {
@@ -1162,11 +1162,11 @@
     }
   },
   "doNotSharePrivateKey1": {
-    "message": "¡NO lo compartas con nadie!",
+    "message": "¡NO la compartas con nadie!",
     "englishSource": "DO NOT share with anyone!"
   },
   "doNotSharePrivateKey2": {
-    "message": "Se puede utilizar para robarte el dinero de tu cuenta corriente.",
+    "message": "Podrían utilizarla para robar tu cuenta actual.",
     "englishSource": "It can be used to steal your current account."
   },
   "transactionAction": {
@@ -1219,7 +1219,7 @@
     "englishSource": "Oops!"
   },
   "smthWentWrongWhile": {
-    "message": "Se ha producido un error al $action$",
+    "message": "Algo salió mal al $action$",
     "englishSource": "Something went wrong while $action$",
     "placeholders": {
       "action": {
@@ -1228,11 +1228,11 @@
     }
   },
   "mayHappenBecauseYouAreOffline": {
-    "message": "Esto puede deberse a que ahora mismo no estás conectado",
+    "message": "Puede deberse a que no tienes conexión",
     "englishSource": "This may happen because you are currently offline"
   },
   "tryAgain": {
-    "message": "Inténtalo de nuevo",
+    "message": "Volver a intentarlo",
     "englishSource": "Try again"
   },
   "resetExtension": {
@@ -1240,11 +1240,11 @@
     "englishSource": "Reset Extension"
   },
   "resetExtensionConfirmation": {
-    "message": "¿Estás seguro de que quieres restablecer el Bread?\nComo consecuencia, se borrarán todos tus datos.",
+    "message": "¿Seguro que quieres restablecer Bread?\nSe eliminarán todos tus datos.",
     "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
-    "message": "Volver a intentarlo",
+    "message": "Reintentar",
     "englishSource": "Retry"
   },
   "retryAnyway": {
@@ -1256,11 +1256,11 @@
     "englishSource": "Before you continue"
   },
   "privateKeyRevealWarningBody": {
-    "message": "Tu clave privada otorga el control total de esta cuenta a quienquiera que la posea. Las cuentas de Miden no permiten la rotación de claves, por lo que una fuga de la clave compromete la cuenta de forma permanente.",
+    "message": "Tu clave privada da el control total de esta cuenta a quien la posea. Las cuentas de Miden no pueden rotar sus claves, por lo que una clave filtrada compromete la cuenta de forma permanente.",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
   "privateKeyRevealAcknowledge": {
-    "message": "Entiendo que esta clave no se puede modificar ni revocar.",
+    "message": "Entiendo que esta clave no se puede rotar ni revocar.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "editAccountName": {
@@ -1268,7 +1268,7 @@
     "englishSource": "Edit Account Name"
   },
   "delegate": {
-    "message": "Delegado",
+    "message": "Delegar",
     "englishSource": "Delegate"
   },
   "receive": {
@@ -1288,19 +1288,19 @@
     "englishSource": "Transaction initiated"
   },
   "transactionBackground": {
-    "message": "La transacción se llevará a cabo en segundo plano.",
+    "message": "La transacción continuará en segundo plano.",
     "englishSource": "Transaction will proceed in the background."
   },
   "transactionDelegated": {
-    "message": "La transacción se ha enviado para la generación del comprobante.",
+    "message": "La transacción se ha enviado para la generación de la prueba.",
     "englishSource": "Transaction has been sent for proof generation."
   },
   "openedNewTab": {
-    "message": "El monedero ha abierto una nueva pestaña para agilizar la transacción. Esa pestaña se cerrará automáticamente.",
+    "message": "La cartera ha abierto una nueva pestaña para acelerar la transacción. Se cerrará automáticamente.",
     "englishSource": "The wallet opened a new tab to speed up the transaction. That tab will auto-close."
   },
   "fastTransactionDescription": {
-    "message": "La transacción se transmitirá y se completará automáticamente.",
+    "message": "La transacción se transmitirá y finalizará automáticamente.",
     "englishSource": "The transaction will automatically be broadcasted and finalized."
   },
   "speedUpTransaction": {
@@ -1312,27 +1312,27 @@
     "englishSource": "Transaction Speed"
   },
   "generatingTransaction": {
-    "message": "Generación de una transacción",
+    "message": "Generando la transacción",
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "Esto puede tardar un momento, dependiendo del tráfico de la red. Puedes cerrar esta ventana; te avisaremos cuando haya terminado.",
+    "message": "Puede tardar un poco según el tráfico de la red. Puedes cerrar esta ventana; te avisaremos cuando termine.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
   "transactionProcessingHeader": {
-    "message": "Procesamiento",
+    "message": "Procesando",
     "englishSource": "Processing"
   },
   "transactionTitleSend": {
-    "message": "Envío del pago",
+    "message": "Enviando el pago",
     "englishSource": "Sending Payment"
   },
   "transactionTitleSwap": {
-    "message": "Generación de swap",
+    "message": "Generando el intercambio",
     "englishSource": "Generating Swap"
   },
   "transactionStepGuardianApproved": {
-    "message": "Guardian aprobado",
+    "message": "Aprobado por Guardian",
     "englishSource": "Guardian approved"
   },
   "transactionStepSignedLocally": {
@@ -1344,15 +1344,15 @@
     "englishSource": "Proof generated"
   },
   "transactionStepSubmitting": {
-    "message": "Enviar",
+    "message": "Enviando",
     "englishSource": "Submitting"
   },
   "transactionStepSyncingGuardian": {
-    "message": "Sincronización con Guardian",
+    "message": "Sincronizando con Guardian",
     "englishSource": "Syncing with Guardian"
   },
   "transactionStepDeliveringNote": {
-    "message": "Entrega al destinatario",
+    "message": "Entregando al destinatario",
     "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
@@ -1373,19 +1373,19 @@
     }
   },
   "transactionStageSyncing": {
-    "message": "Sincronización de la cuenta",
+    "message": "Sincronizando la cuenta",
     "englishSource": "Syncing account"
   },
   "transactionStageSyncingDescription": {
-    "message": "Se está recuperando el estado más reciente de tu cuenta.",
+    "message": "Obteniendo el estado más reciente de tu cuenta.",
     "englishSource": "Fetching your latest account state."
   },
   "transactionStageSending": {
-    "message": "Transacción de envío",
+    "message": "Enviando la transacción",
     "englishSource": "Sending transaction"
   },
   "transactionStageSendingDescription": {
-    "message": "Crear y validar tu transacción.",
+    "message": "Preparando y generando la prueba de tu transacción.",
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
@@ -1393,43 +1393,43 @@
     "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
-    "message": "Ejecución de la transacción",
+    "message": "Ejecutando la transacción",
     "englishSource": "Executing transaction"
   },
   "transactionStageExecutingDescription": {
-    "message": "Preparación de la transacción para su validación.",
+    "message": "Preparando la transacción para generar la prueba.",
     "englishSource": "Preparing the transaction for proving."
   },
   "transactionStageProving": {
-    "message": "Generación de pruebas",
+    "message": "Generando la prueba",
     "englishSource": "Generating proof"
   },
   "transactionStageProvingDescription": {
-    "message": "Se está generando el comprobante de tu transacción.",
+    "message": "Creando la prueba de tu transacción.",
     "englishSource": "Creating the proof for your transaction."
   },
   "transactionStageSwitching": {
-    "message": "Cambio de guardian",
+    "message": "Cambiando de guardian",
     "englishSource": "Switching guardian"
   },
   "transactionStageSwapping": {
-    "message": "Intercambio de fichas",
+    "message": "Intercambiando tokens",
     "englishSource": "Swapping tokens"
   },
   "transactionStageCreatingProposal": {
-    "message": "Elaboración de una propuesta",
+    "message": "Creando la propuesta",
     "englishSource": "Creating proposal"
   },
   "transactionStageCreatingProposalDescription": {
-    "message": "Creación de la propuesta de transacción para tu guardian.",
+    "message": "Preparando la propuesta de transacción para tu Guardian.",
     "englishSource": "Building the transaction proposal for your guardian."
   },
   "transactionStageSigningProposal": {
-    "message": "Firmar con guardian",
+    "message": "Firmando con Guardian",
     "englishSource": "Signing with guardian"
   },
   "transactionStageSigningProposalDescription": {
-    "message": "Tu «guardian» está firmando la propuesta.",
+    "message": "Tu Guardian está firmando la propuesta.",
     "englishSource": "Your guardian is signing the proposal."
   },
   "transactionStageSigningLocally": {
@@ -1441,7 +1441,7 @@
     "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
-    "message": "Envío de la transacción",
+    "message": "Enviando la transacción",
     "englishSource": "Submitting transaction"
   },
   "transactionStageSubmittingDescription": {
@@ -1449,11 +1449,11 @@
     "englishSource": "Sending your signed transaction to the network."
   },
   "transactionStageGuardianSyncing": {
-    "message": "Sincronización con Guardian",
+    "message": "Sincronizando con Guardian",
     "englishSource": "Syncing with Guardian"
   },
   "transactionStageGuardianSyncingDescription": {
-    "message": "Sincronización del estado actualizado de tu cuenta con tu guardian.",
+    "message": "Sincronizando el estado actualizado de tu cuenta con tu Guardian.",
     "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
@@ -1461,23 +1461,23 @@
     "englishSource": "Transaction complete"
   },
   "transactionStageCompleteDescription": {
-    "message": "Se están ultimando los detalles de la transacción.",
+    "message": "Finalizando los detalles de la transacción.",
     "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
-    "message": "Confirmación en la cadena de bloques",
+    "message": "Confirmando en la cadena",
     "englishSource": "Confirming on chain"
   },
   "transactionStageConfirmingDescription": {
-    "message": "A la espera de la confirmación de la red.",
+    "message": "Esperando la confirmación de la red.",
     "englishSource": "Waiting for network confirmation."
   },
   "transactionStageRegisteringGuardian": {
-    "message": "Registrarse en guardian",
+    "message": "Registrando la cuenta con Guardian",
     "englishSource": "Registering with guardian"
   },
   "transactionStageRegisteringGuardianDescription": {
-    "message": "Registro del estado de tu cuenta con el nuevo guardian.",
+    "message": "Registrando el estado de tu cuenta con el nuevo Guardian.",
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
@@ -1497,7 +1497,7 @@
     "englishSource": "Private Key"
   },
   "mnemonic": {
-    "message": "Mnemotécnico",
+    "message": "Mnemónico",
     "englishSource": "Mnemonic"
   },
   "password": {
@@ -1509,7 +1509,7 @@
     "englishSource": "Success"
   },
   "smthWentWrong": {
-    "message": "Ha surgido un problema",
+    "message": "Algo salió mal",
     "englishSource": "Something went wrong"
   },
   "processing": {
@@ -1609,7 +1609,7 @@
     "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
-    "message": "Guardian Los cambios y la sustitución de claves requieren la clave de recuperación, que no se encuentra en este dispositivo.",
+    "message": "Los cambios de Guardian y la sustitución de claves requieren la clave de recuperación, que no se encuentra en este dispositivo.",
     "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
   },
   "revealPrivateKey": {
@@ -1617,7 +1617,7 @@
     "englishSource": "Reveal Private Key"
   },
   "advancedSettings": {
-    "message": "Configuración avanzada",
+    "message": "Ajustes avanzados",
     "englishSource": "Advanced Settings"
   },
   "resync": {
@@ -1645,7 +1645,7 @@
     "englishSource": "Info"
   },
   "unlockPasswordErrorDelay": {
-    "message": "Has introducido una contraseña incorrecta tres veces. Tu monedero se va a bloquear durante",
+    "message": "Has realizado tres intentos incorrectos. Tu cartera permanecerá bloqueada durante",
     "englishSource": "You have entered the wrong password three times. Your wallet is being blocked for"
   },
   "unlock": {
@@ -1653,7 +1653,7 @@
     "englishSource": "Unlock"
   },
   "website": {
-    "message": "Página web",
+    "message": "Sitio web",
     "englishSource": "Website"
   },
   "privacyPolicy": {
@@ -1661,7 +1661,7 @@
     "englishSource": "Privacy Policy"
   },
   "termsOfService": {
-    "message": "Condiciones de uso",
+    "message": "Condiciones del servicio",
     "englishSource": "Terms of Service"
   },
   "support": {
@@ -1681,11 +1681,11 @@
     "englishSource": "Recovery Phrase"
   },
   "viewThisInPrivatePlace": {
-    "message": "Mira esto en un lugar apartado",
+    "message": "Mira esto en un lugar privado",
     "englishSource": "View this in a private place"
   },
   "anyoneWithRecoveryPhrase": {
-    "message": "Cualquier persona que conozca tu frase de recuperación puede acceder a tu monedero y a tus fondos.",
+    "message": "Cualquiera que conozca tu frase de recuperación puede acceder a tu cartera y a tus fondos.",
     "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
   },
   "pleaseWriteDownRecoveryPhrase": {
@@ -1701,11 +1701,11 @@
     "englishSource": "Hide Recovery Phrase"
   },
   "dAppsInteraction": {
-    "message": "Interacción con las DApps",
+    "message": "Interacción con dApps",
     "englishSource": "DApps Interaction"
   },
   "none": {
-    "message": "Ninguno",
+    "message": "Ninguna",
     "englishSource": "None"
   },
   "popupEnabled": {
@@ -1717,11 +1717,11 @@
     "englishSource": "Delete"
   },
   "notEnoughFunds": {
-    "message": "No hay fondos suficientes",
+    "message": "Fondos insuficientes",
     "englishSource": "Not enough funds"
   },
   "notEnoughCurrencyFunds": {
-    "message": "No hay suficientes fondos de «$currency$»",
+    "message": "Fondos insuficientes de «$currency$»",
     "englishSource": "Not enough $currency$ funds",
     "placeholders": {
       "currency": {
@@ -1730,7 +1730,7 @@
     }
   },
   "failed": {
-    "message": "Fallido",
+    "message": "Fallida",
     "englishSource": "Failed"
   },
   "yourBalanceIsZero": {
@@ -1738,11 +1738,11 @@
     "englishSource": "Your Balance is zero."
   },
   "thisMayHappenBecause": {
-    "message": "Esto puede deberse a que:",
+    "message": "Puede deberse a que:",
     "englishSource": "This may happen because:"
   },
   "minimalFeeGreaterThanBalanceVerbose": {
-    "message": "La comisión mínima de esta transacción es superior a tu saldo. Es posible que se aplique una comisión elevada debido a que estás enviando fondos a una cuenta de gestor vacía. Esto conlleva una comisión única de quema de 0,06425 $gasTokenSymbol$;",
+    "message": "La comisión mínima de esta transacción supera tu saldo. Puede ser elevada porque estás enviando fondos a una cuenta Manager vacía, lo que requiere una comisión de quema única de 0,06425 $gasTokenSymbol$;",
     "englishSource": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425 $gasTokenSymbol$ burn fee;",
     "placeholders": {
       "gastokensymbol": {
@@ -1751,11 +1751,11 @@
     }
   },
   "networkOrOtherIssue": {
-    "message": "Problema de red u otro problema técnico.",
+    "message": "Un problema de red u otro problema técnico.",
     "englishSource": "Network or other technical issue."
   },
   "confirmAction": {
-    "message": "Confirma $action$",
+    "message": "Confirmar $action$",
     "englishSource": "Confirm $action$",
     "placeholders": {
       "action": {
@@ -1768,7 +1768,7 @@
     "englishSource": "Confirm"
   },
   "confirmRisk": {
-    "message": "Entiendo el riesgo y deseo seguir adelante.",
+    "message": "Entiendo el riesgo y deseo continuar.",
     "englishSource": "I understand the risk and wish to proceed."
   },
   "confirmError": {
@@ -1800,11 +1800,11 @@
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
   },
   "doNotShareWithAnyone": {
-    "message": "No se lo cuentes a nadie.",
+    "message": "No la compartas con nadie.",
     "englishSource": "Do not share it with anyone."
   },
   "anyoneCanTakeAssets": {
-    "message": "Cualquiera que tenga esta frase puede quedarse con tus bienes para siempre.",
+    "message": "Cualquiera que tenga esta frase puede quedarse con tus activos para siempre.",
     "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
@@ -1812,7 +1812,7 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "De momento no tienes ninguna transacción.",
+    "message": "Ahora mismo no tienes ninguna transacción.",
     "englishSource": "You don't currently have any transactions."
   },
   "remove": {
@@ -1820,11 +1820,11 @@
     "englishSource": "Remove"
   },
   "ifYouWantToRevealPrivateKeyFromOtherAccount": {
-    "message": "Si quieres mostrar una clave de vista de otra cuenta, debes seleccionarla en el menú desplegable de la esquina superior derecha.",
+    "message": "Para mostrar la clave privada de otra cuenta, selecciónala en el menú desplegable superior derecho.",
     "englishSource": "If you want to reveal a view key from another account - you should select it in the top-right dropdown."
   },
   "privateKeyFieldDescription": {
-    "message": "Clave de la cuenta corriente. No la reveles a nadie.",
+    "message": "Clave de la cuenta actual. Mantenla en secreto.",
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
@@ -1832,11 +1832,11 @@
     "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
-    "message": "No se lo digas a nadie.",
+    "message": "Mantenla en secreto.",
     "englishSource": "Keep it in secret."
   },
   "revealSecretPasswordInputDescription": {
-    "message": "Introduce la contraseña para descubrir el «$secretName$».",
+    "message": "Introduce la contraseña para mostrar la $secretName$.",
     "englishSource": "Enter password to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1845,7 +1845,7 @@
     }
   },
   "revealSecretPasscodeInputDescription": {
-    "message": "Introduce tu código de acceso para descubrir el «$secretName$».",
+    "message": "Introduce tu código de acceso para mostrar la $secretName$.",
     "englishSource": "Enter your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1854,7 +1854,7 @@
     }
   },
   "revealSecretUnlockDescription": {
-    "message": "Desbloquea el dispositivo con tu código de acceso para descubrir el «$secretName$».",
+    "message": "Desbloquea con tu código de acceso para mostrar la $secretName$.",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1875,27 +1875,27 @@
     "englishSource": "Amount"
   },
   "mainAssetBalanceIsZero": {
-    "message": "Tu saldo de créditos Miden (activo principal) es cero. Se necesitan créditos Miden para pagar la tasa.",
+    "message": "Tu saldo de créditos Miden (activo principal) es cero. Se necesitan créditos Miden para pagar la comisión.",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."
   },
   "unableToSendTransactionAction": {
-    "message": "No se ha podido enviar la transacción al destinatario indicado.",
+    "message": "No se pudo enviar la transacción al destinatario indicado.",
     "englishSource": "Unable to send transaction to provided Recipient."
   },
   "unableToEstimateTransactionAction": {
-    "message": "No se puede calcular el importe de la transacción para el destinatario indicado.",
+    "message": "No se pudo estimar la transacción para el destinatario indicado.",
     "englishSource": "Unable to estimate transaction to provided Recipient."
   },
   "raw": {
-    "message": "Crudo",
+    "message": "Sin procesar",
     "englishSource": "Raw"
   },
   "fetchingConfirmationDetails": {
-    "message": "Recuperando los datos de confirmación",
+    "message": "obtener los datos de confirmación",
     "englishSource": "fetching confirmation details"
   },
   "notIdentified": {
-    "message": "No identificado",
+    "message": "No identificada",
     "englishSource": "Not identified"
   },
   "connect": {
@@ -1919,19 +1919,19 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "Descubre los tokens",
+    "message": "Explorar tokens",
     "englishSource": "Explore tokens"
   },
   "history": {
-    "message": "Historia",
+    "message": "Historial",
     "englishSource": "History"
   },
   "proofGenerationTab": {
-    "message": "Es necesario tener una pestaña abierta para generar de forma eficaz las pruebas de transacción.",
+    "message": "Se necesita una pestaña abierta para generar pruebas de transacción de forma eficiente.",
     "englishSource": "An open tab is required to efficiently generate transaction proofs"
   },
   "searchAssets": {
-    "message": "Buscar recursos...",
+    "message": "Buscar activos...",
     "englishSource": "Search assets..."
   },
   "contract": {
@@ -1939,23 +1939,23 @@
     "englishSource": "Contract"
   },
   "delegateProofSettings": {
-    "message": "Generación de pruebas de delegación",
+    "message": "Delegar la generación de pruebas",
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "Cuando está activado, las pruebas de transacción se generan en servidores remotos: es más rápido, no requiere descargas pesadas en tu dispositivo y tus claves nunca salen de él. Cuando está desactivado, o si el servicio no está disponible, el monedero realiza las pruebas localmente: es más privado, pero más lento y requiere una descarga única de gran tamaño.",
+    "message": "Cuando está activado, las pruebas de transacción se generan en servidores remotos: es más rápido, no requiere una descarga de gran tamaño en tu dispositivo y tus claves nunca salen de él. Cuando está desactivado o el servicio no está disponible, la cartera genera las pruebas localmente: es más privado, pero más lento y requiere una única descarga de gran tamaño.",
     "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
   },
   "transfer": {
-    "message": "Traspaso",
+    "message": "Transferir",
     "englishSource": "Transfer"
   },
   "clean": {
-    "message": "Limpio",
+    "message": "Limpiar",
     "englishSource": "Clean"
   },
   "ok": {
-    "message": "Vale",
+    "message": "Aceptar",
     "englishSource": "OK"
   },
   "yes": {
@@ -1967,7 +1967,7 @@
     "englishSource": "No"
   },
   "actionConfirmation": {
-    "message": "Confirma la acción",
+    "message": "Confirmar la acción",
     "englishSource": "Confirm the action"
   },
   "submit": {
@@ -1975,7 +1975,7 @@
     "englishSource": "Submit"
   },
   "max": {
-    "message": "Max",
+    "message": "Máx",
     "englishSource": "Max"
   },
   "from": {
@@ -1991,7 +1991,7 @@
     "englishSource": "Received"
   },
   "other": {
-    "message": "Otros",
+    "message": "Otro",
     "englishSource": "Other"
   },
   "others": {
@@ -1999,7 +1999,7 @@
     "englishSource": "Others"
   },
   "thousandFormat": {
-    "message": "$thousand$ k",
+    "message": "$thousand$ mil",
     "englishSource": "$thousand$k",
     "placeholders": {
       "thousand": {
@@ -2017,7 +2017,7 @@
     }
   },
   "billionFormat": {
-    "message": "$billion$ B",
+    "message": "$billion$ mil M",
     "englishSource": "$billion$B",
     "placeholders": {
       "billion": {
@@ -2062,7 +2062,7 @@
     "englishSource": "Enter Miden or Ethereum Address"
   },
   "selectAmount": {
-    "message": "Selecciona el importe",
+    "message": "Seleccionar importe",
     "englishSource": "Select Amount"
   },
   "enterAmount": {
@@ -2074,7 +2074,7 @@
     "englishSource": "Calculating"
   },
   "selectAToken": {
-    "message": "Selecciona un token",
+    "message": "Seleccionar un token",
     "englishSource": "Select a token"
   },
   "searchForTokens": {
@@ -2099,11 +2099,11 @@
     }
   },
   "reviewDetails": {
-    "message": "Detalles de la reseña",
+    "message": "Revisar detalles",
     "englishSource": "Review Details"
   },
   "swap": {
-    "message": "Intercambio",
+    "message": "Intercambiar",
     "englishSource": "Swap"
   },
   "confirmSwap": {
@@ -2111,15 +2111,15 @@
     "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
-    "message": "A través de In Protocol Dex",
+    "message": "Mediante In Protocol Dex",
     "englishSource": "Via In Protocol Dex"
   },
   "reviewSwap": {
-    "message": "Intercambio de reseñas",
+    "message": "Revisar intercambio",
     "englishSource": "Review Swap"
   },
   "youPay": {
-    "message": "Tú pagas",
+    "message": "Pagas",
     "englishSource": "You Pay"
   },
   "youReceive": {
@@ -2127,7 +2127,7 @@
     "englishSource": "You Receive"
   },
   "youSend": {
-    "message": "Tú envías",
+    "message": "Envías",
     "englishSource": "You Send"
   },
   "youAreSending": {
@@ -2135,11 +2135,11 @@
     "englishSource": "You are sending"
   },
   "swapDirection": {
-    "message": "Cambiar la dirección",
+    "message": "Invertir la dirección",
     "englishSource": "Swap direction"
   },
   "rate": {
-    "message": "Tarifa",
+    "message": "Tipo de cambio",
     "englishSource": "Rate"
   },
   "swapRateNote": {
@@ -2243,7 +2243,7 @@
     "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
-    "message": "Normalmente se rellena",
+    "message": "Suele completarse en",
     "englishSource": "Usually fills in"
   },
   "swapEtaSeconds": {
@@ -2256,7 +2256,7 @@
     }
   },
   "swapEtaMinutes": {
-    "message": "~minutos$minutes$",
+    "message": "~$minutes$ min",
     "englishSource": "~$minutes$ min",
     "placeholders": {
       "minutes": {
@@ -2265,7 +2265,7 @@
     }
   },
   "swapEtaFallback": {
-    "message": "~30 años",
+    "message": "~30 s",
     "englishSource": "~30s"
   },
   "expires": {
@@ -2277,11 +2277,11 @@
     "englishSource": "Auto accept"
   },
   "swapSameToken": {
-    "message": "Elige dos fichas diferentes para intercambiarlas.",
+    "message": "Elige dos tokens diferentes para intercambiarlos.",
     "englishSource": "Pick two different tokens to swap."
   },
   "swapInvalidAmounts": {
-    "message": "Introduce un importe válido para el canje.",
+    "message": "Introduce un importe válido para el intercambio.",
     "englishSource": "Enter a valid amount to swap."
   },
   "swapPairNotListed": {
@@ -2289,11 +2289,11 @@
     "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
-    "message": "Precio no disponible. Vuelve a intentarlo dentro de un rato.",
+    "message": "Precio no disponible. Inténtalo de nuevo en breve.",
     "englishSource": "Price unavailable. Try again shortly."
   },
   "swapOrderReservedNote": {
-    "message": "Tu «$amount$» permanecerá reservado para este pedido hasta que se haya completado.",
+    "message": "Tu $amount$ permanecerá reservado para esta orden hasta que se complete.",
     "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
     "placeholders": {
       "amount": {
@@ -2302,11 +2302,11 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "Estamos buscando liquidez para tu swap. Normalmente se completa en unos 30 segundos.",
+    "message": "Estamos buscando liquidez para tu intercambio. Suele completarse en unos 30 segundos.",
     "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
-    "message": "Puedes seguir su evolución en «Actividades».",
+    "message": "Puedes seguir su progreso en Actividad.",
     "englishSource": "You can track its progress in Activities."
   },
   "expirationDate": {
@@ -2323,11 +2323,11 @@
     }
   },
   "recallTimeInPast": {
-    "message": "Esa hora ya ha pasado; elige una hora futura",
+    "message": "El momento seleccionado ya ha pasado; elige uno futuro",
     "englishSource": "This time has already passed — pick a future time"
   },
   "expiresInSeconds": {
-    "message": "En$seconds$ segundos",
+    "message": "Dentro de $seconds$ segundos",
     "englishSource": "In $seconds$ seconds",
     "placeholders": {
       "seconds": {
@@ -2336,7 +2336,7 @@
     }
   },
   "expiresInMinutes": {
-    "message": "En «$minutes$» minutos",
+    "message": "Dentro de $minutes$ minutos",
     "englishSource": "In $minutes$ minutes",
     "placeholders": {
       "minutes": {
@@ -2361,15 +2361,15 @@
     "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
-    "message": "¿Añadir a los contactos?",
+    "message": "¿Añadir a contactos?",
     "englishSource": "Add to contacts?"
   },
   "recent": {
-    "message": "Reciente",
+    "message": "Recientes",
     "englishSource": "Recent"
   },
   "contactWithTheSameAddressAlreadyExists": {
-    "message": "Ya existe un contacto con esa misma dirección",
+    "message": "Ya existe un contacto con esta dirección",
     "englishSource": "Contact with the same address already exists"
   },
   "currentContacts": {
@@ -2381,7 +2381,7 @@
     "englishSource": "Search"
   },
   "deleteContactConfirm": {
-    "message": "¿Estás seguro de que quieres eliminar este contacto?",
+    "message": "¿Seguro que quieres eliminar este contacto?",
     "englishSource": "Are you sure you want to delete this contact?"
   },
   "noContactsFound": {
@@ -2393,11 +2393,11 @@
     "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
-    "message": "Recarga tu monedero",
+    "message": "Añade fondos a tu cartera",
     "englishSource": "Fund your wallet"
   },
   "faucetPromptBody": {
-    "message": "Añade tokens a tu monedero para empezar.",
+    "message": "Añade tokens a tu cartera para empezar.",
     "englishSource": "Add tokens to your wallet to get started."
   },
   "faucetPromptFunding": {
@@ -2508,15 +2508,15 @@
     "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
-    "message": "La firma segura no está disponible",
+    "message": "Firma segura no disponible",
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "El hardware de seguridad de este dispositivo ha detectado un error al configurar la firma de transacciones. Copia el mensaje de error y envíalo al equipo de Miden.",
+    "message": "El hardware seguro de este dispositivo ha detectado un error al configurar la firma de transacciones. Copia el error y envíalo al equipo de Miden.",
     "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
-    "message": "Error de copia",
+    "message": "Copiar error",
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
@@ -2528,31 +2528,31 @@
     "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
-    "message": "Tecla Girar",
+    "message": "Rotar la clave",
     "englishSource": "Rotate key"
   },
   "bridgePromptTitle": {
-    "message": "Puente en curso",
+    "message": "Transferencia entre redes en curso",
     "englishSource": "Bridge in progress"
   },
   "bridgePromptBody": {
-    "message": "Seguiremos realizando un seguimiento de tu puente en segundo plano.",
+    "message": "Seguiremos supervisando esta transferencia en segundo plano.",
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Anota tu frase de recuperación y, a continuación, comprueba que la has memorizado seleccionando la primera y la última palabra. Asegúrate de que nadie pueda ver tu pantalla.",
+    "message": "Anotarás tu frase de recuperación y después comprobarás que la recuerdas seleccionando la primera y la última palabra. Asegúrate de que nadie pueda ver tu pantalla.",
     "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
-    "message": "Desbloquea tu monedero para ver tu frase de recuperación y comenzar el proceso de verificación.",
+    "message": "Desbloquea tu cartera para mostrar tu frase de recuperación e iniciar la verificación.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Escribe estas palabras en orden.",
+    "message": "Anota estas palabras en orden.",
     "englishSource": "Write down these words in order."
   },
   "word": {
-    "message": "Word$number$",
+    "message": "Palabra $number$",
     "englishSource": "Word $number$",
     "placeholders": {
       "number": {
@@ -2565,7 +2565,7 @@
     "englishSource": "Finish"
   },
   "onboarding": {
-    "message": "Incorporación",
+    "message": "Configuración inicial",
     "englishSource": "Onboarding"
   },
   "next": {
@@ -2573,11 +2573,11 @@
     "englishSource": "Next"
   },
   "done": {
-    "message": "Hecho",
+    "message": "Listo",
     "englishSource": "Done"
   },
   "start": {
-    "message": "Inicio",
+    "message": "Empezar",
     "englishSource": "Start"
   },
   "transactionId": {
@@ -2589,7 +2589,7 @@
     "englishSource": "Recipient address"
   },
   "completed": {
-    "message": "Finalizado",
+    "message": "Completada",
     "englishSource": "Completed"
   },
   "confirmation": {
@@ -2597,7 +2597,7 @@
     "englishSource": "Confirmation"
   },
   "collectibles": {
-    "message": "Artículos de colección",
+    "message": "Coleccionables",
     "englishSource": "Collectibles"
   },
   "id": {
@@ -2609,11 +2609,11 @@
     "englishSource": "Convert"
   },
   "public": {
-    "message": "Público",
+    "message": "Pública",
     "englishSource": "Public"
   },
   "private": {
-    "message": "Privado",
+    "message": "Privada",
     "englishSource": "Private"
   },
   "external": {
@@ -2629,15 +2629,15 @@
     "englishSource": "Clear"
   },
   "midenWallet": {
-    "message": "¡Pan!",
+    "message": "Bread!",
     "englishSource": "Bread!"
   },
   "anywhere": {
-    "message": "En cualquier sitio.",
+    "message": "En cualquier lugar.",
     "englishSource": "Anywhere."
   },
   "welcome": {
-    "message": "Bienvenidos",
+    "message": "¡Te damos la bienvenida",
     "englishSource": "Welcome"
   },
   "toLowercase": {
@@ -2649,7 +2649,7 @@
     "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
   },
   "recoverYourAccount": {
-    "message": "Recupera tu cuenta",
+    "message": "Recuperar tu cuenta",
     "englishSource": "Recover your account"
   },
   "chooseImportType": {
@@ -2701,7 +2701,7 @@
     "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
-    "message": "Configura tu código de acceso",
+    "message": "Configurar tu código de acceso",
     "englishSource": "Set up your passcode"
   },
   "confirmYourPasscode": {
@@ -2721,7 +2721,7 @@
     "englishSource": "Incorrect passcode. Try again."
   },
   "forgotPasscode": {
-    "message": "¿Has olvidado el código de acceso?",
+    "message": "¿Has olvidado tu código de acceso?",
     "englishSource": "Forgot passcode?"
   },
   "enterYourPassword": {
@@ -2741,15 +2741,15 @@
     "englishSource": "Re-enter the same 6 digits"
   },
   "faceIdSetUp": {
-    "message": "Configuración de Face ID",
+    "message": "Configurar Face ID",
     "englishSource": "Face ID set up"
   },
   "biometricSetUp": {
-    "message": "Configuración biométrica",
+    "message": "Configurar desbloqueo biométrico",
     "englishSource": "Biometric set up"
   },
   "usePasscodeInstead": {
-    "message": "Utiliza un código de acceso en su lugar",
+    "message": "Usar un código de acceso en su lugar",
     "englishSource": "Use passcode instead"
   },
   "biometricConfirmed": {
@@ -2757,11 +2757,11 @@
     "englishSource": "Confirmed!"
   },
   "onlyOneMoreStep": {
-    "message": "¡Solo queda un paso más!",
+    "message": "¡Solo queda un paso!",
     "englishSource": "Only one more step!"
   },
   "biometricSetupReason": {
-    "message": "Configura el desbloqueo biométrico de tu monedero",
+    "message": "Configura el desbloqueo biométrico de tu cartera",
     "englishSource": "Set up biometric unlock for your wallet"
   },
   "biometricUnavailable": {
@@ -2813,7 +2813,7 @@
     "englishSource": "Open Settings"
   },
   "chooseYourGuardian": {
-    "message": "Elige tu «Guardian»",
+    "message": "Elige tu Guardian",
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
@@ -2861,7 +2861,7 @@
     "englishSource": "Checking"
   },
   "whatIsAGuardian": {
-    "message": "¿Qué es un «Guardian»?",
+    "message": "¿Qué es un Guardian?",
     "englishSource": "What is a Guardian?"
   },
   "guardianIntroTitle": {
@@ -2982,7 +2982,7 @@
     "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
-    "message": "Para qué sirve",
+    "message": "Qué hace",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
@@ -2994,11 +2994,11 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Gestiona tus fondos por tu cuenta. Accede a tu información privada. Consulta tus saldos, a menos que los compartas.",
+    "message": "No puede mover tus fondos por sí solo, acceder a tu estado privado ni ver tus saldos salvo que los compartas.",
     "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
   },
   "guardianInfoSwitchingIsEasyTitle": {
-    "message": "Cambiar es fácil",
+    "message": "Cambiar de Guardian es fácil",
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
@@ -3010,7 +3010,7 @@
     "englishSource": "Got it"
   },
   "backUpYourWallet": {
-    "message": "Haz una copia de seguridad de tu monedero",
+    "message": "Haz una copia de seguridad de tu cartera",
     "englishSource": "Back up your wallet"
   },
   "show": {
@@ -3030,11 +3030,11 @@
     "englishSource": "Copy"
   },
   "createsProofsOnYourComputer": {
-    "message": "Crea pruebas en tu ordenador",
+    "message": "Genera pruebas en tu ordenador",
     "englishSource": "Creates proofs on your computer"
   },
   "yourKeysStayPrivate": {
-    "message": "Tus claves se mantienen privadas",
+    "message": "Tus claves permanecen privadas",
     "englishSource": "Your keys stay private"
   },
   "selectTheDefaultTransactionType": {
@@ -3046,7 +3046,7 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Asegúrate de que has guardado tu frase de recuperación.",
+    "message": "Confirma que has guardado tu frase de recuperación.",
     "englishSource": "Confirm you've saved your recovery phrase."
   },
   "verifyMessageSuffix": {
@@ -3054,7 +3054,7 @@
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "verifyStepSelectFirst": {
-    "message": "Pulsa en la <b>primera</b> palabra de tu frase de recuperación",
+    "message": "Pulsa la <b>primera</b> palabra de tu frase de recuperación",
     "englishSource": "Tap the <b>first</b> word of your recovery phrase"
   },
   "verifyStepSelectLast": {
@@ -3062,11 +3062,11 @@
     "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
   },
   "verifyStepCorrect": {
-    "message": "Eso es todo: pulsa «Continuar»",
+    "message": "Has seleccionado la primera y última palabra: pulsa Continuar",
     "englishSource": "That's the first and last word — tap Continue"
   },
   "verifyStepWrong": {
-    "message": "Eso no es lo único que hay que decir: vuelve a pulsar sobre ellos",
+    "message": "No has seleccionado la primera y última palabra: selecciónalas de nuevo",
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
@@ -3078,15 +3078,15 @@
     "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
-    "message": "Anota tu frase de recuperación en un plazo de 7 días para proteger tu monedero por completo.",
+    "message": "Anota tu frase de recuperación en un plazo de 7 días para proteger por completo tu cartera.",
     "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
   },
   "recoveryPhraseDailyReminder": {
-    "message": "Te lo recordaremos cada día en la pantalla de inicio.",
+    "message": "Te lo recordaremos a diario en la pantalla de inicio.",
     "englishSource": "We'll remind you daily on the home screen."
   },
   "openWallet": {
-    "message": "Abrir la cartera",
+    "message": "Abrir cartera",
     "englishSource": "Open wallet"
   },
   "getStarted": {
@@ -3094,15 +3094,15 @@
     "englishSource": "Get started"
   },
   "creatingYourWallet": {
-    "message": "Creando tu monedero…",
+    "message": "Creando tu cartera…",
     "englishSource": "Creating your wallet…"
   },
   "restoringYourWallet": {
-    "message": "Restaurar tu monedero…",
+    "message": "Restaurando tu cartera…",
     "englishSource": "Restoring your wallet…"
   },
   "settingUpYourWallet": {
-    "message": "Configuración de tu monedero…",
+    "message": "Configurando tu cartera…",
     "englishSource": "Setting up your wallet…"
   },
   "finishRestoringOnOpen": {
@@ -3122,7 +3122,7 @@
     "englishSource": "Enter password again"
   },
   "itsAMatch": {
-    "message": "¡Es un acierto!",
+    "message": "¡Las contraseñas coinciden!",
     "englishSource": "It's a match!"
   },
   "passwordsDoNotMatch": {
@@ -3134,11 +3134,11 @@
     "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
-    "message": "Crear contraseña",
+    "message": "Crea una contraseña",
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Establece una contraseña para desbloquear tu monedero",
+    "message": "Establece una contraseña para desbloquear tu cartera",
     "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
@@ -3146,27 +3146,27 @@
     "englishSource": "Very strong!"
   },
   "medium": {
-    "message": "Medio",
+    "message": "Media",
     "englishSource": "Medium"
   },
   "low": {
-    "message": "Bajo",
+    "message": "Baja",
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caracteres, 1 número",
+    "message": "8 caracteres y 1 número",
     "englishSource": "8 characters, 1 number"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Mínimo 8 caracteres, con al menos 1 número",
+    "message": "Mínimo de 8 caracteres y al menos 1 número",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Guarda estas 12 palabras y guárdalas en un lugar seguro.",
+    "message": "Anota estas 12 palabras y guárdalas en un lugar seguro.",
     "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
-    "message": "No se lo cuentes a nadie.",
+    "message": "No las compartas con nadie.",
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
@@ -3198,11 +3198,11 @@
     "englishSource": "1-10 minutes"
   },
   "maximumPrivacy": {
-    "message": "Máxima privacidad",
+    "message": "Privacidad máxima",
     "englishSource": "Maximum Privacy"
   },
   "vpnLevelPrivacy": {
-    "message": "Privacidad al nivel de una VPN",
+    "message": "Privacidad equivalente a la de una VPN",
     "englishSource": "VPN level privacy"
   },
   "transactionSpeed2Sec": {
@@ -3214,15 +3214,15 @@
     "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
-    "message": "Delegar las verificaciones a servidores seguros",
+    "message": "Delega la generación de pruebas en servidores seguros",
     "englishSource": "Delegate proofs to secure servers"
   },
   "delegateTransactions": {
-    "message": "Delegar\nTransacciones",
+    "message": "Delegar la generación\nde pruebas",
     "englishSource": "Delegate\nTransactions"
   },
   "generateTransactionsLocally": {
-    "message": "Generar transacciones\nA nivel local",
+    "message": "Generar pruebas\nen el dispositivo",
     "englishSource": "Generate Transactions\nLocally"
   },
   "resetRequired": {
@@ -3234,11 +3234,11 @@
     "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
-    "message": "Lamentamos las molestias ocasionadas.",
+    "message": "Lamentamos las molestias.",
     "englishSource": "We’re sorry for the inconvenience."
   },
   "reset": {
-    "message": "Restablecer monedero",
+    "message": "Restablecer cartera",
     "englishSource": "Reset wallet"
   },
   "forgotPassword": {
@@ -3246,7 +3246,7 @@
     "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
-    "message": "Si has olvidado tu contraseña, debes cerrar sesión y volver a importar tu cuenta. A continuación, podrás crear una nueva contraseña.",
+    "message": "Si has olvidado tu contraseña, tendrás que cerrar sesión y volver a importar tu cuenta. Después, podrás crear una contraseña nueva.",
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
@@ -3254,7 +3254,7 @@
     "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
-    "message": "Se requiere desbloqueo biométrico",
+    "message": "Desbloqueo biométrico obligatorio",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
@@ -3262,7 +3262,7 @@
     "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
-    "message": "Restablecer monedero",
+    "message": "Restablecer cartera",
     "englishSource": "Reset Wallet"
   },
   "signOut": {
@@ -3274,7 +3274,7 @@
     "englishSource": "X (Twitter)"
   },
   "encryptedWalletFile": {
-    "message": "Archivo de monedero cifrado",
+    "message": "Archivo cifrado de la cartera",
     "englishSource": "Encrypted Wallet File"
   },
   "guardianBadge": {
@@ -3282,7 +3282,7 @@
     "englishSource": "Guardian"
   },
   "guardianSettings": {
-    "message": "Guardian Configuración",
+    "message": "Ajustes de Guardian",
     "englishSource": "Guardian Settings"
   },
   "currentLabel": {
@@ -3290,7 +3290,7 @@
     "englishSource": "Current"
   },
   "newGuardianEndpoint": {
-    "message": "Nuevo punto final Guardian",
+    "message": "Nuevo endpoint de Guardian",
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
@@ -3302,7 +3302,7 @@
     "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
-    "message": "Rotar Guardian",
+    "message": "Cambiar de Guardian",
     "englishSource": "Rotate Guardian"
   },
   "keys": {
@@ -3318,7 +3318,7 @@
     "englishSource": "Provider"
   },
   "guardianEndpointLabel": {
-    "message": "Punto final",
+    "message": "Endpoint",
     "englishSource": "Endpoint"
   },
   "guardianRegion": {
@@ -3346,7 +3346,7 @@
     "englishSource": "Online"
   },
   "reviewRotation": {
-    "message": "Rotación de revisiones",
+    "message": "Revisar cambio de Guardian",
     "englishSource": "Review rotation"
   },
   "currentGuardianLabel": {
@@ -3466,11 +3466,11 @@
     "englishSource": "Switch again anytime"
   },
   "guardianSwitchAuthenticationDescription": {
-    "message": "Autentifícate para aprobar este cambio de Guardian.",
+    "message": "Autentícate para aprobar este cambio de Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."
   },
   "guardianAuthenticationUnavailable": {
-    "message": "La autenticación no está disponible. Inténtalo de nuevo antes de cambiar a Guardian.",
+    "message": "La autenticación no está disponible. Inténtalo de nuevo antes de cambiar de Guardian.",
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
@@ -3498,11 +3498,11 @@
     "englishSource": "Approve with"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Tu antiguo Guardian no puede bloquear esto",
+    "message": "Tu Guardian anterior no puede impedirlo",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "La rotación se aprueba mediante tus dos claves almacenadas en el dispositivo. Al antiguo Guardian solo se le notifica.",
+    "message": "El cambio se autoriza mediante tus dos claves guardadas en el dispositivo. Al Guardian anterior solo se le notifica.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -3594,7 +3594,7 @@
     "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
-    "message": "Volver a intentarlo",
+    "message": "Reintentar",
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
@@ -3651,7 +3651,7 @@
     "englishSource": "Check again"
   },
   "guardianChangedTitle": {
-    "message": "Guardian modificado",
+    "message": "Guardian cambiado",
     "englishSource": "Guardian changed"
   },
   "guardianChangedBody": {
@@ -3659,7 +3659,7 @@
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
   "guardianUrlMismatch": {
-    "message": "Ese operador no coincide con el «guardian» en cadena de tu cuenta.",
+    "message": "Ese operador no coincide con el Guardian de tu cuenta registrado en la cadena de bloques.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "guardianUrlUnreachable": {
@@ -3691,7 +3691,7 @@
     "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Tu clave diaria se puede rotar desde Ajustes → Rotar clave diaria, por lo que revelarla supone un riesgo menor que revelar tu frase de recuperación; sin embargo, cualquiera que la tenga podrá firmar transacciones hasta que la rote.",
+    "message": "Tu clave diaria se puede rotar desde Ajustes → Rotar la clave diaria, por lo que revelarla supone un riesgo menor que revelar tu frase de recuperación; sin embargo, cualquiera que la tenga podrá firmar transacciones hasta que la rote.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
@@ -3703,7 +3703,7 @@
     "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
-    "message": "Introduce una URL válida que comience por http:// o https://",
+    "message": "Introduce una URL válida que empiece por http:// o https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
   "customGuardianUnreachable": {
@@ -3711,15 +3711,15 @@
     "englishSource": "No Guardian answered at this URL. Check it and try again."
   },
   "encryptedWalletFileDescription": {
-    "message": "Introduce tu contraseña para acceder a tu archivo de monedero cifrado.",
+    "message": "Introduce tu contraseña para acceder al archivo cifrado de tu cartera.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
   },
   "encryptedWalletFileDescriptionHardware": {
-    "message": "Desbloquea con tu código de acceso para acceder a tu archivo de monedero cifrado.",
+    "message": "Desbloquea la cartera con tu código de acceso para acceder a su archivo cifrado.",
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "No compartiré mi archivo de monedero cifrado con nadie, ni siquiera con Bread.",
+    "message": "No compartiré el archivo cifrado de mi cartera con nadie, ni siquiera con Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "encryptedWalletFileGuardianTitle": {
@@ -3732,7 +3732,7 @@
     }
   },
   "encryptedWalletFileGuardianDesc": {
-    "message": "El archivo contiene tu frase de recuperación y el estado de la cuenta que, de otro modo, tu operador de Guardian mantendría por ti, de modo que cualquiera que tenga el archivo y su contraseña pueda leer ambos. No contiene ninguna clave de uso diario: tras la restauración, la cartera la sustituye a través de tu operador de Guardian, o bien puedes utilizar un par de claves de uso diario guardado (Ajustes → Claves → Revelar clave privada). El archivo es una instantánea: después de enviar o recibir, guarda uno nuevo, ya que un archivo más antiguo no puede restaurar lo que haya ocurrido después de su creación.",
+    "message": "El archivo contiene tu frase de recuperación y el estado de la cuenta que, de otro modo, tu operador de Guardian mantendría por ti, de modo que cualquiera que tenga el archivo y su contraseña pueda leer ambos. No contiene ninguna clave de uso diario: tras la restauración, la cartera la sustituye a través de tu operador de Guardian, o bien puedes utilizar un par de claves de uso diario guardado (Ajustes → Claves → Mostrar clave privada). El archivo es una instantánea: después de enviar o recibir, guarda uno nuevo, ya que un archivo más antiguo no puede restaurar lo que haya ocurrido después de su creación.",
     "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
   },
   "hotKeyRotationImportBusy": {
@@ -3753,11 +3753,11 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Configuración» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
+    "message": "Las cuentas Guardian importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Ajustes» → «Claves» → «Mostrar clave privada» con esa cuenta seleccionada.",
     "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
-    "message": "Introduce una contraseña para cifrar el archivo de tu monedero.",
+    "message": "Introduce una contraseña para cifrar el archivo de tu cartera.",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
   "encryptedWalletFileJsonOnly": {
@@ -3805,7 +3805,7 @@
     "englishSource": "You have not created any other accounts yet"
   },
   "invalidMidenAccountId": {
-    "message": "ID de cuenta de Miden no válido",
+    "message": "El ID de cuenta de Miden no es válido",
     "englishSource": "Invalid Miden account ID"
   },
   "midenAddressWrongNetwork": {
@@ -3813,7 +3813,7 @@
     "englishSource": "This address belongs to a different Miden network"
   },
   "cannotSendToSelf": {
-    "message": "No puedes enviar nada a tu propia dirección.",
+    "message": "No puedes enviar fondos a tu propia dirección.",
     "englishSource": "You can't send to your own address"
   },
   "networkFee": {
@@ -3873,7 +3873,7 @@
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
   },
   "encryptedWalletFileExportFailedAccount": {
-    "message": "El archivo cifrado de la cartera no se ha creado porque no se ha podido realizar una copia de seguridad de $accountName$. Revela y guarda la clave privada de esa cuenta desde «Configuración», luego elimínala e inténtalo de nuevo.",
+    "message": "El archivo cifrado de la cartera no se ha creado porque no se ha podido realizar una copia de seguridad de $accountName$. Revela y guarda la clave privada de esa cuenta desde «Ajustes», luego elimínala e inténtalo de nuevo.",
     "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
     "placeholders": {
       "accountname": {
@@ -3894,7 +3894,7 @@
     "englishSource": "Choose Where to Save"
   },
   "encryptedWalletFileExportedTitle1": {
-    "message": "Archivo de monedero cifrado",
+    "message": "Archivo cifrado de la cartera",
     "englishSource": "Encrypted Wallet File"
   },
   "encryptedWalletFileExportedTitle2": {
@@ -3902,15 +3902,15 @@
     "englishSource": "Exported!"
   },
   "encryptedWalletFileExportedDesc1": {
-    "message": "Se ha descargado tu archivo de monedero cifrado.",
+    "message": "El archivo cifrado de tu cartera se ha descargado.",
     "englishSource": "Your encrypted wallet file has been downloaded."
   },
   "encryptedWalletFileExportedDesc2": {
-    "message": "Guárdalo junto con tu contraseña en un lugar seguro.",
+    "message": "Mantén el archivo y la contraseña a salvo.",
     "englishSource": "Keep it and your password safe."
   },
   "encryptedWalletFileExportedDesc3": {
-    "message": "Si las pierdes, corres el riesgo de perder el acceso a tu monedero",
+    "message": "Si los pierdes, podrías perder el acceso a tu cartera",
     "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "saveEncryptedWalletFile": {
@@ -3918,31 +3918,31 @@
     "englishSource": "Save Encrypted Wallet File"
   },
   "permissionLabel": {
-    "message": "Autorización relativa a los datos personales",
+    "message": "Permiso para datos privados",
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Esto permite que el sitio web tenga acceso continuo a los datos de tu cuenta sin necesidad de volver a solicitarlo. Puedes revocar este acceso en cualquier momento en Ajustes → DApps autorizadas.",
+    "message": "Esto permite que el sitio web tenga acceso continuo a los datos de tu cuenta sin necesidad de volver a solicitarlo. Puedes revocar este acceso en cualquier momento en Ajustes → dApps autorizadas.",
     "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
-    "message": "Este sitio web está solicitando acceso a tu cuenta privada.",
+    "message": "Este sitio solicita acceso a tu cuenta privada.",
     "englishSource": "This site is requesting access to your private account."
   },
   "publicAccountAccessRequest": {
-    "message": "Este sitio web está solicitando acceso a tu cuenta pública.",
+    "message": "Este sitio solicita acceso a tu cuenta pública.",
     "englishSource": "This site is requesting access to your public account."
   },
   "balanceAccess": {
-    "message": "Permítele consultar el saldo y el historial de tu monedero",
+    "message": "Permitirle consultar el saldo y el historial de tu cartera",
     "englishSource": "Let it see your wallet balance and history"
   },
   "sendTransactionRequests": {
-    "message": "Deja que te envíe solicitudes de transacciones",
+    "message": "Permitirle enviarte solicitudes de transacciones",
     "englishSource": "Let it send you requests for transactions"
   },
   "fundsStayInWallet": {
-    "message": "El dinero no saldrá de tu monedero hasta que realices una transacción.",
+    "message": "El dinero no saldrá de tu cartera hasta que ejecutes una transacción.",
     "englishSource": "Funds will not leave your wallet until you execute a transaction"
   },
   "privateDataAccessAuto": {
@@ -3950,7 +3950,7 @@
     "englishSource": "Private Data Access: Automatic"
   },
   "privateDataAccessUponRequest": {
-    "message": "Acceso a datos personales: previa solicitud",
+    "message": "Acceso a datos privados: previa solicitud",
     "englishSource": "Private Data Access: Upon Request"
   },
   "accessWillBeGranted": {
@@ -3958,7 +3958,7 @@
     "englishSource": "Access to the following data will be granted"
   },
   "confirmationRequired": {
-    "message": "Es necesario confirmar cada vez que se solicitan datos de la cuenta",
+    "message": "Tendrás que confirmar cada solicitud de datos de la cuenta",
     "englishSource": "Confirmation is required every time account data is requested"
   },
   "transactionCompleted": {
@@ -3966,7 +3966,7 @@
     "englishSource": "Transaction Completed"
   },
   "transactionFailed": {
-    "message": "La transacción ha fallado",
+    "message": "Transacción fallida",
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
@@ -4006,23 +4006,23 @@
     "englishSource": "Via Agglayer"
   },
   "bridgeSpeedFast": {
-    "message": "Rápido",
+    "message": "Rápida",
     "englishSource": "Fast"
   },
   "bridgeSpeedSlow": {
-    "message": "Lento",
+    "message": "Lenta",
     "englishSource": "Slow"
   },
   "swapOrderCreated": {
-    "message": "¡Se ha creado la orden de intercambio!",
+    "message": "¡Orden de intercambio creada!",
     "englishSource": "Swap Order Created!"
   },
   "youreEarning": {
-    "message": "¡Estás ganando!",
+    "message": "¡Estás generando rendimientos!",
     "englishSource": "You're Earning!"
   },
   "viewInActivities": {
-    "message": "Ver en «Actividades»",
+    "message": "Ver en Actividad",
     "englishSource": "View in Activities"
   },
   "viewDetails": {
@@ -4034,7 +4034,7 @@
     "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
-    "message": "Elige cómo quieres recuperar tu cuenta en caso de que pierdas el acceso.",
+    "message": "Elige cómo quieres recuperar tu cuenta si pierdes el acceso.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
   "guardianRecovery": {
@@ -4042,7 +4042,7 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recomendado: recuperación de tu cuenta basada en Guardian, pero el operador de guardian puede ver tu estado.",
+    "message": "Recomendado. Recuperación de tu cuenta mediante Guardian, pero el operador de Guardian puede ver el estado de tu cuenta.",
     "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
@@ -4050,15 +4050,15 @@
     "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
-    "message": "Solo a nivel local: nadie más que tú puede ver tu estado, pero no hay posibilidad de recuperación; si pierdes tu dispositivo, perderás tus fondos de forma definitiva.",
+    "message": "Funciona solo de forma local: nadie salvo tú puede ver tu estado, pero no ofrece recuperación. Si pierdes el dispositivo, perderás tus fondos de forma permanente.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
   "importRecoveryMethodTitle": {
-    "message": "¿Te gustaría recuperar esta cartera?",
+    "message": "¿Cómo quieres recuperar esta cartera?",
     "englishSource": "How would you like to recover this wallet?"
   },
   "importViaGuardian": {
-    "message": "Importar a través de Guardian",
+    "message": "Importar mediante Guardian",
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
@@ -4074,19 +4074,19 @@
     "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
-    "message": "Guardian URL",
+    "message": "URL de Guardian",
     "englishSource": "Guardian URL"
   },
   "useDifferentGuardian": {
-    "message": "Utiliza un guardian diferente",
+    "message": "Usar otro Guardian",
     "englishSource": "Use a different guardian"
   },
   "detectingGuardian": {
-    "message": "¿Buscas tu «guardian»?…",
+    "message": "Buscando a tu Guardian...",
     "englishSource": "Looking for your guardian…"
   },
   "guardianDetectedTitle": {
-    "message": "Ya he encontrado tu «guardian»: $name$",
+    "message": "Hemos encontrado tu Guardian: $name$",
     "englishSource": "Found your guardian: $name$",
     "placeholders": {
       "name": {
@@ -4095,15 +4095,15 @@
     }
   },
   "guardianDetectedMultiple": {
-    "message": "Más de un «guardian» conoce esta cuenta. Hemos elegido el que contiene tu estado más reciente.",
+    "message": "Más de un Guardian conoce esta cuenta. Hemos elegido el que conserva tu estado más reciente.",
     "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
   },
   "useCustomGuardianInstead": {
-    "message": "¿Usas otro en su lugar?",
+    "message": "¿Usar otro en su lugar?",
     "englishSource": "Use a different one instead?"
   },
   "guardianNotDetected": {
-    "message": "No hemos podido detectar automáticamente tu guardian. Selecciona la que hayas utilizado o introduce su URL.",
+    "message": "No hemos podido detectar tu Guardian automáticamente. Selecciona el que utilizaste o introduce su URL.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
   "guardianStateBehindChain": {
@@ -4164,7 +4164,7 @@
     "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
-    "message": "Intenta volver a realizar la detección",
+    "message": "Volver a intentar la detección",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
@@ -4176,7 +4176,7 @@
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
-    "message": "Utiliza una URL personalizada de Guardian",
+    "message": "Usar una URL personalizada de Guardian",
     "englishSource": "Use a custom Guardian URL"
   },
   "default": {
@@ -4192,7 +4192,7 @@
     "englishSource": "Earn"
   },
   "noteId": {
-    "message": "Note ID",
+    "message": "ID de la nota",
     "englishSource": "Note ID"
   },
   "viewOnMidenscan": {
@@ -4212,19 +4212,19 @@
     "englishSource": "(invalid payload)"
   },
   "sharePrivateNoteDataForAccount": {
-    "message": "Compartir todos los datos privados de note de la cuenta",
+    "message": "Compartir todos los datos de las notas privadas de la cuenta",
     "englishSource": "Share all private note data for account"
   },
   "downloadPrivateNoteData": {
-    "message": "Descargar datos privados de «Note»",
+    "message": "Descargar datos de notas privadas",
     "englishSource": "Download Private Note Data"
   },
   "failedToParseSigningPayload": {
-    "message": "No se ha podido analizar la carga útil de la firma",
+    "message": "No se han podido interpretar los datos que se van a firmar",
     "englishSource": "Failed to parse signing payload"
   },
   "assetChanges": {
-    "message": "Variaciones en los activos",
+    "message": "Cambios en los activos",
     "englishSource": "Asset changes"
   },
   "nft": {
@@ -4244,15 +4244,15 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "Notes de entrada consumidas",
+    "message": "Notas de entrada consumidas",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "Se ha creado el archivo de salida «notes».",
+    "message": "Notas de salida creadas",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
-    "message": "Se ha modificado el almacenamiento",
+    "message": "Almacenamiento modificado",
     "englishSource": "Storage changed"
   },
   "downloadFullSummary": {
@@ -4264,15 +4264,15 @@
     "englishSource": "Sign the Arbitrary payload?"
   },
   "signBlindCommitment": {
-    "message": "¿Firmar el compromiso «Blind»?",
+    "message": "¿Firmar el compromiso ciego?",
     "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
-    "message": "Conectarse a la página web",
+    "message": "Conectar a la página web",
     "englishSource": "Connect to website"
   },
   "deny": {
-    "message": "Negar",
+    "message": "Rechazar",
     "englishSource": "Deny"
   },
   "requestsATransaction": {
@@ -4280,15 +4280,15 @@
     "englishSource": "Requests a transaction"
   },
   "requestsToConsumeNote": {
-    "message": "Solicitudes para acceder a note",
+    "message": "Solicita consumir una nota",
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "Solicitar información privada: Notes",
+    "message": "Solicitar notas privadas",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
-    "message": "Solicitudes a notes",
+    "message": "Solicita notas privadas",
     "englishSource": "Requests private notes"
   },
   "confirmSignature": {
@@ -4318,31 +4318,31 @@
     }
   },
   "requestAssets": {
-    "message": "Solicitar recursos",
+    "message": "Solicitar activos",
     "englishSource": "Request Assets"
   },
   "requestsAssets": {
-    "message": "Solicita recursos",
+    "message": "Solicita activos",
     "englishSource": "Requests assets"
   },
   "requestImportPrivateNote": {
-    "message": "Solicitar la importación de «Note» de forma privada",
+    "message": "Solicitar importar una nota privada",
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
-    "message": "Importar «note» de forma privada",
+    "message": "Importar una nota privada",
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Solicitar Notes consumibles",
+    "message": "Solicitar notas consumibles",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
-    "message": "Solicitar material de consumo notes",
+    "message": "Solicita notas consumibles",
     "englishSource": "Request consumable notes"
   },
   "review": {
-    "message": "Reseña",
+    "message": "Revisar",
     "englishSource": "Review"
   },
   "close": {
@@ -4350,11 +4350,11 @@
     "englishSource": "Close"
   },
   "recallBlocks": {
-    "message": "Bloques de recuperación",
+    "message": "Bloques hasta la recuperación",
     "englishSource": "Recall blocks"
   },
   "delegateTransaction": {
-    "message": "Transacción delegada",
+    "message": "Delegar transacción",
     "englishSource": "Delegate transaction"
   },
   "arrives": {
@@ -4366,11 +4366,11 @@
     "englishSource": "Ethereum"
   },
   "fast": {
-    "message": "Rápido",
+    "message": "Rápida",
     "englishSource": "Fast"
   },
   "slow": {
-    "message": "Lento",
+    "message": "Lenta",
     "englishSource": "Slow"
   },
   "unavailable": {
@@ -4402,11 +4402,11 @@
     "englishSource": "No swap tokens are configured for this network yet."
   },
   "agglayerCheckingToken": {
-    "message": "Comprobando si este token es compatible con la ruta Slow…",
+    "message": "Comprobando si este token es compatible con la ruta Lenta…",
     "englishSource": "Checking whether this token supports the Slow route…"
   },
   "agglayerTokenUnsupported": {
-    "message": "Este token no es compatible con la ruta «Slow».",
+    "message": "Este token no es compatible con la ruta «Lenta».",
     "englishSource": "This token does not support the Slow route."
   },
   "agglayerTokenCheckFailed": {
@@ -4414,11 +4414,11 @@
     "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
-    "message": "Segundos",
+    "message": "segundos",
     "englishSource": "Seconds"
   },
   "minutes": {
-    "message": "Acta",
+    "message": "minutos",
     "englishSource": "Minutes"
   },
   "invalidEthereumAddress": {
@@ -4442,11 +4442,11 @@
     "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
-    "message": "Consigue fichas",
+    "message": "Obtener tokens",
     "englishSource": "Get tokens"
   },
   "midenFaucet": {
-    "message": "Miden Faucet",
+    "message": "Faucet de Miden",
     "englishSource": "Miden Faucet"
   },
   "accountPublicKey": {
@@ -4454,11 +4454,11 @@
     "englishSource": "Account Public Key"
   },
   "editMidenFaucetId": {
-    "message": "Editar el ID de Miden Faucet",
+    "message": "Editar el ID del faucet de Miden",
     "englishSource": "Edit Miden Faucet ID"
   },
   "faucetId": {
-    "message": "Faucet ID",
+    "message": "ID del faucet",
     "englishSource": "Faucet ID"
   },
   "faucetIdOffered": {
@@ -4474,11 +4474,11 @@
     "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
-    "message": "Establecer un nuevo ID de «Faucet»",
+    "message": "Establecer un nuevo ID del faucet",
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
-    "message": "Introduce el ID de un miden faucet",
+    "message": "Introduce el ID de un faucet de Miden",
     "englishSource": "Enter the ID of a miden faucet"
   },
   "addAccount": {
@@ -4490,35 +4490,35 @@
     "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
-    "message": "Faucet ID actualizado",
+    "message": "ID del faucet actualizado",
     "englishSource": "Faucet ID Updated"
   },
   "connectivityNetworkTitle": {
-    "message": "Parece que no estás conectado",
+    "message": "Parece que estás sin conexión",
     "englishSource": "You appear to be offline"
   },
   "connectivityNetworkBody": {
-    "message": "Comprueba tu conexión a Internet e inténtalo de nuevo.",
+    "message": "Comprueba tu conexión a internet e inténtalo de nuevo.",
     "englishSource": "Check your internet connection and try again."
   },
   "connectivityNodeTitle": {
-    "message": "No se puede acceder al nodo Miden",
+    "message": "No se puede conectar con el nodo de Miden",
     "englishSource": "Cannot reach the Miden node"
   },
   "connectivityNodeBody": {
-    "message": "Es posible que el nodo esté inactivo o sometido a una carga elevada. Es posible que tu saldo no esté actualizado.",
+    "message": "Puede que el nodo esté inactivo o sobrecargado. Tu saldo podría estar desactualizado.",
     "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
   },
   "connectivityProverTitle": {
-    "message": "El servicio de verificación no está disponible",
+    "message": "Servicio de generación de pruebas no disponible",
     "englishSource": "Proving service unavailable"
   },
   "connectivityProverBody": {
-    "message": "Las transacciones utilizarán la verificación local hasta que el servicio vuelva a funcionar.",
+    "message": "Las pruebas de las transacciones se generarán localmente hasta que el servicio vuelva a estar disponible.",
     "englishSource": "Transactions will use local proving until the service is back."
   },
   "connectivityResolvingTitle": {
-    "message": "Volver a conectar",
+    "message": "Reconectando",
     "englishSource": "Reconnecting"
   },
   "connectivityResolvingBody": {
@@ -4526,11 +4526,11 @@
     "englishSource": "Trying to restore your connection."
   },
   "connectivityRetry": {
-    "message": "Inténtalo de nuevo",
+    "message": "Intentar de nuevo",
     "englishSource": "Try again"
   },
   "connectivityRetrySync": {
-    "message": "Volver a intentar la sincronización",
+    "message": "Reintentar la sincronización",
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
@@ -4542,7 +4542,7 @@
     "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
-    "message": "$count$ No se pudieron importar automáticamente.",
+    "message": "$count$ no se pudieron importar automáticamente.",
     "englishSource": "$count$ couldn't be imported automatically.",
     "placeholders": {
       "count": {
@@ -4571,7 +4571,7 @@
     "englishSource": "Never"
   },
   "30mins": {
-    "message": "30 minutos",
+    "message": "30 min",
     "englishSource": "30 mins"
   },
   "1hour": {
@@ -4595,19 +4595,19 @@
     "englishSource": "By proceeding, you agree to the"
   },
   "andWord": {
-    "message": "y",
+    "message": "y la",
     "englishSource": "and"
   },
   "first": {
-    "message": "Primero",
+    "message": "Primera",
     "englishSource": "First"
   },
   "last": {
-    "message": "Último",
+    "message": "Última",
     "englishSource": "Last"
   },
   "dappBrowser": {
-    "message": "Navegador de DApps",
+    "message": "Navegador de dApps",
     "englishSource": "DApp Browser"
   },
   "go": {
@@ -4619,11 +4619,11 @@
     "englishSource": "Loading..."
   },
   "searchDapps": {
-    "message": "Busca dApps o pega una URL",
+    "message": "Buscar dApps o pegar una URL",
     "englishSource": "Search dApps or paste URL"
   },
   "recents": {
-    "message": "Últimas publicaciones",
+    "message": "Recientes",
     "englishSource": "Recents"
   },
   "categoryDefi": {
@@ -4683,15 +4683,15 @@
     "englishSource": "Minimize"
   },
   "switchDapps": {
-    "message": "Cambiar de dApps",
+    "message": "Cambiar entre dApps",
     "englishSource": "Switch dApps"
   },
   "reload": {
-    "message": "Actualizar",
+    "message": "Recargar",
     "englishSource": "Reload"
   },
   "dappActionsSheet": {
-    "message": "Acciones de las dApps",
+    "message": "Acciones de la dApp",
     "englishSource": "dApp actions"
   },
   "dappActionCopyLink": {
@@ -4699,11 +4699,11 @@
     "englishSource": "Copy link"
   },
   "dappActionAddToMyDapps": {
-    "message": "Añadir a «Mis Dapps»",
+    "message": "Añadir a Mis Dapps",
     "englishSource": "Add to My Dapps"
   },
   "dappActionRemoveFromMyDapps": {
-    "message": "Eliminar de «Mis Dapps»",
+    "message": "Quitar de Mis Dapps",
     "englishSource": "Remove from My Dapps"
   },
   "dappActionReopen": {
@@ -4729,7 +4729,7 @@
     }
   },
   "showAllDapps": {
-    "message": "+ $count$, entre otras dApps en fase de desarrollo",
+    "message": "+$count$ dApps minimizadas adicionales",
     "englishSource": "+$count$ more parked dApps",
     "placeholders": {
       "count": {
@@ -4835,7 +4835,7 @@
     "englishSource": "Approve"
   },
   "dappConnectionRequest": {
-    "message": "Esta aplicación quiere conectarse a tu monedero",
+    "message": "Esta aplicación quiere conectarse a tu cartera",
     "englishSource": "This app wants to connect to your wallet"
   },
   "dappNetworkMismatch": {
@@ -4851,7 +4851,7 @@
     }
   },
   "dappTransactionRequest": {
-    "message": "Esta aplicación está solicitando una transacción",
+    "message": "Esta aplicación solicita una transacción",
     "englishSource": "This app is requesting a transaction"
   },
   "dappSignRequest": {
@@ -4868,15 +4868,15 @@
     }
   },
   "dappImportNoteRequest": {
-    "message": "Esta aplicación quiere importar una clave privada note a tu monedero",
+    "message": "Esta aplicación quiere importar una nota privada a tu cartera",
     "englishSource": "This app wants to import a private note into your wallet"
   },
   "dappPrivateDataRequest": {
-    "message": "Esta aplicación solicita acceso a los datos de tu monedero privado.",
+    "message": "Esta aplicación solicita acceso a los datos privados de tu cartera.",
     "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
-    "message": "No se ha seleccionado ninguna cuenta",
+    "message": "Ninguna cuenta seleccionada",
     "englishSource": "No account selected"
   },
   "biometricFailed": {
@@ -4884,7 +4884,7 @@
     "englishSource": "Biometric authentication failed"
   },
   "biometricAttemptsRemaining": {
-    "message": "$count$ intentos restantes",
+    "message": "Intentos restantes: $count$",
     "englishSource": "$count$ attempt(s) remaining",
     "placeholders": {
       "count": {
@@ -4897,7 +4897,7 @@
     "englishSource": "Continue with Password"
   },
   "tryBiometricAgain": {
-    "message": "Vuelve a probar la identificación biométrica",
+    "message": "Reintentar con biometría",
     "englishSource": "Try Biometric Again"
   },
   "fingerprint": {
@@ -4921,7 +4921,7 @@
     "englishSource": "No QR code found"
   },
   "invalidMidenAddress": {
-    "message": "Dirección Miden no válida",
+    "message": "Dirección de Miden no válida",
     "englishSource": "Invalid Miden address"
   },
   "scanCancelled": {
@@ -4929,11 +4929,11 @@
     "englishSource": "Scan cancelled"
   },
   "scanQrTitle": {
-    "message": "Escanea el código QR",
+    "message": "Escanear código QR",
     "englishSource": "Scan QR code"
   },
   "pointCameraAtQr": {
-    "message": "Apunta con la cámara a un código QR",
+    "message": "Apunta la cámara a un código QR",
     "englishSource": "Point your camera at a QR code"
   },
   "noCameraFound": {
@@ -4957,7 +4957,7 @@
     "englishSource": "System"
   },
   "themeLight": {
-    "message": "Luz",
+    "message": "Claro",
     "englishSource": "Light"
   },
   "themeDark": {
@@ -4965,7 +4965,7 @@
     "englishSource": "Dark"
   },
   "hapticFeedback": {
-    "message": "Retroalimentación háptica",
+    "message": "Respuesta háptica",
     "englishSource": "Haptic Feedback"
   },
   "noteReceivedTitle": {
@@ -4973,11 +4973,11 @@
     "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
-    "message": "La transacción ha fallado",
+    "message": "Transacción fallida",
     "englishSource": "Transaction failed"
   },
   "transactionFailedNotificationBody": {
-    "message": "No se ha podido completar una transacción. Abre el monedero para comprobarlo.",
+    "message": "No se ha podido completar una transacción. Abre la cartera para revisarla.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "transactionNotConfirmedNotificationTitle": {
@@ -5006,7 +5006,7 @@
     }
   },
   "passwordsCanBeInsecure": {
-    "message": "Las contraseñas pueden ser inseguras. Utiliza, en su lugar, la autenticación biométrica.",
+    "message": "Las contraseñas pueden ser poco seguras. Utiliza en su lugar la autenticación biométrica.",
     "englishSource": "Passwords can be insecure. Use biometric authentication instead."
   },
   "unlockWallet": {
@@ -5018,7 +5018,7 @@
     "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
-    "message": "Faucet Solicitud",
+    "message": "Solicitud al faucet",
     "englishSource": "Faucet Request"
   },
   "activityGroupsUnavailable": {
@@ -5038,7 +5038,7 @@
     "englishSource": "Activity"
   },
   "explore": {
-    "message": "Explora",
+    "message": "Explorar",
     "englishSource": "Explore"
   },
   "permissions": {
@@ -5046,7 +5046,7 @@
     "englishSource": "Permissions"
   },
   "permissionUponRequest": {
-    "message": "Previa solicitud",
+    "message": "En cada solicitud",
     "englishSource": "Upon Request"
   },
   "permissionAutomatic": {
@@ -5054,11 +5054,11 @@
     "englishSource": "Automatic"
   },
   "dAppsToggleDescription": {
-    "message": "Activa o desactiva las conexiones a las DApp y la visibilidad del saldo.",
+    "message": "Activa o desactiva las conexiones con dApps y la visibilidad del saldo.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
   "seeConnected": {
-    "message": "Véase también",
+    "message": "Ver dApps conectadas",
     "englishSource": "See connected"
   },
   "noConnectedDApps": {
@@ -5082,15 +5082,15 @@
     "englishSource": "Options"
   },
   "on": {
-    "message": "El",
+    "message": "Activado",
     "englishSource": "On"
   },
   "off": {
-    "message": "Apagado",
+    "message": "Desactivado",
     "englishSource": "Off"
   },
   "enterUsername": {
-    "message": "Introduce tu nombre de usuario",
+    "message": "Introduce el nombre",
     "englishSource": "Enter username"
   },
   "enterAddress": {
@@ -5098,7 +5098,7 @@
     "englishSource": "Enter Address"
   },
   "testnet": {
-    "message": "Red de pruebas",
+    "message": "Testnet",
     "englishSource": "Testnet"
   },
   "browser": {
@@ -5154,11 +5154,11 @@
     "englishSource": "Transaction ID"
   },
   "notesSection": {
-    "message": "Notes",
+    "message": "Notas",
     "englishSource": "Notes"
   },
   "orderTracking": {
-    "message": "Seguimiento de pedidos",
+    "message": "Seguimiento de la orden",
     "englishSource": "Order Tracking"
   },
   "orderStatus": {
@@ -5186,11 +5186,11 @@
     "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
-    "message": "Rellenar las rodajas",
+    "message": "Ejecuciones",
     "englishSource": "Fill rounds"
   },
   "amountFilled": {
-    "message": "Relleno",
+    "message": "Ejecutado",
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
@@ -5272,7 +5272,7 @@
     }
   },
   "swapOfferedAmount": {
-    "message": "Ofrecido$amount$",
+    "message": "Ofrecido $amount$",
     "englishSource": "Offered $amount$",
     "placeholders": {
       "amount": {
@@ -5360,11 +5360,11 @@
     }
   },
   "created": {
-    "message": "Creado",
+    "message": "Creadas",
     "englishSource": "Created"
   },
   "confirmed": {
-    "message": "Confirmado",
+    "message": "Confirmada",
     "englishSource": "Confirmed"
   },
   "date": {
@@ -5376,15 +5376,15 @@
     "englishSource": "Details"
   },
   "pinExtensionTitle": {
-    "message": "Pan de pino",
+    "message": "Fija Bread",
     "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "Haz clic en el icono del rompecabezas y añade «Bread» a tus favoritos para acceder rápidamente desde la barra de herramientas.",
+    "message": "Haz clic en el icono del puzle y fija Bread para acceder rápidamente desde la barra de herramientas.",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "all": {
-    "message": "Todos",
+    "message": "Todas",
     "englishSource": "All"
   },
   "sent": {
@@ -5396,11 +5396,11 @@
     "englishSource": "Pending"
   },
   "reclaimed": {
-    "message": "Recuperado",
+    "message": "Recuperada",
     "englishSource": "Reclaimed"
   },
   "faucetRequestTitle": {
-    "message": "Faucet Solicitud",
+    "message": "Solicitud al faucet",
     "englishSource": "Faucet Request"
   },
   "share": {
@@ -5433,11 +5433,11 @@
     }
   },
   "connectedWallet": {
-    "message": "Monedero conectado",
+    "message": "Cartera conectada",
     "englishSource": "Connected wallet"
   },
   "switchWallet": {
-    "message": "Cambiar monedero",
+    "message": "Cambiar de cartera",
     "englishSource": "Switch wallet"
   },
   "current": {
@@ -5445,7 +5445,7 @@
     "englishSource": "Current"
   },
   "connectAnotherWallet": {
-    "message": "Conectar otro monedero",
+    "message": "Conectar otra cartera",
     "englishSource": "Connect another wallet"
   },
   "midenBridge": {
@@ -5457,7 +5457,7 @@
     "englishSource": "Connect an EVM wallet"
   },
   "connectEvmWalletDescription": {
-    "message": "Conecta un monedero para transferir activos desde y hacia Miden.",
+    "message": "Conecta una cartera para transferir activos desde y hacia Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
   "connectDestinationWalletToClaim": {
@@ -5465,7 +5465,7 @@
     "englishSource": "Connect the destination wallet to claim."
   },
   "bridgeDetails": {
-    "message": "Detalles del puente",
+    "message": "Detalles de la transferencia",
     "englishSource": "Bridge details"
   },
   "route": {
@@ -5477,7 +5477,7 @@
     "englishSource": "Select network"
   },
   "receiveOnArrivesAs": {
-    "message": "Recibir en $network$ · llega como $symbol$",
+    "message": "Recibes en $network$ · llega como $symbol$",
     "englishSource": "Receive on $network$ · arrives as $symbol$",
     "placeholders": {
       "network": {
@@ -5493,7 +5493,7 @@
     "englishSource": "No bridge fee"
   },
   "fastArrival": {
-    "message": "~30 segundos",
+    "message": "~30 s",
     "englishSource": "~30 sec"
   },
   "slowArrival": {
@@ -5501,15 +5501,15 @@
     "englishSource": "~30 mins"
   },
   "youAreDepositing": {
-    "message": "Estás realizando un ingreso",
+    "message": "Estás depositando",
     "englishSource": "You are depositing"
   },
   "confirmDeposit": {
-    "message": "Confirmar el ingreso",
+    "message": "Confirmar depósito",
     "englishSource": "Confirm Deposit"
   },
   "bridgeDepositProcessing": {
-    "message": "Confirmación del depósito en el puente",
+    "message": "Confirmando el depósito",
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
@@ -5517,7 +5517,7 @@
     "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
-    "message": "Error en el depósito del puente",
+    "message": "No se ha podido completar el depósito",
     "englishSource": "Bridge deposit failed"
   },
   "bridgeDepositBalanceTooLow": {
@@ -5575,7 +5575,7 @@
     }
   },
   "bridgeDepositSubmitted": {
-    "message": "¡Puente iniciado!",
+    "message": "¡Transferencia iniciada!",
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
@@ -5587,11 +5587,11 @@
     "englishSource": "View on Etherscan"
   },
   "delivering": {
-    "message": "Entrega",
+    "message": "En tránsito",
     "englishSource": "Delivering"
   },
   "fastEthWrapNotice": {
-    "message": "Al realizar un puente de ETH por la ruta rápida, primero se envuelve en WETH y, a continuación, se realiza el puente con el WETH. Esta ruta aún no está disponible.",
+    "message": "En la ruta Rápida, ETH se convierte primero en WETH; después, el WETH se transfiere entre redes. Esta ruta aún no está disponible.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
   },
   "fastQuoteAboveBalanceNotice": {
@@ -5618,15 +5618,15 @@
     "englishSource": "Claim status"
   },
   "claimAsset": {
-    "message": "Reclamar activo",
+    "message": "Reclamar el activo",
     "englishSource": "Claim Asset"
   },
   "claimAssetSubmitted": {
-    "message": "Reclamación enviada: los fondos se encuentran en el monedero EVM conectado.",
+    "message": "Reclamación completada: los fondos ya están en la cartera EVM conectada.",
     "englishSource": "Claim submitted — funds are on the connected EVM wallet."
   },
   "claimable": {
-    "message": "Listo para reclamar",
+    "message": "Disponible para reclamar",
     "englishSource": "Ready to claim"
   },
   "claiming": {
@@ -5638,23 +5638,23 @@
     "englishSource": "Claimed"
   },
   "claimPending": {
-    "message": "Puenteo — la reclamación aún no está lista",
+    "message": "Transferencia en curso: todavía no se puede reclamar",
     "englishSource": "Bridging — claim not ready yet"
   },
   "claimFailedStatus": {
-    "message": "Reclamación fallida",
+    "message": "Error al reclamar",
     "englishSource": "Claim failed"
   },
   "noManualClaimRequired": {
-    "message": "Los fondos llegan automáticamente; no es necesario realizar ninguna reclamación.",
+    "message": "Los fondos llegan automáticamente; no hace falta reclamarlos.",
     "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
-    "message": "Rápido (Época)",
+    "message": "Rápida (Epoch)",
     "englishSource": "Fast (Epoch)"
   },
   "slowRouteLabel": {
-    "message": "Lento (Agglayer)",
+    "message": "Lenta (Agglayer)",
     "englishSource": "Slow (Agglayer)"
   },
   "usdcxRouteName": {
@@ -5849,7 +5849,7 @@
     "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
-    "message": "Puente $from$ → $to$",
+    "message": "Transferencia $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
     "placeholders": {
       "from": {
@@ -5877,7 +5877,7 @@
     "englishSource": "In progress"
   },
   "bridgeFailed": {
-    "message": "Fallido",
+    "message": "Fallida",
     "englishSource": "Failed"
   },
   "reclaimFunds": {
@@ -5885,15 +5885,15 @@
     "englishSource": "Reclaim funds"
   },
   "reclaiming": {
-    "message": "Recuperando…",
+    "message": "Recuperando fondos…",
     "englishSource": "Reclaiming…"
   },
   "reclaimableAfterBlock": {
-    "message": "Fondos recuperables tras el bloqueo",
+    "message": "Fondos recuperables a partir del bloque",
     "englishSource": "Funds reclaimable after block"
   },
   "receivingTx": {
-    "message": "Recepción Tx",
+    "message": "Transacción de recepción",
     "englishSource": "Receiving Tx"
   },
   "preparing": {
@@ -5905,7 +5905,7 @@
     "englishSource": "Disconnect"
   },
   "declaredBySiteVerifying": {
-    "message": "Declarado por el sitio — verificación mediante simulación…",
+    "message": "Datos declarados por la página web: verificando mediante simulación…",
     "englishSource": "Declared by site — verifying by simulation…"
   },
   "unverified": {
@@ -5925,27 +5925,27 @@
     "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
-    "message": "No se ha podido verificar mediante simulación. Las cantidades que figuran a continuación son las declaradas por la página web.",
+    "message": "No se ha podido verificar mediante simulación. Los importes mostrados son los declarados por la página web.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
   },
   "couldNotDecodeTransaction": {
-    "message": "Esta dApp está solicitando una transacción personalizada. La cartera no ha podido descodificar sus detalles; continúa solo si sabes exactamente en qué consiste.",
+    "message": "Esta dApp solicita una transacción personalizada. La cartera no ha podido interpretar sus detalles. Continúa solo si sabes exactamente qué hace.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
   "rawValue": {
-    "message": "Valor bruto",
+    "message": "Valor sin procesar",
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Solicitud de firma opaca",
+    "message": "Solicitud para firmar datos sin procesar",
     "englishSource": "Opaque signature request"
   },
   "opaqueSignatureWarning": {
-    "message": "Esta página te ha pedido que firmes un valor sin procesar. El monedero no puede mostrar lo que autoriza. Sigue adelante solo si confías plenamente en esta página.",
+    "message": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   },
   "note": {
-    "message": "Note",
+    "message": "Nota",
     "englishSource": "Note"
   },
   "earnMarketLabel": {
@@ -5957,7 +5957,7 @@
     "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
-    "message": "Datos del ingreso",
+    "message": "Detalles del depósito",
     "englishSource": "Deposit details"
   },
   "earnWithdrawDetailsTitle": {
@@ -5965,15 +5965,15 @@
     "englishSource": "Withdrawal details"
   },
   "depositIntentLabel": {
-    "message": "Declaración de intención de depósito",
+    "message": "Solicitud de depósito",
     "englishSource": "Deposit intent"
   },
   "redeemIntentLabel": {
-    "message": "Canjear la intención",
+    "message": "Solicitud de retirada",
     "englishSource": "Redeem intent"
   },
   "earnWithdrawRowTitle": {
-    "message": "Retirar de Earn",
+    "message": "Retirada de Earn",
     "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
@@ -5981,11 +5981,11 @@
     "englishSource": "Via Epoch → Miden"
   },
   "earnWithdrawStatusRedeeming": {
-    "message": "Canjeo",
+    "message": "Retirando",
     "englishSource": "Redeeming"
   },
   "earnWithdrawStatusDelivering": {
-    "message": "Entrega",
+    "message": "En tránsito",
     "englishSource": "Delivering"
   },
   "withdrawalStarted": {
@@ -5993,15 +5993,15 @@
     "englishSource": "Withdrawal Started!"
   },
   "withdrawalStartedDescription": {
-    "message": "Tus fondos se están transfiriendo de vuelta a Miden. Sigue el proceso en «Actividad».",
+    "message": "Tus fondos están de camino a Miden. Sigue el proceso en Actividad.",
     "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
   },
   "withdrawalProcessing": {
-    "message": "Tramitación de la retirada",
+    "message": "Procesando la retirada",
     "englishSource": "Processing Withdrawal"
   },
   "withdrawalProcessingDescription": {
-    "message": "Firmar y enviar la intención de retirada sin gas a Epoch. Esto suele tardar unos segundos.",
+    "message": "Firmando y enviando a Epoch la solicitud de retirada sin gas. Esto suele tardar unos segundos.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
   },
   "withdrawalFailed": {
@@ -6025,7 +6025,7 @@
     "englishSource": "Transfer IDs"
   },
   "consumed": {
-    "message": "Consumido",
+    "message": "Consumidas",
     "englishSource": "Consumed"
   },
   "noteTypeLabel": {
@@ -6037,7 +6037,7 @@
     "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
-    "message": "Configuración para desarrolladores",
+    "message": "Ajustes para desarrolladores",
     "englishSource": "Developer Settings"
   },
   "developerSettingsWarningTitle": {
@@ -6045,11 +6045,11 @@
     "englishSource": "For advanced users"
   },
   "developerSettingsWarning": {
-    "message": "La mayoría de la gente no debería modificarlos nunca. Unos valores incorrectos te dejarán sin un céntimo.",
+    "message": "La mayoría de los usuarios no debería cambiar estos ajustes. Los valores incorrectos impedirán que la cartera funcione correctamente.",
     "englishSource": "Most people should never change these. Wrong values will break your wallet."
   },
   "devEndpointPreset": {
-    "message": "Configuración predeterminada de red",
+    "message": "Perfil de red",
     "englishSource": "Network preset"
   },
   "devEndpointCustom": {
@@ -6057,7 +6057,7 @@
     "englishSource": "Custom"
   },
   "devEndpointNetworkId": {
-    "message": "Identificador de red",
+    "message": "ID de red",
     "englishSource": "Network ID"
   },
   "devEndpointRpc": {
@@ -6065,19 +6065,19 @@
     "englishSource": "RPC node URL"
   },
   "devEndpointProver": {
-    "message": "URL del verificador de transacciones",
+    "message": "URL del generador de pruebas de transacciones",
     "englishSource": "Transaction prover URL"
   },
   "devEndpointNoteTransport": {
-    "message": "Note URL de transporte",
+    "message": "URL del servicio de transporte de notas",
     "englishSource": "Note transport URL"
   },
   "devEndpointFaucet": {
-    "message": "Faucet URL del sitio web",
+    "message": "URL del sitio web del faucet",
     "englishSource": "Faucet website URL"
   },
   "devEndpointFaucetApi": {
-    "message": "Faucet URL de la API",
+    "message": "URL de la API del faucet",
     "englishSource": "Faucet API URL"
   },
   "devEndpointExplorer": {
@@ -6085,7 +6085,7 @@
     "englishSource": "Explorer URL"
   },
   "devEndpointGuardian": {
-    "message": "URL personalizada de guardian",
+    "message": "URL del Guardian personalizado",
     "englishSource": "Custom guardian URL"
   },
   "devEndpointFeeFaucet": {
@@ -6105,7 +6105,7 @@
     "englishSource": "Checking…"
   },
   "devEndpointReachable": {
-    "message": "El servidor está accesible",
+    "message": "Servidor accesible",
     "englishSource": "Host reachable"
   },
   "devEndpointNoResponse": {
@@ -6121,11 +6121,11 @@
     "englishSource": "These endpoints could not be saved. Try again."
   },
   "devEndpointResetDefaults": {
-    "message": "Restablecer los valores predeterminados",
+    "message": "Restablecer valores predeterminados",
     "englishSource": "Reset to defaults"
   },
   "devEndpointResetAndReonboard": {
-    "message": "Restablecer la configuración predeterminada y volver a dar de alta",
+    "message": "Restablecer valores predeterminados y volver a configurar la cartera",
     "englishSource": "Reset to defaults & re-onboard"
   },
   "resetDidNotFinish": {
@@ -6133,11 +6133,11 @@
     "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
-    "message": "Terminales de red",
+    "message": "Endpoints de red",
     "englishSource": "Network endpoints"
   },
   "devEndpointResetConfirm": {
-    "message": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
+    "message": "Esto borrará de forma permanente esta cartera, incluidas tus claves y el historial de transacciones. Necesitarás la frase de recuperación para restaurarla.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
@@ -6643,19 +6643,19 @@
     }
   },
   "faucetPromptAction": {
-    "message": "Aporta ahora",
+    "message": "Añadir fondos ahora",
     "englishSource": "Fund now"
   },
   "fundWalletLoadingTitle": {
-    "message": "Recargar tu monedero",
+    "message": "Añadiendo fondos a tu cartera",
     "englishSource": "Funding your wallet"
   },
   "fundWalletLoadingBody": {
-    "message": "Solicitando tokens de faucet…",
+    "message": "Solicitando tokens al faucet…",
     "englishSource": "Requesting tokens from the faucet…"
   },
   "fundWalletSuccessTitle": {
-    "message": "Financiado con el monedero",
+    "message": "Fondos añadidos",
     "englishSource": "Wallet funded"
   },
   "fundWalletSuccessBody": {
@@ -6663,11 +6663,11 @@
     "englishSource": "Your tokens are on the way and will appear shortly."
   },
   "fundWalletErrorTitle": {
-    "message": "La financiación no se ha concedido",
+    "message": "No se han podido añadir fondos",
     "englishSource": "Funding failed"
   },
   "fundWalletErrorBody": {
-    "message": "No hemos podido recargar tu monedero. Inténtalo de nuevo.",
+    "message": "No hemos podido añadir fondos a tu cartera. Inténtalo de nuevo.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
   "pendingNotesPromptAction": {
@@ -7112,7 +7112,7 @@
     "englishSource": "Edited"
   },
   "tokenNameInvalid": {
-    "message": "Introduce un nombre de entre 1 y$max$es de caracteres.",
+    "message": "Introduce un nombre de entre 1 y $max$ caracteres.",
     "englishSource": "Enter a name of 1 to $max$ characters.",
     "placeholders": {
       "max": {
@@ -7121,7 +7121,7 @@
     }
   },
   "tokenSymbolInvalid": {
-    "message": "Introduce un símbolo de entre 1 y$max$es caracteres.",
+    "message": "Introduce un símbolo de entre 1 y $max$ caracteres.",
     "englishSource": "Enter a symbol of 1 to $max$ characters.",
     "placeholders": {
       "max": {
