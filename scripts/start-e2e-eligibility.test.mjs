@@ -24,29 +24,14 @@ test('localhost chain jobs use the wallet localnet config name', () => {
 
 test('existing hermetic config stays on8550 and is queried lazily for matching eligibility', () => {
   const plan = fixtureEnvironment({ E2E_NETWORK: 'localhost', MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550/' });
-  assert.deepEqual(plan.args, [
-    '--port',
-    '8551',
-    '--networks',
-    'localnet',
-    '--source',
-    'http://127.0.0.1:8550',
-    '--lazy-source'
-  ]);
+  assert.deepEqual(plan.args, ['--port', '8551', '--networks', 'localnet', '--source', 'http://127.0.0.1:8550', '--lazy-source']);
   assert.equal(plan.env.MIDEN_REMOTE_CONFIG_URL, 'http://127.0.0.1:8550');
   assert.equal(plan.env.FEATURE_ELIGIBILITY_URL, 'http://127.0.0.1:8551/v1/eligibility');
 });
 
 test('an explicit published config source is frozen before matching decisions are served', () => {
   const plan = fixtureEnvironment({ MIDEN_REMOTE_CONFIG_URL: 'https://config.example/policies/' });
-  assert.deepEqual(plan.args, [
-    '--port',
-    '8551',
-    '--networks',
-    'testnet',
-    '--source',
-    'https://config.example/policies'
-  ]);
+  assert.deepEqual(plan.args, ['--port', '8551', '--networks', 'testnet', '--source', 'https://config.example/policies']);
   assert.equal(plan.env.MIDEN_REMOTE_CONFIG_URL, 'http://127.0.0.1:8551');
 });
 

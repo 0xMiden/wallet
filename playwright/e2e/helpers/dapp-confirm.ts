@@ -161,7 +161,7 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
 export async function completeSeedImportOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
   await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
-  await openImportTypeScreen(page, ACTION_TIMEOUT);
+  await openImportTypeScreen(page, timeoutMs, ACTION_TIMEOUT);
   await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 

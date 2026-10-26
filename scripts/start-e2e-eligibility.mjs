@@ -26,13 +26,7 @@ export function fixtureEnvironment(env) {
   if (env.MIDEN_REMOTE_CONFIG_URL) {
     const source = new URL(env.MIDEN_REMOTE_CONFIG_URL);
     const local = source.protocol === 'http:' && LOOPBACK.has(source.hostname);
-    if (
-      (!local && source.protocol !== 'https:') ||
-      source.username ||
-      source.password ||
-      source.search ||
-      source.hash
-    ) {
+    if ((!local && source.protocol !== 'https:') || source.username || source.password || source.search || source.hash) {
       throw new Error('Unsupported E2E fixture policy source');
     }
     const sourceUrl = source.href.replace(/\/+$/, '');
@@ -60,23 +54,15 @@ async function start() {
   const plan = fixtureEnvironment(process.env);
   const logPath = join(process.env.RUNNER_TEMP || tmpdir(), `feature-eligibility-${process.pid}.log`);
   const log = openSync(logPath, 'w');
-  const child = spawn(
-    process.execPath,
-    [fileURLToPath(new URL('./feature-eligibility-fixture.mjs', import.meta.url)), ...plan.args],
-    {
-      env: { ...process.env, ...plan.env },
-      stdio: ['ignore', log, log],
-      detached: true
-    }
-  );
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./feature-eligibility-fixture.mjs', import.meta.url)), ...plan.args], {
+    env: { ...process.env, ...plan.env },
+    stdio: ['ignore', log, log],
+    detached: true
+  });
   closeSync(log);
   let failure;
-  child.once('error', error => {
-    failure = error;
-  });
-  child.once('exit', (code, signal) => {
-    failure = new Error(`Eligibility fixture exited (${code ?? signal})`);
-  });
+  child.once('error', error => { failure = error; });
+  child.once('exit', (code, signal) => { failure = new Error(`Eligibility fixture exited (${code ?? signal})`); });
   // The runner tracks the inherited child and cleans it up at the end of the job.
   child.unref();
   try {
@@ -86,12 +72,7 @@ async function start() {
       try {
         const response = await fetch(`${BASE_URL}/healthz`, { signal: AbortSignal.timeout(1_000) });
         if (response.ok) {
-          appendFileSync(
-            process.env.GITHUB_ENV,
-            Object.entries(plan.env)
-              .map(([key, value]) => `${key}=${value}\n`)
-              .join('')
-          );
+          appendFileSync(process.env.GITHUB_ENV, Object.entries(plan.env).map(([key, value]) => `${key}=${value}\n`).join(''));
           process.stdout.write(`Wallet eligibility fixture ready at ${BASE_URL}\n`);
           return;
         }
