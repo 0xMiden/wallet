@@ -10,7 +10,7 @@ it('serves a valid listed Sepolia market through the real catalogue reader', asy
     positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
     chainId: 11155111,
     underlying: MOCK_SEPOLIA_POOL.underlyingInfo.asset.address,
-    listed: TESTNET.earn.vaults.map(vault => ({ ...vault, depositsEnabled: true }))
+    listed: TESTNET.earn.vaults.map(vault => ({ ...vault, protocol: 'dummy-lending' as const, depositsEnabled: true }))
   }, 1000);
   expect(read.source).toBe('pools');
   expect(read.droppedMarketUids).toEqual([]);
