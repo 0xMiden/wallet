@@ -511,7 +511,10 @@ export function androidDevice(serials: readonly string[], run: AdbRun = adb): Mo
     surface: 'android',
     tapAccessibilityLabel: async (device, label) => {
       const serial = serialFor(device);
-      const frameOf = (tree: string): NativeRect | null => parseAndroidKeyboardLayout(tree, '', label).fieldFrame;
+      const frameOf = (tree: string): NativeRect | null => {
+        const frame = parseAndroidKeyboardLayout(tree, '', label).fieldFrame;
+        return positive(frame) ? frame : null;
+      };
       const first = await readLabeledField(() => hierarchyFor(serial), frameOf);
       // A WebView with no text field is still connecting; one fresh dump is the bound.
       const found =
@@ -583,7 +586,10 @@ export function iosDevice(
       const udid = udidFor(device);
       const found = await readLabeledField(
         () => treeFor(udid),
-        tree => parseIosKeyboardLayout(tree, label).fieldFrame
+        tree => {
+          const frame = parseIosKeyboardLayout(tree, label).fieldFrame;
+          return positive(frame) ? frame : null;
+        }
       );
       if (found.frame) {
         const { x, y } = point(found.frame);
