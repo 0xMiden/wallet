@@ -249,6 +249,22 @@ export function reportStorageFailure(error: unknown, context?: StorageFailureCon
   return false;
 }
 
+/** The authenticated offscreen recovery-read route gets only expiring constructor permission, never a health reset. */
+export async function withStorageRecoveryAccess<T>(
+  epoch: number, expiresAt: number, read: (capability: StorageRecoveryCapability) => Promise<T>
+): Promise<T> {
+  if (epoch !== snapshot.epoch || expiresAt <= Date.now() || expiresAt > Date.now() + 5000) throw new StorageUnavailableError();
+  const capability: StorageRecoveryCapability = { epoch, expiresAt };
+  recoveryCapabilities.set(capability, failureRevision);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => { const result = await read(capability); assertStorageRecoveryAllowed(capability); return result; })(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new StorageUnavailableError()), expiresAt - Date.now()); })
+    ]);
+  } finally { clearTimeout(timer); recoveryCapabilities.delete(capability); }
+}
+
 /** The callback must perform bounded read/write/readback and continuity checks, throwing on any mismatch. */
 export async function validateStorageHealth(
   validate: (capability: StorageRecoveryCapability) => Promise<void>,

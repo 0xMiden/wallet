@@ -1,3 +1,4 @@
+import { initializeSdkGeneration, readSdkRecoverySnapshot } from '../recovery/sdk-snapshot';
 import {
   Account,
   AccountFile,
@@ -1637,6 +1638,17 @@ export class MidenClientInterface {
       reportStorageFailure(error, { backend: 'sdk', operation: 'mutate' });
       throw error;
     }
+  }
+
+  async readStorageContinuity(accountIds: string[], includeNotes: boolean, assertLive: AssertLive = noAssertLive) {
+    return readSdkStorage(() => readSdkRecoverySnapshot(this.client, accountIds, includeNotes, assertLive));
+  }
+
+  async initializeStorageGeneration(generation: string, previousGeneration: string | null, epoch: number, assertLive: AssertLive = noAssertLive): Promise<void> {
+    const check = () => { assertStorageHealthy(epoch); assertLive(); };
+    check();
+    await initializeSdkGeneration(this.client, generation, previousGeneration, check);
+    check();
   }
 
   async getAccount(accountId: string) {

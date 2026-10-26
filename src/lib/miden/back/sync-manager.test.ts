@@ -360,7 +360,7 @@ beforeEach(() => {
   mockGetCurrentAccountPublicKey.mockResolvedValue('pk-1');
   mockClient.syncState.mockResolvedValue(undefined);
   mockClient.getConsumableNoteDtos.mockResolvedValue([]);
-  mockClient.getAccount.mockResolvedValue(null);
+  mockClient.getAccount.mockResolvedValue({ nonce: () => ({ asInt: () => 0n }), vault: () => ({ fungibleAssets: () => [] }) });
   mockFetchTokenMetadata.mockResolvedValue({
     decimals: 6,
     symbol: 'TOK',
@@ -413,6 +413,15 @@ describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () =>
 });
 
 describe('doSync', () => {
+  it('refuses a missing retained account without publishing empty sync assets', async () => {
+    mockClient.getAccount.mockResolvedValueOnce(null);
+    await doSync();
+    expect(mockStorageSet).not.toHaveBeenCalledWith(expect.objectContaining({ miden_sync_data: expect.anything() }));
+    const health = await import('../storage-health');
+    expect(health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity' });
+    await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+  });
+
   it('is a no-op when the vault is not set up', async () => {
     mockIsExist.mockResolvedValueOnce(false);
     await doSync();
@@ -945,7 +954,6 @@ describe('doSync', () => {
 
   it('does not throw when broadcast fails in the main happy-path branch', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
-    mockClient.getAccount.mockResolvedValueOnce(null);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce([]);
     mockBroadcast.mockImplementationOnce(() => {
       throw new Error('no ports');
@@ -1254,19 +1262,6 @@ describe('doSync — note metadata branches', () => {
       now.mockRestore();
       warn.mockRestore();
     }
-  });
-
-  it('handles when no account exists in client (assets array stays empty)', async () => {
-    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
-    mockClient.getAccount.mockResolvedValueOnce(null);
-    await doSync();
-    expect(mockStorageSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        miden_sync_data: expect.objectContaining({
-          vaultAssets: []
-        })
-      })
-    );
   });
 
   it('shows multi-note notification when multiple new notes arrive', async () => {

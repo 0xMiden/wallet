@@ -1,3 +1,4 @@
+import { decodeSdkRecoverySnapshot, type SdkRecoverySnapshot } from '../recovery/sdk-snapshot';
 // SW-side `MidenClientProxy` — the thin forwarder half of the offscreen
 // WASM-client rehost (issue #260, slice 1).
 //
@@ -26,6 +27,7 @@ import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
   getMidenClient,
+  getMidenClientForRecovery,
   getCurrentWasmLockHold,
   assertWasmHoldCurrent,
   withWasmClientLock,
@@ -47,7 +49,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
-import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
+import { assertStorageHealthy, assertStorageRecoveryAllowed, getStorageHealth, initializeStorageHealth, type StorageRecoveryCapability } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
@@ -616,13 +618,17 @@ async function dispatchOp(
   method: string,
   args: unknown[],
   deadlineMs: number | null,
-  critical: boolean
+  critical: boolean,
+  recoveryCapability?: StorageRecoveryCapability
 ): Promise<string | null> {
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
     await initializeStorageHealth();
-    assertStorageHealthy();
+    if (recoveryCapability) {
+      if (method !== 'readStorageContinuity') throw new Error('Invalid recovery read');
+      assertStorageRecoveryAllowed(recoveryCapability);
+    } else assertStorageHealthy();
     await ensureOffscreenDocument();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
@@ -671,8 +677,10 @@ async function dispatchOp(
       started: false
     });
 
-    assertStorageHealthy();
+    if (recoveryCapability) assertStorageRecoveryAllowed(recoveryCapability);
+    else assertStorageHealthy();
     const envelope: OffscreenCallRequest = {
+      recoveryAccess: recoveryCapability && { epoch: recoveryCapability.epoch, expiresAt: recoveryCapability.expiresAt },
       storageHealth: getStorageHealth(),
       target: OFFSCREEN_TARGET,
       type: OFFSCREEN_CALL,
@@ -1068,6 +1076,28 @@ export function dispatchGuardianPipeline(
  * is a strict pass-through to the inline singleton — a no-op vs. today.
  */
 export const midenClientProxy = {
+  async readStorageContinuity(accountIds: string[], includeNotes: boolean, capability?: StorageRecoveryCapability): Promise<SdkRecoverySnapshot> {
+    const check = () => { if (capability) assertStorageRecoveryAllowed(capability); else assertStorageHealthy(); };
+    check();
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = capability ? await getMidenClientForRecovery(capability) : await getMidenClient();
+      check();
+      return client.readStorageContinuity(accountIds, includeNotes, check);
+    }
+    const result = await dispatchOp(newOpId(), 'readStorageContinuity', [accountIds, includeNotes], 5000, false, capability);
+    check();
+    if (result === null) throw new Error('Missing storage continuity response');
+    const decoded: unknown = JSON.parse(Buffer.from(result, 'base64').toString());
+    return decodeSdkRecoverySnapshot(decoded);
+  },
+
+  async initializeStorageGeneration(generation: string, previousGeneration: string | null, epoch: number): Promise<void> {
+    assertStorageHealthy(epoch);
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) return (await getMidenClient()).initializeStorageGeneration(generation, previousGeneration, epoch);
+    await this.call('initializeStorageGeneration', [generation, previousGeneration, epoch], { deadlineMs: 5000 });
+    assertStorageHealthy(epoch);
+  },
+
   /** Generic RPC — forward `method(args)` to the offscreen doc, deadline-guarded. */
   call(method: string, args: unknown[], opts?: { deadlineMs?: number | null }): Promise<string | null> {
     return dispatchWithDeadline(method, args, opts?.deadlineMs ?? null);

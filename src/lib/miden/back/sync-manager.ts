@@ -6,7 +6,7 @@ import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activi
 import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
-import { assertStorageHealthy, getStorageHealth, initializeStorageHealth } from 'lib/miden/storage-health';
+import { assertStorageHealthy, getStorageHealth, initializeStorageHealth, markStorageUnavailable, StorageUnavailableError } from 'lib/miden/storage-health';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -567,6 +567,10 @@ async function runSync(force: boolean): Promise<void> {
           // call on an object borrowed from the client's RefCell, so reading it after an
           // eviction is the double borrow, not merely a stale read.
           stillOurs('after the account read');
+          if (!account) {
+            markStorageUnavailable('continuity', { backend: 'sdk', operation: 'get' });
+            throw new StorageUnavailableError();
+          }
           const assets: SerializedVaultAsset[] = [];
           if (account) {
             const fungibleAssets = account.vault().fungibleAssets();

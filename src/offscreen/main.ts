@@ -1,3 +1,4 @@
+import { toSerializable } from 'lib/miden/recovery/serialization';
 // Offscreen document: runs the wallet's WASM client, and proves in a worker of its own.
 //
 // Why this exists: the wallet's MV3 service worker can't spawn Web Workers,
@@ -123,6 +124,9 @@ import {
 import {
   adoptStorageHealth,
   assertStorageHealthy,
+  assertStorageRecoveryAllowed,
+  withStorageRecoveryAccess,
+  type StorageRecoveryCapability,
   configureStorageHealthTransport,
   getStorageHealth,
   initializeStorageHealth,
@@ -568,6 +572,7 @@ type DispatchFn = (
  * successor's backstop (issue #775).
  */
 type DispatchContext = {
+  readonly recoveryCapability?: StorageRecoveryCapability;
   readonly op_id: string;
   /**
    * Non-nullable on purpose. `handleCall` is the only producer and builds it
@@ -635,6 +640,18 @@ const DISPATCH: Record<string, DispatchFn> = {
     // so return null. Nothing to serialize here means nothing to re-hydrate on
     // the SW — serializing a result no one reads would be pure waste.
     await client.syncState(() => assertWasmHoldCurrent(context.hold, 'after offscreen sync'));
+    return null;
+  },
+
+  readStorageContinuity: async (context, client, accountIds: string[], includeNotes: boolean) => {
+    const result = await client.readStorageContinuity(accountIds, includeNotes, () => {
+      assertWasmHoldCurrent(context.hold, 'during storage continuity read');
+      if (context.recoveryCapability) assertStorageRecoveryAllowed(context.recoveryCapability);
+    });
+    return new TextEncoder().encode(JSON.stringify(toSerializable(result)));
+  },
+  initializeStorageGeneration: async (context, client, generation: string, previousGeneration: string | null, epoch: number) => {
+    await client.initializeStorageGeneration(generation, previousGeneration, epoch, () => assertWasmHoldCurrent(context.hold, 'during storage generation initialization'));
     return null;
   },
 
@@ -1387,7 +1404,8 @@ onWasmClientPoisoned(() => {
   // nothing to mark.
   void poisoned?.then(client => client.markPoisoned()).catch(() => {});
 });
-function getOrCreateClient(): Promise<MidenClientInterface> {
+function getOrCreateClient(capability?: StorageRecoveryCapability): Promise<MidenClientInterface> {
+  if (capability) assertStorageRecoveryAllowed(capability);
   if (!clientPromise) {
     // Fail closed: a client built before any state arrived would run on the build's network.
     if (!adoptedEndpoints) return Promise.reject(new Error('no network state adopted from the service worker'));
@@ -1417,11 +1435,12 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     currentSignLiveness = liveness;
     const startedGeneration = wasmClientGeneration();
     recordProveTiming('getOrCreateClient: creating the offscreen client');
-    const created: Promise<MidenClientInterface> = MidenClientInterface.create({
-      signCallback: makeOffscreenSignViaSW(liveness),
-      useWorker: false
-    })
+    const options = { signCallback: makeOffscreenSignViaSW(liveness), useWorker: false };
+    const created: Promise<MidenClientInterface> = (capability
+      ? MidenClientInterface.createForRecovery(capability, options)
+      : MidenClientInterface.create(options))
       .then(client => {
+        if (capability) assertStorageRecoveryAllowed(capability);
         recordProveTiming('getOrCreateClient: client created');
         // A poisoning that lands while this create is in flight nulls the memo
         // synchronously, but a dispatch already awaiting THIS promise is ahead
@@ -1546,7 +1565,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // writes are legitimately long (they sign and prove) and have their own deadlines.
     const lockOptions =
       msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
-    const execute = async (hold: WasmLockHold) => {
+    const execute = async (hold: WasmLockHold, capability?: StorageRecoveryCapability) => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
       // the ops most likely to be queued are the ones waiting behind the holder
@@ -1554,10 +1573,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // the poison hook had already dropped (issue #775). Same reasoning as the
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
-      assertStorageHealthy();
+      if (capability) assertStorageRecoveryAllowed(capability); else assertStorageHealthy();
       const healthEpoch = getStorageHealth().epoch;
-      const client = await stepBeforeSubmit(getOrCreateClient);
-      assertStorageHealthy(healthEpoch);
+      const client = await stepBeforeSubmit(() => getOrCreateClient(capability));
+      if (capability) assertStorageRecoveryAllowed(capability); else assertStorageHealthy(healthEpoch);
       // The client build is a parking await inside the hold — its eager genesis fetch
       // goes to the very node a `syncState` dispatch is now bounded against (above),
       // so an eviction here is reachable rather than theoretical. An eviction abandons
@@ -1597,7 +1616,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // knowable (issue #775) — and threaded in as the dispatch's first
       // parameter (#788), so every dispatch can re-check ownership after its
       // parking awaits without opting in.
-      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
+      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false, recoveryCapability: capability };
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);
@@ -1615,7 +1634,11 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       }
     };
     let resultBytes: Uint8Array | null;
-    if (msg.method === 'tryGetAccount') {
+    if (msg.recoveryAccess) {
+      if (msg.method !== 'readStorageContinuity') throw new Error('Invalid recovery read');
+      resultBytes = await withStorageRecoveryAccess(msg.recoveryAccess.epoch, msg.recoveryAccess.expiresAt,
+        capability => withWasmClientLock(hold => execute(hold, capability), lockOptions));
+    } else if (msg.method === 'tryGetAccount') {
       const read = await tryWithWasmClientLock(execute, {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
         label: 'claim-fee'
@@ -1714,6 +1737,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return false;
+  if (msg?.recoveryAccess && _sender.id !== chrome.runtime.id) {
+    sendResponse({ ok: false, op_id: msg.op_id, error: 'Unauthorized recovery read', errorBeforeSubmit: true });
+    return false;
+  }
 
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {

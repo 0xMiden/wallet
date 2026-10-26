@@ -1,3 +1,13 @@
+import { checkContinuity, StorageContinuityError } from '../recovery/continuity';
+import { RecoveryJournal } from '../recovery/journal';
+import { withRecoveryStorageLock } from '../recovery/lock';
+import type { RecoveryEntry, RecoveryJournalSnapshot } from '../recovery/types';
+import { validateJournal } from '../recovery/validation';
+import { readWalletGenerationForRecovery, validateWalletGeneration } from '../recovery/wallet-generation';
+import { assertStorageHealthy, assertStorageRecoveryAllowed, getStorageHealth, markStorageUnavailable,
+  StorageUnavailableError, validateStorageHealth, type StorageRecoveryCapability } from '../storage-health';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import {
   AccountBuilder,
   AccountComponent,
@@ -188,7 +198,8 @@ enum StorageEntity {
   CurrentAccPubKey = 'curraccpubkey',
   Accounts = 'accounts',
   Settings = 'settings',
-  OwnMnemonic = 'ownmnemonic'
+  OwnMnemonic = 'ownmnemonic',
+  RecoveryContinuity = 'recoverycontinuity'
 }
 
 const checkStrgKey = createStorageKey(StorageEntity.Check);
@@ -212,6 +223,7 @@ const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey
 const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey);
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
+const recoveryContinuityStrgKey = createStorageKey(StorageEntity.RecoveryContinuity);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 
 // Leading byte of a serialized SDK `Signature` for the ECDSA (secp256k1) scheme. Guardian hot
@@ -353,6 +365,105 @@ export class Vault {
     if (!isRealmKeystoreInstalled({ insertKey: this.insertKeySink })) {
       throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
     }
+  }
+
+  private recoveryJournal(epoch = getStorageHealth().epoch): RecoveryJournal {
+    return new RecoveryJournal(this.vaultKey, getStorageProvider(), async () => {
+      assertStorageHealthy(epoch);
+      // Reset shares the storage lock. A retired vault cannot recreate recovery data after its protector was wiped.
+      await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey).catch(() => { throw new StorageUnavailableError(); });
+      assertStorageHealthy(epoch);
+    }, error => {
+      if (!(error instanceof StorageUnavailableError)) markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    });
+  }
+
+  async readRecoveryJournal(): Promise<RecoveryJournalSnapshot | undefined> {
+    return this.recoveryJournal().read();
+  }
+
+  async retainRecoveryEntries(entries: RecoveryEntry[]): Promise<void> {
+    const epoch = getStorageHealth().epoch;
+    const snapshot = await this.recoveryJournal(epoch).update(previous => {
+      if (!previous) throw new StorageContinuityError();
+      return { ...previous, entries };
+    });
+    await this.saveRecoveryContinuity(snapshot, epoch);
+  }
+
+  private async saveRecoveryContinuity(snapshot: RecoveryJournalSnapshot, epoch: number): Promise<void> {
+    await withRecoveryStorageLock(async () => {
+      assertStorageHealthy(epoch);
+      await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey).catch(() => { throw new StorageUnavailableError(); });
+      assertStorageHealthy(epoch);
+      await encryptAndSaveMany([[recoveryContinuityStrgKey, { ...snapshot, entries: [] }]], this.vaultKey);
+      assertStorageHealthy(epoch);
+    });
+  }
+
+  private async readRecoveryContinuity(): Promise<RecoveryJournalSnapshot | undefined> {
+    try {
+      const value = await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, this.vaultKey);
+      return validateJournal(value);
+    } catch (error) {
+      if (error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND) return undefined;
+      markStorageUnavailable('continuity', { backend: 'independent', operation: 'get' });
+      throw new StorageUnavailableError();
+    }
+  }
+
+  async verifyStorageContinuity(establish = false, capability?: StorageRecoveryCapability): Promise<boolean> {
+    if (!capability && getStorageHealth().status !== 'healthy') return false;
+    const epoch = getStorageHealth().epoch;
+    const check = () => capability ? assertStorageRecoveryAllowed(capability) : assertStorageHealthy(epoch);
+    try {
+      const accounts = await this.fetchAccounts();
+      check();
+      const expected = await this.readRecoveryContinuity();
+      const journal = await this.readRecoveryJournal();
+      check();
+      if (expected && (!journal || journal.sequence < expected.sequence ||
+          JSON.stringify(journal.scope) !== JSON.stringify(expected.scope))) throw new StorageContinuityError();
+      if (capability && !journal) throw new StorageContinuityError();
+      const wallet = capability
+        ? await readWalletGenerationForRecovery(Repo.db.name)
+        : validateWalletGeneration(await Repo.metadata.get('generation'));
+      check();
+      return await withWasmClientLock(async hold => {
+        check();
+        const observed = await midenClientProxy.readStorageContinuity(accounts.map(account => account.publicKey), !capability, capability);
+        assertWasmHoldCurrent(hold, 'after storage continuity read');
+        check();
+        const next = await checkContinuity({
+          previous: journal ?? expected, accountIds: accounts.map(account => account.publicKey),
+          network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`, wallet,
+          sdkGeneration: establish && !journal ? null : observed.generation,
+          readAccount: async id => observed.accounts.find(account => account.accountId === id) ?? null, establish
+        });
+        check();
+        if (!capability) {
+          if (observed.generation !== next.scope.sdkGeneration) await midenClientProxy.initializeStorageGeneration(next.scope.sdkGeneration, observed.generation, epoch);
+          assertWasmHoldCurrent(hold, 'after storage generation initialization');
+          check();
+          const snapshot = await this.recoveryJournal(epoch).update(() => ({ ...next, entries: observed.notes }));
+          await this.saveRecoveryContinuity(snapshot, epoch);
+        }
+        check();
+        return true;
+      }, { label: 'storage-continuity' });
+    } catch (error) {
+      if (error instanceof StorageContinuityError) markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+      if (getStorageHealth().status === 'unavailable') return false;
+      throw error;
+    }
+  }
+
+  async checkStorageRecovery(): Promise<boolean> {
+    return validateStorageHealth(async capability => {
+      await Repo.probeWalletStorage(capability);
+      assertStorageRecoveryAllowed(capability);
+      if (!(await this.verifyStorageContinuity(false, capability))) throw new StorageUnavailableError();
+    }, 5000);
   }
 
   async fetchSeedPhraseStatus(): Promise<SeedPhraseStatus> {
