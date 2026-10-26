@@ -133,7 +133,7 @@ export function validateOwnershipCheck(value) {
   try {
     if (!value || typeof value !== 'object' || Array.isArray(value)) fail('invalid_response');
     const keys = Reflect.ownKeys(value);
-    if (keys.length !== 2 || !keys.includes('gate') || !keys.includes('form')) fail('invalid_response');
+    if (!keys.includes('gate') || !keys.includes('form')) fail('invalid_response');
     const gate = ownershipData(value, 'gate'),
       form = ownershipData(value, 'form');
     if (!OWNERSHIP_GATES.includes(gate) || !OWNERSHIP_FORMS.includes(form)) fail('invalid_response');
