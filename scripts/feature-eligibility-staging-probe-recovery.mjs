@@ -307,15 +307,19 @@ export async function main(args, env = process.env) {
     }
     try {
       result = await readJson(join(root, 'probe-result.json'));
-      if (env.PROBE_OPERATION === 'probe') {
-        const cleanup = await readJson(join(root, 'probe-cleanup-result.json'));
-        sanitizeEvidence(null, cleanup, workerBytes);
-        result = { ...result, cleanup: cleanup.cleanup };
-        if (cleanup.cleanup === 'blocked') result = { ...result, support: 'unknown', reason: 'cleanup_failed' };
-      }
       sanitizeEvidence(manifest, result, workerBytes);
     } catch {
-      result = blocked();
+      result = { ...blocked(), reason: 'invalid_response' };
+    }
+    if (env.PROBE_OPERATION === 'probe') {
+      try {
+        const cleanup = await readJson(join(root, 'probe-cleanup-result.json'));
+        sanitizeEvidence(null, cleanup, workerBytes);
+        requireValue(cleanup.reason === 'complete' && cleanup.cleanup !== 'blocked');
+        result = { ...result, cleanup: cleanup.cleanup };
+      } catch {
+        result = { ...result, support: 'unknown', cleanup: 'blocked', reason: 'cleanup_failed' };
+      }
     }
     const sanitized = sanitizeEvidence(manifest, result, workerBytes);
     const directory = join(root, 'probe-evidence');
