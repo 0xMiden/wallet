@@ -725,6 +725,10 @@ export function updateSettings(settings: Partial<WalletSettings>) {
   });
 }
 
+export function checkpointFinancialRecovery(accountId: string, entry?: unknown): Promise<void> {
+  return withUnlocked(({ vault }) => vault.checkpointFinancialRecovery(accountId, entry));
+}
+
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
   const configuration = await readStoredSpendingLimit(accountId);
   return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);

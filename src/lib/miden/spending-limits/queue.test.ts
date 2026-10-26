@@ -1,3 +1,4 @@
+jest.mock('../recovery/financial-writer');
 import { DBCore, DBCoreIndex, Middleware } from 'dexie';
 
 import { ITransaction, SendTransaction, Transaction } from '../db/types';

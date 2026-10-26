@@ -1,4 +1,12 @@
-import type { RecoveryAccountExpectation, RecoveryEntry, RecoveryJournalSnapshot, RecoveryScope } from './types';
+import { validateRecoveryTransaction } from './transaction-record';
+import { parsePersistedSpendingLimit } from '../spending-limits/types';
+import type {
+  RecoveryAccountExpectation,
+  RecoveryNoteEntry,
+  RecoveryEntry,
+  RecoveryJournalSnapshot,
+  RecoveryScope
+} from './types';
 import type { SubmitEvidenceFields } from '../db/types';
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -44,21 +52,59 @@ function evidence(value: unknown): value is SubmitEvidenceFields {
     return nonce(item);
   });
 }
+export function isRecoveryNote(value: unknown): value is RecoveryNoteEntry {
+  if (!record(value) || !text(value.id) || value.kind !== 'note') return false;
+  return (
+    keys(value, ['kind', 'id', 'accountId', 'noteFile', 'provenance', 'format']) &&
+    (value.accountId === undefined || text(value.accountId)) &&
+    value.noteFile instanceof Uint8Array &&
+    value.noteFile.length > 0 &&
+    (value.provenance === 'input' || value.provenance === 'output') &&
+    (value.format === undefined || value.format === 'full' || value.format === 'details')
+  );
+}
 function entry(value: unknown): value is RecoveryEntry {
   if (!record(value) || !text(value.id)) return false;
-  if (value.kind === 'note')
+  if (value.kind === 'note') return isRecoveryNote(value);
+  if (value.kind === 'policy') {
+    if (!text(value.accountId) || !keys(value, ['kind', 'id', 'accountId', 'configuration'])) return false;
+    if (value.configuration === null) return true;
+    if (
+      !record(value.configuration) ||
+      !keys(value.configuration, ['accountId', 'limit', 'revision', 'createdAt', 'updatedAt'])
+    )
+      return false;
+    try {
+      parsePersistedSpendingLimit(value.configuration);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (value.kind === 'debit')
     return (
-      keys(value, ['kind', 'id', 'accountId', 'noteFile', 'provenance', 'format']) &&
-      (value.accountId === undefined || text(value.accountId)) &&
-      value.noteFile instanceof Uint8Array &&
-      value.noteFile.length > 0 &&
-      (value.provenance === 'input' || value.provenance === 'output') &&
-      (value.format === undefined || value.format === 'full' || value.format === 'details')
+      text(value.accountId) &&
+      keys(value, ['kind', 'id', 'accountId', 'initiatedAt', 'spentUsd', 'authorizationId']) &&
+      typeof value.initiatedAt === 'number' &&
+      Number.isSafeInteger(value.initiatedAt) &&
+      value.initiatedAt >= 0 &&
+      (value.spentUsd === undefined || (typeof value.spentUsd === 'bigint' && value.spentUsd >= 0n)) &&
+      (value.authorizationId === undefined || text(value.authorizationId)) &&
+      (value.spentUsd !== undefined || value.authorizationId !== undefined)
     );
+
+  if (value.kind === 'transaction' && value.row !== undefined) {
+    try {
+      const row = validateRecoveryTransaction(value.row);
+      if (row.id !== value.id || row.accountId !== value.accountId) return false;
+    } catch {
+      return false;
+    }
+  }
   return (
     value.kind === 'transaction' &&
     text(value.accountId) &&
-    keys(value, ['kind', 'id', 'accountId', 'requestBytes', 'mayHaveSubmitted', 'evidence']) &&
+    keys(value, ['kind', 'id', 'accountId', 'requestBytes', 'mayHaveSubmitted', 'evidence', 'row']) &&
     value.requestBytes instanceof Uint8Array &&
     value.requestBytes.length > 0 &&
     typeof value.mayHaveSubmitted === 'boolean' &&

@@ -1,3 +1,4 @@
+jest.mock('../recovery/financial-writer');
 import { SendTransaction } from '../db/types';
 import { spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';

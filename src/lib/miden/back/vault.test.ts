@@ -271,6 +271,7 @@ const mockMidenClient = {
 // getBech32AddressFromAccountId uses the real WASM `Address.fromAccountId`;
 // stub it so tests can assert on returned ids without a real WASM binary.
 jest.mock('../sdk/helpers', () => ({
+  canonicalWalletAccountId: (id: string) => id.split('_')[0],
   getBech32AddressFromAccountId: jest.fn((id: any) => {
     if (id && typeof id === 'object' && '__marker' in id) {
       return `bech32:${id.__marker}`;
@@ -5237,7 +5238,9 @@ describe('Vault storage continuity', () => {
     const snapshot = await vault.readRecoveryJournal();
     expect(snapshot).toMatchObject({
       accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
-      entries: [{ id: 'private-note', noteFile: new Uint8Array([1, 2]) }]
+      entries: expect.arrayContaining([
+        { kind: 'note', id: 'private-note', noteFile: new Uint8Array([1, 2]), provenance: 'input' }
+      ])
     });
     expect(await Repo.metadata.get('generation')).toMatchObject({ origin: 'authorized' });
     const writes = mockStorageSets.length;
@@ -5254,6 +5257,61 @@ describe('Vault storage continuity', () => {
       expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity' });
       expect(await vault.fetchAccounts()).toEqual([expect.objectContaining({ publicKey: 'retained' })]);
       expect(await vault.readRecoveryJournal()).toEqual(prior);
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it.each(['spending limit', 'charged transaction'])('refuses recovery after partial loss of %s', async lost => {
+    await Repo.spendingLimits.put({
+      accountId: 'retained',
+      limit: '5000000',
+      revision: 'policy-1',
+      createdAt: 1,
+      updatedAt: 1
+    });
+    await Repo.transactions.put({
+      id: 'debit-1',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.Failed,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      spentUsd: 4000000n,
+      displayIcon: 'FAILED',
+      neverCommittedAt: 1
+    });
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const prior = await vault.readRecoveryJournal();
+    if (lost === 'spending limit') await Repo.spendingLimits.delete('retained');
+    else await Repo.transactions.delete('debit-1');
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(await vault.readRecoveryJournal()).toEqual(prior);
+    } finally {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    }
+  });
+
+  it('refuses recovery when a journaled uncertain transaction row disappears', async () => {
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    await Repo.transactions.put({
+      id: 'uncertain',
+      accountId: 'retained',
+      type: 'send',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND',
+      mayHaveSubmitted: true,
+      attemptId: 'attempt-a'
+    });
+    await vault.retainTransactionRecovery('uncertain', { requestBytes: new Uint8Array([7, 8]), notes: [] });
+    await Repo.transactions.delete('uncertain');
+    markStorageUnavailable('quota', { backend: 'wallet', operation: 'mutate' });
+    try {
+      expect(await vault.checkStorageRecovery()).toBe(false);
+      expect(getStorageHealth().status).toBe('unavailable');
     } finally {
       await resetStorageHealthForLifecycle(getStorageHealth().epoch);
     }
@@ -5277,8 +5335,9 @@ describe('Vault storage continuity', () => {
     expect(getStorageHealth().status).toBe('healthy');
     expect(readSnapshot).toHaveBeenLastCalledWith(
       ['retained'],
-      false,
-      expect.objectContaining({ expiresAt: expect.any(Number) })
+      true,
+      expect.objectContaining({ expiresAt: expect.any(Number) }),
+      expect.arrayContaining([expect.objectContaining({ id: 'private-note' })])
     );
   });
 
