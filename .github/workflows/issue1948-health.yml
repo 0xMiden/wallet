@@ -1,0 +1,56 @@
+name: Issue1948 health checkpoint
+on:
+  push:
+    branches:
+      - 'ci/1948-health-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind exact source
+        run: |
+          mkdir -p proof
+          git rev-parse HEAD | tee proof/workflow-sha.txt
+          echo 86b3eeb72e82fcd5ad7b37a6f401965e09a4bf76 | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD^)" = 86b3eeb72e82fcd5ad7b37a6f401965e09a4bf76
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Validate formatting-only delta
+        run: |
+          set -o pipefail
+          yarn eslint src/lib/miden/storage-health.test.ts --max-warnings 0 2>&1 | tee proof/lint.log
+          yarn prettier --check src/lib/miden/storage-health.test.ts 2>&1 | tee proof/format.log
+          node - <<'NODE' | tee proof/ast.log
+          const ts = require('typescript');
+          const cp = require('node:child_process');
+          const fs = require('node:fs');
+          const path = 'src/lib/miden/storage-health.test.ts';
+          const prior = cp.execFileSync('git', ['show', 'c97bdabd4723d07e6308cbe340b95d1332b6d8ab:'+path], {encoding:'utf8'});
+          const shape = text => {
+            const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+            const walk = node => { const kids=node.getChildren(file); return [node.kind, kids.length ? kids.map(walk) : node.getText(file)]; };
+            return JSON.stringify(walk(file));
+          };
+          if(shape(prior)!==shape(fs.readFileSync(path,'utf8')))throw new Error('Formatting delta changed the syntax tree');
+          console.log('Syntax tree unchanged from tested c97bdabd health source');
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: health-checkpoint-format
+          path: proof/
