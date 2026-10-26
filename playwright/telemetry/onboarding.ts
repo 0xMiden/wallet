@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { openImportTypeScreen } from '../e2e/helpers/onboarding-entry';
 import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 
 /** The seed this suite imports. Known, so it doubles as a leak sentinel. */
@@ -17,7 +17,7 @@ export const CONSENT_SELECTOR = '[data-testid="onboarding-help-improve-wallet"]'
 export const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
 
 /**
- * Import a wallet, stopping at the consent prompt without answering it.
+ * Import a wallet through either welcome variant, stopping at consent without answering it.
  *
  * The import path rather than create: create is Guardian-mandatory and needs a
  * live backend, which this suite deliberately does not stand up. Import reaches
@@ -26,14 +26,7 @@ export const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
  * that has to be scraped off a screen.
  */
 export async function importWalletToConsentPrompt(page: Page): Promise<void> {
-  await page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-  await page.locator('#import-link').click();
-
-  // Test networks show the notice before the import choice. The seed form is
-  // one option on that choice, not the screen Import opens. Acknowledging means ticking the
-  // notice's three checkboxes first, which is what the shared helper does.
-  await acknowledgeNetworkNotice(page);
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+  await openImportTypeScreen(page);
   await page.getByTestId('import-type-seed-phrase').click();
 
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
