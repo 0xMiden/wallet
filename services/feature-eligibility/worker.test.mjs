@@ -273,6 +273,24 @@ test('a warm decision makes no durable writes', async () => {
   assert.equal(h.storage.writes, budgetWrites);
 });
 
+test('two colo caches share only the global lease budget under a bounded mock burst', async () => {
+  const h = harness({ timeoutMs: 1000 });
+  const requests = Array.from({ length: 16 }, (_, index) => ({
+    cf: { colo: index % 2 ? 'ZRH' : 'FRA' },
+    headers: { 'CF-Connecting-IP': `203.0.113.${index + 1}` }
+  }));
+  const cold = await Promise.all(requests.map(options => h.request(options)));
+  assert.ok(cold.every(response => response.status === 200));
+  assert.deepEqual([...h.callerStates.keys()].sort(), ['cache:FRA', 'cache:ZRH']);
+  assert.equal(h.paidCalls().length, 16);
+  assert.equal(h.storage.values.get('budget').count, 16);
+  const before = [...h.callerStates.values()].map(entry => entry.storage.writes);
+  const warm = await Promise.all(requests.map(options => h.request(options)));
+  assert.ok(warm.every(response => response.status === 200));
+  assert.equal(h.paidCalls().length, 16);
+  assert.deepEqual([...h.callerStates.values()].map(entry => entry.storage.writes), before);
+});
+
 test('enables swap for explicitly enabled Near Intents with a usable 1Click mapping', async () => {
   const h = harness({
     policy: policy({ features: { earn: false, nearIntents: true }, swap: { oneClick } })
