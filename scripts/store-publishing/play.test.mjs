@@ -314,7 +314,6 @@ test('explicit edit inspection reads exact caller edit and track without changin
   client.done();
 });
 
-
 test('recorded prior completed release and new draft produce only the approved new full rollout', async () => {
   const prior = { name: '1.17.6', versionCodes: ['11706001'], status: 'completed' };
   const target = { name: '1.17.7', versionCodes: ['11707019'], status: 'draft' };
@@ -323,7 +322,11 @@ test('recorded prior completed release and new draft produce only the approved n
     { method: 'GET', path: trackPath, response: track([prior, target]) },
     { method: 'PUT', path: trackPath, options: { body: track([completed]) }, response: track([completed]) },
     { method: 'POST', path: `${edit}:validate`, response: { id: 'edit-1' } },
-    { method: 'POST', path: `${edit}:commit?changesNotSentForReview=false&changesInReviewBehavior=ERROR_IF_IN_REVIEW`, response: { id: 'edit-1' } }
+    {
+      method: 'POST',
+      path: `${edit}:commit?changesNotSentForReview=false&changesInReviewBehavior=ERROR_IF_IN_REVIEW`,
+      response: { id: 'edit-1' }
+    }
   ]);
   const result = await play.submit(client, { ...options, versionCode: 11707019, allowPendingChanges: true });
   assert.equal(result.versionCode, 11707019);

@@ -425,18 +425,24 @@ test('Play in-review ErrorInfo retains the exact known reason without arbitrary 
   });
 });
 
-
 test('only the exact known one-completed-release message receives a closed classifier', async () => {
   for (const [message, expected] of [
     ['Only one completed release is allowed.', ['ONLY_ONE_COMPLETED_RELEASE']],
     ['Only one completed release is allowed. secret-token', []]
   ]) {
-    const client = createApiClient({ origin: 'https://androidpublisher.googleapis.com', token: 'secret-token',
-      fetchImpl: async () => new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message } }), { status: 400 }) });
-    await assert.rejects(client.request('PUT', '/androidpublisher/v3/applications/app/edits/one/tracks/production'), error => {
-      assert.deepEqual(error.apiReasons, expected);
-      assert.doesNotMatch(JSON.stringify(error), /secret-token|Only one completed/);
-      return true;
+    const client = createApiClient({
+      origin: 'https://androidpublisher.googleapis.com',
+      token: 'secret-token',
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message } }), { status: 400 })
     });
+    await assert.rejects(
+      client.request('PUT', '/androidpublisher/v3/applications/app/edits/one/tracks/production'),
+      error => {
+        assert.deepEqual(error.apiReasons, expected);
+        assert.doesNotMatch(JSON.stringify(error), /secret-token|Only one completed/);
+        return true;
+      }
+    );
   }
 });

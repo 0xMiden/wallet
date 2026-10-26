@@ -174,9 +174,23 @@ export async function submit(client, options) {
   const releases = releasesForTrack(current, track);
   const target = exactRelease(releases, code, 'draft');
   if (target.userFraction !== undefined) throw new Error('A single draft without staged rollout targeting is required');
+  const siblings = releases.filter(item => item !== target);
+  if (
+    siblings.length > 1 ||
+    siblings.some(
+      item =>
+        item.status !== 'completed' ||
+        item.versionCodes.length !== 1 ||
+        BigInt(item.versionCodes[0]) >= BigInt(code) ||
+        item.userFraction !== undefined ||
+        item.countryTargeting !== undefined
+    )
+  )
+    throw new Error('Unexpected sibling release; inspect the prior track before full rollout');
   const completed = { ...target, status: 'completed' };
   const updated = await stageRequest(client, 'play-submit-track-update', 'PUT', path, {
-    body: { ...current, releases: releases.map(item => (item === target ? completed : item)) }
+    // Track updates describe the desired rollout, not the historical GET inventory.
+    body: { ...current, releases: [completed] }
   });
   exactRelease(releasesForTrack(updated, track), code, 'completed');
   await stageRequest(client, 'play-submit-validate', 'POST', `${editPath}:validate`);
