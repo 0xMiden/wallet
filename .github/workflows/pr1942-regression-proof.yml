@@ -1,0 +1,35 @@
+name: PR1942 regression proof
+on:
+  push:
+    branches: ['ci/pr1942-proof-*']
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cluster: F002
+            file: src/lib/i18n/locale-bundle-parity.test.ts
+          - cluster: F004
+            file: src/app/confirm/TransactionAssetView.test.tsx
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run named regression suite (expected functional failure before fix)
+        run: yarn jest ${{ matrix.file }} --maxWorkers=2 --no-coverage --json --outputFile=regression-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-${{ matrix.cluster }}
+          path: regression-results.json
+          if-no-files-found: error
+          retention-days: 7

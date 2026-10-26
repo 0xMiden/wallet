@@ -9,6 +9,7 @@ import { TransactionNoteFlow } from './TransactionNoteFlow';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('utils/string', () => ({ truncateAddress: (value: string) => `short:${value.slice(0, 5)}` }));
 jest.mock('lib/miden/metadata/fetch', () => ({ fetchTokenMetadata: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://rpc.example' }));
 jest.mock('lib/miden/metadata/scale', () => ({ hasKnownScale: () => true }));
 jest.mock('lib/shared/format', () => ({ formatAmount: (amount: bigint) => amount.toString() }));
 
