@@ -34,19 +34,23 @@ describe('storage health', () => {
     expect(JSON.stringify(persisted)).not.toMatch(/disk|quota|message|stack/);
   });
 
-  it.each(['AbortError', 'OperationAbortedError', 'WasmClientPoisonedError', 'NetworkError', 'TimeoutError', 'OneClickDeadlineError'])(
-    'does not poison health for ordinary %s',
-    async name => {
-      const health = await import('./storage-health');
-      await health.initializeStorageHealth();
-      health.reportStorageFailure(
-        new DOMException('cancelled while reporting disk I/O error QuotaExceededError', name),
-        { backend: 'sdk', operation: 'sync' }
-      );
-      expect(health.getStorageHealth().status).toBe('healthy');
-      expect(() => health.assertStorageHealthy()).not.toThrow();
-    }
-  );
+  it.each([
+    'AbortError',
+    'OperationAbortedError',
+    'WasmClientPoisonedError',
+    'NetworkError',
+    'TimeoutError',
+    'OneClickDeadlineError'
+  ])('does not poison health for ordinary %s', async name => {
+    const health = await import('./storage-health');
+    await health.initializeStorageHealth();
+    health.reportStorageFailure(new DOMException('cancelled while reporting disk I/O error QuotaExceededError', name), {
+      backend: 'sdk',
+      operation: 'sync'
+    });
+    expect(health.getStorageHealth().status).toBe('healthy');
+    expect(() => health.assertStorageHealthy()).not.toThrow();
+  });
 
   it('requires storage context for generic I/O and follows guarded error links', async () => {
     const health = await import('./storage-health');
