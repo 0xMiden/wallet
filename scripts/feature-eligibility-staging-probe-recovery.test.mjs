@@ -261,3 +261,21 @@ const contextIdentityForTest = context =>
   Object.fromEntries(
     ['repository', 'workflowPath', 'runId', 'runAttempt', 'sourceSha'].map(key => [key, context[key]])
   );
+
+test('later idempotent cleanup records absence while preserving the failed original probe verdict', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-cleanup-evidence-'));
+  const privateDir = join(root, 'feature-eligibility-probe');
+  try {
+    await mkdir(privateDir, { mode: 0o700 });
+    await writeFile(join(privateDir, 'manifest.json'), JSON.stringify(buildProbeManifest(contextIdentityForTest(current), workerBytes, [])));
+    const failedProbe = { ...result(), caller: 'refused', colo: 'refused', cleanup: 'blocked', reason: 'cleanup_failed' };
+    await writeFile(join(root, 'probe-result.json'), JSON.stringify(failedProbe));
+    await writeFile(join(root, 'probe-cleanup-result.json'), JSON.stringify({ ...result(), reason: 'complete' }));
+    const received = await main(['evidence'], { RUNNER_TEMP: root, GITHUB_REPOSITORY: current.repository, GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`, GITHUB_RUN_ID: current.runId, GITHUB_RUN_ATTEMPT: current.runAttempt, GITHUB_SHA: current.sourceSha, GITHUB_REF: current.ref, GITHUB_EVENT_NAME: current.eventName, PROBE_OPERATION: 'probe' });
+    assert.equal(received.support, 'unknown');
+    assert.equal(received.reason, 'cleanup_failed');
+    assert.equal(received.cleanup, 'absent');
+    assert.equal(received.caller, 'refused');
+    assert.equal(received.colo, 'refused');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
