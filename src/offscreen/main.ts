@@ -678,6 +678,16 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     return new TextEncoder().encode(JSON.stringify(toSerializable(result)));
   },
+  restoreStorageRecovery: async (context, client, value: unknown) => {
+    if (!context.recoveryCapability) throw new Error('Missing storage recovery capability');
+    const { decodeSdkRecoveryCommand } = await import('lib/miden/recovery/sdk-restore');
+    assertStorageRecoveryAllowed(context.recoveryCapability);
+    assertWasmHoldCurrent(context.hold, 'before storage reconstruction');
+    await client.restoreStorageRecovery(decodeSdkRecoveryCommand(value), context.recoveryCapability, () =>
+      assertWasmHoldCurrent(context.hold, 'during storage reconstruction')
+    );
+    return null;
+  },
   initializeStorageGeneration: async (
     context,
     client,
@@ -1677,7 +1687,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     };
     let resultBytes: Uint8Array | null;
     if (msg.recoveryAccess) {
-      if (msg.method !== 'readStorageContinuity') throw new Error('Invalid recovery read');
+      if (msg.method !== 'readStorageContinuity' && msg.method !== 'restoreStorageRecovery') throw new Error('Invalid recovery operation');
       resultBytes = await withStorageRecoveryAccess(
         msg.recoveryAccess.epoch,
         msg.recoveryAccess.expiresAt,

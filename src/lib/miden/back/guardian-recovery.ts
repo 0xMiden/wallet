@@ -758,6 +758,18 @@ export function releaseGuardianRecoveriesOnLock(): void {
  */
 let recoveryQueue: Promise<void> = Promise.resolve();
 
+export function withGuardianStorageRecovery<T>(operation: () => Promise<T>): Promise<T> {
+  const result = recoveryQueue.then(operation);
+  recoveryQueue = result.then(() => {}, () => {});
+  return result;
+}
+
+export function invalidateGuardianStorageRecovery(): void {
+  lockEpoch++;
+  reservations.clear();
+  forgetUnsupportedHistorySources();
+}
+
 /**
  * Start the detached pending-note recovery for a seed-recovered account, but
  * only once it cannot collide with a live transaction: the mandatory hot-key

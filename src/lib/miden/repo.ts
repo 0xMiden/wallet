@@ -364,6 +364,19 @@ function buildTridentDb(name: string): Dexie {
   return target;
 }
 
+const recoveryConsumerOpeners = new WeakMap<Dexie, () => Promise<Dexie>>();
+
+export async function openWalletConsumerForRecovery(capability: StorageRecoveryCapability): Promise<void> {
+  assertStorageRecoveryAllowed(capability);
+  const open = recoveryConsumerOpeners.get(db);
+  if (!open) throw new Error('Wallet consumer recovery unavailable');
+  await open();
+  assertStorageRecoveryAllowed(capability);
+  const marker: unknown = await metadata.get('generation');
+  assertStorageRecoveryAllowed(capability);
+  if (typeof marker !== 'object' || marker === null) throw new Error('Wallet consumer readback unavailable');
+}
+
 /** Scoped recovery writes use the same schema and retain the deadline check at every native transaction. */
 export async function openWalletRecoveryStore(capability: StorageRecoveryCapability): Promise<Dexie> {
   assertStorageRecoveryAllowed(capability);
@@ -378,6 +391,19 @@ export async function openWalletRecoveryStore(capability: StorageRecoveryCapabil
       transaction: (...args) => {
         assertStorageRecoveryAllowed(capability);
         return down.transaction(...args);
+      },
+      table: name => {
+        const table = down.table(name);
+        return {
+          ...table,
+          mutate: request => {
+            assertStorageRecoveryAllowed(capability);
+            return table.mutate(request).then(result => {
+              assertStorageRecoveryAllowed(capability);
+              return result;
+            });
+          }
+        };
       }
     })
   });
@@ -387,6 +413,7 @@ export async function openWalletRecoveryStore(capability: StorageRecoveryCapabil
     return target;
   } catch (error) {
     target.close();
+    reportStorageFailure(error, { backend: 'wallet', operation: 'open' });
     throw error;
   }
 }
@@ -494,6 +521,7 @@ function installWalletStorageDiagnostics(target: Dexie): void {
   target.use(middleware);
 
   const open = target.open;
+  recoveryConsumerOpeners.set(target, () => open.call(target));
   const rejectOpen = (error: unknown): never => {
     reportStorageFailure(error, { backend: 'wallet', operation: 'open' });
     // A failed upgrade can already identify a table through Dexie's error links.

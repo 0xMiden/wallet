@@ -1,3 +1,5 @@
+import type Dexie from 'dexie';
+
 import { StorageContinuityError } from './continuity';
 import { JOURNAL_MAX_ENTRIES } from './journal';
 import { toSerializable } from './serialization';
@@ -6,7 +8,7 @@ import { ITransaction, ITransactionStatus } from '../db/types';
 import * as Repo from '../repo';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { canonicalSpendingLimitIdentity } from '../spending-limits/identity';
-import { parsePersistedSpendingLimit, toPersistedSpendingLimit } from '../spending-limits/types';
+import { parsePersistedSpendingLimit, toPersistedSpendingLimit, type PersistedSpendingLimit } from '../spending-limits/types';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/window';
 
 const outgoing = new Set(['send', 'swap', 'bridged-send', 'earn-deposit', 'execute']);
@@ -44,12 +46,16 @@ export function recoveryDebit(row: ITransaction, accountId: string, now: number)
 
 export async function readFinancialRecoveryBaseline(
   accountIds: string[],
-  now = Math.floor(Date.now() / 1000)
+  now = Math.floor(Date.now() / 1000),
+  database: Dexie = Repo.db
 ): Promise<RecoveryEntry[]> {
-  return Repo.db.transaction('r', Repo.transactions, Repo.spendingLimits, Repo.recoveryDebits, async () => {
+  const transactions = database.table<ITransaction>('transactions');
+  const spendingLimits = database.table<PersistedSpendingLimit>('spendingLimits');
+  const recoveryDebits = database.table<RecoveryDebitEntry>('recoveryDebits');
+  return database.transaction('r', transactions, spendingLimits, recoveryDebits, async () => {
     const entries: RecoveryEntry[] = [];
     for (const accountId of accountIds) {
-      const row = await Repo.spendingLimits.get(canonicalSpendingLimitIdentity(accountId));
+      const row = await spendingLimits.get(canonicalSpendingLimitIdentity(accountId));
       const policy: RecoveryPolicyEntry = {
         kind: 'policy',
         id: accountId,
@@ -58,13 +64,13 @@ export async function readFinancialRecoveryBaseline(
       };
       entries.push(policy);
     }
-    const rows = await Repo.transactions
+    const rows = await transactions
       .where('recoveryDebitAt')
       .aboveOrEqual(now - MAX_WINDOW_SECONDS)
       .limit(JOURNAL_MAX_ENTRIES + 1)
       .toArray();
     if (rows.length > JOURNAL_MAX_ENTRIES) throw new StorageContinuityError();
-    for (const row of await historyWithRecoveryDebits(rows, now)) {
+    for (const row of await historyWithRecoveryDebits(rows, now, database)) {
       const accountId = accountIds.find(id => sameWalletAccountId(id, row.accountId));
       if (accountId === undefined) throw new StorageContinuityError();
       const debit = recoveryDebit(row, accountId, now);
@@ -91,23 +97,27 @@ export function verifyFinancialRecoveryEntries(
 
 export async function readRetainedFinancialEntries(
   expected: RecoveryEntry[],
-  now = Math.floor(Date.now() / 1000)
+  now = Math.floor(Date.now() / 1000),
+  database: Dexie = Repo.db
 ): Promise<RecoveryEntry[]> {
-  return Repo.db.transaction('r', Repo.transactions, Repo.spendingLimits, Repo.recoveryDebits, async () => {
+  const transactions = database.table<ITransaction>('transactions');
+  const spendingLimits = database.table<PersistedSpendingLimit>('spendingLimits');
+  const recoveryDebits = database.table<RecoveryDebitEntry>('recoveryDebits');
+  return database.transaction('r', transactions, spendingLimits, recoveryDebits, async () => {
     const found: RecoveryEntry[] = [];
     for (const entry of expected) {
       if (entry.kind === 'policy') {
-        const config = await Repo.spendingLimits.get(canonicalSpendingLimitIdentity(entry.accountId));
+        const config = await spendingLimits.get(canonicalSpendingLimitIdentity(entry.accountId));
         found.push({
           ...entry,
           configuration: config === undefined ? null : toPersistedSpendingLimit(parsePersistedSpendingLimit(config))
         });
       } else if (entry.kind === 'debit' && entry.initiatedAt >= now - MAX_WINDOW_SECONDS) {
-        const row = await Repo.transactions.get(entry.id);
+        const row = await transactions.get(entry.id);
         const debit =
           row && !row.restoredFromBackup
             ? recoveryDebit(row, entry.accountId, now)
-            : await Repo.recoveryDebits.get(entry.id);
+            : await recoveryDebits.get(entry.id);
         if (debit) found.push(debit);
       }
     }
@@ -115,8 +125,8 @@ export async function readRetainedFinancialEntries(
   });
 }
 
-export async function historyWithRecoveryDebits(rows: ITransaction[], now: number): Promise<ITransaction[]> {
-  const retained = await Repo.recoveryDebits
+export async function historyWithRecoveryDebits(rows: ITransaction[], now: number, database: Dexie = Repo.db): Promise<ITransaction[]> {
+  const retained = await database.table<RecoveryDebitEntry>('recoveryDebits')
     .where('initiatedAt')
     .aboveOrEqual(now - MAX_WINDOW_SECONDS)
     .limit(JOURNAL_MAX_ENTRIES + 1)

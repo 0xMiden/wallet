@@ -1,0 +1,92 @@
+import { NoteFile, type MidenClient } from '@miden-sdk/miden-sdk/lazy';
+
+import { restoreRetainedGuardianAccount, type RecoveryAccountMaterial } from './account-restore';
+import { StorageContinuityError } from './continuity';
+import { JOURNAL_MAX_BYTES } from './journal';
+import { fromSerializable } from './serialization';
+import { initializeSdkGeneration, readSdkGeneration, readSdkRecoverySnapshot } from './sdk-snapshot';
+import type { RecoveryNoteEntry } from './types';
+import { isRecoveryAccount, isRecoveryNote } from './validation';
+import { noteDetailsCommitment } from '../sdk/note-details-commitment';
+
+export type SdkRecoveryCommand =
+  | { kind: 'account'; material: RecoveryAccountMaterial }
+  | { kind: 'note'; note: RecoveryNoteEntry; accountId: string }
+  | { kind: 'generation'; generation: string };
+
+export async function restoreSdkRecovery(
+  client: MidenClient,
+  command: SdkRecoveryCommand,
+  assertCurrent: () => void
+): Promise<void> {
+  assertCurrent();
+  if (command.kind === 'account') {
+    await restoreRetainedGuardianAccount(client, command.material, assertCurrent);
+  } else if (command.kind === 'generation') {
+    const old = await readSdkGeneration(client);
+    assertCurrent();
+    if (old !== null && old !== command.generation) throw new StorageContinuityError();
+    await initializeSdkGeneration(client, command.generation, old, assertCurrent);
+  } else {
+    const note = command.note;
+    if (!isRecoveryNote(note) || note.noteFile.length > JOURNAL_MAX_BYTES || note.provenance !== 'input')
+      throw new StorageContinuityError();
+    const file = NoteFile.deserialize(note.noteFile);
+    try {
+      const details = file.noteDetails() ?? file.note();
+      if (!details) throw new StorageContinuityError();
+      const commitment = noteDetailsCommitment(details);
+      const id = file.noteId()?.toString();
+      if (id) {
+        const existing = await client.notes.list({ ids: [id] });
+        assertCurrent();
+        if (existing.length > 1) throw new StorageContinuityError();
+        if (existing.length === 1) {
+          if (noteDetailsCommitment(existing[0]!.details()) !== commitment) throw new StorageContinuityError();
+          return;
+        }
+      }
+      assertCurrent();
+      await client.notes.import(file);
+      assertCurrent();
+      await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
+    } finally {
+      file.free();
+    }
+  }
+  assertCurrent();
+}
+
+export function decodeSdkRecoveryCommand(value: unknown): SdkRecoveryCommand {
+  const decoded: unknown = fromSerializable(value);
+  if (typeof decoded !== 'object' || decoded === null) throw new StorageContinuityError();
+  const kind: unknown = Reflect.get(decoded, 'kind');
+  if (kind === 'generation') {
+    const generation: unknown = Reflect.get(decoded, 'generation');
+    if (typeof generation !== 'string' || generation.length < 1 || generation.length > 128)
+      throw new StorageContinuityError();
+    return { kind, generation };
+  }
+  if (kind === 'note') {
+    const note: unknown = Reflect.get(decoded, 'note');
+    const accountId: unknown = Reflect.get(decoded, 'accountId');
+    if (!isRecoveryNote(note) || note.noteFile.length > JOURNAL_MAX_BYTES || typeof accountId !== 'string' || accountId.length > 2048)
+      throw new StorageContinuityError();
+    return { kind, note, accountId };
+  }
+  const material: unknown = Reflect.get(decoded, 'material');
+  if (kind !== 'account' || typeof material !== 'object' || material === null) throw new StorageContinuityError();
+  const floor: unknown = Reflect.get(material, 'floor');
+  const accountBytes: unknown = Reflect.get(material, 'accountBytes');
+  const guardianCommitment: unknown = Reflect.get(material, 'guardianCommitment');
+  const signerCommitments: unknown = Reflect.get(material, 'signerCommitments');
+  const chainCommitment: unknown = Reflect.get(material, 'chainCommitment');
+  if (
+    !isRecoveryAccount(floor) || !(accountBytes instanceof Uint8Array) || accountBytes.length > JOURNAL_MAX_BYTES ||
+    typeof guardianCommitment !== 'string' || guardianCommitment.length > 2048 ||
+    typeof chainCommitment !== 'string' || chainCommitment.length > 2048 ||
+    !Array.isArray(signerCommitments) || signerCommitments.length === 0 || signerCommitments.length > 2 ||
+    !signerCommitments.every((item: unknown): item is string => typeof item === 'string' && item.length > 0 && item.length <= 2048)
+  ) throw new StorageContinuityError();
+  return { kind, material: { floor, accountBytes, guardianCommitment, signerCommitments, chainCommitment } };
+}

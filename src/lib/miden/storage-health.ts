@@ -48,6 +48,16 @@ export function assertStorageRecoveryAllowed(capability: StorageRecoveryCapabili
     throw new StorageUnavailableError();
 }
 
+export function captureStorageRecoveryGuard(): () => void {
+  const epoch = snapshot.epoch;
+  const revision = failureRevision;
+  const expiresAt = Date.now() + 30_000;
+  return () => {
+    if (snapshot.epoch !== epoch || failureRevision !== revision || Date.now() >= expiresAt)
+      throw new StorageUnavailableError();
+  };
+}
+
 let failureRevision = 0;
 let transportLoader: (() => Promise<unknown>) | undefined;
 let initialization: Promise<void> | undefined;
