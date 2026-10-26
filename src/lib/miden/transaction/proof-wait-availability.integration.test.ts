@@ -3,6 +3,8 @@ import { addEventProcessor, getCurrentScope } from '@sentry/browser';
 import * as Repo from 'lib/miden/repo';
 import { isCrashReportingEnabledAsync } from 'lib/settings/helpers';
 import { initCrashReporting, scrubEvent, stopCrashReporting } from 'lib/telemetry/crash';
+import { snapshotProofWaitAvailability } from 'lib/telemetry/proof-wait-availability-diagnostics';
+import * as failureReporter from 'lib/telemetry/transaction-failure';
 
 import { judgeAndWrite } from './reconcile-unconfirmed';
 import { ITransactionStatus, type ISubmitEvidence, type ITransaction } from '../db/types';
@@ -12,6 +14,12 @@ jest.mock('lib/settings/helpers', () => ({
   isCrashReportingEnabledAsync: jest.fn(async () => true)
 }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('lib/telemetry/transaction-failure', () => {
+  const actual = jest.requireActual<typeof import('lib/telemetry/transaction-failure')>(
+    'lib/telemetry/transaction-failure'
+  );
+  return { ...actual, reportTransactionFailure: jest.fn(actual.reportTransactionFailure) };
+});
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
   sameWalletAccountId: (a: string, b: string) => a === b
@@ -189,3 +197,77 @@ it.each(cases)(
     expect(nativeWire).not.toContain(String(EXECUTING));
   }
 );
+
+it.each(
+  cases.filter(({ expected }) => ['current_attempt_missing', 'derived_window_invalid', 'available'].includes(expected))
+)(
+  'binds producer availability $expected to the same single report input only',
+  async ({ expected, overrides, entry }) => {
+    const report = jest.mocked(failureReporter.reportTransactionFailure);
+    try {
+      await Repo.transactions.put(row({ submitEvidence: [historical(), current(entry)], ...overrides }));
+      expect((await run()).kind).toBe('never-committed');
+      expect(report).toHaveBeenCalledTimes(1);
+      const input = report.mock.calls[0]?.[0];
+      expect(snapshotProofWaitAvailability(input)).toBe(expected);
+      expect(snapshotProofWaitAvailability({ ...input })).toBeUndefined();
+      expect(snapshotProofWaitAvailability(input?.error)).toBeUndefined();
+    } finally {
+      report.mockClear();
+    }
+  }
+);
+
+it.each([
+  {
+    label: 'valid current entry',
+    entry: {},
+    expected: [
+      'reference',
+      'expiration',
+      'reference',
+      'expiration',
+      'expiration',
+      'reference',
+      'expiration',
+      'reference'
+    ]
+  },
+  { label: 'missing current reference', entry: { refBlock: undefined }, expected: ['reference'] }
+])('preserves original short circuit and block field read order for $label', async ({ entry, expected }) => {
+  const reads: string[] = [];
+  let recording = false;
+  const observeRead = (label: string, value: unknown) => () => {
+    if (recording) reads.push(label);
+    return value;
+  };
+  const updating = function (this: { onsuccess?: () => void }, modifications: Partial<ITransaction>) {
+    if (modifications.error === undefined || modifications.submitEvidence === undefined) return;
+    for (const observed of modifications.submitEvidence) {
+      if (observed.attemptId !== 'private-current-attempt') continue;
+      for (const [field, label] of [
+        ['refBlock', 'reference'],
+        ['expirationBlock', 'expiration']
+      ]) {
+        if (field === undefined || label === undefined) continue;
+        const value: unknown = Reflect.get(observed, field);
+        Object.defineProperty(observed, field, {
+          enumerable: true,
+          configurable: true,
+          get: observeRead(label, value)
+        });
+      }
+    }
+    this.onsuccess = () => {
+      recording = true;
+    };
+  };
+  Repo.transactions.hook('updating', updating);
+  try {
+    await Repo.transactions.put(row({ submitEvidence: [historical(), current(entry)] }));
+    expect((await run()).kind).toBe('never-committed');
+    expect(reads).toEqual(expected);
+  } finally {
+    Repo.transactions.hook('updating').unsubscribe(updating);
+  }
+});
