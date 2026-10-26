@@ -968,7 +968,7 @@
   "P2ID": "note P2ID",
   "P2IDE": "note P2IDE",
   "PSWAP": "note PSWAP",
-  "otherNoteScript": "Другие термины в сценарии «note»",
+  "otherNoteScript": "Другой скрипт note",
   "unknownNoteScript": "Скрипт «Note» недоступен",
   "noteDetailsUnavailable": "Содержимое Note недоступно",
   "noteSender": "Создано",

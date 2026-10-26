@@ -4316,7 +4316,7 @@
     "englishSource": "Script root"
   },
   "noNoteAssets": {
-    "message": "상장된 자산 없음",
+    "message": "나열된 자산 없음",
     "englishSource": "No assets listed"
   },
   "amountUnknown": {
