@@ -70,11 +70,13 @@ it.each([
     });
     annotateOffscreenDeadline(error, { offscreenDeadlineMethod: 'newTransaction', offscreenDeadlineStage: 'proving' });
     expect(isOwnStartedWriteDeadline(error)).toBe(eligible);
-    if (eligible)
-      expect(snapshotCrashDiagnostics(error)).toMatchObject({
-        offscreenDeadlineMethod: 'newTransaction',
-        offscreenDeadlineStage: 'proving'
-      });
-    else expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('offscreenDeadlineMethod');
+    expect(snapshotCrashDiagnostics(error)).toEqual(
+      eligible
+        ? {
+            offscreenDeadlineMethod: 'newTransaction',
+            offscreenDeadlineStage: 'proving'
+          }
+        : {}
+    );
   }
 );
