@@ -1010,7 +1010,7 @@ describe('the poll schedule', () => {
     }
   });
 
-  it.each(['off', 'not-configured'] as const)(
+  it.each(['off', 'not-configured', 'pending'] as const)(
     'keeps the hourly cadence while a feature is only %s and no control holds it',
     async reason => {
       mockAvailability = { earnDeposit: unavailable(reason), bridgeOut: unavailable(reason) };
@@ -1043,6 +1043,18 @@ describe('the poll schedule', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     }
   );
+
+  it('keeps the hourly cadence while a held control waits only for the startup decision', async () => {
+    mockAvailability = { earnDeposit: unavailable('pending') };
+    seed(1);
+    serve(1);
+    await initBridgeConfig();
+    holdFastPoll();
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 
   it('re-checks every 60 s while a greyed-out control holds it, and every 5 minutes once released', async () => {
     mockAvailability = { fastBridgeOut: unavailable('service-down') };

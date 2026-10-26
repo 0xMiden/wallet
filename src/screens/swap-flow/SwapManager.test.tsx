@@ -8,6 +8,7 @@ import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
+import type { GeoLookup } from 'lib/remote-config/geo';
 import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
 import testnet from 'lib/remote-config/testing/testnet.json';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
@@ -106,6 +107,7 @@ const mockIsDelegateProof = jest.fn(() => false);
 const mockNavigate = jest.fn();
 const mockFetchOneClickAssets = jest.fn();
 let mockBridgeConfig: BridgeConfig | null;
+let mockGeo: GeoLookup | undefined;
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -332,7 +334,8 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
     status: 'ready',
     config: mockBridgeConfig,
     derived: null,
-    lastFetch: null
+    lastFetch: null,
+    geo: mockGeo
   })
 }));
 jest.mock('lib/one-click/config', () => {
@@ -522,6 +525,7 @@ beforeEach(() => {
   mockMetadata = { some: 'metadata' };
   mockAccountReturn = { publicKey: 'pk-1' };
   mockBridgeConfig = null;
+  mockGeo = undefined;
   mockFetchOneClickAssets.mockReset();
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
@@ -746,6 +750,76 @@ describe('SwapFlow / SwapManager', () => {
 
     await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
     expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1);
+  });
+
+  describe('startup eligibility on the 1Click route', () => {
+    const decision = (swap: boolean): GeoLookup => ({
+      state: 'ready',
+      network: 'mainnet',
+      version: 1,
+      allowed: { wallet: true, earn: true, swap }
+    });
+    // A 1Click catalog with a Miden and an EVM asset, and no solver pair: the route that used to open the form alone.
+    const withOneClickRouteOnly = () => {
+      mockGetSwapTokens.mockReturnValue([]);
+      mockBridgeConfig = parseBridgeConfig(
+        {
+          ...testnet,
+          network: 'mainnet',
+          features: { ...testnet.features, nearIntents: true },
+          swap: {
+            ...testnet.swap,
+            oneClick: {
+              serviceUrl: 'https://one-click.example',
+              midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+            }
+          }
+        },
+        'mainnet'
+      );
+      if (!mockBridgeConfig) throw new Error('The 1Click fixture must remain a valid wallet config');
+      mockFetchOneClickAssets.mockResolvedValue([
+        {
+          assetId: 'miden:usdc',
+          blockchain: 'miden',
+          symbol: 'USDC',
+          decimals: 6,
+          faucetId: '0x537c15a622074e91188aa894456c52'
+        },
+        { assetId: 'eth:token', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
+      ]);
+    };
+
+    it.each<[string, GeoLookup, string]>([
+      ['pending', { state: 'loading' }, 'pending'],
+      ['failed', { state: 'failed', reason: 'timeout' }, 'service-down'],
+      ['restricted', decision(false), 'restricted']
+    ])('keeps the form closed while the decision is %s', async (_label, geo, reason) => {
+      withOneClickRouteOnly();
+      mockGeo = geo;
+      renderFlow();
+      await waitFor(() => expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1));
+      await act(async () => undefined);
+      const notice = screen.getByTestId('swap-unavailable-notice');
+      expect(notice).toHaveAttribute('data-reason', reason);
+      expect(notice).toHaveTextContent(reason === 'restricted' ? 'geoRestrictedTitle' : 'swapUnavailableTitle');
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('closes a solver-pair form too while the decision is pending', () => {
+      mockGeo = { state: 'loading' };
+      renderFlow();
+      expect(screen.getByTestId('swap-unavailable-notice')).toHaveAttribute('data-reason', 'pending');
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('opens the 1Click form once the decision allows Swap', async () => {
+      withOneClickRouteOnly();
+      mockGeo = decision(true);
+      renderFlow();
+      await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
+      expect(screen.queryByTestId('swap-unavailable-notice')).not.toBeInTheDocument();
+    });
   });
 
   it('renders nothing for an unknown route (renderStep default branch)', () => {

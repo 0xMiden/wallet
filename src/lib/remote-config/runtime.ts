@@ -357,7 +357,8 @@ function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[]
   const overrides = getE2eOverrides();
   const reasons = BRIDGE_FEATURES.flatMap(feature => {
     const availability = featureAvailability(feature, snapshot, overrides);
-    return availability.state === 'unavailable' ? [availability.reason] : [];
+    // A pending startup decision lands on its own lookup, never through this document's poll.
+    return availability.state === 'unavailable' && availability.reason !== 'pending' ? [availability.reason] : [];
   });
   // Swap is not a switched feature, but a failed read of the solver's pairs clears the same way: the solver comes back.
   const swapDown: UnavailableReason[] = snapshot.derived?.swap?.pairs.state === 'error' ? ['service-down'] : [];
