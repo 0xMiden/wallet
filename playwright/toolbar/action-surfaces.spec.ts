@@ -49,7 +49,11 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
       const page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
       await page.waitForSelector('[data-testid="onboarding-welcome"]', { timeout: 45000 });
-      await page.evaluate(value => localStorage.setItem('theme_setting', value), theme);
+      expect(context.pages().filter(p => p.url().includes('/fullpage.html'))).toHaveLength(1);
+      await page.evaluate(value => {
+        localStorage.setItem('theme_setting', value);
+        localStorage.setItem('popup_mode', 'false');
+      }, theme);
       await page.reload();
       await page.waitForSelector('[data-testid="onboarding-welcome"]');
       await page.bringToFront();
@@ -85,6 +89,15 @@ for (const theme of ['light', 'dark'] as const) {
       activate();
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-reopened');
+      await worker.evaluate(async () => {
+        await chrome.storage.local.set({ sidepanel_mode: false });
+        await chrome.action.setPopup({ popup: 'popup.html' });
+      });
+      activate();
+      await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      activate();
+      await expect.poll(panelCount).toBe(1);
+      await capture('legacy-popup-recovered-on-later-action');
       await worker.evaluate(async () => {
         await chrome.storage.local.set({ sidepanel_mode: false });
         await chrome.action.setPopup({ popup: 'popup.html' });

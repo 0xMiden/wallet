@@ -417,24 +417,3 @@ describe('sidebar-primary toolbar migration', () => {
     expect(recovered.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
   });
 });
-
-it('fresh installation opens full-page onboarding, while updates do not open a new page', async () => {
-  const handlers: Array<(details: { reason: string }) => void> = [];
-  const chrome = {
-    ...makeChromeStub({}, 'resolve'),
-    runtime: {
-      getURL: (path: string) => `chrome-extension://fixture/${path}`,
-      onInstalled: { addListener: (handler: (details: { reason: string }) => void) => handlers.push(handler) }
-    },
-    tabs: { create: jest.fn(() => Promise.resolve({ id: 1 })) }
-  };
-  loadBackground({ target: 'chrome', chrome });
-  await flush();
-  expect(handlers).toHaveLength(1);
-  handlers[0]?.({ reason: 'update' });
-  expect(chrome.tabs.create).not.toHaveBeenCalled();
-  handlers[0]?.({ reason: 'install' });
-  await flush();
-  expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
-  expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'chrome-extension://fixture/fullpage.html' });
-});

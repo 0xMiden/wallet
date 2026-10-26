@@ -20,10 +20,5 @@ export async function initializeToolbarAction(api: typeof chrome): Promise<void>
 }
 
 if (process.env.TARGET_BROWSER === 'chrome' && typeof chrome !== 'undefined') {
-  chrome.runtime?.onInstalled?.addListener(details => {
-    if (details.reason !== 'install') return;
-    void chrome.storage.local.set({ fresh_install: true }).catch(() => {});
-    void chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') }).catch(() => {});
-  });
   void initializeToolbarAction(chrome);
 }

@@ -3,6 +3,8 @@ import { Buffer } from 'buffer';
 
 /* eslint-disable import/first, import/order -- Buffer polyfill above must run before any module that uses Buffer at import time. */
 
+import 'lib/extension/toolbar-action';
+
 import './main.css';
 
 import React from 'react';
