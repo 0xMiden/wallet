@@ -3,14 +3,19 @@ import type { BrowserContext, Route } from '@playwright/test';
 import { readEarnVaults } from '../../../src/lib/epoch/pools-read';
 import { poolsPage } from '../../../src/lib/epoch/testing/pools-fixtures';
 import TESTNET from '../../../src/lib/remote-config/testing/testnet.json';
+import { parseBridgeConfig } from '../../../src/lib/remote-config/schema';
 import { installMockEpochCatalogue, MOCK_SEPOLIA_POOL } from './mock-epoch-catalogue';
 
 it('serves a valid listed Sepolia market through the real catalogue reader', async () => {
+  const policy = parseBridgeConfig(TESTNET, 'testnet');
+  expect(policy).not.toBeNull();
+  const listed = policy?.earn?.vaults;
+  expect(listed).toHaveLength(1);
   const read = await readEarnVaults(async () => ({ ok: true, status: 200, json: async () => poolsPage([MOCK_SEPOLIA_POOL]) }), {
     positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
     chainId: 11155111,
     underlying: MOCK_SEPOLIA_POOL.underlyingInfo.asset.address,
-    listed: TESTNET.earn.vaults.map(vault => ({ ...vault, protocol: 'dummy-lending' as const, depositsEnabled: true }))
+    listed: listed ?? []
   }, 1000);
   expect(read.source).toBe('pools');
   expect(read.droppedMarketUids).toEqual([]);
