@@ -13,7 +13,15 @@ export function fixtureEnvironment(env) {
   const requested = env.E2E_NETWORK || env.MIDEN_NETWORK || 'testnet';
   const network = requested === 'localhost' ? 'localnet' : requested;
   if (!NETWORKS.has(network)) throw new Error('Unsupported E2E fixture network');
-  const args = ['--port', '8551', '--networks', network];
+  const selected = env.E2E_FIXTURE_NETWORKS ? env.E2E_FIXTURE_NETWORKS.split(',') : [network];
+  if (
+    selected.some(value => !NETWORKS.has(value)) ||
+    new Set(selected).size !== selected.length ||
+    !selected.includes(network)
+  ) {
+    throw new Error('Unsupported E2E fixture networks');
+  }
+  const args = ['--port', '8551', '--networks', selected.join(',')];
   let configUrl = BASE_URL;
   if (env.MIDEN_REMOTE_CONFIG_URL) {
     const source = new URL(env.MIDEN_REMOTE_CONFIG_URL);
