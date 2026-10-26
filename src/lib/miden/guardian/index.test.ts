@@ -969,7 +969,9 @@ describe('MultisigService', () => {
       const original = new Error('private lock wait failure');
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      beforeWasmHold = () => { throw original; };
+      beforeWasmHold = () => {
+        throw original;
+      };
       try {
         await expect(service.signAndCreateTransactionRequest('p')).rejects.toBe(original);
         expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });

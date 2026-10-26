@@ -3911,11 +3911,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
     G.__off.guardianExecuteRequest.mockRejectedValueOnce(original);
     const sendResponse = jest.fn();
-    capturedListener!(callReq({
-      op_id: 'execution-diagnostic-op',
-      method: 'guardianPipeline',
-      argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1, 2, 3, 4])), encodeArg(false)]
-    }), {}, sendResponse);
+    capturedListener!(
+      callReq({
+        op_id: 'execution-diagnostic-op',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1, 2, 3, 4])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
     await flush();
     expect(sendResponse).toHaveBeenCalledTimes(1);
     expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({

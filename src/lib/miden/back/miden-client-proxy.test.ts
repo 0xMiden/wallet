@@ -36,7 +36,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     // TransactionResult on the SW side.
     TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
     // The inline dry run deserializes the request it executes.
-    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) }
+    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) },
+    TransactionProver: { newLocalProver: () => ({}) },
+    InputNoteState: { ConsumedAuthenticatedLocal: 'local-auth', ConsumedUnauthenticatedLocal: 'local-unauth' }
   };
 });
 
@@ -59,6 +61,15 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a)
   };
 });
+
+jest.mock('lib/miden/back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: async () => {},
+  notifyBackgroundTransactionNotConfirmed: async () => {}
+}));
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(async () => true)
+}));
 
 jest.mock('lib/miden/swap/fee-context', () => {
   const g = globalThis as any;
@@ -4392,8 +4403,47 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
   });
 });
 
-
 describe('closed execution error transport', () => {
+  it.each(['unknown_value', 'wrong_route', 'throwing_getter'])(
+    'ignores %s metadata and preserves the reconstructed failure',
+    async kind => {
+      const { midenClientProxy } = await loadProxy(true);
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+        const payload = {
+          executionRoute: kind === 'wrong_route' ? 'guardian_signed_request' : 'ordinary_new_transaction',
+          authObservation: 'observed',
+          authArgPresence: 'present',
+          authLayout: 'fee',
+          commitmentMatch: kind === 'unknown_value' ? 'private 0xabcdef' : 'fee',
+          accountAuthCode: 'unavailable'
+        };
+        const response = {
+          ok: false,
+          op_id: env.op_id,
+          error: 'unchanged original rejection',
+          errorTransactionExecution: payload
+        };
+        if (kind === 'throwing_getter')
+          Object.defineProperty(response, 'errorTransactionExecution', {
+            get: () => {
+              throw new Error('private diagnostic getter');
+            }
+          });
+        return response;
+      });
+      const running = midenClientProxy
+        .newTransaction('acct', new Uint8Array([1, 2]), false, async () => new Uint8Array())
+        .catch(error => error);
+      await flush();
+      fireReady();
+      const error: unknown = await running;
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toMatchObject({ message: "Offscreen call 'newTransaction' failed: unchanged original rejection" });
+      const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
+  );
+
   it.each([true, false])('binds execution observations to the response op (matched: %s)', async matched => {
     const { midenClientProxy } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
@@ -4410,19 +4460,124 @@ describe('closed execution error transport', () => {
         rawRequest: 'private request bytes'
       }
     }));
-    const running = midenClientProxy.newTransaction('acct', new Uint8Array([1, 2]), false, async () => new Uint8Array()).catch(error => error);
+    const running = midenClientProxy
+      .newTransaction('acct', new Uint8Array([1, 2]), false, async () => new Uint8Array())
+      .catch(error => error);
     await flush();
     fireReady();
     const error: unknown = await running;
     const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
-    expect(snapshotCrashDiagnostics(error)).toEqual(matched ? {
-      executionRoute: 'ordinary_new_transaction',
-      authObservation: 'observed',
-      authArgPresence: 'present',
-      authLayout: 'missing_preimage',
-      commitmentMatch: 'unavailable',
-      accountAuthCode: 'unavailable'
-    } : {});
+    expect(snapshotCrashDiagnostics(error)).toEqual(
+      matched
+        ? {
+            executionRoute: 'ordinary_new_transaction',
+            authObservation: 'observed',
+            authArgPresence: 'present',
+            authLayout: 'missing_preimage',
+            commitmentMatch: 'unavailable',
+            accountAuthCode: 'unavailable'
+          }
+        : {}
+    );
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
   });
+});
+
+it('carries an actual ordinary SDK rejection through proxy reconstruction and cancellation to the real wire', async () => {
+  const previousDsn = process.env.SENTRY_DSN;
+  const previousProving = process.env.MIDEN_USE_OFFSCREEN_PROVING;
+  process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
+  process.env.MIDEN_USE_OFFSCREEN_PROVING = 'false';
+  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  const bodies: string[] = [];
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    writable: true,
+    value: async (_url: unknown, init?: { body?: unknown }) => {
+      const body = init?.body;
+      bodies.push(typeof body === 'string' ? body : ArrayBuffer.isView(body) ? new TextDecoder().decode(body) : '');
+      return { status: 200, headers: new Headers() };
+    }
+  });
+  const { midenClientProxy } = await loadProxy(true);
+  const { MidenClientInterface } = jest.requireActual<typeof import('../sdk/miden-client-interface')>(
+    '../sdk/miden-client-interface'
+  );
+  const { snapshotTransactionExecution } = await import('lib/telemetry/transaction-execution-diagnostics');
+  const Repo = await import('lib/miden/repo');
+  const { cancelTransaction } = await import('lib/miden/transaction/cancel');
+  const { ITransactionStatus } = await import('lib/miden/db/types');
+  const { initCrashReporting, stopCrashReporting } = await import('lib/telemetry/crash');
+  const original = new Error(
+    'assertion failed with error code: 15404814807981965102 private account 0xabcdef amount 987654321 https://private.example/path'
+  );
+  const execute = jest.fn(async () => {
+    throw original;
+  });
+  const accountRead = jest.fn();
+  const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.construct(MidenClientInterface, [
+    { transactions: { executeRequest: execute }, accounts: { get: accountRead } },
+    'testnet'
+  ]);
+  const request = Object.freeze({ authArg: () => ({}), adviceMap: () => ({ get: () => undefined }) });
+  G.__px.txRequestDeserialize.mockReturnValueOnce(request);
+  let produced: unknown;
+  fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => {
+    try {
+      await client.newTransaction('private-account', new Uint8Array([11, 12]), false);
+      throw new Error('SDK fixture unexpectedly succeeded');
+    } catch (error) {
+      produced = error;
+      return {
+        ok: false,
+        op_id: env.op_id,
+        error: original.message,
+        errorBeforeSubmit: true,
+        errorTransactionExecution: snapshotTransactionExecution(error)
+      };
+    }
+  });
+  initCrashReporting({ listenToGlobals: false });
+  try {
+    const running = midenClientProxy
+      .newTransaction('private-account', new Uint8Array([11, 12]), false, async () => new Uint8Array())
+      .catch(error => error);
+    await flush();
+    fireReady();
+    const reconstructed: unknown = await running;
+    expect(produced).toBe(original);
+    expect(reconstructed).not.toBe(original);
+    const row: import('../db/types').ITransaction = {
+      id: 'private-execution-row',
+      type: 'execute',
+      accountId: 'private-account',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'sending',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    };
+    await Repo.transactions.put(row);
+    await cancelTransaction(row, reconstructed);
+    for (let index = 0; index < 5; index++) await new Promise(resolve => setTimeout(resolve, 5));
+    const envelope = bodies.find(body => body.includes('WalletTransactionFailure'));
+    expect(envelope).toBeDefined();
+    expect(envelope).toContain('"executionRoute":"ordinary_new_transaction"');
+    expect(envelope).toContain('"authArgPresence":"present"');
+    expect(envelope).toContain('"authLayout":"missing_preimage"');
+    expect(envelope).toContain('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH');
+    for (const sentinel of ['0xabcdef', '987654321', 'private.example', 'private-account', 'private-execution-row'])
+      expect(envelope).not.toContain(sentinel);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith('private-account', request);
+    expect(accountRead).not.toHaveBeenCalled();
+    expect((await Repo.transactions.get(row.id))?.status).toBe(ITransactionStatus.Failed);
+  } finally {
+    stopCrashReporting();
+    if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+    else Reflect.deleteProperty(globalThis, 'fetch');
+    if (previousDsn === undefined) delete process.env.SENTRY_DSN;
+    else process.env.SENTRY_DSN = previousDsn;
+    if (previousProving === undefined) delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+    else process.env.MIDEN_USE_OFFSCREEN_PROVING = previousProving;
+  }
 });

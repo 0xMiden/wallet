@@ -74,6 +74,10 @@ import {
   type DiagnosticStepOutcome
 } from 'lib/telemetry/diagnostic-log';
 import { reportProve } from 'lib/telemetry/report-operation';
+import {
+  annotateTransactionExecution,
+  unobservedTransactionExecution
+} from 'lib/telemetry/transaction-execution-diagnostics';
 import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
 
@@ -201,6 +205,7 @@ import {
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
+import { observeTransactionExecutionRequest } from '../sdk/transaction-execution-diagnostics';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { isRecoveredReturnOrder } from '../swap/recovered-order';
 
@@ -2377,6 +2382,7 @@ const runGuardianPipeline = async (
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
+  let execution = unobservedTransactionExecution('guardian_signed_request');
   const runPipeline = async (hold: WasmLockHold) => {
     const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
@@ -2398,6 +2404,7 @@ const runGuardianPipeline = async (
       assertStillHoldingLock(hold, 'while preparing tip execution')
     );
     assertStillHoldingLock(hold, 'before executing at the tip');
+    execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
     const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
     // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
     // during `executeRequest` (a network round trip on the normal ceiling) abandons
@@ -2523,7 +2530,12 @@ const runGuardianPipeline = async (
     });
     return executedTx.result;
   };
-  return withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
+  try {
+    return await withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
+  } catch (error) {
+    annotateTransactionExecution(error, execution);
+    throw error;
+  }
 };
 
 // Route a value-moving guardian leaf offscreen only when the offscreen client is

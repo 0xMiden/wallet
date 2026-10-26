@@ -107,11 +107,12 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   createTransactionProposalRequest: async () => {
     if (mockState.proposalRequest) throw mockState.proposalRequest;
     return {
-    serialize: () => {
-      if (mockState.requestSerialize) throw mockState.requestSerialize;
-      return new Uint8Array([7, 8]);
-    }
-  };
+      authArg: () => undefined,
+      serialize: () => {
+        if (mockState.requestSerialize) throw mockState.requestSerialize;
+        return new Uint8Array([7, 8]);
+      }
+    };
   },
   syncState: async () => {}
 }));
@@ -119,10 +120,12 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   TransactionProver: { newLocalProver: () => ({}) },
-  TransactionRequest: { deserialize: () => {
-    if (mockState.customBuild) throw mockState.customBuild;
-    return { extendAdviceMap: () => ({ serialize: () => oldBytes }) };
-  } }
+  TransactionRequest: {
+    deserialize: () => {
+      if (mockState.customBuild) throw mockState.customBuild;
+      return { extendAdviceMap: () => ({ authArg: () => undefined, serialize: () => oldBytes }) };
+    }
+  }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
@@ -699,7 +702,12 @@ it('reports a failed pipeline client build after the co-sign as the client build
   expect(mockExecute).not.toHaveBeenCalled();
   expect(mockSubmit).not.toHaveBeenCalled();
   await failureEventWith({ proposalStep: 'client_build', proposalGuard: undefined }, consumeAtSending);
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'client_build' });
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'client_build',
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'not_reached',
+    authArgPresence: 'unavailable'
+  });
 });
 
 describe('with the offscreen pipeline', () => {
@@ -814,7 +822,6 @@ describe('a claim that fails while recording its result after the guardian sync'
   });
 });
 
-
 it.each(['proposal_sign', 'custom_advice', 'custom_request_build', 'proposal_request'])(
   'post-create %s reaches actual cancellation and the sanitized wire with the original error',
   async step => {
@@ -835,3 +842,37 @@ it.each(['proposal_sign', 'custom_advice', 'custom_request_build', 'proposal_req
     expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: step });
   }
 );
+
+it('observes the actual inline Guardian request through cancellation and the real sanitized wire', async () => {
+  const original = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockExecute.mockRejectedValueOnce(original);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'executing' });
+  expectHookRejection(report, original);
+  expect(mockExecute).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith(
+    {
+      executionRoute: 'guardian_signed_request',
+      authObservation: 'observed',
+      authArgPresence: 'absent',
+      authLayout: 'absent',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    },
+    'authentication preparation unavailable; layout absent; commitment match unavailable; account code unavailable'
+  );
+});
+
+it('retains a typed post-create Guardian refusal through actual cancellation without sending its text', async () => {
+  const original = Object.assign(privateFailure(), { name: 'GuardianHttpError', status: 400, code: 'invalid_input' });
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockSignProposal.mockRejectedValueOnce(original);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+  expectHookRejection(report, original);
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'proposal_sign' }, 'guardian_http_400; guardian code invalid_input');
+});
