@@ -2672,6 +2672,8 @@ describe('latest foreground intent across sessions', () => {
         releaseSnapshot(null);
         await restoringCold;
       });
+      expect(statusOf('origin')).toBe('active');
+      expect(control().session?.id).toBe('origin');
       act(() => control().setSlotRect(null));
       await settle();
 
@@ -2683,6 +2685,54 @@ describe('latest foreground intent across sessions', () => {
         releaseSnapshot(null);
         await restoringCold;
       });
+    }
+  });
+
+  it('route-away during a held park after the same foreground is restored parks that foreground', async () => {
+    await openForegroundWithColdSession();
+    const previousHash = window.location.hash;
+    let releaseSnapshot: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () => new Promise<string | null>(resolve => (releaseSnapshot = resolve))
+    );
+    let restoringCold = Promise.resolve(false);
+    try {
+      window.location.hash = '#/activity';
+      const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+      jest.mocked(navigate).mockClear();
+      act(() => {
+        restoringCold = control().restore('cold');
+      });
+      await waitFor(() => expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1));
+      await act(async () => control().restore('origin'));
+      await settle();
+
+      expect(statusOf('origin')).toBe('active');
+      expect(control().session?.id).toBe('origin');
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+
+      jest.mocked(navigate).mockClear();
+      act(() => control().setSlotRect(null));
+      await settle();
+      await act(async () => {
+        releaseSnapshot(null);
+        await restoringCold;
+      });
+      await settle();
+
+      expect(statusOf('origin')).toBe('parked');
+      expect(parked()).toContain('origin');
+      expect(lastVisibility('origin')).toBe(false);
+      expect(control().session).toBeNull();
+      expect(statusOf('cold')).toBe('parked');
+      expect(navigate).not.toHaveBeenCalledWith('/browser');
+      expect(mockCaptureSnapshot.mock.calls.filter(([id]) => id === 'origin')).toHaveLength(1);
+    } finally {
+      await act(async () => {
+        releaseSnapshot(null);
+        await restoringCold;
+      });
+      window.location.hash = previousHash;
     }
   });
 

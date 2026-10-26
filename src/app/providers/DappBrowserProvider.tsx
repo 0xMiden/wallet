@@ -1965,6 +1965,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Stored before either body, including when this session is already foreground, so a legacy park of it that is
       // still awaiting its snapshot cannot mark it parked once this restore has begun.
       restoreGeneration.current.set(sessionId, (restoreGeneration.current.get(sessionId) ?? 0) + 1);
+      // That park cleared the shown-slot mark and left its record on the older revision. The foreground and the
+      // slot stay as they are, so put the mark back while the slot is still a rect. The record's revision, guard,
+      // and promise stay; the later slot clear joins that same record.
+      const pending = pendingParks.current.get(sessionId);
+      if (
+        foregroundIdRef.current === sessionId &&
+        slotRectRef.current !== null &&
+        pending?.clearedShown &&
+        pending.lifetime === lifetime &&
+        pending.instance === state.instance
+      ) {
+        slotRectShownForRef.current = sessionId;
+      }
       parkBackgroundSessions(revision, sessionId);
       // A warm page expands natively; every other restore takes the path below.
       if (state.instance && canExpandByMorph(sessionId, state))
