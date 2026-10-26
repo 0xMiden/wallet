@@ -23,13 +23,14 @@ for (const theme of ['light', 'dark'] as const) {
     };
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const profile = join(root, 'profile');
-    const launch = () => chromium.launchPersistentContext(profile, {
-      headless: false,
-      colorScheme: theme,
-      viewport: null,
-      args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--window-size=1400,1000'],
-      ignoreDefaultArgs: ['--disable-extensions']
-    });
+    const launch = () =>
+      chromium.launchPersistentContext(profile, {
+        headless: false,
+        colorScheme: theme,
+        viewport: null,
+        args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--window-size=1400,1000'],
+        ignoreDefaultArgs: ['--disable-extensions']
+      });
     let context = await launch();
     const capture = async (name: string) => {
       const path = testInfo.outputPath(`${theme}-${name}.png`);
@@ -39,11 +40,12 @@ for (const theme of ['light', 'dark'] as const) {
     };
     const activate = () => execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
     try {
-      let worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
-      const panelCount = () => worker.evaluate(async () => {
-        const contexts = await chrome.runtime.getContexts({});
-        return contexts.filter(item => item.contextType === 'SIDE_PANEL').length;
-      });
+      let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      const panelCount = () =>
+        worker.evaluate(async () => {
+          const contexts = await chrome.runtime.getContexts({});
+          return contexts.filter(item => item.contextType === 'SIDE_PANEL').length;
+        });
       await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
       const page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
       await page.waitForSelector('[data-testid="onboarding-welcome"]', { timeout: 45000 });
@@ -55,10 +57,12 @@ for (const theme of ['light', 'dark'] as const) {
       activate();
       await expect.poll(panelCount).toBe(0);
       await expect(page.getByTestId('onboarding-welcome')).toBeVisible();
+      await capture('interrupted-onboarding-returned-to-fullpage');
       await page.locator('#import-link').click();
       await acknowledgeNetworkNotice(page, 15000);
       await page.getByTestId('import-type-seed-phrase').click();
-      const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
+      const words =
+        'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
       for (const [index, word] of words.entries()) await page.locator(`#seed-phrase-input-${index}`).fill(word);
       await page.getByRole('button', { name: /continue/i }).click();
       await page.locator('input[placeholder="Enter password"]').fill('FixturePassword123!');
@@ -69,7 +73,10 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: /continue/i }).click();
       await passImportConfirmation(page, 45000);
       await dismissTelemetryConsent(page, { nextSurface: '[data-testid="finish-side-panel"]', timeoutMs: 45000 });
-      await page.getByTestId('finish-side-panel').getByRole('button', { name: /open wallet/i }).click();
+      await page
+        .getByTestId('finish-side-panel')
+        .getByRole('button', { name: /open wallet/i })
+        .click();
       await expect.poll(panelCount).toBe(1);
       await capture('ready-sidebar');
       activate();
@@ -84,10 +91,12 @@ for (const theme of ['light', 'dark'] as const) {
       });
       await context.close();
       context = await launch();
-      worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+      worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
-      await expect.poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior())).toEqual({ openPanelOnActionClick: true });
-      const ordinary = context.pages()[0] ?? await context.newPage();
+      await expect
+        .poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior()))
+        .toEqual({ openPanelOnActionClick: true });
+      const ordinary = context.pages()[0] ?? (await context.newPage());
       await ordinary.goto('about:blank');
       await ordinary.bringToFront();
       activate();

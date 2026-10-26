@@ -6,5 +6,5 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [['list']],
-  use: { headless: false, trace: 'retain-on-failure' }
+  use: { headless: false, trace: 'retain-on-failure', actionTimeout: 15000, navigationTimeout: 30000 }
 });
