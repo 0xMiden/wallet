@@ -371,3 +371,48 @@ for (const [failure, cleanup] of [
     });
   }
 }
+
+async function preflightEvidence(receipt, original = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'probe-preflight-evidence-'));
+  try {
+    await writeFile(join(root, 'probe-result.json'), JSON.stringify({
+      ...result(), reason: 'auth', cleanup: 'absent', ...original, preflight: receipt
+    }));
+    return await main(['evidence'], {
+      RUNNER_TEMP: root, GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId, GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha, GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName, PROBE_OPERATION: 'probe'
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+const preflightReceipt = () => ({
+  identity: contextIdentityForTest(current), stage: 'authentication',
+  manifest: 'absent', deployment: 'not_attempted', reason: 'auth'
+});
+test('preflight failure survives absent manifest and cleanup without claiming remote absence', async () => {
+  const receipt = preflightReceipt();
+  const received = await preflightEvidence(receipt);
+  assert.equal(received.reason, 'auth');
+  assert.equal(received.cleanup, 'blocked');
+  assert.equal(received.support, 'unknown');
+  assert.deepEqual(received.preflight, receipt);
+});
+for (const [name, patch] of [
+  ['other run', { identity: { ...contextIdentityForTest(current), runId: '99999' } }],
+  ['other source', { identity: { ...contextIdentityForTest(current), sourceSha: 'f'.repeat(40) } }],
+  ['attempted', { deployment: 'attempted' }],
+  ['registered', { manifest: 'registered' }],
+  ['unknown stage', { stage: 'secret-never-publish' }],
+  ['unknown reason', { reason: 'secret-never-publish' }],
+  ['extra field', { raw: 'secret-never-publish' }]
+]) test(`untrusted or ambiguous ${name} receipt cannot retain a preflight verdict`, async () => {
+  const received = await preflightEvidence({ ...preflightReceipt(), ...patch });
+  assert.equal(received.cleanup, 'blocked');
+  assert.equal(received.support, 'unknown');
+  assert.notEqual(received.reason, 'auth');
+  assert.doesNotMatch(JSON.stringify(received), /secret-never-publish/);
+});

@@ -750,3 +750,20 @@ test('staging workflow always attempts current cleanup and publishes only saniti
   assert.match(workflow, /feature-eligibility-staging-probe-recovery\.mjs prepare/);
   assert.match(workflow, /feature-eligibility-staging-probe-recovery\.mjs cleanup/);
 });
+
+test('authentication failure records source-bound preflight without deployment', async () => {
+  const f = fixture({ api: path => path === '/user/tokens/verify' ? envelope({}, 403) : undefined });
+  const received = await createProbeController(f.effects).run(identity);
+  assert.deepEqual(received.preflight, {
+    identity, stage: 'authentication', manifest: 'absent', deployment: 'not_attempted', reason: 'auth'
+  });
+  assert.equal(f.events.some(event => event[0] === 'deploy'), false);
+});
+test('deployment failure retains attempted state and original deploy reason', async () => {
+  const f = fixture();
+  f.effects.deploy = async () => ({ exitCode: 1 });
+  const received = await createProbeController(f.effects).run(identity);
+  assert.deepEqual(received.preflight, {
+    identity, stage: 'deployment', manifest: 'registered', deployment: 'attempted', reason: 'deploy_rejected'
+  });
+});
