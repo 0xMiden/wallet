@@ -553,7 +553,7 @@ export function createProbeController(effects) {
   return { run, cleanup };
 }
 
-function localEffects(env) {
+export function createLocalProbeEffects(env) {
   const directory = join(env.RUNNER_TEMP, 'feature-eligibility-probe');
   const identity = {
     repository: env.GITHUB_REPOSITORY,
@@ -679,7 +679,7 @@ export async function main(args, env = process.env) {
     !env.CLOUDFLARE_API_TOKEN
   )
     return args[0] === 'cleanup' ? { ...result, cleanup: 'blocked' } : result;
-  const effects = localEffects(env);
+  const effects = createLocalProbeEffects(env);
   effects.workerBytes = await readFile(new URL('../services/feature-eligibility/staging-probe.mjs', import.meta.url));
   const aborter = new AbortController();
   const cancel = () => aborter.abort();

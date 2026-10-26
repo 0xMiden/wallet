@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { mkdtemp, mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { buildProbeManifest } from './feature-eligibility-staging-probe.mjs';
-import { prepareRecovery, cleanupRecovery, sanitizeEvidence } from './feature-eligibility-staging-probe-recovery.mjs';
+import { prepareRecovery, cleanupRecovery, sanitizeEvidence, main } from './feature-eligibility-staging-probe-recovery.mjs';
 
 const identity = { repository: '0xMiden/wallet', workflowPath: '.github/workflows/probe-feature-eligibility.yml', runId: '10001', runAttempt: '2', sourceSha: 'a'.repeat(40) };
 const workerBytes = readFileSync(new URL('../services/feature-eligibility/staging-probe.mjs', import.meta.url));
@@ -105,3 +108,43 @@ test('evidence retains only exact deterministic manifest and closed result', () 
   for (const changed of [{ ...manifest(), token: 'sensitive' }, { ...manifest(), identity: { ...identity, account: 'sensitive' } }]) assert.throws(() => sanitizeEvidence(changed, result(), workerBytes));
   for (const changed of [{ ...result(), url: 'sensitive' }, { ...result(), reason: 'raw body' }, { ...result(), counts: { ...result().counts, token: 'sensitive' } }, { ...result(), support: 'unsupported' }, { ...result(), counts: { requests: 121, allowed: 121, limited: 0, unavailable: 0 } }]) assert.throws(() => sanitizeEvidence(manifest(), changed, workerBytes));
 });
+
+test('same controller enforces remote ownership after recovery provenance is accepted', async () => {
+  const f = fixture();
+  const prepared = await prepareRecovery({ runId: '10001', runAttempt: '2' }, f.effects);
+  const calls = [];
+  const effects = { context: current, providerAPI: async (path, init = {}) => {
+    calls.push([path, init.method]);
+    if (path === '/user/tokens/verify') return Response.json({ success: true, errors: [], result: { status: 'active' } });
+    return Response.json({ success: false, errors: [{ code: 10007 }], result: null }, { status: 404 });
+  } };
+  assert.deepEqual(await cleanupRecovery(prepared, manifest(), effects), { cleanup: 'absent', reason: 'complete' });
+  assert.deepEqual(calls.map(call => call[0]), ['/user/tokens/verify', '/workers/scripts/miden-elig-probe-10001-2/settings']);
+  assert.ok(calls.every(call => call[1] === 'GET'));
+  effects.providerAPI = async path => path === '/user/tokens/verify'
+    ? Response.json({ success: true, errors: [], result: { status: 'active' } })
+    : Response.json({ success: true, errors: [], result: { bindings: [] } });
+  assert.equal((await cleanupRecovery(prepared, manifest(), effects)).cleanup, 'blocked');
+});
+
+
+test('evidence preserves a written current manifest after controller loss without a result and removes sensitive files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-evidence-'));
+  const currentManifest = buildProbeManifest(contextIdentityForTest(current), workerBytes, []);
+  const privateDir = join(root, 'feature-eligibility-probe');
+  try {
+    await mkdir(privateDir, { mode: 0o700 });
+    await writeFile(join(privateDir, 'manifest.json'), JSON.stringify(currentManifest), { mode: 0o600 });
+    for (const file of ['secrets.json', 'wrangler.json', 'deploy.stdout', 'deploy.stderr']) await writeFile(join(privateDir, file), 'never-publish', { mode: 0o600 });
+    const env = { RUNNER_TEMP: root, GITHUB_REPOSITORY: current.repository, GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`, GITHUB_RUN_ID: current.runId, GITHUB_RUN_ATTEMPT: current.runAttempt, GITHUB_SHA: current.sourceSha, GITHUB_REF: current.ref, GITHUB_EVENT_NAME: current.eventName, PROBE_OPERATION: 'probe' };
+    const received = await main(['evidence'], env);
+    assert.equal(received.support, 'unknown');
+    assert.equal(received.cleanup, 'blocked');
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/manifest.json'))), currentManifest);
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/result.json'))), received);
+    assert.equal((await stat(join(root, 'probe-evidence'))).mode & 0o777, 0o700);
+    assert.equal((await stat(join(root, 'probe-evidence/manifest.json'))).mode & 0o777, 0o600);
+    for (const file of ['secrets.json', 'wrangler.json', 'deploy.stdout', 'deploy.stderr']) await assert.rejects(stat(join(privateDir, file)), { code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+const contextIdentityForTest = context => Object.fromEntries(['repository', 'workflowPath', 'runId', 'runAttempt', 'sourceSha'].map(key => [key, context[key]]));
