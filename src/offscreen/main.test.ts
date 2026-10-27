@@ -1155,6 +1155,57 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(health.getStorageHealth().status).toBe('unavailable');
   });
 
+  it.each<import('lib/miden/recovery/sdk-restore').SdkRecoveryCommand>([
+    { kind: 'generation', generation: 'retained-sdk' },
+    {
+      kind: 'account',
+      material: {
+        floor: { accountId: 'retained-account', nonce: '4', commitment: 'state-4' },
+        accountBytes: new Uint8Array([1, 2, 3]),
+        guardianCommitment: 'guardian-commitment',
+        signerCommitments: ['signer-commitment'],
+        chainCommitment: 'state-4'
+      }
+    }
+  ])('Task4C3N3 restores $kind through the encoded absent receipt slot', async command => {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    const { toSerializable } = await import('lib/miden/recovery/serialization');
+    const { MidenClientInterface } = jest.requireMock('lib/miden/sdk/miden-client-interface');
+    const restored: unknown[] = [];
+    MidenClientInterface.createForRecovery = jest.fn(async () => ({
+      restoreStorageRecovery: async (
+        value: unknown,
+        capability: import('lib/miden/storage-health').StorageRecoveryCapability,
+        assertLive: () => void
+      ) => {
+        health.assertStorageRecoveryAllowed(capability);
+        assertLive();
+        restored.push(value);
+      }
+    }));
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const incident = health.getStorageHealth();
+    const response = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'restoreStorageRecovery',
+        argsB64: [encodeArg(toSerializable(command)), encodeArg(undefined)],
+        recoveryAccess: { epoch: incident.epoch, expiresAt: Date.now() + 1000 }
+      }),
+      { id: 'wallet-extension' },
+      response
+    );
+    await flush();
+    expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(restored).toEqual([command]);
+    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'OFFSCREEN_NOTE_ACQUISITION' })
+    );
+    expect(health.getStorageHealth()).toEqual(incident);
+  });
+
   it('dispatches getAccount, serializes the Account, and echoes op_id (ok:true)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
