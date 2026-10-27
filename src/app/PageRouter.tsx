@@ -53,8 +53,8 @@ import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
 import TokenDetail from './pages/TokenDetail';
-import { StorageRecoveryPage } from './StorageRecoveryPage';
 import { resolveRootView } from './root-view';
+import { StorageRecoveryPage } from './StorageRecoveryPage';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
