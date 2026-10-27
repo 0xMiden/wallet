@@ -1,0 +1,49 @@
+{
+  "base": "8da0857340ad07a5cb44a861a3f257aea9ac9d7f",
+  "patch": "docs/superpowers/task-4c3-green-2.patch",
+  "sha256": "aea4f405a4260f42d61db4e237fb60fcbbc48304aa465f6f94f954ca3d7c2b35",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/back/vault.ts",
+      "sha256": "8b429fbbe791a55d1b05c73952fe16b3d6a9569a58409522110cd0426ebe04a7"
+    },
+    {
+      "path": "src/lib/miden/recovery/note-acquisition.ts",
+      "sha256": "fc9bb02cb15967889ee0c1feefc4936b4cd5fa91a703150a2cbfe0769e080477"
+    },
+    {
+      "path": "src/lib/miden/recovery/types.ts",
+      "sha256": "506448f9db3f1a7cc29d31902384b7f78a0fb5d00e94f2338757c8ab66bb25c8"
+    },
+    {
+      "path": "src/lib/miden/recovery/validation.ts",
+      "sha256": "a50628ac4adba0ee86c8f42f46cf84bb6a8436f8486a3125db9b03502ec6e568"
+    },
+    {
+      "path": "src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts",
+      "sha256": "0078ad78f17b786f59c58c6f13d18e538f874b1a7f4655320b4112a9fb52e5f1"
+    }
+  ],
+  "commands": [
+    "yarn tsc --noEmit",
+    "yarn eslint src/lib/miden/recovery/capture.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/recovery/note-acquisition.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/back/vault.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/actions.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts --max-warnings=0",
+    "yarn jest --runTestsByPath src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/back/vault.test.ts --maxWorkers=2 --json --outputFile=proof/results-2.json --no-coverage"
+  ],
+  "purpose": "C3first17acquisitionregressions plus COMPLETEcapture/lifecycle/Vault/prove-worker suites, expected428cases, currenttypes/lint11paths; notfullcoverage/offscreen/nativegateproof",
+  "original_manifest_sha256": "a5f651a7f9b67e09f180806eb544b8c76549cd9f1c9093fb5aa4e2afa15085ae",
+  "full_closure_hashes": {
+    "src/lib/miden/recovery/capture.ts": "f0e95568635c245240b4e6754c9167fb2499de05948ce18bd2fdba44f70242a4",
+    "src/lib/miden/recovery/capture.test.ts": "34cc39c15ee0cb010576284935df0d3228d0092f757755693c11737837a5b300",
+    "src/lib/miden/recovery/receipt-lifecycle.test.ts": "94698afda56dd80cab37920bec2a0fff0e769747bf6eee6ed25cec920791b1bb",
+    "src/lib/miden/recovery/note-acquisition.ts": "fc9bb02cb15967889ee0c1feefc4936b4cd5fa91a703150a2cbfe0769e080477",
+    "src/lib/miden/recovery/types.ts": "506448f9db3f1a7cc29d31902384b7f78a0fb5d00e94f2338757c8ab66bb25c8",
+    "src/lib/miden/recovery/validation.ts": "a50628ac4adba0ee86c8f42f46cf84bb6a8436f8486a3125db9b03502ec6e568",
+    "src/lib/miden/back/vault.ts": "8b429fbbe791a55d1b05c73952fe16b3d6a9569a58409522110cd0426ebe04a7",
+    "src/lib/miden/back/vault.test.ts": "281caad14851409d3fb58193ad0aa8d2c68d97e965dd1e122522331ee01ba6c0",
+    "src/lib/miden/back/actions.ts": "9c974be858a87c73be82b119bb1d9e0de8158a4fb11553c5cc30304fe5436f89",
+    "src/lib/miden/sdk/miden-client-interface.ts": "c34a911e786d121c3e363850adf1d1838bc46683daa60cb02d1498eb2589e209",
+    "src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts": "0078ad78f17b786f59c58c6f13d18e538f874b1a7f4655320b4112a9fb52e5f1"
+  },
+  "expected_cases": 428
+}
