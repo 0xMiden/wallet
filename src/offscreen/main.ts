@@ -89,7 +89,7 @@ import {
   uninstallNoteAcquisitionSink,
   type NoteAcquisitionSink
 } from 'lib/miden/recovery/note-acquisition';
-import { decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
+import { decodeCanonicalNoteFamilies, decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
 import { toSerializable } from 'lib/miden/recovery/serialization';
 import type { RecoveryCapture } from 'lib/miden/recovery/types';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
@@ -676,8 +676,16 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  readStorageContinuity: async (context, client, accountIds: string[], includeNotes: boolean, retained?: unknown) => {
+  readStorageContinuity: async (
+    context,
+    client,
+    accountIds: string[],
+    includeNotes: boolean,
+    retained?: unknown,
+    canonical?: unknown
+  ) => {
     const notes = decodeRetainedRecoveryNotes(retained);
+    const families = decodeCanonicalNoteFamilies(canonical);
     const result = await client.readStorageContinuity(
       accountIds,
       includeNotes,
@@ -685,7 +693,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         assertWasmHoldCurrent(context.hold, 'during storage continuity read');
         if (context.recoveryCapability) assertStorageRecoveryAllowed(context.recoveryCapability);
       },
-      notes
+      notes,
+      families
     );
     return new TextEncoder().encode(JSON.stringify(toSerializable(result)));
   },

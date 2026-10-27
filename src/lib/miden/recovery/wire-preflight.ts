@@ -97,6 +97,12 @@ export function assertRetainedNotesWire(value: unknown): void {
   if (value !== undefined) notes(value, { bytes: 0, materials: 0 }, false);
 }
 
+export function assertCanonicalNotesWire(value: unknown): void {
+  if (value === undefined) return;
+  array(value, 4);
+  notes(value, { bytes: 0, materials: 0 }, false);
+}
+
 export function assertSdkRecoveryCommandWire(value: unknown): void {
   object(value, ['kind', 'generation', 'note', 'accountId', 'material']);
   if (value.kind === 'generation') {

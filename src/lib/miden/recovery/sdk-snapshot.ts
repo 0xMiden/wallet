@@ -12,7 +12,7 @@ import { recoveryNoteUsage } from './note-candidates';
 import { fromSerializable } from './serialization';
 import type { RecoveryAccountExpectation, RecoveryNoteEntry } from './types';
 import { isRecoveryNote, validateJournal } from './validation';
-import { assertRetainedNotesWire, assertSdkRecoverySnapshotWire } from './wire-preflight';
+import { assertCanonicalNotesWire, assertRetainedNotesWire, assertSdkRecoverySnapshotWire } from './wire-preflight';
 import { noteDetailsCommitment } from '../sdk/note-details-commitment';
 import { markStorageUnavailable } from '../storage-health';
 
@@ -219,7 +219,10 @@ export async function readSdkRecoverySnapshot(
   return { generation, accounts, notes };
 }
 
-export function decodeSdkRecoverySnapshot(value: unknown): SdkRecoverySnapshot {
+export function decodeSdkRecoverySnapshot(
+  value: unknown,
+  canonicalFamilies: readonly RecoveryNoteEntry[] = []
+): SdkRecoverySnapshot {
   assertSdkRecoverySnapshotWire(value);
   if (typeof value !== 'object' || value === null) throw new StorageContinuityError();
   const generation: unknown = Reflect.get(value, 'generation');
@@ -239,7 +242,39 @@ export function decodeSdkRecoverySnapshot(value: unknown): SdkRecoverySnapshot {
     if (entry.kind !== 'note') throw new StorageContinuityError();
     notes.push(entry);
   }
-  return { generation, accounts: decoded.accounts, notes };
+  const canonicalWire: unknown = Reflect.get(value, 'canonicalNotes');
+  if (canonicalWire === undefined) return { generation, accounts: decoded.accounts, notes };
+  const canonicalDecoded: unknown = fromSerializable(canonicalWire);
+  if (!Array.isArray(canonicalDecoded) || canonicalDecoded.length > canonicalFamilies.length)
+    throw new StorageContinuityError();
+  const canonicalNotes: CanonicalNoteReadback[] = [];
+  const seen = new Set<string>();
+  for (const canonical of canonicalDecoded) {
+    if (typeof canonical !== 'object' || canonical === null) throw new StorageContinuityError();
+    const familyId: unknown = Reflect.get(canonical, 'familyId');
+    const id: unknown = Reflect.get(canonical, 'id');
+    const detailsId: unknown = Reflect.get(canonical, 'detailsId');
+    const noteFile: unknown = Reflect.get(canonical, 'noteFile');
+    if (
+      typeof familyId !== 'string' ||
+      typeof id !== 'string' ||
+      typeof detailsId !== 'string' ||
+      !(noteFile instanceof Uint8Array) ||
+      seen.has(familyId)
+    )
+      throw new StorageContinuityError();
+    const family = canonicalFamilies.find(note => note.id === familyId);
+    if (!family || family.provenance !== 'input' || (family.detailsId !== undefined && family.detailsId !== detailsId))
+      throw new StorageContinuityError();
+    seen.add(familyId);
+    canonicalNotes.push({ familyId, id, detailsId, noteFile });
+  }
+  return { generation, accounts: decoded.accounts, notes, canonicalNotes };
+}
+
+export function decodeCanonicalNoteFamilies(value: unknown): RecoveryNoteEntry[] {
+  assertCanonicalNotesWire(value);
+  return decodeRetainedRecoveryNotes(value);
 }
 
 export function decodeRetainedRecoveryNotes(value: unknown): RecoveryNoteEntry[] {

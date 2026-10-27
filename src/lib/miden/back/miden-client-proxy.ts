@@ -18,6 +18,7 @@
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { assertCanonicalNoteRequest } from 'lib/miden/recovery/canonical-note-readback';
 import { captureNoteAcquisitionRetainer, decodeAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
@@ -1179,22 +1180,24 @@ export const midenClientProxy = {
     accountIds: string[],
     includeNotes: boolean,
     capability?: StorageRecoveryCapability,
-    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = []
+    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = [],
+    canonicalNoteFamilies: import('../recovery/types').RecoveryNoteEntry[] = []
   ): Promise<SdkRecoverySnapshot> {
     const check = () => {
       if (capability) assertStorageRecoveryAllowed(capability);
       else assertStorageHealthy();
     };
     check();
+    assertCanonicalNoteRequest(canonicalNoteFamilies);
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       const client = capability ? await getMidenClientForRecovery(capability) : await getMidenClient();
       check();
-      return client.readStorageContinuity(accountIds, includeNotes, check, retainedNotes);
+      return client.readStorageContinuity(accountIds, includeNotes, check, retainedNotes, canonicalNoteFamilies);
     }
     const result = await dispatchOp(
       newOpId(),
       'readStorageContinuity',
-      [accountIds, includeNotes, toSerializable(retainedNotes)],
+      [accountIds, includeNotes, toSerializable(retainedNotes), toSerializable(canonicalNoteFamilies)],
       5000,
       false,
       capability
@@ -1202,7 +1205,7 @@ export const midenClientProxy = {
     check();
     if (result === null) throw new Error('Missing storage continuity response');
     const decoded: unknown = JSON.parse(Buffer.from(result, 'base64').toString());
-    return decodeSdkRecoverySnapshot(decoded);
+    return decodeSdkRecoverySnapshot(decoded, canonicalNoteFamilies);
   },
 
   async initializeStorageGeneration(

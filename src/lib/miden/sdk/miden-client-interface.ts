@@ -1661,10 +1661,11 @@ export class MidenClientInterface {
     accountIds: string[],
     includeNotes: boolean,
     assertLive: AssertLive = noAssertLive,
-    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = []
+    retainedNotes: import('../recovery/types').RecoveryNoteEntry[] = [],
+    canonicalNoteFamilies: import('../recovery/types').RecoveryNoteEntry[] = []
   ) {
     return readSdkStorage(() =>
-      readSdkRecoverySnapshot(this.client, accountIds, includeNotes, assertLive, retainedNotes)
+      readSdkRecoverySnapshot(this.client, accountIds, includeNotes, assertLive, retainedNotes, canonicalNoteFamilies)
     );
   }
 
