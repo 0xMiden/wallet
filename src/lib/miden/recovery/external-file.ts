@@ -2,8 +2,8 @@ import * as Passworder from '../passworder';
 import type { EncryptedPayload } from '../passworder';
 import { JOURNAL_MAX_BYTES } from './journal';
 import { fromSerializable, toSerializable } from './serialization';
-import { validateJournal } from './validation';
 import type { RecoveryJournalSnapshot } from './types';
+import { validateJournal } from './validation';
 
 export const RECOVERY_DATA_FORMAT = 'miden-recovery-data';
 export const RECOVERY_DATA_VERSION = 1;
