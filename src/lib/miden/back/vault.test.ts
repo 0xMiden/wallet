@@ -24,11 +24,11 @@ import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany,
 import { Vault } from './vault';
 import * as CanonicalReads from '../recovery/canonical-reads';
 import { StorageContinuityError } from '../recovery/continuity';
-import { installProviderReceiptBackend } from '../recovery/receipt-backend';
 import { decryptRecoveryDataFile } from '../recovery/external-file';
-import type { RecoveryJournalSnapshot } from '../recovery/types';
+import { installProviderReceiptBackend } from '../recovery/receipt-backend';
 import { checkpointProviderReceipt } from '../recovery/receipt-writer';
 import { oneClickReceiptRow } from '../recovery/testing/provider-receipts';
+import type { RecoveryJournalSnapshot } from '../recovery/types';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { getStorageHealth, markStorageUnavailable, resetStorageHealthForLifecycle } from '../storage-health';
