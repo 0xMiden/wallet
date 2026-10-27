@@ -166,6 +166,26 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
 // A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
 const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
 
+const positionsStarts: number[] = [];
+const POSITIONS_WINDOW_MS = 60_000;
+const POSITIONS_LIMIT = 10;
+
+export function positionsBudgetDelayMs(count: number): number {
+  if (!Number.isInteger(count) || count < 1 || count > POSITIONS_LIMIT) {
+    throw new RangeError('Positions request count must be between 1 and 10');
+  }
+  const now = Date.now();
+  while (positionsStarts.length && now - positionsStarts[0]! >= POSITIONS_WINDOW_MS) positionsStarts.shift();
+  const excess = positionsStarts.length + count - POSITIONS_LIMIT;
+  return excess <= 0 ? 0 : Math.max(0, positionsStarts[excess - 1]! + POSITIONS_WINDOW_MS - now);
+}
+
+export function notePositionsRequests(count: number): boolean {
+  if (positionsBudgetDelayMs(count) > 0) return false;
+  positionsStarts.push(...Array<number>(count).fill(Date.now()));
+  return true;
+}
+
 /**
  * Fetch lending positions for ONE EVM owner address. Never rejects: on any
  * failure, a request or body read past 15 s included, it resolves to an empty
@@ -289,7 +309,21 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   const chains = args.chains ?? routes.map(route => route.chainId);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
-  const results = await Promise.all(owners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)));
+  const pending: ReturnType<typeof fetchPositionsForOwner>[] = [];
+  for (let offset = 0; offset < owners.length; ) {
+    const count = Math.min(owners.length - offset, POSITIONS_LIMIT);
+    let admitted = count;
+    while (admitted > 0 && !notePositionsRequests(admitted)) admitted -= 1;
+    if (admitted === 0) {
+      await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
+      continue;
+    }
+    pending.push(
+      ...owners.slice(offset, offset + admitted).map(owner => fetchPositionsForOwner(positionsUrl, owner, chains))
+    );
+    offset += admitted;
+  }
+  const results = await Promise.all(pending);
 
   const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 

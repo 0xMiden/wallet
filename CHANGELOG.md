@@ -17,6 +17,7 @@
 
 - [CHANGE][all] Existing unavailable-feature, unanswered-submission, retry and recipient-validation reports retain closed producer decisions without private inputs or inferred outcomes.
 - [CHANGE][all] Failed transaction reports retain closed proposal, inline proving, queue admission, deadline progress, reaper timestamp and proof-wait availability observations without private transaction data.
+- [CHANGE][all] The wallet uses the Epoch intents SDK 2.0.1, which reads the allocator's service configuration (allocator, arbiter and Compact addresses, lock tag, compact expiry, Miden recall buffer) from its `/health` route instead of compiled constants, and the E2E fake allocators serve that shape; Earn positions refresh every 10 s while on screen and again on return, sharing a rolling ten-request window with the catalogue fallback; larger owner lists finish across later windows.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 

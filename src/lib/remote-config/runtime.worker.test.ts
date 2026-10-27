@@ -82,7 +82,7 @@ const storeEntry = (version: number, fetchedAt = Date.now()): StoredBridgeConfig
 };
 const seed = (version: number, fetchedAt = NOW) => {
   const entry = storeEntry(version, fetchedAt);
-  mockStorage.set('bridge_config_derived_v1:testnet', derivedFor(entry.config, fetchedAt));
+  mockStorage.set('bridge_config_derived_v2:testnet', derivedFor(entry.config, fetchedAt));
 };
 const flush = () => jest.advanceTimersByTimeAsync(0);
 

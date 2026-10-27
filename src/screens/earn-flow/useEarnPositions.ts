@@ -3,7 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import {
+  carryForward,
+  type EarnPositionsResult,
+  fetchEarnPositions,
+  getEarnDepositEvmAddresses,
+  positionsBudgetDelayMs
+} from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
@@ -25,9 +31,9 @@ import { useLastData } from 'lib/swr/last-data';
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
-// The poll, the spacing of the reads a page starts on its own, and the error retry: the Epoch positions service
-// allows 10 requests per minute, and each read sends one request for each owner.
-const READ_INTERVAL_MS = 30_000;
+// The poll and the error retry. Each read sends one request for each owner, so with more than one owner the poll can
+// pass the Epoch positions service's 10 requests per minute.
+const READ_INTERVAL_MS = 10_000;
 
 /**
  * The prefix of the storage key that holds the last successful read of one SWR key: the prefix, then the key as JSON.
@@ -48,7 +54,7 @@ interface StoredEarnPositions {
 interface KeyReads {
   /** When the key's last read began, whoever started it. */
   at?: number;
-  /** Each on-screen hook's re-arm, called as a read begins, so its next automatic read waits 30 s after it. */
+  /** Each on-screen hook's re-arm, called as a read begins, so its next automatic read waits 10 s after it. */
   rearms: Set<() => void>;
 }
 // Per SWR cache, so a test's fresh cache starts with none.
@@ -123,11 +129,11 @@ export function earnItemLoadState(
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
  * account's positions after a switch. The hook, not SWR, times every read it starts on its own from when the key's
- * last read began, whoever started it: the poll and the retry of a failed read fire 30 s after it, and a return or a
- * mount reads only once it is 30 s old (a key with no data always reads). Nothing is read on a timer while the page
- * is off screen (another tab, a page above it, or another Home page), the document is hidden or the device is
- * offline, and reconnect and focus never read. A Retry is the one read outside that, and the next poll waits 30 s
- * after it too.
+ * last read began, whoever started it: the poll and the retry of a failed read fire 10 s after it. A page that comes
+ * into view, or mounts, reads at once whatever the age of the last read, since the Earn pages stay mounted behind
+ * other tabs. Nothing is read on a timer while the page is off screen (another tab, a page above it, or another Home
+ * page), the document is hidden or the device is offline, and reconnect and focus never read. A Retry is the one read
+ * outside that, and the next poll waits 10 s after it too.
  *
  * The key needs only the document: the account, the positions host and the Epoch routes it names, never a derived
  * value, so a cold open reads at once. Each successful read is stored under `EARN_POSITIONS_STORAGE_PREFIX` and the
@@ -193,15 +199,13 @@ export function useEarnPositions(): {
   const notOnNetwork = config.status === 'ready' && config.config !== null && unconfigured !== undefined;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
-  // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
-  // mounts, so a key with data reads again then only once its last read is 30 s old. The read goes to the configured
-  // host and routes of the network, so the key names them: none reads nothing, and a document that moves them reads
-  // anew. The account stays second: a receipt invalidates every key of its account by it.
+  // subscriber, and a paused one swallows them. The Earn pages stay mounted behind other tabs, so the key coming back
+  // is the page coming into view, and it reads again then whatever the age of its last read. The read goes to the
+  // configured host and routes of the network, so the key names them: none reads nothing, and a document that moves
+  // them reads anew. The account stays second: a receipt invalidates every key of its account by it.
   const key = ['earn-positions', account.publicKey, account.evmAddress, config.network, positionsUrl, chainIds];
   const id = JSON.stringify(key);
   const storageKey = EARN_POSITIONS_STORAGE_PREFIX + id;
-  const lastRead = keyReads.get(cache)?.get(id)?.at;
-  const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
 
   // The stored copy is read once per key the hook mounts with, and only for a key that can read.
   const storedRead = useMemo(
@@ -243,12 +247,18 @@ export function useEarnPositions(): {
     onScreen && configured ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
-      const startedAt = Date.now();
-      reads.at = startedAt;
-      reads.rearms.forEach(rearm => rearm());
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
+      const count = owners.length > 10 ? 1 : owners.length;
+      while (count > 0) {
+        const delay = positionsBudgetDelayMs(count);
+        if (delay === 0) break;
+        await new Promise<void>(resolve => setTimeout(resolve, delay));
+      }
+      const startedAt = Date.now();
+      reads.at = startedAt;
+      reads.rearms.forEach(rearm => rearm());
       const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
       // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
       // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the
@@ -261,7 +271,8 @@ export function useEarnPositions(): {
       return result;
     },
     {
-      revalidateIfStale: due,
+      // A page that comes into view, or mounts, reads at once; the 3 s dedupe below folds the pages that come at once.
+      revalidateIfStale: true,
       // SWR's poll and error retry run on their own clocks, blind to a Retry or another page's read: the timer below
       // starts those reads instead.
       refreshInterval: 0,
@@ -273,7 +284,7 @@ export function useEarnPositions(): {
   );
   if (liveData !== undefined) liveSeen.current = id;
 
-  // One timer per on-screen hook, for its current key: it fires 30 s after the key's last read began, re-arming from
+  // One timer per on-screen hook, for its current key: it fires 10 s after the key's last read began, re-arming from
   // every read that begins meanwhile. A read that fails is retried by it too, which SWR's poll never does while the
   // key holds an error.
   useEffect(() => {

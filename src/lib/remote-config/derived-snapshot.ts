@@ -24,9 +24,9 @@ import {
 import { parseSwapPairs, type SwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
 
-/** `bridge_config_derived_v1:<network>`, holding a DerivedBridgeConfig, which records its document version. */
+/** `bridge_config_derived_v2:<network>`, holding a DerivedBridgeConfig, which records its document version. */
 export function bridgeConfigDerivedKey(network: string): string {
-  return `bridge_config_derived_v1:${network}`;
+  return `bridge_config_derived_v2:${network}`;
 }
 
 // Stored values are checked again like any other untrusted input. Derivation writes ids and addresses in lowercase,

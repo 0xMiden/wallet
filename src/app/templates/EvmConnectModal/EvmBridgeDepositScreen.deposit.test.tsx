@@ -237,6 +237,7 @@ const epochState = {
   flow: null,
   quote: null,
   error: null,
+  compactWatchClosed: false,
   quoteEVMToMiden: jest.fn(),
   executeEVMToMiden: jest.fn(),
   poll: jest.fn(),
@@ -1469,6 +1470,26 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
     expect(lastHold('fastBridgeIn')).toEqual({ hold: false, chainId: 11155111 });
     expect(lastHold('bridgeIn')).toEqual({ hold: false, chainId: 11155111 });
+  });
+
+  it('stops the status interval once the compact watch closes', async () => {
+    jest.useFakeTimers();
+    const poll = jest.fn().mockResolvedValue(undefined);
+    Object.assign(epochState, { status: 'pending', flow: 'evm-to-miden', compactWatchClosed: false, poll });
+    const view = renderScreen();
+    try {
+      await act(() => jest.advanceTimersByTimeAsync(3_000));
+      expect(poll).toHaveBeenCalledTimes(1);
+
+      epochState.compactWatchClosed = true;
+      view.rerender(depositScreen());
+      await act(() => jest.advanceTimersByTimeAsync(9_000));
+
+      expect(poll).toHaveBeenCalledTimes(1);
+    } finally {
+      view.unmount();
+      jest.useRealTimers();
+    }
   });
 
   it('starts every case from an idle epoch store', () => {
