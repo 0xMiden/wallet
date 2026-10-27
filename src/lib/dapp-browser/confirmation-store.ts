@@ -23,6 +23,7 @@
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { NoteFlow } from 'app/confirm/note-flow';
 import type { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { DappMetadata } from 'lib/miden/types';
 
@@ -50,6 +51,8 @@ interface DAppConfirmationRequestFields {
   previousAttemptError?: string;
   // Transaction-specific fields
   transactionMessages?: string[];
+  /** Verified custom transaction notes; null when simulation did not expose their details. */
+  noteFlow?: NoteFlow | null;
   sourcePublicKey?: string;
   spendingLimitAssessment?: SpendingLimitAssessment;
 }

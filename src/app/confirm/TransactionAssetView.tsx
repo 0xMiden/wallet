@@ -5,12 +5,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Card } from 'components/ui/Card';
-import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
 import { AssetAmount, NftAsset, TxAssetView } from './decode';
+import type { NoteFlow } from './note-flow';
+import { loadConfirmationTokenMetadata, TransactionNoteFlow } from './TransactionNoteFlow';
 import { Icon, IconName } from '../icons/v2';
 
 export interface TransactionAssetViewProps {
@@ -18,6 +19,7 @@ export interface TransactionAssetViewProps {
   mode: 'verified' | 'declared';
   /** Optional download handler (verified path exposes the raw summary bytes). */
   onDownload?: () => void;
+  noteFlow?: NoteFlow;
 }
 
 interface ResolvedAsset {
@@ -50,7 +52,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
           // ON-CHAIN for its real symbol+decimals, degrading to the "Unknown"
           // default (never native MIDEN) on failure — so an unrecognized
           // faucet is never mislabeled as native MIDEN on this security screen.
-          const md = await fetchTokenMetadata(a.faucetId).catch(() => undefined);
+          const md = await loadConfirmationTokenMetadata(a.faucetId).catch(() => undefined);
           return {
             faucetId: a.faucetId,
             amount: a.amount,
@@ -111,7 +113,7 @@ const NftRow: React.FC<{ nft: NftAsset; sign: '-' | '+'; isVerified: boolean }> 
   );
 };
 
-export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload }) => {
+export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload, noteFlow }) => {
   const { t } = useTranslation();
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
@@ -252,6 +254,14 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
           </div>
         )}
       </div>
+
+      {mode === 'verified' && noteFlow ? (
+        <TransactionNoteFlow flow={noteFlow} account={view.account} />
+      ) : (
+        <div className="w-full my-4 text-sm text-muted" data-testid="tx-note-flow-unavailable">
+          {t(mode === 'verified' ? 'verifiedNoteDetailsUnavailable' : 'declaredNoteDetailsUnavailable')}
+        </div>
+      )}
 
       {onDownload && (
         <Button

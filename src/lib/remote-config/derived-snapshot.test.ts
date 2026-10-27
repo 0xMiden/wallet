@@ -429,5 +429,5 @@ it.each([
 });
 
 it('keys the snapshot by network', () => {
-  expect(bridgeConfigDerivedKey('devnet')).toBe('bridge_config_derived_v1:devnet');
+  expect(bridgeConfigDerivedKey('devnet')).toBe('bridge_config_derived_v2:devnet');
 });

@@ -104,6 +104,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Build extension
         # test:e2e:blockchain:build bakes MIDEN_NETWORK from E2E_NETWORK, so the build matches the run's network.
@@ -203,6 +205,8 @@ jobs:
       # Builds bake the fixture's eligibility and config URLs, so it starts before them, as in the Chrome job.
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
       - name: Install miden-client-cli
         # A cold compile takes minutes; it happens here, not inside a journey's budget.
         uses: ./.github/actions/install-miden-client-cli
@@ -436,6 +440,8 @@ jobs:
       # Builds bake the fixture's eligibility and config URLs, so it starts before them, as in the Chrome job.
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
       - name: Install miden-client-cli
         # The action keeps its own cache by runner OS and architecture; a cold compile happens here, not in a journey.
         uses: ./.github/actions/install-miden-client-cli

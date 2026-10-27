@@ -255,3 +255,60 @@ test('rejects IP parameters and malformed or foreign config overrides', async ()
     400
   );
 });
+
+test('explicit prelaunch testnet keeps general onboarding after the published launch without changing eligibility', async () => {
+  const published = {
+    ...document(),
+    mainnetCountdown: { enabled: true, launchAt: '2026-10-26T13:00:00Z' },
+    geo: { wallet: {}, earn: { US: true } }
+  };
+  const fixture = await start({
+    prelaunchTestnet: true,
+    fetchImpl: async () => new Response(JSON.stringify(published))
+  });
+  const config = await (await fetch(`${fixture.url}/testnet.json`)).json();
+  assert.deepEqual(config, { ...published, mainnetCountdown: { ...published.mainnetCountdown, enabled: false } });
+  assert.equal(published.mainnetCountdown.enabled, true);
+  assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json(), {
+    network: 'testnet',
+    version: 13,
+    allowed: { wallet: true, earn: true, swap: true }
+  });
+  const updated = { ...published, version: 14, features: { earn: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(updated) });
+  assert.deepEqual(await (await fetch(`${fixture.url}/testnet.json`)).json(), {
+    ...updated, mainnetCountdown: { ...published.mainnetCountdown, enabled: false }
+  });
+  assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json(), {
+    network: 'testnet', version: 14, allowed: { wallet: true, earn: false, swap: true }
+  });
+  await fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state: 'restricted' }) });
+  assert.deepEqual((await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json()).allowed, {
+    wallet: false,
+    earn: false,
+    swap: false
+  });
+  assert.equal((await fetch(`${fixture.url}/mainnet.json`)).status, 404);
+  assert.equal((await fetch(`${fixture.url}/v1/eligibility?network=mainnet`)).status, 400);
+});
+
+test('ordinary fixtures retain the real launch state and explicit config updates', async () => {
+  const published = { ...document(), mainnetCountdown: { enabled: true, launchAt: '2026-10-26T13:00:00Z' } };
+  const fixture = await start({ fetchImpl: async () => new Response(JSON.stringify(published)) });
+  assert.equal((await (await fetch(`${fixture.url}/testnet.json`)).json()).mainnetCountdown.enabled, true);
+  const updated = { ...published, version: 14, mainnetCountdown: { enabled: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(updated) });
+  assert.deepEqual(await (await fetch(`${fixture.url}/testnet.json`)).json(), { ...updated, geo: { wallet: {} } });
+});
+
+test('prelaunch mode refuses Mainnet and mixed-network fixtures', async () => {
+  for (const networks of [['mainnet'], ['testnet', 'mainnet'], ['devnet']]) {
+    await assert.rejects(
+      createEligibilityFixture({
+        networks,
+        prelaunchTestnet: true,
+        fetchImpl: async () => new Response(JSON.stringify(document(networks[0])))
+      })
+    );
+  }
+});

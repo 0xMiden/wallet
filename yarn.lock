@@ -1474,20 +1474,20 @@
   dependencies:
     tslib "^2.4.0"
 
-"@epoch-protocol/epoch-commons-sdk@^0.1.21-mainnet.0":
-  version "0.1.21-mainnet.0"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-commons-sdk/-/epoch-commons-sdk-0.1.21-mainnet.0.tgz#b6d0b7743ba9df219e50b31cdc0e4ebcf221eadb"
-  integrity sha512-L9RkeL4mVKdA/pP9shFCsrf3IQ0NqwNWlfdPtI/MwIBX2yw2x+QKBbWBfRE+ljlyK8YI5M0srOGgKw9bK+dk1g==
+"@epoch-protocol/epoch-commons-sdk@^2.1.0":
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-commons-sdk/-/epoch-commons-sdk-2.1.0.tgz#a9767dfd7f336449522805eb7e32ac3263be45b6"
+  integrity sha512-PsF/BbBmqriE3EoiKgKYnotYRBo2L8dSIGDbOg/4GVAUyBt4SsRof7DB5R2hZ2wT0rVlNIatR4q3xgKwq6fhMg==
   dependencies:
     ethers "^6.0.0"
     viem "2.42.0"
 
-"@epoch-protocol/epoch-intents-sdk@1.0.40-mainnet.0":
-  version "1.0.40-mainnet.0"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.40-mainnet.0.tgz#3e5e7a1681aefd5b5ce56e6fdb26e9abd5b248f5"
-  integrity sha512-yg5JQm/J45ccJMLifQ6sSTcRhWoQTWmx8Nkb/z9RiDOeVKYW2eMUT0FgoJwwI6HVLEuVfHGHL9D7dxelbKIMyw==
+"@epoch-protocol/epoch-intents-sdk@2.0.1":
+  version "2.0.1"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-2.0.1.tgz#f9b7b432253e883bb833973387566d42ba65b77a"
+  integrity sha512-KOeuhBKthiLgz4W2Kvb56xVGZCarRNHPgDwV+ONX3UOePe0K1pq9r8j7q64z2jigiOxZgzLKI2b2NlqKvrpISg==
   dependencies:
-    "@epoch-protocol/epoch-commons-sdk" "^0.1.21-mainnet.0"
+    "@epoch-protocol/epoch-commons-sdk" "^2.1.0"
     "@metamask/smart-accounts-kit" "^1.6.0"
     "@miden-sdk/miden-sdk" "0.17.4"
     viem "^2.56.3"

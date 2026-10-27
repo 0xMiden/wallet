@@ -5,6 +5,9 @@ import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remot
 import { withRequestTimeout } from 'lib/remote-json';
 
 import type { EarnVaultInfo } from './pools-read';
+import { notePositionsRequests, positionsBudgetDelayMs, POSITIONS_LIMIT } from './positions-budget';
+
+export { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
 
 export type { EarnVaultInfo };
 
@@ -289,7 +292,21 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   const chains = args.chains ?? routes.map(route => route.chainId);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
-  const results = await Promise.all(owners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)));
+  const pending: ReturnType<typeof fetchPositionsForOwner>[] = [];
+  for (let offset = 0; offset < owners.length; ) {
+    const count = Math.min(owners.length - offset, POSITIONS_LIMIT);
+    let admitted = count;
+    while (admitted > 0 && !notePositionsRequests(admitted)) admitted -= 1;
+    if (admitted === 0) {
+      await new Promise<void>(resolve => setTimeout(resolve, positionsBudgetDelayMs(1)));
+      continue;
+    }
+    pending.push(
+      ...owners.slice(offset, offset + admitted).map(owner => fetchPositionsForOwner(positionsUrl, owner, chains))
+    );
+    offset += admitted;
+  }
+  const results = await Promise.all(pending);
 
   const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 

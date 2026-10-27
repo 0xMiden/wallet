@@ -52,7 +52,11 @@ const Earn: FC = () => {
         {t('earnTitle')}
       </h1>
       <div className="flex flex-col gap-5">
-        <FeatureUnavailableNotice availability={earnDeposit} data-testid="earn-unavailable-notice" />
+        <FeatureUnavailableNotice
+          feature="earnDeposit"
+          availability={earnDeposit}
+          data-testid="earn-unavailable-notice"
+        />
         {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
         {!(positions.length === 0 && (isLoading || loadFailed)) && (
           <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />

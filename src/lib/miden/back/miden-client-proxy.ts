@@ -18,6 +18,7 @@
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -36,6 +37,7 @@ import type {
   DetailsCommitmentMatches,
   InputNoteDetails,
   PswapCancelRequestOptions,
+  PswapConsumeRequestInputs,
   RecoveryRangeResult,
   TransactionCommitState
 } from 'lib/miden/sdk/miden-client-interface';
@@ -51,6 +53,11 @@ import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-cont
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
+import {
+  annotateOffscreenDeadline,
+  OFFSCREEN_DEADLINE_METHODS,
+  type OffscreenDeadlineStage
+} from 'lib/telemetry/offscreen-deadline-diagnostics';
 import {
   annotateTransactionExecution,
   validateTransactionExecutionDiagnostics
@@ -347,6 +354,7 @@ interface InFlightOp {
   timerPhase: OffscreenDeadlineTimer;
   /** True once the offscreen doc reported the op won its WASM mutex. */
   started: boolean;
+  lastObservedStage: OffscreenDeadlineStage;
 }
 
 /**
@@ -546,12 +554,18 @@ function rejectAllInFlight(
 ): void {
   for (const op_id of Array.from(inFlight.keys())) {
     const op = takeInFlight(op_id);
-    op?.reject(
-      new OperationAbortedError(op_id, 'deadline', {
+    if (op) {
+      const error = new OperationAbortedError(op_id, 'deadline', {
         started: op.started,
         deadline: { ...deadline, owner: op_id === killerId ? 'own' : 'collateral' }
-      })
-    );
+      });
+      if (op_id === killerId && deadline.killer === 'write' && op.started && deadline.timer === 'started')
+        annotateOffscreenDeadline(error, {
+          offscreenDeadlineMethod: OFFSCREEN_DEADLINE_METHODS.find(method => method === op.method) ?? 'unobserved',
+          offscreenDeadlineStage: op.lastObservedStage
+        });
+      op.reject(error);
+    }
   }
 }
 
@@ -665,7 +679,8 @@ async function dispatchOp(
       critical,
       paused: false,
       timerPhase: critical ? 'backstop' : 'dispatch',
-      started: false
+      started: false,
+      lastObservedStage: 'not_observed'
     });
 
     const envelope: OffscreenCallRequest = {
@@ -884,6 +899,8 @@ export function handleOffscreenStageEvent(
 ): void {
   const onStage = opStageCallbacks.get(op_id);
   if (!onStage) return;
+  const op = inFlight.get(op_id);
+  if (op && TRANSACTION_STAGES.some(value => value === stage)) op.lastObservedStage = stage;
   try {
     // `Promise.resolve` covers both callback shapes (`Promise<void> | void`) with
     // one catch; the result is intentionally not awaited — see above.
@@ -1411,6 +1428,31 @@ export const midenClientProxy = {
     });
     if (resultB64 == null) {
       throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
+    }
+    return b64ToBytes(resultB64);
+  },
+
+  /**
+   * Build the fee-aware request that fills a public PSWAP sale note from this account's vault (an Arcade GC
+   * purchase). Like the cancel above, only the serialized request crosses the offscreen boundary; the note is read
+   * on the node inside the build, so the call takes the node-note deadline.
+   */
+  async buildPswapConsumeRequest(
+    accountId: string,
+    inputs: PswapConsumeRequestInputs,
+    assertLive?: AssertLive
+  ): Promise<Uint8Array> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).buildPswapConsumeRequest(accountId, inputs, assertLive);
+    }
+    // A bigint does not survive the message boundary: the fill crosses as a decimal string.
+    const resultB64 = await this.call(
+      'buildPswapConsumeRequest',
+      [accountId, inputs.noteId, inputs.fillAmount.toString(), inputs.creatorAccountId],
+      { deadlineMs: NODE_NOTE_CANCEL_DEADLINE_MS }
+    );
+    if (resultB64 == null) {
+      throw new Error('buildPswapConsumeRequest: offscreen document returned no request bytes');
     }
     return b64ToBytes(resultB64);
   },

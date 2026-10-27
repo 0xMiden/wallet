@@ -3,6 +3,7 @@ const CONFIG_BASE = 'https://raw.githubusercontent.com/0xMiden/wallet-config/mai
 const MAXMIND_BASE = 'https://geoip.maxmind.com/geoip/v2.1/city';
 const POLICY_TTL = 60_000;
 const DECISION_TTL = 300_000;
+const LEASE_SIZE = 4;
 const FEATURES = ['wallet', 'earn', 'swap'];
 const ALIASES = new Map([
   ['ny state', { country: 'US', region: 'NY' }],
@@ -13,7 +14,7 @@ const ALIASES = new Map([
 ]);
 
 const record = value => typeof value === 'object' && value !== null && !Array.isArray(value);
-const failure = (status = 503) => json({ error: 'eligibility_unavailable' }, status);
+const failure = (status = 503, error = 'eligibility_unavailable', headers = {}) => json({ error }, status, headers);
 const dayOf = value => new Date(value).toISOString().slice(0, 10);
 
 function json(body, status = 200, extraHeaders = {}) {
@@ -179,6 +180,24 @@ async function digest(secret, value) {
 }
 
 export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5_000 } = {}) {
+  const policies = new Map();
+
+  async function policy(network) {
+    let entry = policies.get(network);
+    if (!entry || entry.expires <= now()) {
+      const pending = fetchJson(
+        `${CONFIG_BASE}/${network}.json`,
+        { headers: { Accept: 'application/json' } },
+        262_144
+      ).then(body => readPolicy(body, network));
+      entry = { expires: now() + POLICY_TTL, pending };
+      policies.set(network, entry);
+      pending.catch(() => {
+        if (policies.get(network) === entry) policies.delete(network);
+      });
+    }
+    return entry.pending;
+  }
   function usableCache(cache, policy, identity) {
     return (
       cache?.version === policy.version &&
@@ -215,7 +234,13 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             cache: 'no-store',
             signal: controller.signal
           });
-          if (!response.ok || !response.body) throw new Error('Upstream unavailable');
+          // Only the internal lease overload is a trusted non-OK body; every other URL still fails before a read.
+          const leaseOverload =
+            url === 'https://eligibility.internal/lease' &&
+            response.status === 503 &&
+            response.headers.get('Retry-After') === '30' &&
+            response.body;
+          if (!leaseOverload && (!response.ok || !response.body)) throw new Error('Upstream unavailable');
           reader = response.body.getReader();
           const decoder = new TextDecoder();
           let length = 0;
@@ -227,7 +252,18 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             if (length > maxBytes) throw new Error('Upstream unavailable');
             text += decoder.decode(value, { stream: true });
           }
-          return JSON.parse(text + decoder.decode());
+          const decoded = text + decoder.decode();
+          if (response.ok) return JSON.parse(decoded);
+          let body;
+          try {
+            body = JSON.parse(decoded);
+          } catch {
+            throw new Error('Upstream unavailable');
+          }
+          if (record(body) && Object.keys(body).length === 1 && body.error === 'overloaded') {
+            throw Object.assign(new Error('Upstream unavailable'), { overloaded: true });
+          }
+          throw new Error('Upstream unavailable');
         })()
       ]);
     } finally {
@@ -248,7 +284,8 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
         return 1_000;
       }
       await transaction.delete('cleanup-cursor');
-      return entries.size > expired.length || cursor ? DECISION_TTL : null;
+      const remaining = await transaction.list({ prefix: 'caller:', limit: 1 });
+      return remaining.size ? DECISION_TTL : null;
     });
     if (delay !== null) await storage.setAlarm(now() + delay);
   }
@@ -276,35 +313,55 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
 
     async fetch(request) {
       try {
-        const { day, deadline } = await request.json();
+        const { day, deadline, leaseId, count } = await request.json();
+        const pathname = new URL(request.url).pathname;
         if (
           request.method !== 'POST' ||
-          new URL(request.url).pathname !== '/reserve' ||
+          (pathname !== '/reserve' && pathname !== '/lease') ||
           day !== dayOf(now()) ||
           !Number.isSafeInteger(deadline) ||
           deadline <= now() ||
-          deadline > now() + 2 * timeoutMs
+          deadline > now() + 2 * timeoutMs ||
+          (pathname === '/lease' &&
+            (typeof leaseId !== 'string' || !/^[a-f0-9-]{36}$/.test(leaseId) || !Number.isInteger(count) || count < 1 || count > 10))
         )
           return failure();
         const limit = integer(this.env.MAXMIND_DAILY_QUERY_LIMIT, 0, 1_000_000);
         const reserved = await this.storage.transaction(async transaction => {
           let budget = await transaction.get('budget');
-          if (day !== dayOf(now()) || deadline <= now()) return false;
+          if (day !== dayOf(now()) || deadline <= now()) return 0;
           if (budget?.day !== day) budget = { day, count: 0 };
-          if (!Number.isSafeInteger(budget.count) || budget.count < 0 || budget.count >= limit) return false;
+          if (!Number.isSafeInteger(budget.count) || budget.count < 0) return 0;
+          const leaseKey = `lease:${day}:${leaseId}`;
+          if (pathname === '/lease') {
+            const existing = await transaction.get(leaseKey);
+            if (existing !== undefined) return existing.requested === count ? existing.granted : 0;
+          }
+          if (budget.count > limit) return 0;
+          const granted = Math.min(pathname === '/lease' ? count : 1, limit - budget.count);
+          if (granted < 1) return 0;
           // Keep the existing global-v1 budget and count every paid attempt, including failures.
-          budget.count += 1;
+          budget.count += granted;
           await transaction.put('budget', budget);
-          return true;
+          if (pathname === '/lease') await transaction.put(leaseKey, { requested: count, granted });
+          return granted;
         });
-        return reserved ? json({ reserved: true }) : failure();
-      } catch {
-        return failure();
+        if (pathname === '/lease' && reserved > 0 && (await this.storage.getAlarm()) === null) {
+          await this.storage.setAlarm(now() + 86_400_000);
+        }
+        return reserved ? json(pathname === '/lease' ? { reserved: true, count: reserved } : { reserved: true }) : failure();
+      } catch (error) {
+        return error?.overloaded ? failure(503, 'overloaded', { 'Retry-After': '30' }) : failure();
       }
     }
 
     async alarm() {
-      await cleanup(this.storage);
+      const keys = await this.storage.list({ prefix: 'lease:', limit: 128 });
+      const expired = [...keys.keys()].filter(key => key.slice(6, 16) < dayOf(now()));
+      if (expired.length) await this.storage.delete(expired);
+      if ((await this.storage.list({ prefix: 'lease:', limit: 1 })).size) {
+        await this.storage.setAlarm(now() + (keys.size === 128 && expired.length > 0 ? 1_000 : 86_400_000));
+      }
     }
   }
 
@@ -312,41 +369,36 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
     constructor(state, env) {
       this.storage = state.storage;
       this.env = env;
-      this.policies = new Map();
       this.inflight = new Map();
+      this.lease = null;
+      this.leasePending = null;
     }
 
-    async policy(network) {
-      let entry = this.policies.get(network);
-      if (!entry || entry.expires <= now()) {
-        const pending = fetchJson(
-          `${CONFIG_BASE}/${network}.json`,
-          { headers: { Accept: 'application/json' } },
-          262_144
-        ).then(body => readPolicy(body, network));
-        entry = { expires: now() + POLICY_TTL, pending };
-        this.policies.set(network, entry);
-        pending.catch(() => {
-          if (this.policies.get(network) === entry) this.policies.delete(network);
-        });
+    async reserve(deadline) {
+      const day = dayOf(now());
+      if (this.lease?.day === day && this.lease.remaining > 0) {
+        this.lease.remaining -= 1;
+        return;
       }
-      return entry.pending;
-    }
-
-    async caller(key) {
-      const limit = integer(this.env.CALLER_REQUESTS_PER_MINUTE ?? '60', 1, 10_000);
-      return this.storage.transaction(async transaction => {
-        const current = (await transaction.get(key)) ?? { count: 0, window: now(), cache: {} };
-        if (now() - current.window >= 60_000) {
-          current.count = 0;
-          current.window = now();
-        }
-        if (current.count >= limit) return null;
-        current.count += 1;
-        current.expires = now() + DECISION_TTL;
-        await transaction.put(key, current);
-        return current;
-      });
+      if (!this.leasePending) {
+        this.leasePending = (async () => {
+          const guard = this.env.ELIGIBILITY_GUARD.get(this.env.ELIGIBILITY_GUARD.idFromName('global-v1'));
+          const result = await fetchJson(
+            'https://eligibility.internal/lease',
+            { method: 'POST', body: JSON.stringify({ day, deadline, leaseId: crypto.randomUUID(), count: LEASE_SIZE }) },
+            128,
+            (url, init) => guard.fetch(new Request(url, init)),
+            Math.min(deadline, now() + timeoutMs)
+          );
+          if (!record(result) || result.reserved !== true || !Number.isInteger(result.count) || result.count < 1 || result.count > LEASE_SIZE || now() >= deadline) {
+            throw new Error('Unavailable');
+          }
+          this.lease = { day, remaining: result.count };
+        })().finally(() => { this.leasePending = null; });
+      }
+      await this.leasePending;
+      if (this.lease.day !== day || this.lease.remaining < 1) return this.reserve(deadline);
+      this.lease.remaining -= 1;
     }
 
     async evaluate(ip, policy, callerKey, identity, deadline) {
@@ -356,24 +408,7 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
       if (!this.env.MAXMIND_ACCOUNT_ID || !this.env.MAXMIND_LICENSE_KEY || now() >= deadline)
         throw new Error('Unavailable');
       const authorization = `Basic ${btoa(`${this.env.MAXMIND_ACCOUNT_ID}:${this.env.MAXMIND_LICENSE_KEY}`)}`;
-      const guard = this.env.ELIGIBILITY_GUARD.get(this.env.ELIGIBILITY_GUARD.idFromName('global-v1'));
-      const reservation = await fetchJson(
-        'https://eligibility.internal/reserve',
-        {
-          method: 'POST',
-          body: JSON.stringify({ day: dayOf(now()), deadline })
-        },
-        128,
-        (url, init) => guard.fetch(new Request(url, init)),
-        Math.min(deadline, now() + timeoutMs)
-      );
-      if (
-        !record(reservation) ||
-        reservation.reserved !== true ||
-        Object.keys(reservation).length !== 1 ||
-        now() >= deadline
-      )
-        throw new Error('Unavailable');
+      await this.reserve(deadline);
       const place = readPlace(
         await fetchJson(
           `${MAXMIND_BASE}/${encodeURIComponent(ip)}`,
@@ -387,11 +422,12 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
       );
       const allowed = allowedAt(policy, place);
       await this.storage.transaction(async transaction => {
-        const current = await transaction.get(callerKey);
+        const current = (await transaction.get(callerKey)) ?? { cache: {} };
         current.cache[policy.network] = { version: policy.version, identity, allowed, expires: now() + DECISION_TTL };
         current.expires = now() + DECISION_TTL;
         await transaction.put(callerKey, current);
       });
+      if ((await this.storage.getAlarm()) === null) await this.storage.setAlarm(now() + DECISION_TTL);
       return allowed;
     }
 
@@ -412,22 +448,20 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
         if (typeof this.env.CALLER_HASH_SECRET !== 'string' || this.env.CALLER_HASH_SECRET.length < 32)
           return failure();
         const callerKey = `caller:${await digest(this.env.CALLER_HASH_SECRET, `${dayOf(now())}:${ip}`)}`;
-        const caller = await this.caller(callerKey);
-        if (!caller) return json({ error: 'eligibility_unavailable' }, 429, { 'Retry-After': '60' });
-        if ((await this.storage.getAlarm()) === null) await this.storage.setAlarm(now() + DECISION_TTL);
-        const policy = await this.policy(network);
-        const identity = await digest(this.env.CALLER_HASH_SECRET, JSON.stringify(policy));
-        const needsLookup = FEATURES.some(feature => policy.enabled[feature] && policy.rules[feature].length > 0);
-        let allowed = policy.enabled;
+        const caller = await this.storage.get(callerKey);
+        const currentPolicy = await policy(network);
+        const identity = await digest(this.env.CALLER_HASH_SECRET, JSON.stringify(currentPolicy));
+        const needsLookup = FEATURES.some(feature => currentPolicy.enabled[feature] && currentPolicy.rules[feature].length > 0);
+        let allowed = currentPolicy.enabled;
         if (needsLookup) {
-          const cached = caller.cache[network];
-          if (usableCache(cached, policy, identity)) {
+          const cached = caller?.cache?.[network];
+          if (usableCache(cached, currentPolicy, identity)) {
             allowed = cached.allowed;
           } else {
             const key = `${callerKey}:${network}:${identity}`;
             let pending = this.inflight.get(key);
             if (!pending) {
-              pending = this.evaluate(ip, policy, callerKey, identity, deadline);
+              pending = this.evaluate(ip, currentPolicy, callerKey, identity, deadline);
               this.inflight.set(key, pending);
             }
             try {
@@ -437,9 +471,9 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
             }
           }
         }
-        return json({ network, version: policy.version, allowed });
-      } catch {
-        return failure();
+        return json({ network, version: currentPolicy.version, allowed });
+      } catch (error) {
+        return error?.overloaded ? failure(503, 'overloaded', { 'Retry-After': '30' }) : failure();
       }
     }
 
@@ -454,7 +488,7 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
       const url = new URL(request.url);
       const allowedOrigins = origins(env);
       const origin = request.headers.get('Origin');
-      if (origin && !allowedOrigins.has(origin)) return failure(403);
+      if (origin && !allowedOrigins.has(origin)) return failure(403, 'forbidden');
       const headers = { Vary: 'Origin' };
       if (origin) headers['Access-Control-Allow-Origin'] = origin;
       finish = response =>
@@ -466,6 +500,8 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
         const ready =
           env.ELIGIBILITY_GUARD &&
           env.CALLER_GUARD &&
+          env.CALLER_RATE_LIMIT &&
+          env.COLO_RATE_LIMIT &&
           env.MAXMIND_ACCOUNT_ID &&
           env.MAXMIND_LICENSE_KEY &&
           typeof env.CALLER_HASH_SECRET === 'string' &&
@@ -473,15 +509,15 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
           integer(env.MAXMIND_DAILY_QUERY_LIMIT, 0, 1_000_000) > 0;
         return finish(ready ? json({ ready: true, revision: env.DEPLOYMENT_REVISION ?? 'unknown' }) : failure());
       }
-      if (url.pathname !== '/v1/eligibility') return finish(failure(404));
+      if (url.pathname !== '/v1/eligibility') return finish(failure(404, 'bad_request'));
       const network = url.searchParams.get('network');
-      if (!NETWORKS.has(network) || [...url.searchParams].length !== 1) return finish(failure(400));
+      if (!NETWORKS.has(network) || [...url.searchParams].length !== 1) return finish(failure(400, 'bad_request'));
       if (request.method === 'OPTIONS') {
         if (
           request.headers.get('Access-Control-Request-Method') !== 'GET' ||
           request.headers.has('Access-Control-Request-Headers')
         ) {
-          return finish(failure(403));
+          return finish(failure(403, 'forbidden'));
         }
         return finish(
           new Response(null, {
@@ -490,26 +526,36 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
           })
         );
       }
-      if (request.method !== 'GET') return finish(failure(405));
+      if (request.method !== 'GET') return finish(failure(405, 'bad_request'));
       const ip = callerIp(request);
-      if (!ip) return finish(failure(400));
-      if (typeof env.CALLER_HASH_SECRET !== 'string' || env.CALLER_HASH_SECRET.length < 32 || !env.ELIGIBILITY_GUARD)
+      if (!ip) return finish(failure(400, 'bad_request'));
+      if (typeof env.CALLER_HASH_SECRET !== 'string' || env.CALLER_HASH_SECRET.length < 32 || !env.ELIGIBILITY_GUARD || !env.CALLER_GUARD || !env.CALLER_RATE_LIMIT || !env.COLO_RATE_LIMIT)
         return finish(failure());
       const deadline = now() + 2 * timeoutMs;
       const day = dayOf(now());
       const caller = await digest(env.CALLER_HASH_SECRET, `${day}:${ip}`);
-      const guard = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName(`caller-v1:${caller}`));
-      const response = await bounded(
-        () =>
-          guard.fetch(
-            new Request('https://eligibility.internal/', {
+      const callerLimit = await env.CALLER_RATE_LIMIT.limit({ key: caller });
+      if (callerLimit?.success !== true) return finish(failure(429, 'rate_limited', { 'Retry-After': '60' }));
+      const coloLimit = await env.COLO_RATE_LIMIT.limit({ key: `colo:${request.cf.colo}` });
+      if (coloLimit?.success !== true) return finish(failure(429, 'rate_limited', { 'Retry-After': '10' }));
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const guard = env.CALLER_GUARD.get(env.CALLER_GUARD.idFromName(`cache:${request.cf.colo}`));
+          const response = await bounded(
+            () => guard.fetch(new Request('https://eligibility.internal/', {
               method: 'POST',
               body: JSON.stringify({ ip, network, day, deadline })
-            })
-          ),
-        deadline
-      );
-      return finish(response);
+            })),
+            deadline
+          );
+          return finish(response);
+        } catch (error) {
+          if (error?.overloaded) return finish(failure(503, 'overloaded', { 'Retry-After': '30' }));
+          if (!error?.retryable || attempt === 1 || now() + 20 >= deadline) return finish(failure());
+          await bounded(() => new Promise(resolve => setTimeout(resolve, 20 + Math.floor(Math.random() * 20))), deadline);
+        }
+      }
+      return finish(failure());
     } catch {
       return finish(failure());
     }

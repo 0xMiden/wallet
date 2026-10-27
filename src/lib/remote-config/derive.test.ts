@@ -1,5 +1,4 @@
-import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, getAddress, http, keccak256, toBytes } from 'viem';
+import { getAddress, keccak256, toBytes } from 'viem';
 
 import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import {
@@ -24,16 +23,14 @@ import {
   type DerivedBridgeConfig,
   type DerivedChainConfig,
   type DeriveDeps,
-  deriveBridgeConfig,
-  type EvmReads,
-  NotAFaucetError,
-  NotDeployedError,
-  readMidenFaucetMetadata
+  type EvmReads
 } from './derive';
 import { parseStoredDerived } from './derived-snapshot';
 import type { BridgeConfig } from './schema';
 import { parseSwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
+let { deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } =
+  jest.requireActual<typeof import('./derive')>('./derive');
 
 const mockGetAccountDetails = jest.fn();
 const mockFromAccountStorage = jest.fn();
@@ -130,7 +127,8 @@ const EPOCH_CATALOG = {
   }
 };
 
-// The three health routes as they answered on 2026-10-03.
+// The allocator /health captured on 2026-10-03: status and allocator addresses, and none of the arbiter, Compact
+// or integer fields epoch-intents-sdk 2.0.1 requires.
 const ALLOCATOR_HEALTH = {
   status: 'healthy',
   allocatorAddresses: {
@@ -141,8 +139,38 @@ const ALLOCATOR_HEALTH = {
   timestamp: '2026-10-03T13:09:55.545Z',
   supportedChains: []
 };
+const ALLOCATOR_ADDRESS = '0xa46827635A7d329608085401a3b2Bf14a8a2bDF9';
+const ARBITER_ADDRESS = '0x2F5eA866716A04e91a55099620F2e1B423eC7011';
+const COMPACT_ADDRESS = '0x00000000000000171ede64904551eeDF3C6C9788';
+const MIDEN_CHAIN = '999999999';
+const serviceAddresses = (address: string): Record<string, string> => ({
+  '11155111': address,
+  [MIDEN_CHAIN]: address
+});
+// The service configuration `resolveServiceConfiguration` admits. The numbers are the ones the SDK compiled in
+// before 2.0 and that the E2E allocator fake still serves.
+const SDK_ALLOCATOR_HEALTH = {
+  status: 'healthy',
+  allocatorAddresses: serviceAddresses(ALLOCATOR_ADDRESS),
+  arbiterAddresses: serviceAddresses(ARBITER_ADDRESS),
+  compactAddresses: serviceAddresses(COMPACT_ADDRESS),
+  compactLockResetPeriod: 4,
+  compactLockScope: 0,
+  compactExpirySeconds: 600,
+  compactExpiryBufferSeconds: 60,
+  midenRecallBufferBlocks: 1000,
+  midenVirtualChainId: 999999999,
+  midenTestnetVirtualChainId: 999999999,
+  midenMainnetVirtualChainId: 123456789,
+  signingAddress: ARBITER_ADDRESS,
+  timestamp: '2026-10-03T13:09:55.545Z',
+  supportedChains: []
+};
+const ALLOCATOR_HEALTH_URL = 'https://testnet-dev.epochprotocol.xyz/health';
+// The indexer and the positions catalogue as they answered on 2026-10-03. The allocator body is the SDK 2.0.1
+// service configuration, not the status-and-addresses answer from that day.
 const HEALTH: Record<string, unknown> = {
-  'https://testnet-dev.epochprotocol.xyz/health': ALLOCATOR_HEALTH,
+  [ALLOCATOR_HEALTH_URL]: SDK_ALLOCATOR_HEALTH,
   [SEPOLIA_CATALOG_URL]: EPOCH_CATALOG,
   'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz': { status: 'SERVING' }
 };
@@ -237,7 +265,9 @@ const HEALTHY: DerivedBridgeConfig = {
 
 const SKIPPED = { state: 'skipped' };
 
-beforeEach(() => {
+beforeEach(async () => {
+  jest.resetModules();
+  ({ deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } = await import('./derive'));
   jest.clearAllMocks();
   mockGetAccountDetails.mockReset();
   mockFromAccountStorage.mockReset();
@@ -363,8 +393,8 @@ describe('deriveBridgeConfig', () => {
     });
     const derived = await deriveBridgeConfig(TESTNET, deps({ fetch: swapped }));
     expect([derived.epoch.allocator.state, derived.agglayer.indexer.state]).toEqual(['error', 'error']);
-    // The allocator's own fields without status 'healthy' do not make it healthy.
-    const degradedAllocator = { ...ALLOCATOR_HEALTH, status: 'degraded' };
+    // A complete SDK body whose status is not exactly 'healthy' is still not admitted.
+    const degradedAllocator = { ...SDK_ALLOCATOR_HEALTH, status: 'degraded' };
     const degraded = await deriveBridgeConfig(
       TESTNET,
       deps({ fetch: healthFetch({ ...HEALTH, 'https://testnet-dev.epochprotocol.xyz/health': degradedAllocator }) })
@@ -372,6 +402,145 @@ describe('deriveBridgeConfig', () => {
     expect(degraded.epoch.allocator.state).toBe('error');
     const down = await deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch({}) }));
     expect(down.epoch.allocator).toEqual({ state: 'error', message: 'Remote JSON request failed with HTTP 503' });
+  });
+
+  const deriveAllocator = (body: unknown, config: BridgeConfig = TESTNET) =>
+    deriveBridgeConfig(config, deps({ fetch: healthFetch({ ...HEALTH, [ALLOCATOR_HEALTH_URL]: body }) }));
+
+  it.each([
+    ['status only', { status: 'healthy' }],
+    ['legacy allocator configuration', ALLOCATOR_HEALTH],
+    ['compactExpirySeconds of 0', { ...SDK_ALLOCATOR_HEALTH, compactExpirySeconds: 0 }],
+    [
+      'compactExpirySeconds past the safe integer bound',
+      { ...SDK_ALLOCATOR_HEALTH, compactExpirySeconds: Number.MAX_SAFE_INTEGER + 1 }
+    ],
+    ['compactExpiryBufferSeconds of 0', { ...SDK_ALLOCATOR_HEALTH, compactExpiryBufferSeconds: 0 }],
+    ['compactLockResetPeriod of -1', { ...SDK_ALLOCATOR_HEALTH, compactLockResetPeriod: -1 }],
+    ['compactLockResetPeriod of 8', { ...SDK_ALLOCATOR_HEALTH, compactLockResetPeriod: 8 }],
+    ['compactLockScope of 2', { ...SDK_ALLOCATOR_HEALTH, compactLockScope: 2 }],
+    ['midenRecallBufferBlocks of -1', { ...SDK_ALLOCATOR_HEALTH, midenRecallBufferBlocks: -1 }],
+    ['midenVirtualChainId of 0', { ...SDK_ALLOCATOR_HEALTH, midenVirtualChainId: 0 }],
+    ['midenTestnetVirtualChainId of 0', { ...SDK_ALLOCATOR_HEALTH, midenTestnetVirtualChainId: 0 }],
+    ['midenMainnetVirtualChainId of 0', { ...SDK_ALLOCATOR_HEALTH, midenMainnetVirtualChainId: 0 }],
+    ['a fractional compactExpirySeconds', { ...SDK_ALLOCATOR_HEALTH, compactExpirySeconds: 1.5 }],
+    ['a string compactLockResetPeriod', { ...SDK_ALLOCATOR_HEALTH, compactLockResetPeriod: '4' }],
+    ['a missing compactExpiryBufferSeconds', { ...SDK_ALLOCATOR_HEALTH, compactExpiryBufferSeconds: undefined }],
+    [
+      'a configured-chain address of 0xa110c',
+      {
+        ...SDK_ALLOCATOR_HEALTH,
+        allocatorAddresses: { ...SDK_ALLOCATOR_HEALTH.allocatorAddresses, '11155111': '0xa110c' }
+      }
+    ],
+    [
+      'a Miden-chain Compact address of 0xa110c',
+      {
+        ...SDK_ALLOCATOR_HEALTH,
+        compactAddresses: { ...SDK_ALLOCATOR_HEALTH.compactAddresses, [MIDEN_CHAIN]: '0xa110c' }
+      }
+    ],
+    [
+      'no arbiter address for Sepolia',
+      { ...SDK_ALLOCATOR_HEALTH, arbiterAddresses: { [MIDEN_CHAIN]: ARBITER_ADDRESS } }
+    ]
+  ])('rejects a healthy allocator with %s instead of SDK 2 configuration', async (_name, body) => {
+    expect((await deriveAllocator(body)).epoch.allocator.state).toBe('error');
+  });
+
+  it.each([
+    ['compactLockResetPeriod is 0', { compactLockResetPeriod: 0 }],
+    ['compactLockResetPeriod is 7', { compactLockResetPeriod: 7 }],
+    ['compactLockScope is 1', { compactLockScope: 1 }],
+    ['compactExpirySeconds is 1', { compactExpirySeconds: 1 }],
+    ['compactExpirySeconds is the safe integer bound', { compactExpirySeconds: Number.MAX_SAFE_INTEGER }],
+    ['compactExpiryBufferSeconds is the safe integer bound', { compactExpiryBufferSeconds: Number.MAX_SAFE_INTEGER }],
+    ['midenRecallBufferBlocks is 0', { midenRecallBufferBlocks: 0 }],
+    [
+      'midenRecallBufferBlocks is past the safe integer bound',
+      { midenRecallBufferBlocks: Number.MAX_SAFE_INTEGER + 1 }
+    ],
+    [
+      'the virtual chain ids are 1',
+      { midenVirtualChainId: 1, midenTestnetVirtualChainId: 1, midenMainnetVirtualChainId: 1 }
+    ]
+  ])('admits an allocator whose %s', async (_name, fields) => {
+    expect((await deriveAllocator({ ...SDK_ALLOCATOR_HEALTH, ...fields })).epoch.allocator).toEqual({
+      state: 'ok',
+      value: true
+    });
+  });
+
+  it('admits lowercase addresses that getAddress accepts', async () => {
+    const lowercase = '0xa46827635a7d329608085401a3b2bf14a8a2bdf9';
+    const derived = await deriveAllocator({
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: serviceAddresses(lowercase),
+      arbiterAddresses: serviceAddresses('0x2f5ea866716a04e91a55099620f2e1b423ec7011'),
+      compactAddresses: serviceAddresses('0x00000000000000171ede64904551eedf3c6c9788')
+    });
+    expect(derived.epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('ignores an invalid address on a chain that does not name Epoch USDC', async () => {
+    const config: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: { ...TESTNET.supportedEvmChains, extra: { chainId: 84532, bridges: {} } }
+    };
+    const derived = await deriveAllocator(
+      {
+        ...SDK_ALLOCATOR_HEALTH,
+        allocatorAddresses: { ...SDK_ALLOCATOR_HEALTH.allocatorAddresses, '84532': '0xa110c' }
+      },
+      config
+    );
+    expect(derived.epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('rejects an Epoch USDC chain the health body does not configure', async () => {
+    const config: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {
+        ...TESTNET.supportedEvmChains,
+        base: {
+          chainId: BASE_CHAIN_ID,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: BASE_USDC, outputs: ['usdc-testnet-output'] } }
+            }
+          }
+        }
+      }
+    };
+    expect((await deriveAllocator(SDK_ALLOCATOR_HEALTH, config)).epoch.allocator.state).toBe('error');
+    const configured = {
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: { ...SDK_ALLOCATOR_HEALTH.allocatorAddresses, [BASE_CHAIN_ID]: ALLOCATOR_ADDRESS },
+      arbiterAddresses: { ...SDK_ALLOCATOR_HEALTH.arbiterAddresses, [BASE_CHAIN_ID]: ARBITER_ADDRESS },
+      compactAddresses: { ...SDK_ALLOCATOR_HEALTH.compactAddresses, [BASE_CHAIN_ID]: COMPACT_ADDRESS }
+    };
+    expect((await deriveAllocator(configured, config)).epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('requires the Miden destination chain even when the document names no Epoch route', async () => {
+    const sepoliaOnly = {
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: { '11155111': ALLOCATOR_ADDRESS },
+      arbiterAddresses: { '11155111': ARBITER_ADDRESS },
+      compactAddresses: { '11155111': COMPACT_ADDRESS }
+    };
+    expect((await deriveAllocator(sepoliaOnly)).epoch.allocator.state).toBe('error');
+    const midenOnly = {
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: { [MIDEN_CHAIN]: ALLOCATOR_ADDRESS },
+      arbiterAddresses: { [MIDEN_CHAIN]: ARBITER_ADDRESS },
+      compactAddresses: { [MIDEN_CHAIN]: COMPACT_ADDRESS }
+    };
+    const noRoute: BridgeConfig = { ...TESTNET, supportedEvmChains: {} };
+    expect((await deriveAllocator(midenOnly, noRoute)).epoch.allocator).toEqual({ state: 'ok', value: true });
+    expect((await deriveAllocator(midenOnly)).epoch.allocator.state).toBe('error');
   });
 
   it('starts every probe before any of them answers', async () => {
@@ -967,7 +1136,7 @@ describe('deriveBridgeConfig default I/O', () => {
       symbol: 'USDC',
       decimals: 6
     });
-    expect(Endpoint).toHaveBeenCalledWith(RPC);
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(RPC);
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     await expect(readMidenFaucetMetadata('not-a-faucet', RPC)).rejects.toThrow('Invalid Miden faucet metadata request');
   });
@@ -978,7 +1147,9 @@ describe('deriveBridgeConfig default I/O', () => {
     mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
     const derived = await deriveBridgeConfig(faucetOnly);
     expect(derived.epoch.midenUsdcFaucet).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 6 } });
-    expect(Endpoint).toHaveBeenCalledWith('https://rpc.effective.example');
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(
+      'https://rpc.effective.example'
+    );
     expect(mockGetAccountDetails).toHaveBeenCalledWith({ id: '0x537c15a622074e91188aa894456c52' });
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     expect(derived.derivedAt).toEqual(expect.any(Number));
@@ -1044,8 +1215,11 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     };
     const derived = await deriveBridgeConfig(evmOnly);
-    expect(http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, { timeout: 10_000, retryCount: 1 });
-    expect(createPublicClient).toHaveBeenCalledTimes(1);
+    expect(jest.requireMock('viem').http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, {
+      timeout: 10_000,
+      retryCount: 1
+    });
+    expect(jest.requireMock('viem').createPublicClient).toHaveBeenCalledTimes(1);
     expect(derived.chains[SEPOLIA]?.agglayer).toMatchObject({
       l1BridgeCode: { state: 'ok', value: true },
       evmNetworkId: { state: 'ok', value: 0 }
@@ -1072,12 +1246,12 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     });
     expect(derived.chains[999999999]?.agglayer.l1BridgeCode).toEqual(SKIPPED);
-    expect(createPublicClient).not.toHaveBeenCalled();
+    expect(jest.requireMock('viem').createPublicClient).not.toHaveBeenCalled();
   });
 
   it('fetches the health routes with the global fetch', async () => {
     const original = globalThis.fetch;
-    const fetchSpy = jest.fn(async () => answer({ status: 'healthy' }));
+    const fetchSpy = jest.fn(async () => answer(SDK_ALLOCATOR_HEALTH));
     Object.defineProperty(globalThis, 'fetch', { value: fetchSpy, configurable: true, writable: true });
     try {
       const allocatorOnly: BridgeConfig = {

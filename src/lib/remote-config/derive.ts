@@ -9,6 +9,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
+import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { earnMarketForVault, type EarnVaultInfo, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -279,10 +280,53 @@ const EVM_TIMEOUT_MS = 10_000;
 const L1_BRIDGE_ABI = parseAbi(['function networkID() view returns (uint32)']);
 const ERC20_ABI = parseAbi(['function symbol() view returns (string)', 'function decimals() view returns (uint8)']);
 
-// /health is Epoch's liveness route; a service that is down answers 503. The allocator's body is the SDK's
-// HealthCheckResponse, whose `status` reads 'healthy' (live, 2026-10-03), so the positions host, whose /health
-// answers `{ ok: true }`, is never taken for the allocator. The config repo's validator uses the same predicate.
-const isAllocatorHealthy = (body: unknown) => isRecord(body) && body.status === 'healthy';
+// /health is Epoch's liveness route; a service that is down answers 503. The allocator body is the SDK's
+// HealthCheckResponse. It is admitted only when `status` is exactly `healthy` and the body would pass
+// `resolveServiceConfiguration` (epoch-intents-sdk 2.0.1) for every chain this document can hand the SDK: each
+// supported chain that names Epoch USDC, plus the Miden destination chain. The positions host, whose /health
+// answers `{ ok: true }`, is never taken for the allocator.
+function epochSdkChainIds(config: BridgeConfig): number[] {
+  const chainIds = Object.values(config.supportedEvmChains).flatMap(chain =>
+    chain.bridges.epoch?.tokens.USDC?.contractAddress ? [chain.chainId] : []
+  );
+  return [...new Set([...chainIds, MIDEN_DESTINATION_CHAIN_ID])];
+}
+
+function isAllocatorHealthy(body: unknown, chainIds: readonly number[]): boolean {
+  if (!isRecord(body) || body.status !== 'healthy') return false;
+  for (const chainId of chainIds) {
+    admitServiceAddress(body.allocatorAddresses, chainId, 'allocator address');
+    admitServiceAddress(body.arbiterAddresses, chainId, 'arbiter address');
+    admitServiceAddress(body.compactAddresses, chainId, 'Compact address');
+  }
+  // Same numeric bounds as `resolveServiceConfiguration` in @epoch-protocol/epoch-intents-sdk.
+  admitSdkInteger(body.compactLockResetPeriod, 'compactLockResetPeriod', 0, 7);
+  admitSdkInteger(body.compactLockScope, 'compactLockScope', 0, 1);
+  admitSdkInteger(body.compactExpirySeconds, 'compactExpirySeconds', 1, Number.MAX_SAFE_INTEGER);
+  admitSdkInteger(body.compactExpiryBufferSeconds, 'compactExpiryBufferSeconds', 1, Number.MAX_SAFE_INTEGER);
+  admitSdkInteger(body.midenRecallBufferBlocks, 'midenRecallBufferBlocks', 0);
+  admitSdkInteger(body.midenVirtualChainId, 'midenVirtualChainId', 1);
+  admitSdkInteger(body.midenTestnetVirtualChainId, 'midenTestnetVirtualChainId', 1);
+  admitSdkInteger(body.midenMainnetVirtualChainId, 'midenMainnetVirtualChainId', 1);
+  return true;
+}
+
+function admitServiceAddress(map: unknown, chainId: number, label: string): void {
+  const value = isRecord(map) ? map[String(chainId)] : undefined;
+  if (typeof value !== 'string') throw new Error(`allocator /health has no ${label} for chain ${chainId}`);
+  try {
+    getAddress(value);
+  } catch {
+    throw new Error(`allocator /health returned an invalid ${label} for chain ${chainId}`);
+  }
+}
+
+function admitSdkInteger(value: unknown, name: string, min: number, max?: number): void {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || (max !== undefined && value > max)) {
+    throw new Error(`allocator /health returned invalid ${name}`);
+  }
+}
+
 const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'SERVING';
 
 const SWAP_PAIRS_TIMEOUT_MS = 10_000;
@@ -604,7 +648,9 @@ export async function deriveBridgeConfig(
     evmUsdcReads.get(chainId) ?? Promise.resolve<Probe<TokenMetadata>>({ state: 'skipped' });
   const [earn, allocator, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
     discoverEarnVaults(config, io, readEvmUsdc),
-    when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),
+    when(epoch.allocatorUrl, url =>
+      checkHealth(io.fetch, `${url}/health`, body => isAllocatorHealthy(body, epochSdkChainIds(config)))
+    ),
     when(faucetId, id => attempt(() => readFaucet(id))),
     when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
     when(config.swap?.etaUrl, url => readSwapPairs(io.fetch, url, readFaucet))

@@ -65,7 +65,9 @@ export const SendRoute: React.FC<SendRouteProps> = ({
       <RouteOptions
         {...options}
         slowStatus={slowStatus}
+        fastFeature="fastBridgeOut"
         fastAvailability={fastAvailability}
+        slowFeature="bridgeOut"
         slowAvailability={slowAvailability}
         accent="send"
       />

@@ -36,6 +36,7 @@ import { truncateAddress, truncateHash } from 'utils/string';
 import Alert from './atoms/Alert';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, noteFlowFromTransaction, NoteFlow } from './confirm/note-flow';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -375,14 +376,23 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
   }
 
   switch (signingInputs.variantType) {
-    case SigningInputsType.TransactionSummary:
+    case SigningInputsType.TransactionSummary: {
+      const summary = signingInputs.transactionSummaryPayload();
+      let noteFlow: NoteFlow | undefined;
+      try {
+        noteFlow = noteFlowFromTransaction(summary);
+      } catch (noteError) {
+        console.error('Signing summary note details unavailable:', noteError);
+      }
       return (
         <TransactionAssetView
-          view={summaryToView(signingInputs.transactionSummaryPayload())}
+          view={summaryToView(summary)}
+          noteFlow={noteFlow}
           mode="verified"
           onDownload={() => downloadBytes('transaction_summary.bin', bytes)}
         />
       );
+    }
     case SigningInputsType.Arbitrary:
     case SigningInputsType.Blind:
       return (
@@ -417,6 +427,7 @@ const CustomTransactionContent: React.FC<{
   }, [payload.requestBytes, payload.importNotes]);
 
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
+  const [verifiedNoteFlow, setVerifiedNoteFlow] = useState<NoteFlow>();
   const [simError, setSimError] = useState(false);
   useUserVisibleError(
     verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
@@ -437,6 +448,12 @@ const CustomTransactionContent: React.FC<{
         const view = simulatedBytesToView({ summaryBytes, executedBytes });
         if (view) {
           setVerifiedView(view);
+          try {
+            setVerifiedNoteFlow(noteFlowFromSimulatedBytes({ summaryBytes, executedBytes }));
+          } catch (noteError) {
+            console.error('Custom transaction note details unavailable:', noteError);
+            setVerifiedNoteFlow(undefined);
+          }
           return;
         }
         setSimError(true);
@@ -451,7 +468,7 @@ const CustomTransactionContent: React.FC<{
   }, [id, payload.requestBytes, simulateCustomTransaction]);
 
   const advanced = (
-    <AdvancedDetails>
+    <AdvancedDetails label={t('rawTransactionData')}>
       {/* These labels are intentional raw payload-field keys (a JSON-like dump
           of the dApp-declared request), not user-facing copy — deliberately
           not translated via t(). */}
@@ -466,7 +483,7 @@ const CustomTransactionContent: React.FC<{
   if (verifiedView) {
     return (
       <>
-        <TransactionAssetView view={verifiedView} mode="verified" />
+        <TransactionAssetView view={verifiedView} mode="verified" noteFlow={verifiedNoteFlow} />
         {advanced}
       </>
     );

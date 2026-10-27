@@ -1,0 +1,253 @@
+import { chromium, expect, test } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
+import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`native toolbar click toggles sidebar after full-page onboarding (${theme})`, async ({}, testInfo) => {
+    const root = mkdtempSync(join(tmpdir(), 'bread-toolbar-'));
+    const extension = join(root, 'extension');
+    cpSync(resolve('dist/chrome_unpacked'), extension, { recursive: true });
+    const manifestPath = join(extension, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.action.default_popup).toBeUndefined();
+    const profile = join(root, 'profile');
+    const launch = () =>
+      chromium.launchPersistentContext(profile, {
+        headless: false,
+        colorScheme: theme,
+        viewport: null,
+        args: [
+          `--disable-extensions-except=${extension}`,
+          `--load-extension=${extension}`,
+          '--window-size=1400,1000',
+          '--force-renderer-accessibility'
+        ],
+        ignoreDefaultArgs: ['--disable-extensions']
+      });
+    let context = await launch();
+    const capture = async (name: string) => {
+      await new Promise(resolve =>
+        setTimeout(resolve, name.includes('onboarding') || name.includes('closed') ? 250 : 7000)
+      );
+      const path = testInfo.outputPath(`${theme}-${name}.png`);
+      execFileSync('import', ['-window', 'root', path]);
+      execFileSync('convert', [path, '-resize', '1800x1800>', path]);
+      await testInfo.attach(name, { path, contentType: 'image/png' });
+    };
+    const activate = () => {
+      const value: unknown = JSON.parse(
+        execFileSync('/usr/bin/python3', [resolve('playwright/toolbar/native-bread-button.py')], {
+          timeout: 15000
+        }).toString()
+      );
+      if (!Array.isArray(value) || value.length !== 2 || !value.every(item => Number.isInteger(item)))
+        throw new Error('Native toolbar bounds invalid');
+      execFileSync('xdotool', ['mousemove', String(value[0]), String(value[1]), 'click', '1'], {
+        timeout: 10000
+      });
+    };
+    try {
+      let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      const observePanel = () =>
+        worker.evaluate(() => {
+          const state = { open: false, opened: 0, closed: 0 };
+          Reflect.set(globalThis, '__toolbarPanelObservation', state);
+          const events = [
+            { name: 'onOpened', open: true },
+            { name: 'onClosed', open: false }
+          ];
+          for (const { name, open } of events) {
+            const event: unknown = Reflect.get(chrome.sidePanel, name);
+            if (
+              !event ||
+              typeof event !== 'object' ||
+              !('addListener' in event) ||
+              typeof event.addListener !== 'function'
+            )
+              throw new Error('Native panel event unavailable');
+            event.addListener(() => {
+              state.open = open;
+              if (open) state.opened++;
+              else state.closed++;
+            });
+          }
+        });
+      const panelCount = () =>
+        worker.evaluate(() => {
+          const state: unknown = Reflect.get(globalThis, '__toolbarPanelObservation');
+          return state && typeof state === 'object' && 'open' in state && state.open === true ? 1 : 0;
+        });
+      await observePanel();
+      await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
+      let page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
+      await page.waitForSelector('[data-testid="onboarding-welcome"]', { timeout: 45000 });
+      expect(context.pages().filter(p => p.url().includes('/fullpage.html'))).toHaveLength(1);
+      await page.evaluate(value => {
+        localStorage.setItem('theme_setting', value);
+        localStorage.setItem('popup_mode', 'false');
+      }, theme);
+      await page.reload();
+      await page.waitForSelector('[data-testid="onboarding-welcome"]');
+      await page.bringToFront();
+      await capture('fresh-install-fullpage-onboarding');
+      const extensionId = new URL(worker.url()).host;
+      await context.close();
+      const preferencesPath = join(profile, 'Default', 'Preferences');
+      const preferences = JSON.parse(readFileSync(preferencesPath, 'utf8'));
+      preferences.extensions ??= {};
+      preferences.extensions.pinned_extensions = [extensionId];
+      writeFileSync(preferencesPath, JSON.stringify(preferences));
+      context = await launch();
+      worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      await observePanel();
+      activate();
+      await expect.poll(() => context.pages().some(p => p.url().includes('/fullpage.html'))).toBe(true);
+      page = context.pages().find(p => p.url().includes('/fullpage.html'))!;
+      await page.waitForSelector('[data-testid="onboarding-welcome"]');
+      await capture('fullpage-onboarding');
+      activate();
+      await expect
+        .poll(() =>
+          worker.evaluate(() => {
+            const state: unknown = Reflect.get(globalThis, '__toolbarPanelObservation');
+            return (
+              state &&
+              typeof state === 'object' &&
+              'opened' in state &&
+              'closed' in state &&
+              typeof state.opened === 'number' &&
+              typeof state.closed === 'number' &&
+              state.opened > 0 &&
+              state.closed > 0
+            );
+          })
+        )
+        .toBe(true);
+      await expect.poll(panelCount).toBe(0);
+      await expect(page.getByTestId('onboarding-welcome')).toBeVisible();
+      await capture('interrupted-onboarding-returned-to-fullpage');
+      await page.locator('#import-link').click();
+      await acknowledgeNetworkNotice(page, 15000);
+      await page.getByTestId('import-type-seed-phrase').click();
+      const words =
+        'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
+      for (const [index, word] of words.entries()) await page.locator(`#seed-phrase-input-${index}`).fill(word);
+      await page.getByRole('button', { name: /continue/i }).click();
+      await page.locator('input[placeholder="Enter password"]').fill('FixturePassword123!');
+      await page.locator('input[placeholder="Enter password again"]').fill('FixturePassword123!');
+      await page.getByRole('button', { name: /continue/i }).click();
+      await page.getByText(/import public account/i).click();
+      await page.getByTestId('reused-phrase-acknowledge').click();
+      await page.getByRole('button', { name: /continue/i }).click();
+      await passImportConfirmation(page, 45000);
+      await dismissTelemetryConsent(page, { nextSurface: '[data-testid="finish-side-panel"]', timeoutMs: 45000 });
+      await page
+        .getByTestId('finish-side-panel')
+        .getByRole('button', { name: /open wallet/i })
+        .click();
+      await expect.poll(panelCount).toBe(1);
+      await capture('ready-sidebar');
+      activate();
+      await expect.poll(panelCount).toBe(0);
+      await capture('native-action-closed');
+      activate();
+      await expect.poll(panelCount).toBe(1);
+      await capture('native-action-reopened');
+      activate();
+      await expect.poll(panelCount).toBe(0);
+      await worker.evaluate(async () => {
+        await chrome.storage.local.set({ sidepanel_mode: false });
+        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+        await chrome.action.setPopup({ popup: 'popup.html' });
+      });
+      activate();
+      await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      execFileSync('xdotool', ['key', 'Escape'], { timeout: 10000 });
+      await expect
+        .poll(() =>
+          worker.evaluate(
+            async () => (await chrome.runtime.getContexts({})).filter(item => item.contextType === 'POPUP').length
+          )
+        )
+        .toBe(0);
+      activate();
+      await expect.poll(panelCount).toBe(1);
+      await capture('legacy-popup-recovered-on-later-action');
+      await worker.evaluate(async () => {
+        await chrome.storage.local.set({ sidepanel_mode: false });
+        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+        await chrome.action.setPopup({ popup: 'popup.html' });
+      });
+      await context.close();
+      context = await launch();
+      worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      await observePanel();
+      await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      await expect
+        .poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior()))
+        .toEqual({ openPanelOnActionClick: true });
+      const ordinary = context.pages()[0] ?? (await context.newPage());
+      await ordinary.goto('about:blank');
+      await ordinary.bringToFront();
+      activate();
+      await expect.poll(panelCount).toBe(1);
+      await capture('old-popup-preference-recovered-after-restart');
+      expect(context.pages().some(p => p.url().includes('/popup.html'))).toBe(false);
+      activate();
+      await expect.poll(panelCount).toBe(0);
+      const id = new URL(worker.url()).host;
+      for (const extensionPage of context.pages().filter(item => item.url().startsWith(`chrome-extension://${id}/`)))
+        await extensionPage.close();
+      const protocol = await context.newCDPSession(ordinary);
+      await worker.evaluate(() => Reflect.set(globalThis, '__toolbarBeforeStop', true));
+      let versionId = '';
+      let runningStatus = '';
+      let sawStopped = false;
+      protocol.on('ServiceWorker.workerVersionUpdated', event => {
+        for (const version of event.versions) {
+          if (version.scriptURL === worker.url()) {
+            if (!versionId && version.runningStatus === 'running') versionId = version.versionId;
+            if (version.versionId === versionId) {
+              runningStatus = version.runningStatus;
+              if (runningStatus === 'stopped') sawStopped = true;
+            }
+          }
+        }
+      });
+      await protocol.send('ServiceWorker.enable');
+      await expect.poll(() => versionId).not.toBe('');
+      sawStopped = false;
+      await protocol.send('ServiceWorker.stopWorker', { versionId });
+      await expect.poll(() => sawStopped).toBe(true);
+      const control = await context.newPage();
+      await control.goto(`chrome-extension://${id}/fullpage.html`);
+      await expect.poll(() => runningStatus, { timeout: 30000 }).toBe('running');
+      worker = context.serviceWorkers().find(item => new URL(item.url()).host === id)!;
+      await expect
+        .poll(() => worker.evaluate(() => Reflect.get(globalThis, '__toolbarBeforeStop')), { timeout: 30000 })
+        .toBeUndefined();
+      await observePanel();
+      await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      await expect
+        .poll(() => worker.evaluate(() => chrome.sidePanel.getPanelBehavior()))
+        .toEqual({ openPanelOnActionClick: true });
+      await control.close();
+      await ordinary.bringToFront();
+      activate();
+      await expect.poll(panelCount).toBe(1);
+      await capture('native-action-after-worker-stop-and-wake');
+    } catch (error) {
+      await capture('failure-browser');
+      throw error;
+    } finally {
+      await context.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}

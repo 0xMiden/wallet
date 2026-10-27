@@ -29,6 +29,7 @@ import {
   type AssetAmount,
   type TxAssetView
 } from 'app/confirm/decode';
+import { noteFlowFromSimulatedBytes } from 'app/confirm/note-flow';
 import {
   MidenDAppDisconnectRequest,
   MidenDAppDisconnectResponse,
@@ -2390,7 +2391,13 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const { transactionMessages, customLimit } = sheetData;
+    const { transactionMessages, customLimit, simulated } = sheetData;
+    let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
+    try {
+      noteFlow = noteFlowFromSimulatedBytes(simulated);
+    } catch (error) {
+      console.error('Custom transaction note details unavailable:', error);
+    }
 
     const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
@@ -2404,6 +2411,7 @@ const generatePromisifyTransaction = async (
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
       transactionMessages,
+      noteFlow: noteFlow ?? null,
       ...(customLimit.details !== undefined && {
         spendingLimitAssessment: customLimit.details.assessment
       }),

@@ -64,6 +64,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Measure head and base
         timeout-minutes: 25
@@ -87,7 +89,7 @@ jobs:
 
           measure head
 
-          git checkout "$base_sha" -- .
+          git restore --source="$base_sha" --staged --worktree .
           # Base cannot finish creating a mock wallet until it has the genesis
           # sync tolerance. Overlay that one file from head when base lacks it,
           # so the carousel under test stays base's. Once main has the line,

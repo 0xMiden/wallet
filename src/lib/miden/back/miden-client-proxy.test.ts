@@ -2623,6 +2623,11 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       started: true,
       deadline: { owner: 'own', timer: 'started', killer: 'write' }
     });
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(err)).toMatchObject({
+      offscreenDeadlineMethod: 'consumeNoteId',
+      offscreenDeadlineStage: 'not_observed'
+    });
     expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
     expect(__test.inFlightSize()).toBe(0);
   });
@@ -4515,7 +4520,10 @@ it('a deadline and late valid execution payload cannot decorate the abort or its
     await jest.advanceTimersByTimeAsync(0);
     const abort = await expiredResult;
     expect(abort).toBeInstanceOf(OperationAbortedError);
-    expect(snapshotCrashDiagnostics(abort)).toEqual({});
+    expect(snapshotCrashDiagnostics(abort)).toEqual({
+      offscreenDeadlineMethod: 'newTransaction',
+      offscreenDeadlineStage: 'not_observed'
+    });
     const successor = __test.dispatchCritical('newTransaction', ['acct', new Uint8Array([2]), false], null);
     let settled = false;
     const successorResult = successor.promise.catch((error: unknown) => {
@@ -4541,7 +4549,10 @@ it('a deadline and late valid execution payload cannot decorate the abort or its
     await jest.advanceTimersByTimeAsync(0);
     expect(settled).toBe(false);
     expect(__test.inFlightSize()).toBe(1);
-    expect(snapshotCrashDiagnostics(abort)).toEqual({});
+    expect(snapshotCrashDiagnostics(abort)).toEqual({
+      offscreenDeadlineMethod: 'newTransaction',
+      offscreenDeadlineStage: 'not_observed'
+    });
     const currentReply = pending[1];
     if (!currentReply) throw new Error('successor never dispatched');
     currentReply({ ok: false, op_id: successor.op_id, error: 'current original failure' });
@@ -4555,3 +4566,113 @@ it('a deadline and late valid execution payload cannot decorate the abort or its
     jest.useRealTimers();
   }
 });
+
+it.each(['sendTransaction', 'swapTransaction', 'consumeNoteId', 'newTransaction', 'guardianPipeline'])(
+  'records only the actual own started deadline method %s',
+  async method => {
+    jest.useFakeTimers();
+    try {
+      const { __test, markOpStarted } = await loadProxy(true);
+      const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+      fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+      const owner = __test.dispatchCritical(method, [{}], 20);
+      const result = owner.promise.catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      markOpStarted(owner.op_id);
+      await jest.advanceTimersByTimeAsync(21);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(snapshotCrashDiagnostics(await result)).toMatchObject({
+        offscreenDeadlineMethod: method,
+        offscreenDeadlineStage: 'not_observed'
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  }
+);
+
+it('binds the last accepted stage to the eligible owner and never to collateral or settled operations', async () => {
+  jest.useFakeTimers();
+  try {
+    const { dispatchGuardianPipeline, __test, markOpStarted, handleOffscreenStageEvent } = await loadProxy(true);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    let ownerId = '';
+    fakeChrome.runtime.sendMessage.mockImplementation((env: { op_id: string; method: string }) => {
+      if (env.method === 'guardianPipeline') ownerId = env.op_id;
+      return new Promise(() => {});
+    });
+    const callback = jest.fn(async () => {});
+    const owner = dispatchGuardianPipeline(
+      'private-account',
+      new Uint8Array([1]),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      callback
+    ).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(0);
+    fireReady();
+    await jest.advanceTimersByTimeAsync(0);
+    markOpStarted(ownerId);
+    handleOffscreenStageEvent(ownerId, 'proving');
+    handleOffscreenStageEvent('mismatched', 'submitting');
+    handleOffscreenStageEvent(ownerId, 'private-stage' as never);
+    const collateral = __test.dispatchCritical('sendTransaction', [{}], null);
+    const collateralResult = collateral.promise.catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(0);
+    markOpStarted(collateral.op_id);
+    await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 1);
+    fireReady();
+    await jest.advanceTimersByTimeAsync(0);
+    const ownerError = await owner,
+      otherError = await collateralResult;
+    expect(ownerError).not.toBe(otherError);
+    expect(otherError).toMatchObject({ facts: { started: true, deadline: { owner: 'collateral' } } });
+    expect(snapshotCrashDiagnostics(ownerError)).toMatchObject({
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    expect(snapshotCrashDiagnostics(otherError)).not.toHaveProperty('offscreenDeadlineMethod');
+    expect(snapshotCrashDiagnostics(otherError)).not.toHaveProperty('offscreenDeadlineStage');
+    const { snapshotOffscreenDeadline } = await import('lib/telemetry/offscreen-deadline-diagnostics');
+    expect(snapshotOffscreenDeadline(otherError)).toBeUndefined();
+    expect(callback).toHaveBeenCalledTimes(2);
+    handleOffscreenStageEvent(ownerId, 'submitting');
+    expect(callback).toHaveBeenCalledTimes(2);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it.each(['newTransaction', 'guardianPipeline'])(
+  'does not accept injected terminal observations from a %s response',
+  async method => {
+    const { __test } = await loadProxy(true);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'original failure',
+      proofWaitAvailability: 'available',
+      proposalCreateApi: 'consume_notes',
+      proposalCreateFamily: 'sdk_account_read',
+      guardianProvingSubstep: 'prove_local',
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving',
+      queueAdmissionObservation: 'selected',
+      reapStartRelation: 'before_realm_cutoff',
+      errorProofWaitAvailability: 'available',
+      errorProposalCreate: { proposalCreateApi: 'consume_notes', proposalCreateFamily: 'sdk_account_read' },
+      errorGuardianProving: { guardianProvingSubstep: 'prove_local' },
+      errorOffscreenDeadline: { offscreenDeadlineMethod: 'guardianPipeline', offscreenDeadlineStage: 'proving' }
+    }));
+    const pending = __test.dispatchCritical(method, [{}], null).promise.catch((error: unknown) => error);
+    await flush();
+    fireReady();
+    const error = await pending;
+    expect(error).toBeInstanceOf(Error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({});
+  }
+);

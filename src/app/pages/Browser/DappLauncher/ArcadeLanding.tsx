@@ -145,6 +145,7 @@ export const ArcadeLanding: React.FC<{ catalog: ExploreView; pending: boolean; o
           )}
           <DrawerFooter>
             <Button
+              className="mx-auto"
               onClick={() => {
                 if (details) openGame(details.url);
               }}
