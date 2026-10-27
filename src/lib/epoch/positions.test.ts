@@ -1,5 +1,6 @@
 import { getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 
+import { readEarnVaults } from './pools-read';
 import {
   carryForward,
   type EarnPosition,
@@ -75,14 +76,17 @@ const answer = (body: unknown, status = 200): Answer => ({ ok: status < 400, sta
 const positionsAnswer = (items: unknown) => answer({ success: true, data: { items } });
 
 /** Serves an owner's positions with `owner`, and the catalogue routes, which a positions read must never ask for. */
-function serve(owner?: (owner: string, init?: { signal?: AbortSignal }) => Answer | Promise<Answer>) {
+function serve(
+  owner?: (owner: string, init?: { signal?: AbortSignal }) => Answer | Promise<Answer>,
+  poolsStatus = 200
+) {
   const fetchMock = jest.fn();
   fetchMock.mockImplementation(async (url: string, init?: { signal?: AbortSignal }) => {
     const parsed = new URL(url);
     const account = parsed.searchParams.get('account') ?? '';
     switch (parsed.pathname) {
       case '/pools':
-        return answer(poolsPage([AAVE_V3_USDC]));
+        return answer(poolsPage([AAVE_V3_USDC]), poolsStatus);
       case '/positions':
         if (account === ZERO_ACCOUNT) return positionsAnswer([apiItem()]);
         return owner?.(account, init) ?? positionsAnswer([]);
@@ -140,6 +144,44 @@ describe('fetchEarnPositions', () => {
       jest.useRealTimers();
     }
   });
+
+  it.each(['owners first', 'catalog first'])(
+    'shares the rolling endpoint budget with fallback catalog reads: %s',
+    async order => {
+      jest.useFakeTimers();
+      try {
+        const fetchMock = serve(undefined, 404);
+        const owners = Array.from({ length: 10 }, (_, index) => `0x${String(index + 1).padStart(40, '0')}`);
+        const readCatalog = () =>
+          readEarnVaults(
+            fetchMock,
+            {
+              positionsUrl: TEST_POSITIONS_URL,
+              chainId: 11155111,
+              underlying: SEPOLIA_USDC,
+              listed: [TEST_EARN_VAULT]
+            },
+            10_000
+          );
+        let settled = false;
+        const first = order === 'owners first' ? fetchEarnPositions({ owners }) : readCatalog();
+        await first;
+        const second = (order === 'owners first' ? readCatalog() : fetchEarnPositions({ owners })).then(result => {
+          settled = true;
+          return result;
+        });
+        await jest.advanceTimersByTimeAsync(0);
+
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(10);
+        expect(settled).toBe(false);
+        await jest.advanceTimersByTimeAsync(60_000);
+        await second;
+        expect(requestedPaths(fetchMock).filter(path => path.startsWith('/positions?'))).toHaveLength(11);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
 
   it('reads only the positions of each owner on the host and chain the config names, never the catalogue', async () => {
     const fetchMock = serve();

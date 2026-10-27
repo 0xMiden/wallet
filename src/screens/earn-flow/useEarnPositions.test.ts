@@ -980,12 +980,13 @@ describe('useEarnPositions', () => {
         await advance(5_000);
         onScreen = false;
         rerender();
+        await advance(100);
         onScreen = true;
         rerender();
-        await advance(0);
+        await advance(100);
         expect(starts).toHaveLength(4);
 
-        await advance(55_000);
+        await advance(54_800);
         const inWindow = starts.filter(at => at >= beganAt && at < beganAt + 60_000).length;
         if (inWindow > 10) throw new Error(`positions budget exceeded: ${inWindow} owner requests in 60000ms`);
       });
