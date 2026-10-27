@@ -2,7 +2,6 @@
  * Coverage tests for `lib/miden/back/store.ts`.
  * Tests effector store event handlers and helper functions.
  */
-import { isLockedError } from 'lib/miden/transaction/helper';
 import {
   flushStorageHealth,
   getStorageHealth,
@@ -11,6 +10,7 @@ import {
   resetStorageHealthForLifecycle,
   type StorageHealth
 } from 'lib/miden/storage-health';
+import { isLockedError } from 'lib/miden/transaction/helper';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
