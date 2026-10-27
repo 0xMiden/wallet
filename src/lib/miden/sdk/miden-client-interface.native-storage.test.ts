@@ -1,4 +1,4 @@
-export {};
+import type { NoteAcquisitionCandidate } from '@miden-sdk/miden-sdk/lazy';
 
 const persisted: Record<string, unknown> = {};
 const RPC_URL = 'https://native-storage.example';
@@ -262,7 +262,7 @@ describe('Task4C3J native storage factory policy', () => {
   );
 });
 
-function nativeCandidate(committed = false): import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate {
+function nativeCandidate(committed = false): NoteAcquisitionCandidate {
   return {
     operationId: 'native-operation-1',
     noteFileBytes: new Uint8Array([19, 48, committed ? 102 : 101]),
@@ -336,11 +336,13 @@ async function retainedCallbackFixture() {
   const invoke = (candidate: unknown) =>
     withWasmClientLock(async () => {
       const callback = field(f.create.mock.calls[0]?.[0], 'beforeNoteAcquisition');
-      if (typeof callback !== 'function') return 'missing callback';
-      const result: unknown = Reflect.apply(callback, undefined, [candidate]);
+      const result: unknown =
+        typeof callback === 'function'
+          ? Reflect.apply(callback, undefined, [candidate])
+          : Promise.resolve('missing callback');
       expect(result).toBeInstanceOf(Promise);
-      await result;
-      return 'acknowledged';
+      const outcome: unknown = await result;
+      return typeof callback === 'function' ? 'acknowledged' : outcome;
     }).catch((error: unknown) => error);
   return {
     ...f,
@@ -404,7 +406,7 @@ describe('Task4C3K native acquired note callback', () => {
         ]);
         expect(settled).toBe(false);
         candidate.noteFileBytes.fill(255);
-      Object.assign(candidate, { detailsCommitment: `0x${'ab'.repeat(32)}` });
+        Object.assign(candidate, { detailsCommitment: `0x${'ab'.repeat(32)}` });
         f.release();
         expect(await pending).toBe('acknowledged');
         expect((await f.journal.read())?.entries).toEqual(entered);
