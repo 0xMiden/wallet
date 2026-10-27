@@ -694,6 +694,21 @@ describe('Task4C3L native lifecycle and batch boundaries', () => {
     f.client.free();
   });
 
+  it('Task4C3L2 acknowledges both sequential in-budget public candidates in one owned batch', async () => {
+    const f = await retainedCallbackFixture();
+    const first = { ...publicCandidate(), batchCount: 2 };
+    const second = { ...first, batchIndex: 1, noteId: `0x${'ab'.repeat(32)}` };
+    f.release();
+    expect(await f.invokeSequence([first, second])).toEqual(['acknowledged', 'acknowledged']);
+    expect(f.sink).toHaveBeenCalledTimes(2);
+    expect(f.sink).toHaveBeenNthCalledWith(1, [], 'testnet', expect.any(Function));
+    expect(f.sink).toHaveBeenNthCalledWith(2, [], 'testnet', expect.any(Function));
+    expect(await f.journal.read()).toEqual(f.initial);
+    expect(f.deserialize).not.toHaveBeenCalled();
+    expect(f.health.getStorageHealth().status).toBe('healthy');
+    f.client.free();
+  });
+
   it('refuses an already acknowledged native operation replay before a second sink call', async () => {
     const f = await retainedCallbackFixture();
     const candidate = nativeCandidate();

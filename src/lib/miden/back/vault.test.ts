@@ -174,6 +174,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // pass-through mock with no hold would make those guards a TypeError, and a
 // no-op assertWasmHoldCurrent would make the eviction tests below vacuous.
 let currentWasmHold: object | null = null;
+let mockRecoveryClient: import('../sdk/miden-client-interface').MidenClientInterface | undefined;
 // Acquisition depth: a nested acquisition would deadlock the non-reentrant production mutex.
 let wasmLockDepth = 0;
 // Simulates a watchdog eviction landing mid-flow: the mutex moves on while
@@ -189,6 +190,13 @@ jest.mock('../sdk/miden-client', () => {
     jest.requireActual<typeof import('../sdk/wasm-client-poison')>('../sdk/wasm-client-poison');
   return {
     getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
+    getMidenClientForRecovery: async (capability: import('../storage-health').StorageRecoveryCapability) => {
+      const { assertStorageRecoveryAllowed } =
+        jest.requireActual<typeof import('../storage-health')>('../storage-health');
+      assertStorageRecoveryAllowed(capability);
+      if (!currentWasmHold || !mockRecoveryClient) throw new Error('Missing owned recovery client fixture');
+      return mockRecoveryClient;
+    },
     getCurrentWasmLockHold: () => currentWasmHold,
     // Re-implements the real comparison against the mock's own hold — a no-op
     // here would silently pass every eviction test.
@@ -6199,6 +6207,285 @@ describe('Vault storage continuity', () => {
     expect(generation).toBeNull();
     expect(await isStored(ck('recoverycontinuity'))).toBe(false);
     expect(getStorageHealth().status).toBe('healthy');
+  });
+
+  async function nativeRecoveryReceipt() {
+    let storageTail = Promise.resolve();
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (_name: string, operation: () => Promise<unknown>) => {
+          const pending = storageTail.then(operation);
+          storageTail = pending.then(
+            () => {},
+            () => {}
+          );
+          return pending;
+        }
+      }
+    });
+    readSnapshot.mockImplementation(async () => ({
+      generation,
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes: []
+    }));
+    const fixture = await acquisition();
+    await fixture.run();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const before = await vault.readRecoveryJournal();
+    if (!before) throw new Error('Missing native recovery journal fixture');
+    const floor = await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey);
+    const marker = await Repo.metadata.get('generation');
+    const file = fixture.setCandidate(fixture.noteFile);
+    const note = file.note();
+    if (!note) throw new Error('Missing committed native recovery fixture');
+    const nativeMetadata = {
+      sender: '0x' + '11'.repeat(15),
+      noteType: 0,
+      tag: 7,
+      attachmentsCommitment: '0x' + '77'.repeat(32)
+    } satisfies NonNullable<import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate['metadata']>;
+    file.note = () => ({
+      ...note,
+      metadata: () => ({
+        ...note.metadata(),
+        sender: () => ({ toString: () => nativeMetadata.sender, free: () => {} })
+      })
+    });
+    const sdk = jest.requireMock<{
+      NoteFile: { fromInputNote: jest.Mock };
+    }>('@miden-sdk/miden-sdk/lazy');
+    const previousExport = sdk.NoteFile.fromInputNote.getMockImplementation();
+    sdk.NoteFile.fromInputNote.mockImplementation(() => file);
+    const record = () => ({
+      details: () => {
+        const details = file.note();
+        if (!details) throw new Error('Missing native recovery note details');
+        return details;
+      },
+      id: file.noteId,
+      state: () => 2,
+      isAuthenticated: () => true,
+      isConsumed: () => false,
+      isInclusionPending: () => false,
+      metadata: () => file.note()?.metadata(),
+      inclusionProof: file.inclusionProof,
+      nullifier: file.nullifier,
+      toInputNote: () => ({ free: () => {} }),
+      free: () => {}
+    });
+    let adopted = false;
+    let beforeGate: () => Promise<void> = async () => {};
+    let transform = (candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate) => candidate;
+    let reachedImport = () => {};
+    const atImport = new Promise<void>(resolve => {
+      reachedImport = resolve;
+    });
+    let release = () => {};
+    const wait = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const { nativeNoteAcquisition } = await import('../sdk/native-note-acquisition');
+    const gate = nativeNoteAcquisition('testnet', () => !fixture.client.isDisposed).beforeNoteAcquisition;
+    if (!gate) throw new Error('Missing native acquisition callback');
+    const delivered = jest.fn(async (candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate) => {
+      await gate(candidate);
+    });
+    fixture.imported.mockClear();
+    fixture.imported.mockImplementation(async imported => {
+      if (!imported) throw new Error('Missing decoded recovery NoteFile');
+      reachedImport();
+      await wait;
+      await beforeGate();
+      const candidate = transform({
+        operationId: 'vault-native-recovery',
+        noteFileBytes: imported.serialize(),
+        variant: 'committed',
+        source: 'import',
+        batchIndex: 0,
+        batchCount: 1,
+        detailsCommitment: '0x' + '34'.repeat(32),
+        noteId: fixture.noteId,
+        nullifier: '0x' + '56'.repeat(32),
+        metadata: nativeMetadata,
+        tag: nativeMetadata.tag
+      });
+      await delivered(candidate);
+      adopted = true;
+      return fixture.noteId;
+    });
+    const list = jest.fn(async () => (adopted ? [record()] : []));
+    const listPage = jest.fn(async () => ({
+      notes: adopted ? [record()] : [],
+      nextCursor: adopted ? '0x' + '34'.repeat(32) : null,
+      exhausted: true
+    }));
+    const settings = {
+      get: jest.fn(async () => generation),
+      set: jest.fn(async (_key: string, next: string) => {
+        generation = next;
+      })
+    };
+    const accounts = {
+      get: jest.fn(async () => ({
+        nonce: () => ({ asInt: () => 4n }),
+        to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+      })),
+      insert: jest.fn()
+    };
+    Reflect.set(fixture.client.client, 'notes', { import: fixture.imported, list, listPage });
+    Reflect.set(fixture.client.client, 'settings', settings);
+    Reflect.set(fixture.client.client, 'accounts', accounts);
+    mockRecoveryClient = fixture.client;
+    readSnapshot.mockRestore();
+    generation = null;
+    initializeGeneration.mockClear();
+    markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+    const progress: import('../recovery/types').StorageRecoveryProgress[] = [];
+    return {
+      ...fixture,
+      before,
+      floor,
+      marker,
+      atImport,
+      release,
+      delivered,
+      settings,
+      accounts,
+      progress,
+      nestedBefore,
+      adopted: () => adopted,
+      beforeGate: (operation: () => Promise<void>) => {
+        beforeGate = operation;
+      },
+      transform: (operation: typeof transform) => {
+        transform = operation;
+      },
+      recover: () => vault.recoverStorage(value => progress.push(value)),
+      cleanup: async () => {
+        release();
+        mockRecoveryClient = undefined;
+        sdk.NoteFile.fromInputNote.mockReset();
+        if (previousExport) sdk.NoteFile.fromInputNote.mockImplementation(previousExport);
+        fixture.restore();
+        await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+      }
+    };
+  }
+
+  it('Task4C3M replays an exact retained primary through the native gate while ordinary intake stays unavailable', async () => {
+    const f = await nativeRecoveryReceipt();
+    f.release();
+    try {
+      await expect(f.run()).rejects.toThrow('StorageUnavailableError');
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(f.delivered).not.toHaveBeenCalled();
+      const recovered = await f.recover();
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.delivered.mock.calls[0]?.[0].noteFileBytes).toEqual(f.noteFile);
+      expect(recovered).toBe(true);
+      expect(f.adopted()).toBe(true);
+      expect(f.settings.set).toHaveBeenCalledTimes(1);
+      expect(await vault.readRecoveryJournal()).toEqual(f.before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+      expect(f.progress.at(-1)?.phase).toBe('complete');
+      expect(getStorageHealth().status).toBe('healthy');
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it.each(['changed bytes', 'foreign note', 'retired client'])(
+    'Task4C3M refuses %s at the native receipt boundary without completing recovery',
+    async scenario => {
+      const f = await nativeRecoveryReceipt();
+      if (scenario === 'changed bytes')
+        f.transform(candidate => ({ ...candidate, noteFileBytes: new Uint8Array([19, 48, 101]) }));
+      if (scenario === 'foreign note') f.transform(candidate => ({ ...candidate, noteId: '0x' + 'ab'.repeat(32) }));
+      if (scenario === 'retired client') f.beforeGate(async () => f.client.markPoisoned());
+      f.release();
+      try {
+        expect(await f.recover()).toBe(false);
+        expect(f.delivered).toHaveBeenCalledTimes(1);
+        expect(f.adopted()).toBe(false);
+        expect(f.settings.set).not.toHaveBeenCalled();
+        expect(await vault.readRecoveryJournal()).toEqual(f.before);
+        expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+        expect(await Repo.metadata.get('generation')).toEqual(f.marker);
+        expect(f.progress.at(-1)?.phase).toBe('notes');
+        expect(getStorageHealth().status).toBe('unavailable');
+        expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+      } finally {
+        await f.cleanup();
+      }
+    }
+  );
+
+  it('Task4C3M detects an out-of-band journal sequence change before recovery completion', async () => {
+    const f = await nativeRecoveryReceipt();
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    let changed = f.before;
+    f.beforeGate(async () => {
+      const journal = new RecoveryJournal(fixtureKey, getStorageProvider());
+      changed = await journal.update(() => ({
+        scope: f.before.scope,
+        accounts: f.before.accounts,
+        entries: [
+          ...f.before.entries,
+          {
+            kind: 'note',
+            id: 'external-sequence-evidence',
+            noteFile: new Uint8Array([19, 48, 102]),
+            provenance: 'input'
+          }
+        ]
+      }));
+    });
+    f.release();
+    try {
+      expect(await f.recover()).toBe(false);
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(changed.sequence).toBeGreaterThan(f.before.sequence);
+      expect(await vault.readRecoveryJournal()).toEqual(changed);
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+      expect(await Repo.metadata.get('generation')).toEqual(f.marker);
+      expect(f.progress.at(-1)?.phase).toBe('notes');
+      expect(getStorageHealth().status).toBe('unavailable');
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  it('Task4C3M queues authorized reconciliation behind the owned native recovery import', async () => {
+    const f = await nativeRecoveryReceipt();
+    const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+    const recovery = f.recover();
+    let reconciliation: Promise<unknown> | undefined;
+    try {
+      expect(await Promise.race([f.atImport.then(() => true), recovery.then(() => false)])).toBe(true);
+      const readsBefore = f.accounts.get.mock.calls.length;
+      reconciliation = vault.reconcileStorageRecovery().catch((error: unknown) => error);
+      await Promise.resolve();
+      expect(getAccountsWriteQueue().size).toBe(1);
+      expect(f.accounts.get).toHaveBeenCalledTimes(readsBefore);
+      expect(await vault.readRecoveryJournal()).toEqual(f.before);
+      f.release();
+      expect(await recovery).toBe(true);
+      await reconciliation;
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.adopted()).toBe(true);
+      expect(f.progress.at(-1)?.phase).toBe('complete');
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+    } finally {
+      f.release();
+      await recovery;
+      await reconciliation;
+      await f.cleanup();
+    }
   });
 
   async function guardianAcquisition(withProof = true) {
