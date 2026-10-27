@@ -1,13 +1,30 @@
+import Dexie from 'dexie';
+
 import { restoreSdkRecovery, decodeSdkRecoveryCommand, type RecoverySdkWriter } from './sdk-restore';
 import type { RecoveryNoteEntry } from './types';
 
+function mockNoteFile(bytes: Uint8Array) {
+  const expected = bytes[0] === 2 || bytes[0] === 4;
+  const details = { commitment: 'details-a' };
+  return {
+    noteDetails: () => (expected ? details : undefined),
+    note: () => (expected ? undefined : details),
+    noteId: () => (expected ? undefined : { toString: () => 'note-a', free: () => {} }),
+    noteType: () => (expected ? 'NoteDetails' : 'NoteWithProof'),
+    noteTag: () => (expected ? { asU32: () => (bytes[0] === 2 ? 71 : 0), free: () => {} } : undefined),
+    afterBlockNum: () => (expected ? (bytes[0] === 2 ? 19 : 0) : undefined),
+    serialize: () => bytes.slice(),
+    free: () => {}
+  };
+}
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  InputNoteState: { Expected: 0, Unverified: 1, Committed: 2, Invalid: 3, ConsumedAuthenticatedLocal: 6 },
+  NoteType: { Private: 0, Public: 1 },
   NoteFile: {
-    deserialize: () => ({
-      noteDetails: () => ({ commitment: 'details-a' }),
-      noteId: () => ({ toString: () => 'note-a' }),
-      free: () => {}
-    })
+    deserialize: mockNoteFile,
+    fromInputNote: () => mockNoteFile(new Uint8Array([1])),
+    fromNoteDetails: () => mockNoteFile(new Uint8Array([4]))
   }
 }));
 jest.mock('../sdk/note-details-commitment', () => ({
@@ -22,7 +39,25 @@ const note: RecoveryNoteEntry = {
   format: 'full'
 };
 let marker: string | null;
-let records: unknown[];
+let db: Dexie;
+let databaseSequence = 0;
+let importedState: number | undefined;
+function record(state = 2, commitment = 'details-a') {
+  return {
+    details: () => ({ commitment }),
+    state: () => state,
+    isAuthenticated: () => state === 2 || state === 6,
+    isInclusionPending: () => state === 0 || state === 1,
+    isConsumed: () => state === 6,
+    id: () => (state === 0 ? undefined : { toString: () => 'note-a', free: () => {} }),
+    metadata: () => (state === 0 ? undefined : { noteType: () => 0, free: () => {} }),
+    toInputNote: () => {
+      if (state === 0) throw new Error('Expected record has no metadata');
+      return {};
+    }
+  };
+}
+let records: ReturnType<typeof record>[];
 let afterImport: () => void;
 const client: RecoverySdkWriter = {
   settings: {
@@ -39,24 +74,43 @@ const client: RecoverySdkWriter = {
     insert: jest.fn()
   },
   notes: {
-    list: jest.fn().mockImplementation(async () => records),
-    import: jest.fn().mockImplementation(async () => {
-      records = [{ details: () => ({ commitment: 'details-a' }), isConsumed: () => false }];
+    list: jest.fn().mockImplementation(async (query?: { ids?: string[]; status?: string }) => {
+      if (query?.ids) return records.filter(item => query.ids?.includes(item.id()?.toString() ?? ''));
+      if (query?.status) {
+        const states: Record<string, number> = { expected: 0, unverified: 1, committed: 2, processing: 4 };
+        return records.filter(item => item.state() === states[query.status!]);
+      }
+      return records;
+    }),
+    import: jest.fn().mockImplementation(async (file: ReturnType<typeof mockNoteFile>) => {
+      const state = importedState ?? (file.noteType() === 'NoteDetails' ? 0 : 2);
+      records = [record(state)];
+      await db.table('inputNotes').put({ detailsCommitment: 'details-a', stateDiscriminant: state });
       afterImport();
+      return file.noteId()?.toString() ?? 'details-a';
     })
   },
-  storeIdentifier: jest.fn().mockResolvedValue('disposable')
+  storeIdentifier: jest.fn().mockImplementation(async () => db.name)
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
   marker = null;
   records = [];
+  importedState = undefined;
   afterImport = () => {};
   Object.defineProperty(navigator, 'locks', {
     configurable: true,
     value: { request: (_name: string, operation: () => Promise<unknown>) => operation() }
   });
+  db = new Dexie(`recovery-restore-${databaseSequence++}`);
+  db.version(1).stores({ inputNotes: 'detailsCommitment,stateDiscriminant' });
+  await db.open();
+});
+
+afterEach(async () => {
+  db.close();
+  await Dexie.delete(db.name);
 });
 
 it('imports a retained input file and verifies its body before acknowledging the recovery step', async () => {
@@ -68,7 +122,7 @@ it('imports a retained input file and verifies its body before acknowledging the
 });
 
 it('preserves a matching already consumed record without importing it again', async () => {
-  records = [{ details: () => ({ commitment: 'details-a' }), isConsumed: () => true }];
+  records = [record(6)];
   await expect(
     restoreSdkRecovery(client, { kind: 'note', note, accountId: 'retained' }, () => {})
   ).resolves.toBeUndefined();
@@ -76,7 +130,7 @@ it('preserves a matching already consumed record without importing it again', as
 });
 
 it('refuses a same-id note whose retained body differs', async () => {
-  records = [{ details: () => ({ commitment: 'different' }) }];
+  records = [record(2, 'different')];
   await expect(restoreSdkRecovery(client, { kind: 'note', note, accountId: 'retained' }, () => {})).rejects.toThrow();
   expect(client.notes.import).not.toHaveBeenCalled();
 });
@@ -112,4 +166,39 @@ it('preserves a different surviving SDK generation', async () => {
 it('rejects an unbounded recovery command before SDK materialization', () => {
   expect(() => decodeSdkRecoveryCommand({ kind: 'generation', generation: 'x'.repeat(129) })).toThrow();
   expect(() => decodeSdkRecoveryCommand({ kind: 'account', material: { accountBytes: [] } })).toThrow();
+});
+
+const quarantined = {
+  ...note,
+  candidates: [{ id: 'note-a', noteFile: new Uint8Array([3]), provenance: 'input', format: 'full' }]
+} satisfies RecoveryNoteEntry;
+
+it.each([
+  ['Unverified', 1],
+  ['Invalid', 3]
+])('Task4C3D SDK Ok with an %s full-proof primary does not satisfy recovery', async (_state, state) => {
+  if (typeof state !== 'number') throw new Error('Invalid fixture state');
+  importedState = state;
+  await expect(
+    restoreSdkRecovery(client, { kind: 'note', note: quarantined, accountId: 'retained' }, () => {})
+  ).rejects.toMatchObject({ name: 'StorageContinuityError' });
+});
+
+it('Task4C3D a quarantined candidate cannot veto or overwrite an authenticated primary', async () => {
+  records = [record(2)];
+  await expect(
+    restoreSdkRecovery(client, { kind: 'note', note: quarantined, accountId: 'retained' }, () => {})
+  ).resolves.toBeUndefined();
+  expect(client.notes.import).not.toHaveBeenCalled();
+  expect(records[0]?.isAuthenticated()).toBe(true);
+});
+
+it('Task4C3D a body-only Expected primary remains unresolved despite a full hint and quarantined proof', async () => {
+  const expected: RecoveryNoteEntry = { ...quarantined, id: 'details-a', noteFile: new Uint8Array([2]) };
+  await expect(
+    restoreSdkRecovery(client, { kind: 'note', note: expected, accountId: 'retained' }, () => {})
+  ).resolves.toBeUndefined();
+  expect(client.notes.import).toHaveBeenCalledTimes(1);
+  expect(records[0]?.state()).toBe(0);
+  expect(records[0]?.isAuthenticated()).toBe(false);
 });
