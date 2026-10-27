@@ -6406,6 +6406,45 @@ describe('Vault storage continuity', () => {
     expect(await vault.readRecoveryJournal()).toEqual(retained);
   });
 
+  it('Task5 last-good export preserves an authenticated subset after retained Guardian account growth', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const accounts = await fetchAndDecryptOne<WalletAccount[]>(keys.accounts, fixtureKey);
+    const first = accounts[0];
+    if (!first) throw new Error('Missing retained Guardian fixture');
+    await encryptAndSaveMany(
+      [[keys.accounts, [...accounts, { ...first, publicKey: crypto.randomUUID(), hdIndex: first.hdIndex + 1 }]]],
+      fixtureKey
+    );
+    markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    const incident = getStorageHealth();
+    const filePassword = crypto.randomUUID();
+    vault.retire();
+    await expect(
+      Vault.exportRecoveryData(filePassword, credential).then(content => decryptRecoveryDataFile(content, filePassword))
+    ).resolves.toEqual(retained);
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 last-good export refuses an authenticated journal account absent from retained custody', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained?.accounts[0]) throw new Error('Missing verified recovery fixture');
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    await new RecoveryJournal(fixtureKey, getStorageProvider()).update(() => ({
+      ...retained,
+      accounts: [...retained.accounts, { ...retained.accounts[0]!, accountId: crypto.randomUUID() }]
+    }));
+    markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    const incident = getStorageHealth();
+    await expect(Vault.exportRecoveryData(crypto.randomUUID(), credential)).rejects.toThrow('RecoveryDataFile:account');
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
     const f = await nativeVaultRetention();
     const { getStorageProvider } = await import('lib/platform/storage-adapter');
