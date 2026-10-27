@@ -11,6 +11,7 @@ export interface StrictActionAuthenticationDependencies {
   getPlatform: () => StrictAuthenticationPlatform;
   loadProtectors: () => Promise<StrictAuthenticationProtectors>;
   verify: (credential?: string) => Promise<void>;
+  perform?: (credential?: string) => Promise<void>;
 }
 
 export interface StrictActionAuthenticationChallenge {

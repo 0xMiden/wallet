@@ -20,6 +20,7 @@ import { cn } from 'lib/ui/util';
 
 export interface StrictActionAuthenticationProps {
   reason: string;
+  authenticatedAction?: (credential?: string) => Promise<void>;
   onResult: (result: StrictAuthenticationResult) => void;
   className?: string;
 }
