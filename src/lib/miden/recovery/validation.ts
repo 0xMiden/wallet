@@ -1,4 +1,4 @@
-import { validateRecoveryTransaction } from './transaction-record';
+import { validateRecoveryReceipt, validateRecoveryTransaction } from './transaction-record';
 import type {
   RecoveryAccountExpectation,
   RecoveryNoteEntry,
@@ -120,6 +120,15 @@ export function isRecoveryNote(value: unknown): value is RecoveryNoteEntry {
 function entry(value: unknown): value is RecoveryEntry {
   if (!record(value) || !text(value.id)) return false;
   if (value.kind === 'note') return isRecoveryNote(value);
+  if (value.kind === 'receipt') {
+    if (!text(value.accountId) || !keys(value, ['kind', 'id', 'accountId', 'row'])) return false;
+    try {
+      const row = validateRecoveryReceipt(value.row);
+      return row.id === value.id && row.accountId === value.accountId;
+    } catch {
+      return false;
+    }
+  }
   if (value.kind === 'policy') {
     if (!text(value.accountId) || !keys(value, ['kind', 'id', 'accountId', 'configuration'])) return false;
     if (value.configuration === null) return true;

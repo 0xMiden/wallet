@@ -101,3 +101,5 @@ it('completes the consume even when a note cannot be read for adoption', async (
   expect(adoptBridgeDeliveries).not.toHaveBeenCalled();
   warn.mockRestore();
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

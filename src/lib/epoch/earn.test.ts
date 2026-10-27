@@ -698,3 +698,7 @@ describe('openEarnPosition guards', () => {
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });
+
+jest.mock('./receipt', () => ({
+  createEpochReceiptOwner: () => ({ hooks: undefined, preparation: () => undefined, retentionFailed: () => false })
+}));

@@ -2370,3 +2370,5 @@ describe('consume queue fee probe', () => {
     }
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

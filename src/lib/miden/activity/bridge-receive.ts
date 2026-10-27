@@ -413,6 +413,7 @@ async function reconcileRow(
     await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
     return;
   }
+  if (inputs.sourceSubmission === 'attempted' && !inputs.evmTxHash && !inputs.intentNonce) return;
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: BRIDGE_DELIVERY_TIMED_OUT,

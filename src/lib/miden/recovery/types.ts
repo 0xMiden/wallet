@@ -41,6 +41,13 @@ export interface RecoveryTransactionEntry {
   scans?: RecoveryNullifierScan[];
 }
 
+export interface RecoveryReceiptEntry {
+  kind: 'receipt';
+  id: string;
+  accountId: string;
+  row: RecoveryTransactionRow;
+}
+
 export interface RecoveryNullifierScan {
   nullifier: string;
   nextBlock: number;
@@ -69,7 +76,12 @@ export interface RecoveryDebitEntry {
   };
 }
 
-export type RecoveryEntry = RecoveryNoteEntry | RecoveryTransactionEntry | RecoveryPolicyEntry | RecoveryDebitEntry;
+export type RecoveryEntry =
+  | RecoveryNoteEntry
+  | RecoveryTransactionEntry
+  | RecoveryReceiptEntry
+  | RecoveryPolicyEntry
+  | RecoveryDebitEntry;
 
 export interface RecoveryJournalData {
   scope: RecoveryScope;

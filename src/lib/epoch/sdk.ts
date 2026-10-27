@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
+import { EpochIntentSDK, type EpochIntentSDKConfig } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { sepolia } from 'viem/chains';
 
@@ -16,6 +16,18 @@ import { buildVaultEvmWalletClient } from './evm-account';
 // user action, possibly before this realm hydrated the config, so each build first awaits that (never the network).
 type SdkCache = { address: string; chainId: number; apiBaseUrl: string; sdk: EpochIntentSDK };
 
+const ownedConfigs = new WeakMap<EpochIntentSDK, EpochIntentSDKConfig>();
+function createOwnedSdk(config: EpochIntentSDKConfig): EpochIntentSDK {
+  const sdk = new EpochIntentSDK(config);
+  ownedConfigs.set(sdk, config);
+  return sdk;
+}
+export function getEpochSdkConfig(sdk: EpochIntentSDK): EpochIntentSDKConfig {
+  const config = ownedConfigs.get(sdk);
+  if (!config) throw new Error('Epoch SDK has no wallet-owned configuration');
+  return config;
+}
+
 let defaultCache: SdkCache | null = null;
 let midenCache: SdkCache | null = null;
 let readOnlyCache: SdkCache | null = null;
@@ -23,7 +35,7 @@ let signingCache: SdkCache | null = null;
 
 async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverride?: number): Promise<EpochIntentSDK> {
   const walletClient = await buildEpochWalletClient(address, { chainOverride });
-  return new EpochIntentSDK({ apiBaseUrl, walletClient });
+  return createOwnedSdk({ apiBaseUrl, walletClient });
 }
 
 /**
@@ -86,7 +98,7 @@ export async function getEpochReadOnlySdk(
   const walletClient = buildEpochReadOnlyWalletClient(destinationAddress, {
     chainOverride: MIDEN_DESTINATION_CHAIN_ID
   });
-  const sdk = new EpochIntentSDK({ apiBaseUrl, walletClient });
+  const sdk = createOwnedSdk({ apiBaseUrl, walletClient });
   readOnlyCache = { address: destinationAddress, chainId, apiBaseUrl, sdk };
   return sdk;
 }
@@ -111,7 +123,7 @@ export async function getEpochSigningSdk(
     return cached.sdk;
   }
   const walletClient = buildVaultEvmWalletClient(midenAccountPublicKey, evmAddress, undefined, epochChain(chainId));
-  const sdk = new EpochIntentSDK({ apiBaseUrl, walletClient });
+  const sdk = createOwnedSdk({ apiBaseUrl, walletClient });
   signingCache = { address: evmAddress, chainId, apiBaseUrl, sdk };
   return sdk;
 }

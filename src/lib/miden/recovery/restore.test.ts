@@ -1,5 +1,8 @@
 import { restoreWalletRecoveryRows, restoreWalletRecoveryGeneration } from './restore';
 import type { RecoveryJournalSnapshot } from './types';
+import { receiptSnapshot, oneClickReceiptRow } from './testing/provider-receipts';
+import { validateJournal } from './validation';
+import { isOneClickTransaction } from 'lib/one-click/tracking';
 import { ITransactionStatus, type ITransaction } from '../db/types';
 import * as Repo from '../repo';
 import {
@@ -56,6 +59,45 @@ beforeEach(async () => {
 afterEach(async () => {
   await resetStorageHealthForLifecycle(getStorageHealth().epoch);
   await Repo.db.open();
+});
+
+it('Task4C2 receipt restore preserves completed tracking phase and inert provenance', async () => {
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await expect(
+    withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+      restoreWalletRecoveryRows(validateJournal(receiptSnapshot()), capability)
+    )
+  ).resolves.toBeUndefined();
+  const restored = await Repo.transactions.get('receipt-oneclick');
+  expect(restored?.status).toBe(ITransactionStatus.Completed);
+  expect(restored?.extraInputs.phase).toBe('delivering');
+  expect(restored?.restoredFromBackup).toBe(true);
+  expect(restored?.restoredFromJournal).toBe(true);
+  expect(restored?.requestBytes).toBeUndefined();
+  expect(getStorageHealth().status).toBe('unavailable');
+});
+
+it('Task4C2 restored OneClick receipt remains recognizable with its frozen quote and assets', async () => {
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await expect(
+    withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+      restoreWalletRecoveryRows(validateJournal(receiptSnapshot()), capability)
+    )
+  ).resolves.toBeUndefined();
+  const restored = await Repo.transactions.get('receipt-oneclick');
+  expect(restored && isOneClickTransaction(restored)).toBe(true);
+  expect(restored?.extraInputs.oneClick).toEqual(oneClickReceiptRow().extraInputs.oneClick);
+});
+
+it('Task4C2 receipt restore refuses a surviving row owned by another account', async () => {
+  await Repo.transactions.put({ ...oneClickReceiptRow(), accountId: 'other-account' });
+  markStorageUnavailable('continuity', { backend: 'wallet', operation: 'validate' });
+  await expect(
+    withStorageRecoveryAccess(getStorageHealth().epoch, Date.now() + 5000, capability =>
+      restoreWalletRecoveryRows(validateJournal(receiptSnapshot()), capability)
+    )
+  ).rejects.toMatchObject({ name: 'StorageContinuityError' });
+  expect((await Repo.transactions.get('receipt-oneclick'))?.accountId).toBe('other-account');
 });
 
 it('reconstructs the erased disposable wallet schema and original logical generation with scoped readback', async () => {

@@ -74,6 +74,7 @@ import {
   USDCX_SYMBOL,
   XRESERVE_ABI
 } from 'lib/usdcx/constant';
+import type { ProviderSourceExecution } from 'lib/miden/transaction/complete';
 import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
@@ -1118,6 +1119,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             throw walletRaised(new Error(ALLOWANCE_READ_FAILED, { cause }));
           })) < amountInBaseUnits;
 
+        const execution: ProviderSourceExecution = {
+          provider: 'agglayer',
+          route: captured,
+          sourceAddress: evmAddress,
+          amount: amount.trim()
+        };
+        await updateBridgedReceivePhase(trackingTxId, 'submitting', undefined, undefined, {
+          claimSourceExecution: execution
+        });
+        const retainCurrentSource = () =>
+          updateBridgedReceivePhase(trackingTxId, 'submitting', undefined, undefined, {
+            continueSourceExecution: execution
+          });
         let hash: `0x${string}`;
         if (nativeReownAvailable) {
           if (needsApproval) {
@@ -1127,13 +1141,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               args: [contractAddress, amountInBaseUnits]
             });
             step = 'wallet_approve';
+            const approvalFees = await readNativeFeeFields(agglayerChainId);
+            await retainCurrentSource();
             const approval = await NativeReown.sendTransaction({
               chainId: agglayerChainId,
               from: evmAddress,
               to: tokenAddress,
               value: toHex(0n),
               data: approveData,
-              ...(await readNativeFeeFields(agglayerChainId))
+              ...approvalFees
             });
             setAwaitingNextConfirmation(true);
             step = 'approve_receipt';
@@ -1145,13 +1161,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             args
           });
           step = 'wallet_deposit';
+          const depositFees = await readNativeFeeFields(agglayerChainId);
+          await retainCurrentSource();
           const result = await NativeReown.sendTransaction({
             chainId: agglayerChainId,
             from: evmAddress,
             to: contractAddress,
             value: toHex(value),
             data,
-            ...(await readNativeFeeFields(agglayerChainId))
+            ...depositFees
           });
           hash = unwrapNativeResult(result.hash) as `0x${string}`;
         } else {
@@ -1166,6 +1184,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           await switchChainAsync({ chainId: agglayerChainId });
           if (needsApproval) {
             step = 'wallet_approve';
+            await retainCurrentSource();
             const approvalHash = await writeContract.mutateAsync({
               chainId: agglayerChainId,
               abi: ERC20_APPROVE_ABI,
@@ -1178,6 +1197,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             await waitForEvmReceipt(approvalHash, chain);
           }
           step = 'wallet_deposit';
+          await retainCurrentSource();
           hash = await writeContract.mutateAsync({
             chainId: agglayerChainId,
             abi: AGGLAYER_BRIDGE_ABI,

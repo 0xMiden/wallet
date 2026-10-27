@@ -511,3 +511,5 @@ describe('1Click durable tracking', () => {
     expect(phaseForProviderStatus(status)).toBe(phase);
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));
