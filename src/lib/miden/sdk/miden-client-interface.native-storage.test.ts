@@ -146,6 +146,7 @@ describe('Task4C3J native storage factory policy', () => {
     const client = await f.MidenClientInterface.create();
     const options = f.createMock.mock.calls[0]?.[0];
     protectedOptions(options);
+    expect(f.createMock).toHaveBeenCalledWith(expect.objectContaining({ useWorker: false }));
     expect(f.create).not.toHaveBeenCalled();
     expect(notifyFailure(options, quotaFailure('mock_client_db'))).toBe(true);
     expect(f.health.getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'quota', backend: 'sdk' });

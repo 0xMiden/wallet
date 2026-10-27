@@ -712,7 +712,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       assertWasmHoldCurrent(context.hold, 'during storage reconstruction');
       if (context.settled || client.isDisposed) throw new Error('Recovery operation ended');
     };
-    if (retained !== undefined) {
+    if (retained !== undefined && retained !== null) {
       if (command.kind !== 'note' || !context.acknowledgeRetainedNote)
         throw new Error('Invalid retained recovery operation');
       await withRemoteRetainedNoteReceipt(

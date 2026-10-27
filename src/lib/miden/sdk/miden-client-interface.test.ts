@@ -2291,6 +2291,7 @@ describe('MidenClientInterface', () => {
         const client = await MidenClientInterface.create({ seed: new Uint8Array([1, 2, 3]) });
         expect(client.network).toBe('mock');
         expect(createMock).toHaveBeenCalledWith({
+          useWorker: false,
           seed: expect.any(Uint8Array),
           indexedDb: { durability: 'strict', onFailure: expect.any(Function) },
           beforeNoteAcquisition: expect.any(Function),

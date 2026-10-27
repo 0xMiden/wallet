@@ -724,6 +724,7 @@ export class MidenClientInterface {
           stage = 'mock_create';
           const mockClient = await sdk.MidenClient.createMock({
             seed: options.seed,
+            useWorker,
             indexedDb,
             ...nativeNoteAcquisition(network, ownsClient, () => created)
           });
