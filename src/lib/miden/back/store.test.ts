@@ -3,6 +3,14 @@
  * Tests effector store event handlers and helper functions.
  */
 import { isLockedError } from 'lib/miden/transaction/helper';
+import {
+  flushStorageHealth,
+  getStorageHealth,
+  initializeStorageHealth,
+  markStorageUnavailable,
+  resetStorageHealthForLifecycle,
+  type StorageHealth
+} from 'lib/miden/storage-health';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -233,5 +241,69 @@ describe('back/store', () => {
       expect(() => withUnlocked(factory)).toThrow('Wallet is locked');
       expect(factory).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('Task5 availability', () => {
+  beforeEach(async () => {
+    await initializeStorageHealth();
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  });
+
+  afterEach(async () => {
+    locked();
+    await flushStorageHealth();
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  });
+
+  it('projects one sanitized unavailable snapshot', () => {
+    const unavailable: StorageHealth = {
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    };
+    const state = {
+      ...store.getState(),
+      storageAvailability: {
+        ...unavailable,
+        storeName: 'disposable-store',
+        eventId: 'internal-event',
+        error: new Error('internal diagnostic')
+      }
+    };
+
+    const front = toFront(state);
+
+    expect(Reflect.get(front, 'storageAvailability')).toEqual({
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    });
+    expect(front).not.toHaveProperty('vault');
+    expect(front).not.toHaveProperty('inited');
+  });
+
+  it('lock preserves unavailable state and hydration', () => {
+    inited(true);
+    markStorageUnavailable('continuity', { backend: 'sdk', operation: 'open' });
+    const incident = getStorageHealth();
+
+    locked();
+    const state = store.getState();
+    const front = toFront(state);
+
+    expect(state.inited).toBe(true);
+    expect(state.vault).toBeNull();
+    expect(front.status).toBe(WalletStatus.Locked);
+    expect(front.accounts).toEqual([]);
+    expect(front.currentAccount).toBeNull();
+    expect(Reflect.get(front, 'storageAvailability')).toEqual(incident);
+    expect(front).not.toHaveProperty('vault');
   });
 });

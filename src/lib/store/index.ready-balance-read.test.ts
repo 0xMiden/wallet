@@ -1,7 +1,8 @@
 import '../../../test/jest-mocks';
 
 import type { TokenBalanceData } from 'lib/miden/front/balance';
-import { WalletStatus } from 'lib/shared/types';
+import type { StorageHealth } from 'lib/miden/storage-health';
+import { type WalletAccount, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { useWalletStore } from './index';
@@ -219,5 +220,66 @@ describe('the store fetchBalances action', () => {
 
     expect(mockFetchBalances).not.toHaveBeenCalled();
     expect(useWalletStore.getState().balancesLoading.pk1).toBeUndefined();
+  });
+});
+
+describe('Task5 availability', () => {
+  const retainedAccount: WalletAccount = { ...account, type: WalletType.Guardian, authScheme: 'ecdsa' };
+
+  beforeEach(() => {
+    mockFetchBalances.mockReset().mockResolvedValue([row]);
+    fetchingAddresses.clear();
+    useWalletStore.setState({
+      status: WalletStatus.Locked,
+      balances: {},
+      balancesLoading: {},
+      balancesLastFetched: {}
+    });
+  });
+
+  afterEach(async () => {
+    await flush();
+    fetchingAddresses.clear();
+  });
+
+  it('unavailable Ready queues no balance read', () => {
+    const storageAvailability: StorageHealth = {
+      status: 'unavailable',
+      epoch: 7,
+      reason: 'continuity',
+      backend: 'sdk',
+      operation: 'open',
+      time: 1234
+    };
+    const state = {
+      ...readyState,
+      accounts: [retainedAccount],
+      currentAccount: retainedAccount,
+      storageAvailability
+    };
+
+    useWalletStore.getState().syncFromBackend(state);
+
+    expect(mockFetchBalances).not.toHaveBeenCalled();
+    expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+    expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+    expect(fetchingAddresses.has('pk1')).toBe(false);
+  });
+
+  it('pending Ready queues no balance read', () => {
+    const storageAvailability: { status: 'pending' } = { status: 'pending' };
+    const state = {
+      ...readyState,
+      accounts: [retainedAccount],
+      currentAccount: retainedAccount,
+      storageAvailability
+    };
+
+    useWalletStore.getState().syncFromBackend(state);
+
+    expect(mockFetchBalances).not.toHaveBeenCalled();
+    expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+    expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+    expect(fetchingAddresses.has('pk1')).toBe(false);
   });
 });
