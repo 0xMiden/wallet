@@ -44,3 +44,8 @@ export async function decryptRecoveryDataFile(
 ): Promise<RecoveryJournalSnapshot> {
   throw new RecoveryDataFileError('unavailable');
 }
+
+export interface RecoveryDataImportResult {
+  imported: boolean;
+  retainedEntries: number;
+}
