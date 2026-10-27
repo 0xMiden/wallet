@@ -26,7 +26,8 @@ for (const theme of ['light', 'dark'] as const) {
           `--disable-extensions-except=${extension}`,
           `--load-extension=${extension}`,
           '--window-size=1400,1000',
-          '--force-renderer-accessibility'
+          '--force-renderer-accessibility',
+          '--remote-debugging-port=0'
         ],
         ignoreDefaultArgs: ['--disable-extensions']
       });
@@ -39,6 +40,81 @@ for (const theme of ['light', 'dark'] as const) {
       execFileSync('import', ['-window', 'root', path]);
       execFileSync('convert', [path, '-resize', '1800x1800>', path]);
       await testInfo.attach(name, { path, contentType: 'image/png' });
+    };
+    const sidebarSnapshot = async () => {
+      const port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const targets: unknown = await response.json();
+      if (!Array.isArray(targets)) throw new Error('Chrome target inventory unavailable');
+      const target = targets.find(item => typeof item?.url === 'string' && item.url.includes('/sidepanel.html'));
+      if (!target) return { present: false };
+      if (typeof target.webSocketDebuggerUrl !== 'string') throw new Error('Sidebar debugging endpoint unavailable');
+      const summary: unknown = await new Promise((resolveSnapshot, reject) => {
+        const connection = new WebSocket(target.webSocketDebuggerUrl);
+        const timeout = setTimeout(() => {
+          connection.close();
+          reject(new Error('Sidebar snapshot timed out'));
+        }, 5000);
+        connection.addEventListener('open', () => {
+          connection.send(
+            JSON.stringify({
+              id: 1,
+              method: 'Runtime.evaluate',
+              params: {
+                expression: `(() => {
+              const inspect = () => ({
+                at: performance.now(),
+                hidden: document.hidden,
+                rootFallback: Boolean(document.querySelector('.flex.items-center.justify-center.h-screen.bg-app-bg')),
+                loadingText: /(?:^|\\n)Loading(?:\\.\\.\\.|…)?(?:$|\\n)/.test(document.body?.innerText ?? ''),
+                rootEmpty: !document.getElementById('root')?.childElementCount,
+                unlock: Boolean(document.querySelector('#unlock-password, [data-testid="unlock-passcode"]')),
+                navigation: Boolean(document.querySelector('nav'))
+              });
+              if (!window.__sidebarReopenProbe) {
+                const samples = [];
+                const record = () => { samples.push(inspect()); if (samples.length > 600) samples.shift(); };
+                const observer = new MutationObserver(record);
+                observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+                document.addEventListener('visibilitychange', record);
+                window.__sidebarReopenProbe = samples;
+                record();
+              }
+              return { timeOrigin: performance.timeOrigin, current: inspect(), samples: window.__sidebarReopenProbe };
+            })()`,
+                returnByValue: true
+              }
+            })
+          );
+        });
+        connection.addEventListener('message', event => {
+          const message = JSON.parse(String(event.data));
+          if (message.id !== 1) return;
+          clearTimeout(timeout);
+          connection.close();
+          if (message.error) reject(new Error('Sidebar evaluation failed'));
+          else resolveSnapshot(message.result?.result?.value);
+        });
+        connection.addEventListener('error', () => {
+          clearTimeout(timeout);
+          reject(new Error('Sidebar debugging connection failed'));
+        });
+      });
+      return { present: true, targetId: target.id, summary };
+    };
+    const captureEarlyReopen = async () => {
+      const samples = [];
+      for (let frame = 0; frame < 8; frame++) {
+        samples.push({ frame, snapshot: await sidebarSnapshot() });
+        const path = testInfo.outputPath(`${theme}-reopen-frame-${frame}.png`);
+        execFileSync('import', ['-window', 'root', path]);
+        execFileSync('convert', [path, '-resize', '1800x1800>', path]);
+        await testInfo.attach(`reopen-frame-${frame}`, { path, contentType: 'image/png' });
+      }
+      await testInfo.attach('sidebar-reopen-diagnostics', {
+        body: JSON.stringify(samples, null, 2),
+        contentType: 'application/json'
+      });
     };
     const activate = () => {
       const value: unknown = JSON.parse(
@@ -153,10 +229,19 @@ for (const theme of ['light', 'dark'] as const) {
         .click();
       await expect.poll(panelCount).toBe(1);
       await capture('ready-sidebar');
+      await testInfo.attach('ready-sidebar-diagnostic', {
+        body: JSON.stringify(await sidebarSnapshot(), null, 2),
+        contentType: 'application/json'
+      });
       activate();
       await expect.poll(panelCount).toBe(0);
       await capture('native-action-closed');
+      await testInfo.attach('closed-sidebar-diagnostic', {
+        body: JSON.stringify(await sidebarSnapshot(), null, 2),
+        contentType: 'application/json'
+      });
       activate();
+      await captureEarlyReopen();
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-reopened');
       activate();
