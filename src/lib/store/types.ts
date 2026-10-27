@@ -6,6 +6,7 @@ import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import type { TokenMetadataOverride, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
+import type { RecoveryDataImportResult } from 'lib/miden/recovery/external-file';
 import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   SpendingLimitAssessment,
@@ -176,6 +177,21 @@ export interface WalletActions {
     operation: 'check' | 'rebuild' | 'reconcile',
     expectedEpoch: number
   ) => Promise<StorageRecoveryResult>;
+
+  exportRecoveryDataFile: (
+    filePassword: string,
+    expectedEpoch: number,
+    operationId: string,
+    credential?: string
+  ) => Promise<string>;
+  importRecoveryDataFile: (
+    content: string,
+    filePassword: string,
+    expectedEpoch: number,
+    operationId: string,
+    credential?: string
+  ) => Promise<RecoveryDataImportResult>;
+  cancelRecoveryDataOperation: (operationId: string) => Promise<void>;
 
   // Account actions
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;

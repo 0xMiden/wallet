@@ -20,6 +20,8 @@ import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { EncryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, DecryptedWalletFile } from 'screens/shared';
 
 export interface ExportFileCompleteProps {
+  preparedContent?: string;
+  fileKind?: 'wallet' | 'recovery-data';
   onGoBack: () => void;
   onDone: () => void;
   filePassword: string;
@@ -51,52 +53,64 @@ class BackupSnapshotError extends Error {
   }
 }
 
-const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
+const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
+  filePassword,
+  fileName,
+  walletPassword,
+  onDone,
+  preparedContent,
+  fileKind = 'wallet'
+}) => {
   const { t } = useTranslation();
   const { exportWalletBackupMaterial } = useMidenContext();
+  const mountedRef = useRef(true);
 
   const getExportFile = useCallback(async () => {
-    const backupMaterial = await exportWalletBackupMaterial(walletPassword).catch(error => {
-      // A backend message is never shown: it is untranslated and can carry
-      // internal detail. Only the one failure the user can act on is named, and
-      // it travels as a code plus the account name.
-      // The cause never reaches the user, but it is the only thing that says why
-      // an export refused to run, so it is logged before it is replaced.
-      console.error('Encrypted wallet file snapshot failed:', error);
-      const accountName = error instanceof Error ? parseImportedAccountBackupFailure(error.message) : null;
-      throw new BackupSnapshotError(
-        accountName
-          ? t('encryptedWalletFileExportFailedAccount', { accountName })
-          : t('encryptedWalletFileExportFailedDesc'),
-        accountName ? 'encryptedWalletFileExportFailedAccount' : 'encryptedWalletFileExportFailedDesc'
-      );
-    });
-    // The accounts and the miden-client dump come from the backend's one
-    // serialized turn, so they cannot describe two different wallets. The wallet
-    // transaction dump is taken after that turn on purpose: it is display history
-    // and nothing in the restore checks it against the accounts.
-    // Recorded so a restore on another network refuses the file before reading
-    // its dump; the restore compares it with this same effective network.
-    const filePayload: DecryptedWalletFile = {
-      ...backupMaterial,
-      formatVersion: CURRENT_BACKUP_FORMAT_VERSION,
-      network: getEffectiveNetworkName()
-    };
+    let fileContent = preparedContent;
+    if (fileContent === undefined) {
+      const backupMaterial = await exportWalletBackupMaterial(walletPassword).catch(error => {
+        // A backend message is never shown: it is untranslated and can carry
+        // internal detail. Only the one failure the user can act on is named, and
+        // it travels as a code plus the account name.
+        // The cause never reaches the user, but it is the only thing that says why
+        // an export refused to run, so it is logged before it is replaced.
+        console.error('Encrypted wallet file snapshot failed:', error);
+        const accountName = error instanceof Error ? parseImportedAccountBackupFailure(error.message) : null;
+        throw new BackupSnapshotError(
+          accountName
+            ? t('encryptedWalletFileExportFailedAccount', { accountName })
+            : t('encryptedWalletFileExportFailedDesc'),
+          accountName ? 'encryptedWalletFileExportFailedAccount' : 'encryptedWalletFileExportFailedDesc'
+        );
+      });
+      // The accounts and the miden-client dump come from the backend's one
+      // serialized turn, so they cannot describe two different wallets. The wallet
+      // transaction dump is taken after that turn on purpose: it is display history
+      // and nothing in the restore checks it against the accounts.
+      // Recorded so a restore on another network refuses the file before reading
+      // its dump; the restore compares it with this same effective network.
+      const filePayload: DecryptedWalletFile = {
+        ...backupMaterial,
+        formatVersion: CURRENT_BACKUP_FORMAT_VERSION,
+        network: getEffectiveNetworkName()
+      };
 
-    const salt = generateSalt();
-    const passKey = await generateKey(filePassword);
-    const derivedKey = await deriveKey(passKey, salt);
+      const salt = generateSalt();
+      const passKey = await generateKey(filePassword);
+      const derivedKey = await deriveKey(passKey, salt);
 
-    const encryptedPayload = await encryptJson(filePayload, derivedKey);
-    const encryptedPasswordCheck = await encrypt(ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, derivedKey);
-    const encryptedWalletFile: EncryptedWalletFile = {
-      dt: encryptedPayload.dt,
-      iv: encryptedPayload.iv,
-      salt,
-      encryptedPasswordCheck
-    };
+      const encryptedPayload = await encryptJson(filePayload, derivedKey);
+      const encryptedPasswordCheck = await encrypt(ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, derivedKey);
+      const encryptedWalletFile: EncryptedWalletFile = {
+        dt: encryptedPayload.dt,
+        iv: encryptedPayload.iv,
+        salt,
+        encryptedPasswordCheck
+      };
 
-    const fileContent = JSON.stringify(encryptedWalletFile);
+      fileContent = JSON.stringify(encryptedWalletFile);
+    }
+    if (!mountedRef.current) return;
     const fullFileName = `${fileName}${EXTENSION}`;
 
     if (isMobile()) {
@@ -112,11 +126,15 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           encoding: Encoding.UTF8
         });
         writtenUri = result.uri;
+        if (!mountedRef.current) {
+          await Filesystem.deleteFile({ path: fullFileName, directory: Directory.Cache }).catch(() => undefined);
+          return;
+        }
 
         await Share.share({
           title: fullFileName,
           url: result.uri,
-          dialogTitle: t('saveEncryptedWalletFile')
+          dialogTitle: t(fileKind === 'recovery-data' ? 'saveRecoveryDataFile' : 'saveEncryptedWalletFile')
         });
       } catch (error) {
         // Rethrow: on mobile the share sheet IS the delivery — the cache file is
@@ -142,12 +160,15 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       const a = document.createElement('a');
       a.href = url;
       a.download = fullFileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      try {
+        document.body.appendChild(a);
+        a.click();
+      } finally {
+        a.parentNode?.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
     }
-  }, [walletPassword, filePassword, fileName, exportWalletBackupMaterial, t]);
+  }, [walletPassword, filePassword, fileName, exportWalletBackupMaterial, preparedContent, fileKind, t]);
 
   // "Exported!" is a claim about a file on disk, so it waits for the write to
   // actually land. Rendering it on mount — as this screen used to — tells the
@@ -155,7 +176,9 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   // them so if it then fails: the one thing a backup flow must never do.
   const [exportState, setExportState] = useState<'pending' | 'success' | 'error' | 'cancelled'>('pending');
   const [exportFailureMessage, setExportFailureMessage] = useState<string>();
-  const [exportFailureId, setExportFailureId] = useState<UserErrorId>('encryptedWalletFileExportFailedDesc');
+  const [exportFailureId, setExportFailureId] = useState<UserErrorId>(
+    fileKind === 'recovery-data' ? 'recoveryDataExportFailedDesc' : 'encryptedWalletFileExportFailedDesc'
+  );
   useUserVisibleError(exportState === 'error' ? exportFailureId : null, 'inline');
   // Set only on the cancelled path, where the encrypted file is already written
   // and re-sharing it costs nothing beyond re-opening the sheet.
@@ -169,7 +192,6 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   // flight, that run's cleanup marks it cancelled, the replacement run returns
   // early on the ref above, and the still-pending promise is then forbidden from
   // reporting — leaving "Creating your wallet file…" on screen forever.
-  const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -196,12 +218,16 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         }
         setExportFailureMessage(error instanceof BackupSnapshotError ? error.publicMessage : undefined);
         setExportFailureId(
-          error instanceof BackupSnapshotError ? error.publicMessageId : 'encryptedWalletFileExportFailedDesc'
+          error instanceof BackupSnapshotError
+            ? error.publicMessageId
+            : fileKind === 'recovery-data'
+              ? 'recoveryDataExportFailedDesc'
+              : 'encryptedWalletFileExportFailedDesc'
         );
         setExportState('error');
       }
     );
-  }, [getExportFile]);
+  }, [getExportFile, fileKind]);
 
   // Re-opens the sheet for the file already on disk. Deliberately does NOT
   // re-run `getExportFile`: the mnemonic reveal, key derivation and encryption
@@ -212,14 +238,18 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     if (uri === undefined) return;
     setExportState('pending');
     try {
-      await Share.share({ title: `${fileName}${EXTENSION}`, url: uri, dialogTitle: t('saveEncryptedWalletFile') });
+      await Share.share({
+        title: `${fileName}${EXTENSION}`,
+        url: uri,
+        dialogTitle: t(fileKind === 'recovery-data' ? 'saveRecoveryDataFile' : 'saveEncryptedWalletFile')
+      });
       if (mountedRef.current) setExportState('success');
     } catch (error) {
       console.error('Failed to re-share encrypted wallet file:', error);
       if (!mountedRef.current) return;
       setExportState(isShareCancellation(error) ? 'cancelled' : 'error');
     }
-  }, [fileName, t]);
+  }, [fileName, fileKind, t]);
 
   const actionButton = 'flex-1 max-w-none';
 
@@ -229,7 +259,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         <div role="status" aria-live="polite" className="flex flex-1 flex-col items-center justify-center">
           <Hero
             visual={<TransactionHeroIcon state="processing" />}
-            subtitle={t('encryptedWalletFileExporting')}
+            subtitle={t(fileKind === 'recovery-data' ? 'recoveryDataExporting' : 'encryptedWalletFileExporting')}
             data-testid="export-outcome"
           />
         </div>
@@ -282,9 +312,16 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         <div role="alert" className="flex flex-1 flex-col">
           <OutcomeHero
             visual={<TransactionHeroIcon state="failed" />}
-            title={t('encryptedWalletFileExportFailedTitle')}
+            title={t(
+              fileKind === 'recovery-data' ? 'recoveryDataExportFailedTitle' : 'encryptedWalletFileExportFailedTitle'
+            )}
           >
-            <p className="select-text">{exportFailureMessage ?? t('encryptedWalletFileExportFailedDesc')}</p>
+            <p className="select-text">
+              {exportFailureMessage ??
+                t(
+                  fileKind === 'recovery-data' ? 'recoveryDataExportFailedDesc' : 'encryptedWalletFileExportFailedDesc'
+                )}
+            </p>
           </OutcomeHero>
         </div>
       </SubPageLayout>
@@ -300,15 +337,21 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         visual={<TransactionHeroIcon state="success" />}
         title={
           <>
-            <span>{t('encryptedWalletFileExportedTitle1')}</span>
+            <span>
+              {t(fileKind === 'recovery-data' ? 'recoveryDataExportedTitle1' : 'encryptedWalletFileExportedTitle1')}
+            </span>
             <br />
-            <span>{t('encryptedWalletFileExportedTitle2')}</span>
+            <span>
+              {t(fileKind === 'recovery-data' ? 'recoveryDataExportedTitle2' : 'encryptedWalletFileExportedTitle2')}
+            </span>
           </>
         }
       >
-        <p>{t('encryptedWalletFileExportedDesc1')}</p>
-        <p className="font-bold text-ink">{t('encryptedWalletFileExportedDesc2')}</p>
-        <p>{t('encryptedWalletFileExportedDesc3')}</p>
+        <p>{t(fileKind === 'recovery-data' ? 'recoveryDataExportedDesc1' : 'encryptedWalletFileExportedDesc1')}</p>
+        <p className="font-bold text-ink">
+          {t(fileKind === 'recovery-data' ? 'recoveryDataExportedDesc2' : 'encryptedWalletFileExportedDesc2')}
+        </p>
+        <p>{t(fileKind === 'recovery-data' ? 'recoveryDataExportedDesc3' : 'encryptedWalletFileExportedDesc3')}</p>
       </OutcomeHero>
     </SubPageLayout>
   );

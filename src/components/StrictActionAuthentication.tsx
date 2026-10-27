@@ -20,6 +20,7 @@ import { cn } from 'lib/ui/util';
 
 export interface StrictActionAuthenticationProps {
   reason: string;
+  authenticatedAction?: (credential?: string) => Promise<void>;
   onResult: (result: StrictAuthenticationResult) => void;
   className?: string;
 }
@@ -28,6 +29,7 @@ type DisplayMethod = StrictAuthenticationMethod | 'unavailable' | null;
 
 export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProps> = ({
   reason,
+  authenticatedAction,
   onResult,
   className
 }) => {
@@ -35,8 +37,9 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
   const loadProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   const verify = useWalletStore(state => state.verifyStrictActionAuthentication);
   const controller = useMemo(
-    () => createStrictActionAuthenticationController({ getPlatform, loadProtectors, verify }),
-    [loadProtectors, verify]
+    () =>
+      createStrictActionAuthenticationController({ getPlatform, loadProtectors, verify, perform: authenticatedAction }),
+    [loadProtectors, verify, authenticatedAction]
   );
   const [method, setMethod] = useState<DisplayMethod>(null);
   const [password, setPassword] = useState('');

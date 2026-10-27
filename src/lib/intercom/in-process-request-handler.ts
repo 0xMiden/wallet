@@ -201,6 +201,30 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     case WalletMessageType.ProviderReceiptRequest:
       await Actions.checkpointProviderReceipt(req.row, req.expectedEpoch);
       return { type: WalletMessageType.ProviderReceiptResponse };
+    case WalletMessageType.ExportRecoveryDataRequest:
+      return {
+        type: WalletMessageType.ExportRecoveryDataResponse,
+        content: await Actions.exportRecoveryDataFile(
+          req.filePassword,
+          req.expectedEpoch,
+          req.operationId,
+          req.credential
+        )
+      };
+    case WalletMessageType.ImportRecoveryDataRequest:
+      return {
+        type: WalletMessageType.ImportRecoveryDataResponse,
+        ...(await Actions.importRecoveryDataFile(
+          req.content,
+          req.filePassword,
+          req.expectedEpoch,
+          req.operationId,
+          req.credential
+        ))
+      };
+    case WalletMessageType.CancelRecoveryDataRequest:
+      await Actions.cancelRecoveryDataOperation(req.operationId);
+      return { type: WalletMessageType.CancelRecoveryDataResponse };
     case WalletMessageType.StorageRecoveryRequest:
       return {
         type: WalletMessageType.StorageRecoveryResponse,

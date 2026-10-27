@@ -23,6 +23,9 @@ import { WalletType } from 'screens/onboarding/types';
 import {
   DAppQueueDeadlineError,
   getFrontState,
+  exportRecoveryDataFile,
+  importRecoveryDataFile,
+  cancelRecoveryDataOperation,
   lock,
   unlock,
   provideRecoverySeed,
@@ -156,6 +159,7 @@ const mockCurrentAccountUpdated = jest.fn();
 
 // Mock store state
 let mockStoreState = {
+  vault: mockVault,
   inited: true,
   status: WalletStatus.Ready,
   accounts: [],
@@ -205,6 +209,8 @@ const mockVaultGetKey = jest.fn();
 const mockWithAccountFileKeyReader = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
+    exportRecoveryData: jest.fn(),
+    importRecoveryData: jest.fn(),
     isExist: jest.fn(),
     spawn: jest.fn(),
     spawnFromHotKey: jest.fn(),
@@ -346,6 +352,7 @@ describe('actions', () => {
       if (callbacks.getKey === mockRealmGetKey) mockRealmGetKey = null;
     });
     mockStoreState = {
+      vault: mockVault,
       inited: true,
       status: WalletStatus.Ready,
       accounts: [],
@@ -2856,4 +2863,175 @@ it('refuses a financial checkpoint captured before reset without selecting the r
     'StorageUnavailableError'
   );
   expect(mockVault.checkpointFinancialRecovery).not.toHaveBeenCalled();
+});
+
+describe('Task5 recovery file action ownership', () => {
+  const module = jest.requireMock<{
+    Vault: {
+      exportRecoveryData: jest.Mock<Promise<string>, [string, string | undefined, () => void]>;
+      importRecoveryData: jest.Mock<
+        Promise<{ imported: boolean; retainedEntries: number }>,
+        [string, string, number, string | undefined, () => void]
+      >;
+    };
+  }>('lib/miden/back/vault');
+
+  beforeEach(async () => {
+    module.Vault.exportRecoveryData.mockReset();
+    module.Vault.importRecoveryData.mockReset();
+    mockStoreState = { ...mockStoreState, inited: true, status: WalletStatus.Ready, vault: mockVault };
+    await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+  });
+
+  it('one export calls the authenticated static boundary once and returns only its encrypted content', async () => {
+    module.Vault.exportRecoveryData.mockResolvedValueOnce('encrypted-disposable-file');
+    await expect(
+      exportRecoveryDataFile(
+        'disposable-file-password',
+        getStorageHealth().epoch,
+        'disposable-export',
+        'disposable-credential'
+      )
+    ).resolves.toBe('encrypted-disposable-file');
+    expect(module.Vault.exportRecoveryData).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stale incident cannot reach a protector or file action', async () => {
+    await expect(
+      exportRecoveryDataFile(
+        'disposable-file-password',
+        getStorageHealth().epoch + 1,
+        'disposable-export',
+        'disposable-credential'
+      )
+    ).rejects.toThrow('StorageUnavailableError');
+    expect(module.Vault.exportRecoveryData).not.toHaveBeenCalled();
+  });
+
+  it('an invalid operation identity cannot reach a protector or file action', async () => {
+    await expect(
+      exportRecoveryDataFile(
+        'disposable-file-password',
+        getStorageHealth().epoch,
+        'invalid operation',
+        'disposable-credential'
+      )
+    ).rejects.toThrow('StorageUnavailableError');
+    expect(module.Vault.exportRecoveryData).not.toHaveBeenCalled();
+  });
+
+  it('cancelling an import retires its captured backend publication guard', async () => {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    module.Vault.importRecoveryData.mockImplementationOnce(async (_content, _password, _epoch, _credential, check) => {
+      start();
+      await released;
+      check();
+      return { imported: true, retainedEntries: 1 };
+    });
+    const pending = importRecoveryDataFile(
+      'encrypted-disposable-file',
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      'disposable-import',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      await cancelRecoveryDataOperation('disposable-import');
+      finish();
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+    } finally {
+      finish();
+      await observed;
+    }
+  });
+
+  it('locking during a parked export retires the late encrypted response', async () => {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    module.Vault.exportRecoveryData.mockImplementationOnce(async (_password, _credential, check) => {
+      start();
+      await released;
+      check();
+      return 'encrypted-disposable-file';
+    });
+    const pending = exportRecoveryDataFile(
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      'disposable-export',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      mockStoreState.status = WalletStatus.Locked;
+      finish();
+      await expect(pending).rejects.toThrow('StorageUnavailableError');
+    } finally {
+      finish();
+      await observed;
+    }
+  });
+
+  it('a repeated in-flight operation identity cannot start another authenticated export', async () => {
+    let start!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>(resolve => {
+      start = resolve;
+    });
+    const released = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+    module.Vault.exportRecoveryData.mockImplementationOnce(async (_password, _credential, check) => {
+      start();
+      await released;
+      check();
+      return 'encrypted-disposable-file';
+    });
+    const pending = exportRecoveryDataFile(
+      'disposable-file-password',
+      getStorageHealth().epoch,
+      'disposable-export',
+      'disposable-credential'
+    );
+    const observed = pending.then(
+      () => 'resolved',
+      () => 'refused'
+    );
+    try {
+      await expect(Promise.race([started.then(() => 'started'), observed])).resolves.toBe('started');
+      await expect(
+        exportRecoveryDataFile(
+          'disposable-file-password',
+          getStorageHealth().epoch,
+          'disposable-export',
+          'disposable-credential'
+        )
+      ).rejects.toThrow('StorageUnavailableError');
+      expect(module.Vault.exportRecoveryData).toHaveBeenCalledTimes(1);
+    } finally {
+      finish();
+      await observed;
+    }
+  });
 });

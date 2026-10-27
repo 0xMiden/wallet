@@ -98,10 +98,11 @@ export const useRetireLockoutOnReady = (ready: boolean) => {
 };
 
 interface UnlockProps {
+  onStorageRecovery?: () => void;
   openForgotPasswordInFullPage?: boolean;
 }
 
-const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
+const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false, onStorageRecovery }) => {
   const { t } = useTranslation();
   const { unlock } = useMidenContext();
   const { compact } = useAppEnv();
@@ -489,11 +490,21 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     'passcode'
   );
 
+  const recoveryAction = onStorageRecovery ? (
+    <Button
+      type="button"
+      variant={ButtonVariant.Secondary}
+      title={t('storageRecoveryTitle')}
+      onClick={onStorageRecovery}
+    />
+  ) : null;
+
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
     return (
       <SimplePageLayout icon={<BrandIcon />}>
         <div className="flex items-center justify-center h-32" />
+        {recoveryAction}
       </SimplePageLayout>
     );
   }
@@ -521,6 +532,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             disabled={isSubmitting}
             className="w-full mb-3"
           />
+          {recoveryAction}
           <Button
             id="reset-wallet"
             title={t('resetWallet')}
@@ -583,6 +595,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
               disabled={!password || isDisabled || isSubmitting}
             />
           </form>
+          {recoveryAction}
 
           <button
             id="forgot-password"
@@ -637,6 +650,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       // while any attempt runs; the biometric key only while one runs - it stays usable in a lockout.
       disabled={isDisabled || isSubmitting}
       biometricDisabled={isSubmitting}
+      secondaryAction={recoveryAction}
       action={
         // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
         // but past the last key row, so it is not hit while a code is typed.

@@ -533,12 +533,17 @@ const PageRouter: FC = () => {
   if (availability?.status !== 'healthy') {
     if (availability?.status !== 'unavailable') return <RootSuspenseFallback />;
     const lifecycleRoute =
+      pathname === '/developer-settings' ||
+      pathname === '/settings/network-endpoints' ||
       pathname === '/reset-wallet' ||
       pathname === '/reset-required' ||
       pathname === '/forgot-password' ||
       pathname === '/forgot-password-info';
+    if (pathname === '/storage-recovery')
+      return <StorageRecoveryPage onBack={() => Woozie.navigate('/', Woozie.HistoryAction.Replace)} />;
     if (!lifecycleRoute && !miden.locked) return <StorageRecoveryPage />;
-    if (miden.locked && !lifecycleRoute) return <Unlock />;
+    if (miden.locked && !lifecycleRoute)
+      return <Unlock onStorageRecovery={() => Woozie.navigate('/storage-recovery')} />;
     return <>{page}</>;
   }
 

@@ -37,6 +37,7 @@ import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
+import { RecoveryDataSettings } from 'screens/storage-recovery/RecoveryDataSettings';
 
 import AdvancedSettings from './AdvancedSettings';
 import ExportAccountFile from './ExportAccountFile';
@@ -211,6 +212,12 @@ const TAB_GROUPS: TabGroup[] = [
         Component: EncryptedFileFlow,
         testID: SettingsSelectors.EncryptedWalletFile,
         requiresFileBackup: true
+      },
+      {
+        slug: 'recovery-data',
+        titleI18nKey: 'recoveryDataTitle',
+        Component: RecoveryDataSettings,
+        testID: SettingsSelectors.RecoveryData
       },
       {
         slug: 'spending-limits',

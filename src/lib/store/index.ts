@@ -350,6 +350,34 @@ export const useWalletStore = create<WalletStore>()(
       return response;
     },
 
+    exportRecoveryDataFile: async (filePassword, expectedEpoch, operationId, credential) => {
+      const response = await request({
+        type: WalletMessageType.ExportRecoveryDataRequest,
+        filePassword,
+        expectedEpoch,
+        operationId,
+        credential
+      });
+      assertResponse(response.type === WalletMessageType.ExportRecoveryDataResponse);
+      return response.content;
+    },
+    importRecoveryDataFile: async (content, filePassword, expectedEpoch, operationId, credential) => {
+      const response = await request({
+        type: WalletMessageType.ImportRecoveryDataRequest,
+        content,
+        filePassword,
+        expectedEpoch,
+        operationId,
+        credential
+      });
+      assertResponse(response.type === WalletMessageType.ImportRecoveryDataResponse);
+      return { imported: response.imported, retainedEntries: response.retainedEntries };
+    },
+    cancelRecoveryDataOperation: async operationId => {
+      const response = await request({ type: WalletMessageType.CancelRecoveryDataRequest, operationId });
+      assertResponse(response.type === WalletMessageType.CancelRecoveryDataResponse);
+    },
+
     // Auth actions
     registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
