@@ -27,9 +27,11 @@ export function captureRecoveryNotes(
     }
   };
   for (const note of executed.inputNotes().notes()) {
+    if (note.note().metadata().noteType() === NoteType.Public) continue;
     retain(note.id().toString(), NoteFile.fromInputNote(note), 'input');
   }
   for (const note of executed.userOutputNotes()) {
+    if (note.metadata().noteType() === NoteType.Public) continue;
     if (note.metadata().noteType() === NoteType.Private) {
       const full = note.intoFull();
       if (!full) throw new Error('Private output recovery body unavailable');

@@ -35,6 +35,7 @@ import { Buffer } from 'buffer';
 import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { captureAcquiredNote, retainAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
@@ -1234,10 +1235,17 @@ export class MidenClientInterface {
     try {
       try {
         const noteFile = deserializeNoteFileOrNote(noteBytes);
+        const check = () => {
+          assertStorageHealthy(storageEpoch);
+          assertWasmHoldCurrent(hold);
+          if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('Import client was replaced'));
+        };
+        check();
+        await retainAcquiredNotes(captureAcquiredNote(noteFile), this.network, check);
         // String(...) tolerates both return shapes across the 0.15 alpha line:
         // alpha.4 resolves a NoteId object, current `next` resolves the hex
         // string directly.
-        return String(await (assertStorageHealthy(storageEpoch), this.client.notes.import(noteFile)));
+        return String(await (check(), this.client.notes.import(noteFile)));
       } catch (error) {
         // A trap from either deserialize, the fallback's conversion or the import: this hold's callers catch a
         // note's failure and go on, so the lock may never see it.

@@ -109,6 +109,12 @@ import {
 import { readGuardianRecoveryAccount } from '../recovery/guardian-state';
 import { RecoveryJournal } from '../recovery/journal';
 import { withRecoveryStorageLock } from '../recovery/lock';
+import {
+  installNoteAcquisitionSink,
+  isNoteAcquisitionSinkInstalled,
+  uninstallNoteAcquisitionSink,
+  type NoteAcquisitionSink
+} from '../recovery/note-acquisition';
 import { reconcileRecoveryTransactions } from '../recovery/reconcile';
 import { restoreWalletRecoveryGeneration, restoreWalletRecoveryRows } from '../recovery/restore';
 import { retireRecoveryNotes } from '../recovery/retirement';
@@ -376,10 +382,14 @@ export class Vault {
   // `syncRealmInsertKeySink`). An adopted vault asserts the slot is its own first
   // inside every hold in which it inserts (#878).
   readonly insertKeySink: ReturnType<typeof insertKeyCallbackWrapper>;
+  readonly noteAcquisitionSink: NoteAcquisitionSink;
 
   constructor(private vaultKey: CryptoKey) {
     this.insertKeySink = insertKeyCallbackWrapper(vaultKey);
+    this.noteAcquisitionSink = (notes, network, assertCurrent) =>
+      this.retainAcquiredNotes(notes, network, assertCurrent);
     installRealmKeystore({ insertKey: this.insertKeySink });
+    installNoteAcquisitionSink(this.noteAcquisitionSink);
   }
 
   /**
@@ -388,6 +398,7 @@ export class Vault {
    */
   retire(): void {
     uninstallRealmKeystore({ insertKey: this.insertKeySink });
+    uninstallNoteAcquisitionSink(this.noteAcquisitionSink);
   }
 
   /**
@@ -406,19 +417,26 @@ export class Vault {
     }
   }
 
-  private recoveryJournal(epoch = getStorageHealth().epoch): RecoveryJournal {
+  private recoveryJournal(epoch = getStorageHealth().epoch, assertCurrent: () => void = () => {}): RecoveryJournal {
     return new RecoveryJournal(
       this.vaultKey,
       getStorageProvider(),
       async () => {
+        assertCurrent();
         assertStorageHealthy(epoch);
         // Reset shares the storage lock. A retired vault cannot recreate recovery data after its protector was wiped.
         await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey).catch(() => {
           throw new StorageUnavailableError();
         });
+        assertCurrent();
         assertStorageHealthy(epoch);
       },
       error => {
+        try {
+          assertCurrent();
+        } catch {
+          return;
+        }
         if (
           !(error instanceof StorageUnavailableError) &&
           getStorageHealth().epoch === epoch &&
@@ -431,6 +449,42 @@ export class Vault {
 
   async readRecoveryJournal(): Promise<RecoveryJournalSnapshot | undefined> {
     return this.recoveryJournal().read();
+  }
+
+  private async retainAcquiredNotes(
+    notes: Parameters<NoteAcquisitionSink>[0],
+    network: string,
+    assertCurrent: () => void
+  ): Promise<void> {
+    const epoch = getStorageHealth().epoch;
+    const scopeNetwork = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+    const check = () => {
+      assertCurrent();
+      assertStorageHealthy(epoch);
+      if (
+        !isNoteAcquisitionSinkInstalled(this.noteAcquisitionSink) ||
+        !isRealmKeystoreInstalled({ insertKey: this.insertKeySink }) ||
+        network !== getEffectiveNetworkName() ||
+        scopeNetwork !== `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`
+      )
+        throw new StorageUnavailableError();
+    };
+    check();
+    const marker = validateWalletGeneration(await Repo.metadata.get('generation'));
+    check();
+    const snapshot = await this.recoveryJournal(epoch, check).update(previous => {
+      check();
+      if (
+        !previous ||
+        previous.scope.network !== scopeNetwork ||
+        previous.scope.walletGeneration !== marker.generation
+      )
+        throw new StorageUnavailableError();
+      return { ...previous, entries: notes };
+    });
+    check();
+    await this.saveRecoveryContinuity(snapshot, epoch, check);
+    check();
   }
 
   async retainRecoveryEntries(entries: RecoveryEntry[], committedRetries: readonly string[] = []): Promise<void> {
@@ -640,19 +694,28 @@ export class Vault {
     assertStorageHealthy(epoch);
   }
 
-  private async saveRecoveryContinuity(snapshot: RecoveryJournalSnapshot, epoch: number): Promise<void> {
+  private async saveRecoveryContinuity(
+    snapshot: RecoveryJournalSnapshot,
+    epoch: number,
+    assertCurrent: () => void = () => {}
+  ): Promise<void> {
     await withRecoveryStorageLock(async () => {
+      assertCurrent();
       assertStorageHealthy(epoch);
       await fetchAndDecryptOne<unknown>(checkStrgKey, this.vaultKey).catch(() => {
         throw new StorageUnavailableError();
       });
+      assertCurrent();
       assertStorageHealthy(epoch);
-      await encryptAndSaveMany([[recoveryContinuityStrgKey, { ...snapshot, entries: [] }]], this.vaultKey);
+      await encryptAndSaveMany([[recoveryContinuityStrgKey, { ...snapshot, entries: [] }]], this.vaultKey, assertCurrent);
+      assertCurrent();
       assertStorageHealthy(epoch);
       const marker = validateWalletGeneration(await Repo.metadata.get('generation'));
+      assertCurrent();
       if (marker.generation !== snapshot.scope.walletGeneration) throw new StorageContinuityError();
       assertStorageHealthy(epoch);
       if (marker.origin !== 'authorized') await Repo.metadata.put({ ...marker, origin: 'authorized' });
+      assertCurrent();
       assertStorageHealthy(epoch);
     });
   }

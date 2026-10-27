@@ -2,6 +2,7 @@ import { ITransactionStatus, type ITransaction } from '../db/types';
 import { importVaultKey } from '../passworder';
 import * as Repo from '../repo';
 import { getStorageHealth, markStorageUnavailable, withStorageRecoveryAccess } from '../storage-health';
+import { captureRecoveryNotes } from './capture';
 import { RecoveryJournal, JOURNAL_MAX_ENTRIES, type RecoveryStorage } from './journal';
 import { restoreWalletRecoveryRows } from './restore';
 import { retireRecoveryNotes, type RecoveryRetirementContext } from './retirement';
@@ -10,6 +11,15 @@ import { verifyRetainedTransactionRows } from './transaction-continuity';
 import { projectRecoveryTransaction } from './transaction-record';
 import type { RecoveryEntry, RecoveryJournalSnapshot, RecoveryTransactionEntry } from './types';
 import { validateJournal } from './validation';
+
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+  NoteType: { Private: 0, Public: 1 },
+  NoteFile: {
+    fromInputNote: (note: { bytes: Uint8Array }) => ({ serialize: () => note.bytes, free: () => {} }),
+    fromOutputNote: (note: { bytes: Uint8Array }) => ({ serialize: () => note.bytes, free: () => {} })
+  }
+}));
 
 function ordinary(id = 'ordinary'): RecoveryTransactionEntry {
   return {
@@ -179,6 +189,53 @@ it('Task4C2 lifecycle refuses a genuinely full critical set without evicting res
   await expect(store.update(() => ({ ...first, entries: [ordinary()] }))).rejects.toThrow();
   expect((await store.read())?.entries).toHaveLength(JOURNAL_MAX_ENTRIES);
   expect((await store.read())?.sequence).toBe(first.sequence);
+});
+
+it('Task4C3 actual public capture reuses capacity without evicting unknown private bodies', async () => {
+  const store = await journal();
+  const preserved = critical();
+  const unknown: RecoveryEntry = {
+    kind: 'note',
+    id: 'unknown-details',
+    accountId: 'account-a',
+    provenance: 'input',
+    format: 'details',
+    noteFile: new Uint8Array([9, 8, 7])
+  };
+  let current = await store.update(() => snapshot([preserved, unknown]));
+  const retain = async (entries: RecoveryEntry[]) => {
+    current = await store.replaceEntries(current, entries, () => {});
+  };
+  let completed = 0;
+  let failure: unknown;
+  try {
+    for (let index = 0; index < JOURNAL_MAX_ENTRIES + 3; index++) {
+      const entry = ordinary(`captured-${index}`);
+      const executed = Object.assign(Object.create(null), {
+        executedTransaction: () => ({
+          inputNotes: () => ({ notes: () => [] }),
+          userOutputNotes: () => [
+            {
+              id: () => ({ toString: () => `note-${entry.id}` }),
+              bytes: new Uint8Array([1, 2, 3]),
+              metadata: () => ({ noteType: () => 1 }),
+              intoFull: () => ({ free: () => {} })
+            }
+          ]
+        })
+      });
+      const capture = captureRecoveryNotes(executed, entry.requestBytes, () => true);
+      const previous = current;
+      current = await store.update(() => ({ ...previous, entries: [entry, ...capture.notes] }));
+      await retireRecoveryNotes(retirement(current, retain));
+      completed++;
+    }
+  } catch (error) {
+    failure = error;
+  }
+  expect({ completed, failure }).toEqual({ completed: JOURNAL_MAX_ENTRIES + 3, failure: undefined });
+  expect(completed).toBe(JOURNAL_MAX_ENTRIES + 3);
+  expect((await store.read())?.entries).toEqual([preserved, unknown]);
 });
 
 it.each(['missing row', 'lost provider binding'])(

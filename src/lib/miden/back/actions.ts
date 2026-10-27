@@ -32,6 +32,7 @@ import {
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
+import { installNoteAcquisitionSink } from 'lib/miden/recovery/note-acquisition';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -170,6 +171,9 @@ function syncRealmInsertKeySink() {
   installRealmKeystore({
     insertKey: state.status === WalletStatus.Ready && state.vault ? state.vault.insertKeySink : null
   });
+  installNoteAcquisitionSink(
+    state.status === WalletStatus.Ready && state.vault ? state.vault.noteAcquisitionSink : undefined
+  );
 }
 
 export async function init() {
