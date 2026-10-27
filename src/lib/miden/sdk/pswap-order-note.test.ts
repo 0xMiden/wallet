@@ -752,6 +752,58 @@ describe('overlapping public sale note reads', () => {
       expect.objectContaining({ kind: 'open', note })
     ]);
     expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares the logical read while its nullifier step is pending', async () => {
+    const note = pswapNote({ id: 'pending-nullifier-sale' });
+    commit(note, 120);
+    let release!: (value: undefined) => void;
+    let started!: () => void;
+    const nullifierStarted = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockGetNullifierCommitHeight.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+          started();
+        })
+    );
+    const quote = readPublicPswapNote('pending-nullifier-sale');
+    await nullifierStarted;
+    const build = readPublicPswapNote('pending-nullifier-sale');
+    release(undefined);
+
+    await expect(Promise.all([quote, build])).resolves.toEqual([
+      expect.objectContaining({ kind: 'open', note }),
+      expect.objectContaining({ kind: 'open', note })
+    ]);
+    expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes a fresh read after the previous logical read fulfilled', async () => {
+    const note = pswapNote({ id: 'settled-public-sale' });
+    commit(note, 120);
+    await expect(readPublicPswapNote('settled-public-sale')).resolves.toMatchObject({ kind: 'open', note });
+    spentAt.set('settled-public-sale', 125);
+
+    await expect(readPublicPswapNote('settled-public-sale')).resolves.toEqual({ kind: 'spent' });
+    expect(mockGetNotesById).toHaveBeenCalledTimes(2);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(2);
+  });
+
+  it('makes a fresh read after the previous logical read rejected', async () => {
+    const note = pswapNote({ id: 'failed-public-sale' });
+    commit(note, 120);
+    mockGetNotesById.mockRejectedValueOnce(new Error('node unreachable'));
+    const quote = readPublicPswapNote('failed-public-sale');
+    const build = readPublicPswapNote('failed-public-sale');
+    await expect(Promise.all([quote, build])).rejects.toThrow('node unreachable');
+
+    await expect(readPublicPswapNote('failed-public-sale')).resolves.toMatchObject({ kind: 'open', note });
+    expect(mockGetNotesById).toHaveBeenCalledTimes(2);
   });
 
   it('keeps a timed-out underlying RPC bounded and permits a changed node', async () => {
@@ -763,6 +815,7 @@ describe('overlapping public sale note reads', () => {
       expect(await parked).toBeInstanceOf(Error);
       await expect(readPublicPswapNote('hung-public-sale')).rejects.toThrow('previous node read has not settled');
       expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+      expect(RpcClient).toHaveBeenCalledTimes(1);
       mockRpcUrl = 'https://node-b';
       const note = pswapNote({ id: 'hung-public-sale' });
       commit(note, 120);
