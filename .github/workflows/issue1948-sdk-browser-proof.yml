@@ -1,0 +1,87 @@
+name: Issue1948 exact fd SDK24 browser proof
+on:
+  push:
+    branches: ['ci/1948-sdk-browser-proof-*']
+permissions:
+  contents: read
+jobs:
+  raw-sdk-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SDK_BROWSER_RESULT_FILE: ${{ github.workspace }}/proof/results.json
+      SDK_BROWSER_OUTPUT_DIR: ${{ github.workspace }}/proof/test-results
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 82d983004aa5a5dddb4b48c7ee042b1edf484ae6
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bind frozen source and unchanged exact SDK test
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py bind 2>&1 | tee proof/stage-bind.log
+      - name: Bind successful fd run and fresh producer source
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py metadata 2>&1 | tee proof/stage-metadata.log
+      - name: Restore verified raw SDK artifact and all42 accepted files
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py restore 2>&1 | tee proof/stage-restore.log
+      - name: Install frozen wallet runner dependencies
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py install 2>&1 | tee proof/stage-install.log
+      - name: Install Chromium through existing runner
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py browser-install 2>&1 | tee proof/stage-browser-install.log
+      - name: Run all24 original native cases with retries0
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py run 2>&1 | tee proof/stage-run.log
+      - name: Require exact24 single-attempt passes and preserved sources
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py verify 2>&1 | tee proof/stage-verify.log
+      - name: Preserve unchanged source and asset hashes after any failure
+        if: always() && hashFiles('proof/dist-before.json') != ''
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-sdk-browser/run.py verify 2>&1 | tee proof/final-verification.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk24-raw-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            proof/
+            !proof/sdk-dist.zip
+            wallet/proof-sdk24/test/indexeddb_safety.browser.test.ts
+            wallet/proof-sdk24/playwright.config.ts
+            wallet/proof-sdk24/package.json
+          if-no-files-found: error
