@@ -1,0 +1,38 @@
+name: PR1945 purchase visual proof
+on:
+  push:
+    branches: ['ci/pr1945-purchase-visual-*']
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - run: yarn playwright install chromium --with-deps
+      - name: Build production component visual fixture
+        run: yarn vite build --config playwright/visual/gc-purchase/vite.config.mts
+      - name: Capture purchase and authorization in both themes
+        run: |
+          yarn vite preview --config playwright/visual/gc-purchase/vite.config.mts > /tmp/pr1945-visual-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:5192/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node playwright/visual/gc-purchase/capture.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr1945-purchase-visual
+          path: |
+            visual-proof-evidence/
+            /tmp/pr1945-visual-server.log
+          if-no-files-found: error
+          retention-days: 7
