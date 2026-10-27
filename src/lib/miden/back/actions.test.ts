@@ -158,8 +158,11 @@ const mockSettingsUpdated = jest.fn();
 const mockCurrentAccountUpdated = jest.fn();
 
 // Mock store state
-let mockStoreState = {
-  vault: mockVault,
+let mockStoreState: import('lib/shared/types').WalletState & {
+  inited: boolean;
+  vault: typeof mockVault | null;
+} = {
+  vault: null,
   inited: true,
   status: WalletStatus.Ready,
   accounts: [],
@@ -168,6 +171,7 @@ let mockStoreState = {
   settings: null,
   ownMnemonic: null
 };
+const mockGetStoreState = jest.fn(() => mockStoreState);
 
 // The realm keystore (#878): init installs the signer; lock retires the vault, which uninstalls its sink.
 // The store's real `locked` drops the vault and the Ready status, so an action that
@@ -212,6 +216,7 @@ jest.mock('lib/miden/back/vault', () => ({
     exportRecoveryData: jest.fn(),
     importRecoveryData: jest.fn(),
     isExist: jest.fn(),
+    hasRetainedCustody: jest.fn(async () => false),
     spawn: jest.fn(),
     spawnFromHotKey: jest.fn(),
     setup: jest.fn(),
@@ -234,7 +239,7 @@ const mockUnlocked = jest.fn();
 
 jest.mock('./store', () => ({
   store: {
-    getState: jest.fn(() => mockStoreState)
+    getState: mockGetStoreState
   },
   toFront: jest.fn(state => state),
   inited: jest.fn((...args: any[]) => mockInited(...args)),
@@ -352,7 +357,7 @@ describe('actions', () => {
       if (callbacks.getKey === mockRealmGetKey) mockRealmGetKey = null;
     });
     mockStoreState = {
-      vault: mockVault,
+      vault: null,
       inited: true,
       status: WalletStatus.Ready,
       accounts: [],
@@ -2835,6 +2840,31 @@ describe('actions', () => {
       }
     });
   });
+
+  describe('Task5 retained custody initialization', () => {
+    beforeEach(async () => {
+      await resetStorageHealthForLifecycle(getStorageHealth().epoch);
+    });
+    it.each(['password', 'hardware'])(
+      'missing vault check with a retained %s protector never publishes fresh onboarding',
+      async protector => {
+        const module = jest.requireMock<typeof import('./vault')>('./vault');
+        const mockedVault = jest.mocked(module.Vault);
+        mockedVault.isExist.mockResolvedValueOnce(false);
+        mockedVault.hasPasswordProtector.mockResolvedValueOnce(protector === 'password');
+        mockedVault.hasHardwareProtector.mockResolvedValueOnce(protector === 'hardware');
+        await init();
+        expect(mockedVault.isExist).toHaveBeenCalledTimes(1);
+        expect(mockInited).toHaveBeenCalledWith(true);
+        expect(getStorageHealth()).toMatchObject({
+          status: 'unavailable',
+          reason: 'continuity',
+          backend: 'independent',
+          operation: 'open'
+        });
+      }
+    );
+  });
 });
 
 jest.mock('lib/telemetry/sink', () => ({ sendEvent: jest.fn() }));
@@ -2877,6 +2907,7 @@ describe('Task5 recovery file action ownership', () => {
   }>('lib/miden/back/vault');
 
   beforeEach(async () => {
+    mockGetStoreState.mockImplementation(() => mockStoreState);
     module.Vault.exportRecoveryData.mockReset();
     module.Vault.importRecoveryData.mockReset();
     mockStoreState = { ...mockStoreState, inited: true, status: WalletStatus.Ready, vault: mockVault };
