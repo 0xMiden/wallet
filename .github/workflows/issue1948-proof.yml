@@ -1,0 +1,141 @@
+name: Issue1948 frozen candidate validation
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 98b4e21d3f81c4bd926fe373804b67ccf92ad12e
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          test "$(git rev-parse "$GITHUB_SHA^")" = 98b4e21d3f81c4bd926fe373804b67ccf92ad12e
+          echo "$GITHUB_SHA" | tee proof/workflow-sha.txt
+          git rev-parse HEAD | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD)" = 98b4e21d3f81c4bd926fe373804b67ccf92ad12e
+          test "$(git rev-parse HEAD^{tree})" = 268f38198a63cd1e10681e98d93224272b2d4be6
+          git show "$GITHUB_SHA:.github/ci/issue1948-candidate.json" > proof/candidate-manifest.json
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Run complete candidate types
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn tsc --noEmit 2>&1 | tee proof/types.log
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c3-staging-v3-types
+          path: |
+            proof/types.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+      - name: Run complete candidate lint
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn eslint playwright/e2e/helpers/usdcx-l2-deposit.ts src/lib/miden/back/actions.ts src/lib/miden/back/main.test.ts src/lib/miden/back/main.ts src/lib/miden/back/vault.test.ts src/lib/miden/back/vault.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/capture.ts src/lib/miden/recovery/journal.ts src/lib/miden/recovery/note-acquisition.ts src/lib/miden/recovery/note-candidates.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/recovery/types.ts src/lib/miden/recovery/validation.ts src/lib/miden/repo.migration.test.ts src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/store-clients.test.ts --max-warnings=0 2>&1 | tee proof/lint.log
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c3-staging-v3-lint
+          path: |
+            proof/lint.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+      - name: Run complete candidate tests-1
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/restore.test.ts --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage 2>&1 | tee proof/tests-1.log
+      - name: Verify tests-1 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-1.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c3-staging-v3-tests-1
+          path: |
+            proof/tests-1.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-1.json
+      - name: Run complete candidate tests-2
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/sdk/miden-client-interface.prove-worker.test.ts src/lib/miden/sdk/store-clients.test.ts src/lib/miden/repo.migration.test.ts --maxWorkers=2 --json --outputFile=proof/results-2.json --no-coverage 2>&1 | tee proof/tests-2.log
+      - name: Verify tests-2 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-2.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c3-staging-v3-tests-2
+          path: |
+            proof/tests-2.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-2.json
+      - name: Run complete candidate tests-3
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/back/main.test.ts playwright/e2e/helpers/usdcx-l2-deposit.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --maxWorkers=2 --json --outputFile=proof/results-3.json --no-coverage 2>&1 | tee proof/tests-3.log
+      - name: Verify tests-3 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-3.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c3-staging-v3-tests-3
+          path: |
+            proof/tests-3.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-3.json
+      - name: Run complete candidate tests-4
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/back/vault.test.ts --maxWorkers=2 --json --outputFile=proof/results-4.json --no-coverage 2>&1 | tee proof/tests-4.log
+      - name: Verify tests-4 executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const x=require('./proof/results-4.json');const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n<1||x.numPendingTests||x.numRuntimeErrorTestSuites)process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.install.outcome == 'success'
+        with:
+          name: storage-proof-green-task4c3-staging-v3-tests-4
+          path: |
+            proof/tests-4.log
+            proof/source-sha.txt
+            proof/workflow-sha.txt
+            proof/results-4.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-proof-green-task4c3-staging-v3
+          path: proof/
