@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { extname, resolve } from 'node:path';
 
+import { installMatrixProgress } from './progress';
+
 let server: Server;
 let origin: string;
 const root = resolve(process.env.WALLET_MATRIX_BUILD_ROOT ?? resolve(import.meta.dirname, 'builds'));
@@ -302,50 +304,55 @@ function safeReceipt(value: unknown, scenario: (typeof cases)[number]) {
 }
 for (const scenario of cases) {
   test(scenario.id, async ({ page, context }, testInfo) => {
-    let blockedNonAsset = false;
-    let observedWorkerMode = '';
-    let methodWorkerCount = 0;
-    page.on('worker', worker => {
-      const pathname = new URL(worker.url()).pathname;
-      if (pathname.includes('web-client-methods-worker')) {
-        methodWorkerCount++;
-        observedWorkerMode = pathname.includes('.module') ? 'module' : 'classic';
-      }
-    });
-    await context.route('**/*', route => {
-      const request = route.request();
-      const url = new URL(request.url());
-      const local = url.origin === origin;
-      const asset =
-        request.method() === 'GET' &&
-        /^\/(st|mt)\//.test(url.pathname) &&
-        /(?:\.html|\.js|\.mjs|\.wasm|\.css|\.svg|\.png|\.woff2?|\.map)$/.test(url.pathname);
-      if (!local || !asset) {
-        blockedNonAsset = true;
-        return route.abort();
-      }
-      return route.continue();
-    });
-    await page.goto(`${origin}/${scenario.mode}/index.html`);
-    await page.waitForFunction(() => typeof Reflect.get(window, '__WALLET_WORKER_MATRIX__')?.run === 'function');
-    const result: unknown = await page.evaluate(async args => {
-      const fixture = Reflect.get(window, '__WALLET_WORKER_MATRIX__');
-      return fixture.run(args.kind, args.workerMode, args.durability);
-    }, scenario);
-    const safe = safeReceipt(result, scenario);
-    await testInfo.attach('worker-matrix-safe', {
-      body: JSON.stringify({
-        receipt: safe ?? { ok: false, phase: 'invalid-receipt' },
-        blockedNonAsset,
-        methodWorkerCount,
-        selectedWorkerObserved: observedWorkerMode === scenario.workerMode
-      }),
-      contentType: 'application/json'
-    });
-    expect(safe !== undefined).toBe(true);
-    expect(safe?.ok).toBe(true);
-    expect(blockedNonAsset).toBe(false);
-    expect(methodWorkerCount).toBe(1);
-    expect(observedWorkerMode === scenario.workerMode).toBe(true);
+    const diagnostic = await installMatrixProgress(page, scenario.id);
+    try {
+      let blockedNonAsset = false;
+      let observedWorkerMode = '';
+      let methodWorkerCount = 0;
+      page.on('worker', worker => {
+        const pathname = new URL(worker.url()).pathname;
+        if (pathname.includes('web-client-methods-worker')) {
+          methodWorkerCount++;
+          observedWorkerMode = pathname.includes('.module') ? 'module' : 'classic';
+        }
+      });
+      await context.route('**/*', route => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const local = url.origin === origin;
+        const asset =
+          request.method() === 'GET' &&
+          /^\/(st|mt)\//.test(url.pathname) &&
+          /(?:\.html|\.js|\.mjs|\.wasm|\.css|\.svg|\.png|\.woff2?|\.map)$/.test(url.pathname);
+        if (!local || !asset) {
+          blockedNonAsset = true;
+          return route.abort();
+        }
+        return route.continue();
+      });
+      await page.goto(`${origin}/${scenario.mode}/index.html`);
+      await page.waitForFunction(() => typeof Reflect.get(window, '__WALLET_WORKER_MATRIX__')?.run === 'function');
+      const result: unknown = await page.evaluate(async args => {
+        const fixture = Reflect.get(window, '__WALLET_WORKER_MATRIX__');
+        return fixture.run(args.kind, args.workerMode, args.durability);
+      }, scenario);
+      const safe = safeReceipt(result, scenario);
+      await testInfo.attach('worker-matrix-safe', {
+        body: JSON.stringify({
+          receipt: safe ?? { ok: false, phase: 'invalid-receipt' },
+          blockedNonAsset,
+          methodWorkerCount,
+          selectedWorkerObserved: observedWorkerMode === scenario.workerMode
+        }),
+        contentType: 'application/json'
+      });
+      expect(safe !== undefined).toBe(true);
+      expect(safe?.ok).toBe(true);
+      expect(blockedNonAsset).toBe(false);
+      expect(methodWorkerCount).toBe(1);
+      expect(observedWorkerMode === scenario.workerMode).toBe(true);
+    } finally {
+      diagnostic.finish(testInfo.status);
+    }
   });
 }

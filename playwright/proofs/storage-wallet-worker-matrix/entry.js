@@ -61,6 +61,11 @@ const payloadBytes = 1024;
 
 async function run(kind, workerMode = 'module', durability = 'strict') {
   let phase = 'initializing';
+  const progress = stage => {
+    const report = Reflect.get(globalThis, '__WALLET_MATRIX_PROGRESS__');
+    if (typeof report === 'function') void Promise.resolve(report(stage)).catch(() => {});
+  };
+  progress(phase);
   let wallet;
   let actual;
   let raw;
@@ -126,26 +131,40 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
   const dispose = async () => {
     if (reader) {
       reader.terminate();
+      progress('before-reader-idle');
       await reader.waitForIdle();
+      progress('after-reader-idle');
       reader = undefined;
     }
     if (actual) {
+      progress('before-wallet-idle');
       await actual.waitForIdle();
+      progress('after-wallet-idle');
       if (wallet) wallet.free();
+      progress('before-actual-async-dispose');
       await actual[Symbol.asyncDispose]();
+      progress('after-actual-async-dispose');
       actual = undefined;
       wallet = undefined;
     }
     if (raw) {
+      progress('before-bootstrap-idle');
       await raw.waitForIdle();
+      progress('after-bootstrap-idle');
+      progress('before-raw-async-dispose');
       await raw[Symbol.asyncDispose]();
+      progress('after-raw-async-dispose');
       raw = undefined;
     }
   };
   try {
+    progress('before-health-initialize');
     await initializeStorageHealth();
+    progress('after-health-initialize');
     check('initiallyHealthy', getStorageHealth().status === 'healthy');
+    progress('before-wasm-ready');
     await sdk.getWasmOrThrow();
+    progress('after-wasm-ready');
     check('requestedWasmMode', matrixMode === 'st' || matrixMode === 'mt');
     check('crossOriginIsolated', globalThis.crossOriginIsolated === true);
     check('realWorkerSelector', sdk.WasmWebClient === sdk.MidenClient._WasmWebClient);
@@ -168,6 +187,7 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
         feeFaucetId
       });
     phase = 'bootstrap-native-mock';
+    progress(phase);
     raw = await sdk.MidenClient.createMock({ useWorker: false, indexedDb: { durability: 'strict' } });
     const fee = await raw.feeFaucetId();
     const feeFaucetId = fee.toString();
@@ -175,7 +195,9 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
     const accountId = kind === 'public-reader' ? await guardedAccount(raw) : undefined;
     const sourceName = await raw.storeIdentifier();
     await raw.waitForIdle();
+    progress('before-raw-async-dispose');
     await raw[Symbol.asyncDispose]();
+    progress('after-raw-async-dispose');
     raw = undefined;
     const dump = await sdk.exportStore(sourceName, { durability: 'strict' });
     digests.bootstrap = await hash(dump);
@@ -183,8 +205,10 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
     const targetName = await nativeStorageName(rpcUrl);
     check('distinctBootstrapNamespace', targetName !== sourceName);
     phase = 'bootstrap-supported-import';
+    progress(phase);
     await sdk.importStore(targetName, dump, { durability: kind === 'durability' ? durability : 'strict' });
     phase = 'normal-wallet-create';
+    progress(phase);
     if (kind === 'durability') {
       actual = await sdk.MidenClient.create({
         rpcUrl,
@@ -213,6 +237,7 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
     check('workerReady', worker instanceof Worker);
     if (kind === 'public-reader') {
       phase = 'public-wallet-reader';
+      progress(phase);
       check('guardedAccountPresent', typeof accountId === 'string');
       const notes = await held(() => {
         check('actualWalletHold', !!getCurrentWasmLockHold());
@@ -225,6 +250,7 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
     }
     if (kind === 'late-commit-abort' || kind === 'intentional-abort') {
       phase = 'native-request-success-then-abort';
+      progress(phase);
       const epoch = getStorageHealth().epoch;
       fault = { store: targetName, intentional: kind === 'intentional-abort', claimed: false, requestSucceeded: false };
       let acknowledged = false;
@@ -256,6 +282,7 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
     }
     if (kind === 'durability') {
       phase = 'bounded-durability-measurement';
+      progress(phase);
       const payload = new Uint8Array(payloadBytes);
       for (let index = 0; index < 2; index++) await held(() => actual.settings.set('proof-timing', payload));
       const start = transactions.length;
@@ -301,7 +328,10 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
       );
     if (kind !== 'late-commit-abort') check('healthRemainsHealthy', getStorageHealth().status === 'healthy');
     phase = 'cleanup';
+    progress(phase);
+    progress('before-dispose');
     await dispose();
+    progress('after-dispose');
     check('cleanupComplete', !wallet && !actual && !reader && !raw);
     return {
       ok: true,
@@ -317,7 +347,9 @@ async function run(kind, workerMode = 'module', durability = 'strict') {
     };
   } catch {
     try {
+      progress('before-dispose');
       await dispose();
+      progress('after-dispose');
     } catch {
       checks.cleanupComplete = false;
     }
