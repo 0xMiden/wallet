@@ -657,24 +657,39 @@ async function dispatchOp(
   recoveryCapability?: StorageRecoveryCapability
 ): Promise<string | null> {
   const retainAcquisition = captureNoteAcquisitionRetainer();
+  const recoveryHold = recoveryCapability ? getCurrentWasmLockHold() : undefined;
+  const recoveryEndpoints = recoveryCapability ? getEndpointState() : undefined;
+  const recoveryNetwork = recoveryCapability ? getEffectiveNetworkName() : undefined;
+  const check = () => {
+    if (!recoveryCapability) {
+      assertStorageHealthy();
+      return;
+    }
+    if (method !== 'readStorageContinuity' && method !== 'restoreStorageRecovery')
+      throw new Error('Invalid recovery operation');
+    assertStorageRecoveryAllowed(recoveryCapability);
+    if (!recoveryHold || !recoveryEndpoints) throw new Error('Storage recovery requires a current owner');
+    assertWasmHoldCurrent(recoveryHold, 'offscreen recovery readiness');
+    retainAcquisition.assertSinkCurrent();
+    if (recoveryNetwork !== getEffectiveNetworkName() || !sameEndpointState(recoveryEndpoints, getEndpointState()))
+      throw new Error('Storage recovery scope changed');
+  };
   let storageEpoch = getStorageHealth().epoch;
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
+    check();
     await initializeStorageHealth();
-    if (recoveryCapability) {
-      if (method !== 'readStorageContinuity' && method !== 'restoreStorageRecovery')
-        throw new Error('Invalid recovery operation');
-      assertStorageRecoveryAllowed(recoveryCapability);
-    } else assertStorageHealthy();
+    check();
     storageEpoch = getStorageHealth().epoch;
-    await ensureOffscreenDocument();
+    await ensureOffscreenDocument(recoveryCapability, check);
+    check();
+    // The sync alarm may arrive before the realm has loaded its persisted override.
+    await whenEndpointOverridesLoaded();
+    check();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
   }
-  // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
-  // envelope carries would still be the build's network. The load settles even when it fails.
-  await whenEndpointOverridesLoaded();
   const acquisitionEndpoints = getEndpointState();
   const acquisitionNetwork = getEffectiveNetworkName();
   let argsB64: string[];
@@ -684,6 +699,7 @@ async function dispatchOp(
     throw markErrorBeforeSubmit(error);
   }
   return new Promise<string | null>((resolve, reject) => {
+    check();
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
     // is armed at EXECUTION START via `markOpStarted` when the op wins the offscreen
     // WASM mutex (issue #260 flip-prep #3), so queue-wait behind other ops on that
@@ -724,8 +740,6 @@ async function dispatchOp(
       started: false
     });
 
-    if (recoveryCapability) assertStorageRecoveryAllowed(recoveryCapability);
-    else assertStorageHealthy();
     const envelope: OffscreenCallRequest = {
       recoveryAccess: recoveryCapability && {
         epoch: recoveryCapability.epoch,
