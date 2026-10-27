@@ -92,7 +92,7 @@ for (const theme of ['light', 'dark'] as const) {
           if (message.id !== 1) return;
           clearTimeout(timeout);
           connection.close();
-          if (message.error) reject(new Error('Sidebar evaluation failed'));
+          if (message.error || message.result?.exceptionDetails) reject(new Error('Sidebar evaluation failed'));
           else resolveSnapshot(message.result?.result?.value);
         });
         connection.addEventListener('error', () => {
@@ -102,19 +102,21 @@ for (const theme of ['light', 'dark'] as const) {
       });
       return { present: true, targetId: target.id, summary };
     };
-    const captureEarlyReopen = async () => {
+    const persistDiagnostic = async (name: string, value: unknown) => {
+      const path = testInfo.outputPath(`${theme}-${name}.json`);
+      writeFileSync(path, JSON.stringify(value, null, 2));
+      await testInfo.attach(name, { path, contentType: 'application/json' });
+    };
+    const captureEarlyReopen = async (name: string) => {
       const samples = [];
       for (let frame = 0; frame < 8; frame++) {
         samples.push({ frame, snapshot: await sidebarSnapshot() });
-        const path = testInfo.outputPath(`${theme}-reopen-frame-${frame}.png`);
+        const path = testInfo.outputPath(`${theme}-${name}-frame-${frame}.png`);
         execFileSync('import', ['-window', 'root', path]);
         execFileSync('convert', [path, '-resize', '1800x1800>', path]);
-        await testInfo.attach(`reopen-frame-${frame}`, { path, contentType: 'image/png' });
+        await testInfo.attach(`${name}-frame-${frame}`, { path, contentType: 'image/png' });
       }
-      await testInfo.attach('sidebar-reopen-diagnostics', {
-        body: JSON.stringify(samples, null, 2),
-        contentType: 'application/json'
-      });
+      await persistDiagnostic(`${name}-diagnostics`, samples);
     };
     const activate = () => {
       const value: unknown = JSON.parse(
@@ -229,21 +231,28 @@ for (const theme of ['light', 'dark'] as const) {
         .click();
       await expect.poll(panelCount).toBe(1);
       await capture('ready-sidebar');
-      await testInfo.attach('ready-sidebar-diagnostic', {
-        body: JSON.stringify(await sidebarSnapshot(), null, 2),
-        contentType: 'application/json'
-      });
+      await persistDiagnostic('ready-sidebar-diagnostic', await sidebarSnapshot());
       activate();
       await expect.poll(panelCount).toBe(0);
       await capture('native-action-closed');
-      await testInfo.attach('closed-sidebar-diagnostic', {
-        body: JSON.stringify(await sidebarSnapshot(), null, 2),
-        contentType: 'application/json'
-      });
+      await persistDiagnostic('closed-sidebar-diagnostic', await sidebarSnapshot());
       activate();
-      await captureEarlyReopen();
+      await captureEarlyReopen('initial-reopen');
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-reopened');
+      const readySidebar = await sidebarSnapshot();
+      await persistDiagnostic('settled-warm-sidebar', readySidebar);
+      expect(readySidebar).toMatchObject({
+        present: true,
+        summary: { current: { hidden: false, rootFallback: false, rootEmpty: false, navigation: true } }
+      });
+      activate();
+      await expect.poll(panelCount).toBe(0);
+      await persistDiagnostic('warm-sidebar-closed', await sidebarSnapshot());
+      activate();
+      await captureEarlyReopen('warm-reopen');
+      await expect.poll(panelCount).toBe(1);
+      await capture('settled-warm-reopen');
       activate();
       await expect.poll(panelCount).toBe(0);
       await worker.evaluate(async () => {
