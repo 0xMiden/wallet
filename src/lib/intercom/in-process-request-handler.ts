@@ -198,6 +198,9 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     case WalletMessageType.FinancialRecoveryRequest:
       await Actions.checkpointFinancialRecovery(req.accountId, req.entry, req.expectedEpoch);
       return { type: WalletMessageType.FinancialRecoveryResponse };
+    case WalletMessageType.ProviderReceiptRequest:
+      await Actions.checkpointProviderReceipt(req.row, req.expectedEpoch);
+      return { type: WalletMessageType.ProviderReceiptResponse };
     case WalletMessageType.StorageRecoveryRequest:
       return {
         type: WalletMessageType.StorageRecoveryResponse,

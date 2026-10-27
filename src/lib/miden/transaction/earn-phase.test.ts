@@ -139,3 +139,5 @@ describe('updateEarnWithdrawPhase monotonicity', () => {
     warn.mockRestore();
   });
 });
+
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: async () => {} }));

@@ -2,6 +2,7 @@ import { createPublicClient, http, isAddress } from 'viem';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { checkpointProviderReceipt } from 'lib/miden/recovery/receipt-writer';
 import { getChain } from 'lib/walletconnect/config';
 
 import { usdcxDestinations, ERC20_BALANCE_OF_ABI } from './constant';
@@ -178,6 +179,7 @@ export async function pollUsdcxDestination(
       : floor;
   if (!payout && resumeAfter === floor) return { more };
 
+  let retained: ITransaction | undefined;
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;
     const previous = current?.usdcxBurn;
@@ -202,6 +204,8 @@ export async function pollUsdcxDestination(
       ...current,
       usdcxBurn: payout ? { ...previous, payout } : { ...previous, payoutScannedBlock: resumeAfter.toString() }
     };
+    retained = { ...row };
   });
+  if (retained) await checkpointProviderReceipt(retained);
   return { more };
 }

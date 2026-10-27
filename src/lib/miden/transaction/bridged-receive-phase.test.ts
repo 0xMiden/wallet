@@ -1,3 +1,5 @@
+jest.mock('lib/miden/recovery/receipt-writer', () => ({ checkpointProviderReceipt: jest.fn(async () => {}) }));
+
 import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs, IBridgedReceivePhase } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { revertedExecuteLeg, stalledExecuteLeg } from 'lib/usdcx/cctp';
