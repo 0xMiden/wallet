@@ -144,7 +144,7 @@ describe('Task4C3G authenticated input readback', () => {
     expect(await readCanonical(client, retained)).toEqual([
       { familyId: detailsId, id: noteId, detailsId, noteFile: canonicalBytes }
     ]);
-    expect(notes.list).toHaveBeenCalledWith({ detailsCommitments: [detailsId] });
+    expect(notes.list).toHaveBeenCalledWith({ detailsCommitments: [`0x${detailsId}`] });
     expect(notes.list).toHaveBeenCalledTimes(1);
     expect(mockToInputNote).toHaveBeenCalledTimes(1);
     expect(mockExportInput).toHaveBeenCalledTimes(1);
@@ -251,4 +251,24 @@ describe('Task4C3G2 canonical request limits', () => {
     expect(families).toEqual(before);
     expect(getStorageHealth().status).toBe('healthy');
   });
+});
+
+it('Task4C3G4 encodes the exact details query for the native Word parser', async () => {
+  const { client, notes } = reader();
+  notes.list.mockImplementation(async (query: { detailsCommitments: string[] }) => {
+    if (query.detailsCommitments.some(value => !/^0x[a-f0-9]{64}$/.test(value)))
+      throw new Error('InvalidLength: Word hex requires 66 characters including 0x');
+    return [inputRecord()];
+  });
+  const outcome = await readCanonical(client).then(
+    value => ({ value, error: undefined }),
+    (error: unknown) => ({ value: undefined, error })
+  );
+  expect(outcome).toEqual({
+    value: [{ familyId: detailsId, id: noteId, detailsId, noteFile: canonicalBytes }],
+    error: undefined
+  });
+  expect(notes.list).toHaveBeenCalledWith({ detailsCommitments: [`0x${detailsId}`] });
+  expect(notes.import).not.toHaveBeenCalled();
+  expect(getStorageHealth().status).toBe('healthy');
 });
