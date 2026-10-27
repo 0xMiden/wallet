@@ -12,6 +12,7 @@ import { recoveryNoteUsage } from './note-candidates';
 import { fromSerializable } from './serialization';
 import type { RecoveryAccountExpectation, RecoveryNoteEntry } from './types';
 import { isRecoveryNote, validateJournal } from './validation';
+import { assertRetainedNotesWire, assertSdkRecoverySnapshotWire } from './wire-preflight';
 import { noteDetailsCommitment } from '../sdk/note-details-commitment';
 import { markStorageUnavailable } from '../storage-health';
 
@@ -219,6 +220,7 @@ export async function readSdkRecoverySnapshot(
 }
 
 export function decodeSdkRecoverySnapshot(value: unknown): SdkRecoverySnapshot {
+  assertSdkRecoverySnapshotWire(value);
   if (typeof value !== 'object' || value === null) throw new StorageContinuityError();
   const generation: unknown = Reflect.get(value, 'generation');
   if (generation !== null && (typeof generation !== 'string' || generation.length > 128))
@@ -241,6 +243,7 @@ export function decodeSdkRecoverySnapshot(value: unknown): SdkRecoverySnapshot {
 }
 
 export function decodeRetainedRecoveryNotes(value: unknown): RecoveryNoteEntry[] {
+  assertRetainedNotesWire(value);
   if (value === undefined) return [];
   const decoded: unknown = fromSerializable(value);
   if (!Array.isArray(decoded) || decoded.length > JOURNAL_MAX_ENTRIES || !decoded.every(isRecoveryNote))

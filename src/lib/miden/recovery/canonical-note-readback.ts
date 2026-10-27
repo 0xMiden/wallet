@@ -157,7 +157,7 @@ export async function readCanonicalNoteFamilies(
   const detailsCommitments = [...new Set([...requested.values()].map(identity => identity.detailsId))];
   if (detailsCommitments.length === 0) return [];
   assertCurrent();
-  const records = await client.notes.list({ detailsCommitments });
+  const records = await client.notes.list({ detailsCommitments: detailsCommitments.map(value => `0x${value}`) });
   try {
     assertCurrent();
     if (records.length > detailsCommitments.length) return [];

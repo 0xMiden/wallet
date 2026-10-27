@@ -5,6 +5,7 @@ import { recoveryNoteUsage } from './note-candidates';
 import { fromSerializable } from './serialization';
 import type { RecoveryCapture, RecoveryNoteEntry } from './types';
 import { isRecoveryNote } from './validation';
+import { assertRecoveryCaptureWire } from './wire-preflight';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export function captureRecoveryNotes(
@@ -44,6 +45,7 @@ export function captureRecoveryNotes(
 }
 
 export function decodeRecoveryCapture(value: unknown): RecoveryCapture {
+  assertRecoveryCaptureWire(value);
   const decoded =
     typeof value === 'object' && value !== null && Reflect.get(value, 'requestBytes') instanceof Uint8Array
       ? value

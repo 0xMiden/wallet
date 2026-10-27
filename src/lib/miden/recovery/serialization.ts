@@ -21,7 +21,7 @@ const isTaggedBigInt = (value: object): value is TaggedBigInt => {
   return typeof tagged === 'string' && CANONICAL_BIGINT.test(tagged);
 };
 
-const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes', 'noteFile']);
+const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes', 'noteFile', 'accountBytes']);
 
 // Bound malformed imports before recursion or storage writes.
 const MAX_WALK_DEPTH = 64;

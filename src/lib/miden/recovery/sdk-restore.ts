@@ -14,6 +14,7 @@ import {
 import { fromSerializable } from './serialization';
 import type { RecoveryNoteEntry } from './types';
 import { isRecoveryAccount, isRecoveryNote } from './validation';
+import { assertSdkRecoveryCommandWire } from './wire-preflight';
 import { noteDetailsCommitment } from '../sdk/note-details-commitment';
 
 export type SdkRecoveryCommand =
@@ -76,6 +77,7 @@ export async function restoreSdkRecovery(
 }
 
 export function decodeSdkRecoveryCommand(value: unknown): SdkRecoveryCommand {
+  assertSdkRecoveryCommandWire(value);
   const decoded: unknown = fromSerializable(value);
   if (typeof decoded !== 'object' || decoded === null) throw new StorageContinuityError();
   const kind: unknown = Reflect.get(decoded, 'kind');
