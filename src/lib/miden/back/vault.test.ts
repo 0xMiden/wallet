@@ -22,6 +22,8 @@ import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-autho
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 import * as CanonicalReads from '../recovery/canonical-reads';
+import { checkpointProviderReceipt } from '../recovery/receipt-writer';
+import { installProviderReceiptBackend } from '../recovery/receipt-backend';
 import { StorageContinuityError } from '../recovery/continuity';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -5251,9 +5253,45 @@ describe('Vault storage continuity', () => {
       });
   });
   afterEach(() => {
+    installProviderReceiptBackend(undefined);
     readSnapshot.mockRestore();
     initializeGeneration.mockRestore();
   });
+
+  it.each(['held source callback', 'retired vault'])(
+    'Task4C2 actual receipt route handles %s without reentering SDK continuity',
+    async scenario => {
+      expect(await vault.verifyStorageContinuity()).toBe(true);
+      readSnapshot.mockClear();
+      const row: ITransaction = {
+        id: 'provider-receipt', accountId: 'retained', type: 'bridged-receive', status: ITransactionStatus.Completed,
+        initiatedAt: 1, displayIcon: 'RECEIVE', extraInputs: {
+          provider: 'agglayer', phase: 'delivering', sourceAddress: '0x1111111111111111111111111111111111111111',
+          sourceAmount: '1', sourceSymbol: 'ETH', evmTxHash: `0x${'1'.repeat(64)}`,
+          agglayerRoute: { chainId: 1, contractAddress: '0x1111111111111111111111111111111111111111', midenBridgeId: 'bridge', indexerUrl: 'https://indexer.example', rollupId: 1, evmNetworkId: 0 }
+        }
+      };
+      await Repo.transactions.put(row);
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      const { withWasmClientLock } = await import('../sdk/miden-client');
+      const { getAccountsWriteQueue } = await import('./accounts-write-queue');
+      const nestedBefore = Reflect.get(globalThis, '__vaultTestLockNested') ?? 0;
+      if (scenario === 'retired vault') vault.retire();
+      const result = getAccountsWriteQueue().add(() => withWasmClientLock(async () => {
+        await checkpointProviderReceipt(row);
+      }));
+      if (scenario === 'retired vault') {
+        await expect(result).rejects.toMatchObject({ reason: 'locked' });
+        expect((await vault.readRecoveryJournal())?.entries.some(entry => entry.id === row.id)).toBe(false);
+      } else {
+        await expect(result).resolves.toBeUndefined();
+        const retained = await vault.readRecoveryJournal();
+        expect(retained?.entries.find(entry => entry.id === row.id)).toMatchObject({ kind: 'receipt', accountId: 'retained', row: { status: ITransactionStatus.Completed, extraInputs: { evmTxHash: `0x${'1'.repeat(64)}` } } });
+        expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(nestedBefore);
+      }
+      expect(readSnapshot).not.toHaveBeenCalled();
+    }
+  );
 
   it('establishes an encrypted first checkpoint after coherent retained account reads', async () => {
     expect(await vault.verifyStorageContinuity()).toBe(true);
