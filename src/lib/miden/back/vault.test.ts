@@ -5317,7 +5317,7 @@ describe('Vault storage continuity', () => {
       return file;
     };
     setCandidate(noteFile);
-    const imported = jest.fn(async () => noteId);
+    const imported = jest.fn(async (_file?: { serialize: () => Uint8Array }) => noteId);
     const { MidenClientInterface } = await import('../sdk/miden-client-interface');
     const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
       MidenClientInterface.fromClient,
@@ -5346,6 +5346,7 @@ describe('Vault storage continuity', () => {
 
   async function guardianAcquisition(withProof = true) {
     const fixture = await acquisition();
+    const noteFile = new Uint8Array([19, 48, withProof ? 41 : 42, 253]);
     const sdk = jest.requireMock<{
       Note: { deserialize: jest.Mock };
       NoteFile: { fromInputNote: jest.Mock };
@@ -5363,7 +5364,7 @@ describe('Vault storage continuity', () => {
     }));
     sdk.InputNote.unauthenticated.mockImplementation((note: unknown) => ({ note }));
     sdk.NoteFile.fromInputNote.mockImplementation((input: { inclusionProof?: unknown }) =>
-      fixture.setCandidate(fixture.noteFile, {
+      fixture.setCandidate(noteFile, {
         detailsOnly: input.inclusionProof === undefined,
         tag: 71,
         afterBlock: input.inclusionProof === undefined ? 0 : 19
@@ -5371,6 +5372,8 @@ describe('Vault storage continuity', () => {
     );
     return {
       ...fixture,
+      rawNoteBytes: fixture.noteFile,
+      noteFile,
       getNotesById,
       deserialize: sdk.Note.deserialize,
       restore: () => {
@@ -5389,7 +5392,9 @@ describe('Vault storage continuity', () => {
     async withProof => {
       const fixture = await guardianAcquisition(withProof);
       let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
-      fixture.imported.mockImplementation(async () => {
+      let atImportBytes: Uint8Array | undefined;
+      fixture.imported.mockImplementation(async file => {
+        atImportBytes = file?.serialize();
         atImport = await vault.readRecoveryJournal();
         return fixture.noteId;
       });
@@ -5397,6 +5402,9 @@ describe('Vault storage continuity', () => {
       try {
         await expect(fixture.runRecovery()).resolves.toEqual({ imported: 1, failures: 0 });
         expect(fixture.getNotesById).toHaveBeenCalledTimes(1);
+        expect(fixture.deserialize).toHaveBeenCalledWith(fixture.rawNoteBytes);
+        expect(fixture.noteFile).not.toEqual(fixture.rawNoteBytes);
+        expect(atImportBytes).toEqual(fixture.noteFile);
         expect(atImport?.entries).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
