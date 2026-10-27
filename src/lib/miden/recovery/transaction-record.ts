@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
+import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
+
 import { toSerializable } from './serialization';
+import { recoveryOneClick, recoveryPreparedExecution, recoveryUsdcxSource } from './provider-record';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 const text = z.string().min(1).max(2048);
@@ -36,6 +39,7 @@ const evidence = z.object({
   fromExecute: z.literal(true).optional()
 });
 const receipt = z.object({
+  sourceSubmission: z.enum(['not-started', 'attempted', 'known']).optional(),
   provider: z.enum(['epoch', 'agglayer', 'usdcx', 'near-intents']).optional(),
   destinationAddress: text.optional(),
   destinationNetwork: time.optional(),
@@ -73,6 +77,13 @@ const receipt = z.object({
   protocol: text.optional(),
   chainId: time.optional(),
   withdrawIntentNonce: text.optional(),
+  reviewedMinimumReceivedAtomic: text.optional(),
+  underlyingAddress: text.optional(),
+  sourceDecimals: z.number().int().min(0).max(38).optional(),
+  submissionAttemptId: text.optional(),
+  attemptStartedAt: time.optional(),
+  submissionState: z.enum(['preparing', 'prepared', 'accepted']).optional(),
+  preparedExecution: recoveryPreparedExecution.optional(),
   requestedFaucetId: text.optional(),
   requestedAmount: amount.optional(),
   previousGuardianEndpoint: text.optional(),
@@ -86,6 +97,8 @@ const receipt = z.object({
   commitUnconfirmed: z.boolean().optional(),
   localStateNotSaved: z.boolean().optional(),
   localStateUnrecoverable: z.boolean().optional(),
+  agglayerDelivery: z.object({ originToken: text, faucetId: text.optional(), scale: time.optional() }).strict().optional(),
+  usdcxSource: recoveryUsdcxSource.optional(),
   agglayerRoute: z
     .object({
       chainId: time,
@@ -129,26 +142,16 @@ const receipt = z.object({
       lastAttemptBlockNum: time.optional()
     })
     .optional(),
-  oneClick: z
-    .object({
-      direction: z.enum(['miden-to-evm', 'evm-to-miden']),
-      network: text,
-      accountId: text,
-      accountAddress: text,
-      faucetId: text,
-      amount: text,
-      phase: text,
-      depositAddress: text.optional(),
-      depositMemo: text.optional(),
-      originTransactionHash: text.optional(),
-      destinationNoteIds: words.optional(),
-      providerStatus: text.optional(),
-      providerSubmitted: z.boolean().optional(),
-      evmSubmission: z.enum(['not-started', 'attempted', 'known']).optional(),
-      fundingDeadline: text.optional(),
-      updatedAt: time.optional()
-    })
-    .optional()
+  bridgeIn: z.object({
+    provider: z.enum(['epoch', 'agglayer', 'usdcx', 'near-intents']), sourceAmount: text.optional(),
+    sourceSymbol: text.optional(), sourceToken: text.optional(), intentNonce: text.optional(), intentOwner: text.optional(),
+    earnWithdrawAttemptId: text.optional(), epochAllocatorUrl: text.optional(), evmTxHash: text.optional(),
+    midenNoteId: text.optional(), earnWithdrawTxId: text.optional(), bridgeReceiveTxId: text.optional()
+  }).strict().optional(),
+  swapOrderTxId: text.optional(),
+  swapSettleKind: z.enum(['settle', 'reclaim']).optional(),
+  swapSettlePartial: z.boolean().optional(),
+  oneClick: recoveryOneClick.optional()
 });
 const schema = z.object({
   id: text,
@@ -193,13 +196,38 @@ const schema = z.object({
   submitEvidence: z.array(evidence).max(256).optional(),
   noteDelivery: z.enum(['pending', 'relayed', 'confirmed', 'undelivered']).optional(),
   relayNoteIds: words.optional(),
+  restoredFromBackup: z.boolean().optional(),
+  restoredFromJournal: z.literal(true).optional(),
   extraInputs: receipt.optional()
 });
 
 export type RecoveryTransactionRow = z.infer<typeof schema>;
 
 export function projectRecoveryTransaction(row: ITransaction, requestBytes?: Uint8Array): RecoveryTransactionRow {
-  return schema.parse({ ...row, requestBytes: requestBytes ?? row.requestBytes });
+  const projected = schema.parse({ ...row, requestBytes: requestBytes ?? row.requestBytes });
+  validateProviderIdentity(projected);
+  return projected;
+}
+
+function validateProviderIdentity(row: RecoveryTransactionRow): void {
+  const inputs = row.extraInputs;
+  if (inputs?.preparedExecution) {
+    const identity = earnWithdrawExecutionIdentity(row);
+    if (!identity || !validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity) ||
+      inputs.withdrawIntentNonce !== inputs.preparedExecution.delivery.nonce)
+      throw new Error('Invalid recovery withdrawal identity');
+  }
+  if (inputs?.oneClick && inputs.oneClick.accountId !== row.accountId)
+    throw new Error('Invalid recovery quote account');
+}
+
+export function validateRecoveryReceipt(value: unknown): RecoveryTransactionRow {
+  const row = validateRecoveryTransaction(value);
+  const provider = row.extraInputs?.provider;
+  if (row.type !== 'earn-withdraw' && !row.extraInputs?.oneClick &&
+    !(['bridged-receive', 'bridged-send', 'earn-deposit'].includes(row.type) && provider))
+    throw new Error('Invalid recovery receipt type');
+  return row;
 }
 
 function ordered(value: unknown): unknown {
@@ -212,8 +240,13 @@ function ordered(value: unknown): unknown {
   );
 }
 
+export function sameRecoveryFields(left: unknown, right: unknown): boolean {
+  return JSON.stringify(ordered(toSerializable(left))) === JSON.stringify(ordered(toSerializable(right)));
+}
+
 export function validateRecoveryTransaction(value: unknown): RecoveryTransactionRow {
   const parsed = schema.parse(value);
+  validateProviderIdentity(parsed);
   if (JSON.stringify(ordered(toSerializable(value))) !== JSON.stringify(ordered(toSerializable(parsed))))
     throw new Error('Invalid recovery transaction fields');
   return parsed;

@@ -1,6 +1,7 @@
 import {
   CollateralType,
   EpochIntentSDK,
+  type EpochIntentSDKConfig,
   EVM_TO_MIDEN_EXTRA_TYPESTRING,
   GetTaskDataParams,
   IntentQuoteResult,
@@ -14,6 +15,21 @@ import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
+
+export interface EpochPreparedIntent {
+  requestJson: string;
+  claimHash: string;
+  resourceLockRequired: boolean;
+  collateralType: 'evm' | 'miden';
+}
+
+export interface EpochReceiptHooks {
+  config: EpochIntentSDKConfig;
+  beforeExecute: (prepared: EpochPreparedIntent) => Promise<void>;
+  onSubmitted: (kind: 'transaction' | 'batch', id: string) => Promise<void>;
+  beforeAllocation: (requestJson: string) => Promise<void>;
+  assertCurrent: () => void;
+}
 
 export interface CrossChainQuote {
   taskTypeString: string;
@@ -242,7 +258,7 @@ export async function getEVMToMidenQuote(
 
 export async function buildEVMToMidenIntent(
   sdk: EpochIntentSDK,
-  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote }
+  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote; recovery?: EpochReceiptHooks }
 ): Promise<IntentResult> {
   let taskTypeString: string;
   let intentData: unknown;
@@ -312,6 +328,7 @@ export async function getCrossChainQuote(
 export async function buildCrossChainIntent(
   sdk: EpochIntentSDK,
   params: CrossChainIntentParams & {
+    recovery?: EpochReceiptHooks;
     collateralType?: CollateralType;
     midenSourceAccount?: string;
     createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];

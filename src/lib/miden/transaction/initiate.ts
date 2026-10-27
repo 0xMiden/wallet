@@ -4,6 +4,7 @@ import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/mi
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
+import { checkpointProviderReceipt } from 'lib/miden/recovery/receipt-writer';
 import * as Repo from 'lib/miden/repo';
 import { assertSwapQueueAvailable } from 'lib/miden/swap/admission';
 import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
@@ -1048,6 +1049,7 @@ export const initiateEarnWithdrawTransaction = async (
     chainId
   );
   await Repo.transactions.add(dbTransaction);
+  await checkpointProviderReceipt(dbTransaction);
   return dbTransaction.id;
 };
 
@@ -1093,6 +1095,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
   await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+  await checkpointProviderReceipt(dbTransaction);
   return dbTransaction.id;
 };
 

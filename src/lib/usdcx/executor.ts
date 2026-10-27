@@ -339,6 +339,11 @@ export async function runUsdcxExecutorDeposit(
   };
   let quote = await quoteOrFail();
   ensureBalanceCovers(quote, balance);
+  await updatePhase(trackingTxId, 'submitting', {
+    cctp: { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
+  }, undefined, { claimSourceExecution: { source, recipient: remoteRecipient } });
+  if (quote.expiresAt !== undefined && quote.expiresAt <= Math.floor(Date.now() / 1000))
+    throw new UsdcxForwardQuoteUnavailableError('the retained quote has expired');
   if (feeAllowance < intent.value + quote.feeTotalAmount) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));

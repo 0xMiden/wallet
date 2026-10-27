@@ -277,6 +277,7 @@ export interface IAgglayerDelivery {
 }
 
 export interface IBridgedReceiveExtraInputs {
+  sourceSubmission?: 'not-started' | 'attempted' | 'known';
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;
@@ -1784,6 +1785,7 @@ export class BridgedReceiveTransaction implements ITransaction {
     this.displayMessage = 'Bridging from EVM';
     this.displayIcon = 'RECEIVE';
     this.extraInputs = {
+      sourceSubmission: 'not-started',
       provider,
       sourceAddress,
       sourceAmount,
