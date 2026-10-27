@@ -1540,6 +1540,10 @@ export class Vault {
     }
   }
 
+  static async hasRetainedCustody(): Promise<boolean> {
+    return false;
+  }
+
   static async isExist() {
     const stored = await isStored(checkStrgKey);
     return stored;

@@ -6407,6 +6407,33 @@ describe('Vault storage continuity', () => {
     expect(await vault.readRecoveryJournal()).toEqual(retained);
   });
 
+  it('Task5 retained custody detects encrypted wallet records after the physical check is lost', async () => {
+    await removeMany([keys.check]);
+    expect(await Vault.isExist()).toBe(false);
+    expect(await isStored(keys.accounts)).toBe(true);
+    await expect(Vault.hasRetainedCustody()).resolves.toBe(true);
+  });
+
+  it('Task5 retained custody excludes public configuration and standalone platform keychain leftovers', async () => {
+    const previousItems = { ...memoryStore };
+    const secureStorage = await import('lib/desktop/secure-storage');
+    const keychain = jest.mocked(secureStorage.hasHardwareKey);
+    const previous = keychain.getMockImplementation();
+    keychain.mockClear();
+    keychain.mockResolvedValue(true);
+    try {
+      for (const key of Object.keys(memoryStore)) delete memoryStore[key];
+      await savePlain('public-configuration-fixture', { enabled: true });
+      await expect(Vault.hasRetainedCustody()).resolves.toBe(false);
+      expect(keychain).not.toHaveBeenCalled();
+    } finally {
+      for (const key of Object.keys(memoryStore)) delete memoryStore[key];
+      Object.assign(memoryStore, previousItems);
+      keychain.mockReset();
+      if (previous) keychain.mockImplementation(previous);
+    }
+  });
+
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {
     const f = await nativeVaultRetention();
     const { getStorageProvider } = await import('lib/platform/storage-adapter');

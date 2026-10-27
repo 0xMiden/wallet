@@ -2835,6 +2835,30 @@ describe('actions', () => {
       }
     });
   });
+
+  describe('Task5 retained custody initialization', () => {
+    it.each(['password', 'hardware'])(
+      'missing vault check with a retained %s protector never publishes fresh onboarding',
+      async protector => {
+        const Actions = await import('./actions');
+        const { Vault } = await import('./vault');
+        const mockedVault = jest.mocked(Vault);
+        const { inited } = await import('./store');
+        mockedVault.isExist.mockResolvedValueOnce(false);
+        mockedVault.hasPasswordProtector.mockResolvedValueOnce(protector === 'password');
+        mockedVault.hasHardwareProtector.mockResolvedValueOnce(protector === 'hardware');
+        await Actions.init();
+        expect(mockedVault.isExist).toHaveBeenCalledTimes(1);
+        expect(inited).toHaveBeenCalledWith(true);
+        expect(getStorageHealth()).toMatchObject({
+          status: 'unavailable',
+          reason: 'continuity',
+          backend: 'independent',
+          operation: 'open'
+        });
+      }
+    );
+  });
 });
 
 jest.mock('lib/telemetry/sink', () => ({ sendEvent: jest.fn() }));
