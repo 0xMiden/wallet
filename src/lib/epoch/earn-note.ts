@@ -1,3 +1,4 @@
+import type { IEpochExecutionReceipt } from 'lib/miden/db/types';
 import {
   initiateEarnDepositTransaction,
   requestSWTransactionProcessing,
@@ -32,6 +33,7 @@ export interface CreateEarnP2IDENoteArgs {
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   allocatorUrl?: string;
+  epochExecution?: IEpochExecutionReceipt;
   /** Protocol string a deposit hashes. Stored on the row with `chainId`. */
   protocol?: '1delta' | 'dummy-lending';
   /** Chain of the Earn market the deposit opens. */
@@ -101,7 +103,8 @@ export async function createEarnP2IDENote(
       spendingLimitAuthorization,
       args.allocatorUrl,
       args.protocol,
-      args.chainId
+      args.chainId,
+      args.epochExecution
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.
