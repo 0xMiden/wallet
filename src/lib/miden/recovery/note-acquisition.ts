@@ -71,7 +71,7 @@ export async function retainAcquiredNotes(
   notes: RecoveryNoteEntry[],
   network: string,
   assertCurrent: () => void
-): Promise<void> {
+): Promise<() => void> {
   const sink = installedSink;
   const check = () => {
     assertCurrent();
@@ -86,4 +86,5 @@ export async function retainAcquiredNotes(
     throw error;
   }
   check();
+  return check;
 }

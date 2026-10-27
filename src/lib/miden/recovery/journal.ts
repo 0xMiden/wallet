@@ -1,5 +1,6 @@
 import * as Passworder from '../passworder';
 import { withRecoveryStorageLock } from './lock';
+import { retainNoteCandidates } from './note-candidates';
 import { resolveRecoveryDebit } from './retry-transition';
 import { fromSerializable, toSerializable } from './serialization';
 import type { RecoveryEntry, RecoveryJournalData, RecoveryJournalSnapshot } from './types';
@@ -237,7 +238,12 @@ export class RecoveryJournal {
             retained.format !== 'details'
           )
             continue;
-          entries.set(id, entry);
+          entries.set(
+            id,
+            entry.kind === 'note' && retained?.kind === 'note' && (entry.candidates || retained.candidates)
+              ? retainNoteCandidates(retained, entry)
+              : entry
+          );
         }
         const next = validateJournal({
           ...proposed,

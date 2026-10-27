@@ -271,6 +271,7 @@ function registerOffscreenSignHandler(): void {
           sign_id?: string;
           stage?: ITransactionStage;
           evidence?: unknown;
+          recovery?: unknown;
           category?: ConnectivityCategory;
           active?: boolean;
           ts?: number;
@@ -385,7 +386,8 @@ function registerOffscreenSignHandler(): void {
         target: SW_TARGET,
         type: OFFSCREEN_SUBMIT_GATE,
         op_id: m.op_id,
-        evidence: parseSubmitEvidence(m.evidence)
+        evidence: parseSubmitEvidence(m.evidence),
+        recovery: m.recovery
       }).then(sendResponse, (err: unknown) =>
         sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) })
       );

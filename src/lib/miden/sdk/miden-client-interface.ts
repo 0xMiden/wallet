@@ -1241,11 +1241,15 @@ export class MidenClientInterface {
           if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('Import client was replaced'));
         };
         check();
-        await retainAcquiredNotes(captureAcquiredNote(noteFile), this.network, check);
+        const assertRetained = await retainAcquiredNotes(captureAcquiredNote(noteFile), this.network, check);
         // String(...) tolerates both return shapes across the 0.15 alpha line:
         // alpha.4 resolves a NoteId object, current `next` resolves the hex
         // string directly.
-        return String(await (check(), this.client.notes.import(noteFile)));
+        try {
+          return String(await (assertRetained(), this.client.notes.import(noteFile)));
+        } finally {
+          assertRetained();
+        }
       } catch (error) {
         // A trap from either deserialize, the fallback's conversion or the import: this hold's callers catch a
         // note's failure and go on, so the lock may never see it.

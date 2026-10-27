@@ -116,6 +116,7 @@ import {
   uninstallNoteAcquisitionSink,
   type NoteAcquisitionSink
 } from '../recovery/note-acquisition';
+import { retainNoteCandidates } from '../recovery/note-candidates';
 import { reconcileRecoveryTransactions } from '../recovery/reconcile';
 import { restoreWalletRecoveryGeneration, restoreWalletRecoveryRows } from '../recovery/restore';
 import { retireRecoveryNotes } from '../recovery/retirement';
@@ -127,7 +128,7 @@ import {
   sameRecoveryFields,
   sameRecoveryProviderInputs
 } from '../recovery/transaction-record';
-import type { RecoveryCapture, RecoveryEntry, RecoveryJournalSnapshot } from '../recovery/types';
+import type { RecoveryCapture, RecoveryEntry, RecoveryJournalSnapshot, RecoveryNoteEntry } from '../recovery/types';
 import { validateJournal } from '../recovery/validation';
 import { readWalletGenerationForRecovery, validateWalletGeneration } from '../recovery/wallet-generation';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
@@ -477,10 +478,19 @@ export class Vault {
       check();
       if (!previous || previous.scope.network !== scopeNetwork || previous.scope.walletGeneration !== marker.generation)
         throw new StorageUnavailableError();
-      // Import has not authenticated this candidate. Keep the earlier body and its proof/hints for the same identity.
-      const entries = notes.filter(
-        note => !previous.entries.some(retained => retained.kind === 'note' && sameAcquiredNote(retained, note))
-      );
+      // SDK import success does not authenticate proof or hints. Keep both until canonical evidence resolves them.
+      const entries: RecoveryNoteEntry[] = [];
+      for (const note of notes) {
+        const index = entries.findIndex(retained => sameAcquiredNote(retained, note));
+        const retained =
+          entries[index] ??
+          previous.entries.find(
+            (entry): entry is RecoveryNoteEntry => entry.kind === 'note' && sameAcquiredNote(entry, note)
+          );
+        const next = retained ? retainNoteCandidates(retained, note) : note;
+        if (index < 0) entries.push(next);
+        else entries[index] = next;
+      }
       return { ...previous, entries };
     });
     check();
