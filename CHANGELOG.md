@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.9 (TBD)
+
+- [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
+
 ## 1.17.8 (2026-10-27)
 
 - [FIX][extension] Bridge-IN reviews identify Bread's Chrome extension origin and show route-specific wallet actions or quoted transaction targets; connection metadata names the wallet actions and remains isolated from native sessions, with deposited Compact collateral guidance in every shipped language (#1934).
