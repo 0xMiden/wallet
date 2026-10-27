@@ -1265,7 +1265,7 @@ describe('user-visible error reporting', () => {
       expect(mockImportStore).not.toHaveBeenCalled();
       expect(mockImportDb).not.toHaveBeenCalled();
       expect(onSubmit).not.toHaveBeenCalled();
-      if (stage === 'declared_network') expect(mockGetMidenClient).not.toHaveBeenCalled();
+      expect(mockGetMidenClient).toHaveBeenCalledTimes(stage === 'declared_network' ? 0 : 1);
       dwellForError();
       expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
       expect(reportUserVisibleError).toHaveBeenCalledWith('encryptedWalletFileWrongNetwork', 'field', {
