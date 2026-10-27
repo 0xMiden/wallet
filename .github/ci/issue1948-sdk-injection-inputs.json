@@ -1,0 +1,193 @@
+{
+  "approved_target_lock_changes": {
+    "\"@miden-sdk/node-darwin-arm64@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "f3eac40494062158c97221dafd7dda7d899752671d1f701afb63f6f16bc979bc",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-arm64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    },
+    "\"@miden-sdk/node-darwin-x64@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "7965585a0d0f361e40f7af828cfb59ace2afd7ced6725dbdc3b6748eb78a8424",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-darwin-x64@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    },
+    "\"@miden-sdk/node-linux-x64-gnu@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "671434909252186506721776c82a7f1345e89b4b7d406fdc94320187a41d467c",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-gnu@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    },
+    "\"@miden-sdk/node-linux-x64-musl@0.17.5\"": {
+      "after_sha256": null,
+      "before_sha256": "26f0e430bac8c13d2c00e5a0d6216de37b4115b07f3db271f22e93e63baa3cb6",
+      "owner": "@miden-sdk/miden-sdk",
+      "reason": "Published @miden-sdk/miden-sdk 0.17.5 optionalDependencies and original SDK lock block exclusively own @miden-sdk/node-linux-x64-musl@0.17.5. Verified assembled SDK 0.17.6 manifest SHA256 92f582b6dd4392b5fab9f569d61ae50e73a78f92517c82ebadb6b1264850a66b has no optionalDependencies; no other original lock/root manifest references remain. Exact obsolete platform-native entry removal is attributable to replacing that target package. This WASM-only proof supplies no native Node binary."
+    }
+  },
+  "checks": [
+    {
+      "argv": [
+        "yarn",
+        "tsc",
+        "--noEmit"
+      ],
+      "kind": "type",
+      "name": "types",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/back/actions.test.ts",
+        "src/lib/miden/back/main.test.ts",
+        "src/lib/intercom/in-process-request-handler.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=transport332-results.json"
+      ],
+      "expected_count": 332,
+      "expected_filtered": 0,
+      "kind": "test",
+      "name": "transport332",
+      "results_json": "transport332-results.json",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/app/PageRouter.test.tsx",
+        "src/app/pages/Settings.test.tsx",
+        "src/app/pages/Unlock.test.tsx",
+        "src/components/PasscodeScreen.test.tsx",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=navigation291-results.json"
+      ],
+      "expected_count": 291,
+      "expected_filtered": 0,
+      "kind": "test",
+      "name": "navigation291",
+      "results_json": "navigation291-results.json",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/screens/storage-recovery/RecoveryDataFlow.test.tsx",
+        "src/screens/encrypted-file-flow/ExportFileComplete.test.tsx",
+        "src/screens/encrypted-file-flow/ExportFileSetNamePassword.test.tsx",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=recovery-files63-results.json"
+      ],
+      "expected_count": 63,
+      "expected_filtered": 0,
+      "kind": "test",
+      "name": "recovery-files63",
+      "results_json": "recovery-files63-results.json",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/auth/strict-action-authentication.test.ts",
+        "src/components/StrictActionAuthentication.test.tsx",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=auth32-results.json"
+      ],
+      "expected_count": 32,
+      "expected_filtered": 0,
+      "kind": "test",
+      "name": "auth32",
+      "results_json": "auth32-results.json",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/i18n/key-coverage.test.ts",
+        "src/lib/telemetry/user-visible-error.test.ts",
+        "src/lib/store/types.test.ts",
+        "--maxWorkers=2",
+        "--no-coverage",
+        "--json",
+        "--outputFile=contracts45-results.json"
+      ],
+      "expected_count": 45,
+      "expected_filtered": 0,
+      "kind": "test",
+      "name": "contracts45",
+      "results_json": "contracts45-results.json",
+      "timeout_seconds": 600
+    }
+  ],
+  "lint_source_sha256": {
+    "src/app/PageRouter.test.tsx": "1e6ec2fd1bc07f4ea9d44fcefbbe6ebf21e3a52aeac97d3f7211625fc2ae2baa",
+    "src/app/PageRouter.tsx": "99a6f71ce98b6608a8496327e413ae0a546033289f9244a5230cd27b9ad90859",
+    "src/app/StorageRecoveryPage.tsx": "de1c505662a672e71279bf75d5176fae931f9f06911ee4080e0facf78a088b4f",
+    "src/app/pages/Settings.selectors.ts": "37c37343626a045c7d750ab586ea702f7f32c4fd300711d520a91999306f8c4b",
+    "src/app/pages/Settings.test.tsx": "c1b8378140092d1a857406624362095c751d548f97f6138e59e217e6e7fd5da5",
+    "src/app/pages/Settings.tsx": "112217a7e0175d9b9b7db471f4a5553f99b9b243e27f7ae96f9da0cc44400a53",
+    "src/app/pages/Unlock.test.tsx": "da19fbfac95b7221adcf59d9f894427f38687bf04ec508ba54b0a64ad59c2bf0",
+    "src/app/pages/Unlock.tsx": "7f08814ecb24b3b2863d3cbf86d26cfb3c442a69de61aec1be4daa3ce9f35e66",
+    "src/components/PasscodeScreen.tsx": "268718462e260e8d11ee18b5c092ad994b08a8fbc16446f8a6fd9e15fe107935",
+    "src/components/StrictActionAuthentication.test.tsx": "14eb1c644dbb090117ba9d663a967ccef72b4404e9f57d46e58e930c323144e9",
+    "src/components/StrictActionAuthentication.tsx": "e9a6e60c1782db1aeba4b7ed8bcbfe4fe9acc24dafc1d8c35de13d4f97ea03b8",
+    "src/lib/auth/strict-action-authentication.test.ts": "84adc9cbcd36b00f55cedc7c45c2149889c9d4165042ed894a8ca0868d414524",
+    "src/lib/auth/strict-action-authentication.ts": "11d760bfd1ddb18cb13476e1198a4b7d1d2bec7e6e83730cc63d70c6dda09361",
+    "src/lib/intercom/in-process-request-handler.test.ts": "b059894434ffaba7740e1c501b063892e8c8b913363e0ca376e8e6f152c2d999",
+    "src/lib/intercom/in-process-request-handler.ts": "8228a69c16bef8f8845d24c0ad2813bcc40e531ed982cdc521a498cae7a855b4",
+    "src/lib/miden/back/actions.test.ts": "2c1aeb6851da52fa0e8e7565f5da24242df6275c44a2eb275df51c2f0111de88",
+    "src/lib/miden/back/actions.ts": "f90016852d77791a0d498e568d7f400e5386fca71f37c58065bdd8d4c309319b",
+    "src/lib/miden/back/main.test.ts": "4c9d620f195b29ff543547c44f5bcad019b966557cc8b442c1b6424e6fef24d1",
+    "src/lib/miden/back/main.ts": "b650a2acea6e31ab9edebc4716335878569a4880d6c04fadbd52fb8193ae1f33",
+    "src/lib/miden/back/vault.test.ts": "4c5c9704ae5f7e6e8b35246db52be339504c2ee2d7daed25652a1efffea7e264",
+    "src/lib/miden/back/vault.ts": "0c7c17c54e90cdb6818714eea48ecda67680db78b889fbd4d5a48be93762c12f",
+    "src/lib/miden/front/client.ts": "f45f74c616b09089a69f903a50b50cdbbfc1b43e1989daf0e20d3513398aa681",
+    "src/lib/miden/recovery/external-file.test.ts": "4335893ca724914237b343f93c094440d76f8de83a9c73695638cea53d7b601e",
+    "src/lib/miden/recovery/external-file.ts": "ac9967e28be77e889f70b0ad3a1da1289fcf138ab3fc0aad2e0545208d074f96",
+    "src/lib/miden/recovery/external-import-lifecycle.test.ts": "98e8c17a4551d2f41d7be2e2daf1b6af048147e12294fc6c5a667149cfdc3797",
+    "src/lib/miden/recovery/external-import.test.ts": "38574a44eb6a5c0c6dfe38d19ab21637bcd448b7a566c5df7cb79dd3153a14d7",
+    "src/lib/miden/recovery/external-import.ts": "170d937eda02ccbb56f1ffc85665a0546fcf2cbf69b91a7e31d0631fea4bf81d",
+    "src/lib/miden/recovery/journal.ts": "e5c23d0742c47d60ad34f49964d3da3810be0733b86c89b34acac839500648bf",
+    "src/lib/shared/types.ts": "0be62633f91c9076d4c49648baa360e558139b220f4ec78ecbeea21c2ef8191f",
+    "src/lib/store/index.ts": "1e45ea11e295f05623e713ee0f0995f889e65da0417c15f59fc159180b3fa5a6",
+    "src/lib/store/types.ts": "4549c38e3a509ba2bb4d3f3a30a6e207670002e44e712bc8ef606fd8786fbb74",
+    "src/lib/telemetry/user-visible-error-contract.ts": "bae1301611b17f6b663e8f8cd3782c94f05f7e3be53fcb38817e7f3e962b6e09",
+    "src/screens/encrypted-file-flow/ExportFileComplete.test.tsx": "41b983afefdd5b5cea4d19de1f4742c2ff40027bb1199012edf405e183a03892",
+    "src/screens/encrypted-file-flow/ExportFileComplete.tsx": "c331d447f8963a0b2146aef6108302bf6c83f3ed8d2c906c57310e76c951ed6e",
+    "src/screens/encrypted-file-flow/ExportFileSetNamePassword.tsx": "f5f5fa0c7cc717fad7445398686f7ca66426e04f3845f72451d525aeb220827b",
+    "src/screens/storage-recovery/RecoveryDataFlow.test.tsx": "11479f2e36234291b0602f1b2648a65bd7a9a566abd1a52c07cecbba4314e88e",
+    "src/screens/storage-recovery/RecoveryDataFlow.tsx": "d9b7d3934573339508a8932204e15c66c0058aff6d23f4e7859857ecfff92e12",
+    "src/screens/storage-recovery/RecoveryDataSettings.tsx": "479989793cd5a9cc4aa3d827593688b05795f6b0a090c84549cf72484d8db192"
+  },
+  "package_sha256": {
+    "@miden-sdk/miden-sdk": "90ab279019f48ff41beefae89f48cbf903600b5bcb1a362f944094e709c7f8fb",
+    "@miden-sdk/react": "dae046f97d54bafa0d298982b94e4dd642fbfe121769ecb21a04280ae89bb8e2",
+    "@miden-sdk/vite-plugin": "ab0de5991cda8e80ed6c0fb3e6177a54a813709ec9d68620b791f1d989a0f3b6"
+  },
+  "phase": "flow-integration763-settings-frame",
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-injection.yml",
+    ".github/ci/issue1948-sdk-injection.py",
+    ".github/ci/issue1948-sdk-injection-inputs.json"
+  ],
+  "wallet_source": "75b9712861a708bb6af38a9d529a92694c0a6344",
+  "wallet_tree": "61e53ed41285606c55e09ac95b0c305d450594ab"
+}
