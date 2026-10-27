@@ -8,6 +8,7 @@ import type { ExportFilePasswordProps } from 'screens/encrypted-file-flow/Export
 
 import { RecoveryDataFlow } from './RecoveryDataFlow';
 
+let mockPlatform: 'extension' | 'desktop' = 'extension';
 const mockExport = jest.fn<Promise<string>, [string, number, string, string | undefined]>();
 const mockImport = jest.fn<
   Promise<{ imported: boolean; retainedEntries: number }>,
@@ -129,6 +130,7 @@ function enterFilePassword(): void {
 }
 
 beforeEach(() => {
+  mockPlatform = 'extension';
   jest.clearAllMocks();
   readers = [];
   mockPlatform = 'extension';
@@ -264,4 +266,31 @@ describe('Task5 recovery file UI', () => {
     await waitFor(() => expect(screen.queryByText('recoveryDataWrongPassword')).toBeInTheDocument());
     expect(screen.queryByText('smthWentWrong')).not.toBeInTheDocument();
   });
+});
+
+it('Task5 recovery hardware file failure does not masquerade as biometric authentication failure', async () => {
+  mockPlatform = 'desktop';
+  mockProtectors.mockResolvedValue({ hardware: true, password: false });
+  const unavailable = new Error('Wallet storage unavailable');
+  unavailable.name = 'StorageUnavailableError';
+  mockExport.mockRejectedValueOnce(unavailable);
+  render(<RecoveryDataFlow mode="export" onClose={jest.fn()} />);
+  fireEvent.change(input('recovery-test-file-password'), { target: { value: crypto.randomUUID() } });
+  fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
+  await waitFor(() => expect(mockExport).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.queryByText('recoveryDataUnavailable')).toBeInTheDocument());
+  expect(screen.queryByText('biometricFailed')).not.toBeInTheDocument();
+});
+
+it('Task5 recovery file read failure is distinct from malformed file contents', async () => {
+  render(<RecoveryDataFlow mode="import" onClose={jest.fn()} />);
+  choose(new File(['{}'], 'recovery-data.json', { type: 'application/json' }));
+  expect(readers).toHaveLength(1);
+  const pending = readers[0];
+  if (!pending?.onerror) throw new Error('Missing real reader error handler');
+  act(() => pending.onerror?.());
+  expect(screen.queryByText('recoveryDataReadFailed')).toBeInTheDocument();
+  expect(screen.queryByText('recoveryDataMalformed')).not.toBeInTheDocument();
+  expect(mockImport).not.toHaveBeenCalled();
 });
