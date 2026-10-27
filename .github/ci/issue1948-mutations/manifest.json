@@ -1,0 +1,71 @@
+{
+  "source": "1d67e7a1158d8dc89f2ad9ad3dc288eafece9deb",
+  "source_tree": "2ff9e4d94f4e12f81c579f257a7f6362731cfe5a",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "journal-before-sdk-marker",
+      "path": "src/lib/miden/back/vault.ts",
+      "before": "            const snapshot = await this.recoveryJournal(epoch, assertCheckpoint).update(() => ({\n              ...next,\n              entries: [...observed.notes, ...financial]\n            }));\n            assertCheckpoint();\n            if (observed.generation !== next.scope.sdkGeneration)\n              await midenClientProxy.initializeStorageGeneration(next.scope.sdkGeneration, observed.generation, epoch);",
+      "after": "            if (observed.generation !== next.scope.sdkGeneration)\n              await midenClientProxy.initializeStorageGeneration(next.scope.sdkGeneration, observed.generation, epoch);\n            assertCheckpoint();\n            const snapshot = await this.recoveryJournal(epoch, assertCheckpoint).update(() => ({\n              ...next,\n              entries: [...observed.notes, ...financial]\n            }));",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3I2R retains the complete baseline when SDK marker initialization rejects$",
+      "expected_assertion": "Vault storage continuity Task4C3I2R retains the complete baseline when SDK marker initialization rejects",
+      "prediction": "The deliberately rejecting SDK marker prevents the baseline journal write, so retained evidence is absent instead of containing the complete accounts, scope, private body and financial baseline.",
+      "expected_functional_assertion": "vault.test.ts:6189 expect(retained).toMatchObject(...) after marker rejection; received retained journal is absent",
+      "source_reason": "The selected test already accepts the exact marker error and one initialization attempt at6186-6187. Its added evidence assertion at6189-6198 independently requires the earlier journal write. The mutation preserves the surrounding health/liveness checks and only moves initialization before journal update; no capacity guard is involved in this fitting fixture.",
+      "source_file_sha256": "c2730f027d42a3258d67571273e3e4090207b5b9545cc575bfb792d94e71e46d"
+    },
+    {
+      "id": "count-capacity-policy-classification",
+      "path": "src/lib/miden/recovery/journal.ts",
+      "before": "        if (\n          merged.reduce(\n            (count, entry) => count + (entry.kind === 'note' ? recoveryNoteMaterials(entry).length : 1),\n            0\n          ) > JOURNAL_MAX_ENTRIES\n        )\n          throw capacityError;\n",
+      "after": "",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3I2 refuses initial note plus financial capacity before initializing an SDK marker$",
+      "expected_assertion": "Vault storage continuity Task4C3I2 refuses initial note plus financial capacity before initializing an SDK marker",
+      "prediction": "The generic validateJournal entry bound still refuses257 entries, but its different Error is delivered to onFailure and incorrectly latches health unavailable instead of preserving healthy policy refusal.",
+      "expected_functional_assertion": "vault.test.ts:6097 expect(getStorageHealth().status).toBe('healthy')",
+      "source_reason": "The fixture proves256 private notes plus one financial entry at6089. Removing the identity-bearing capacityError precheck does not bypass validation.ts:225, so marker and journal remain absent as expected. journal.ts:281 only suppresses the exact capacityError object; generic validation failure reaches the owned Vault recoveryJournal callback at438-449 and marks unavailable. The health assertion distinguishes classification, not successful capacity overflow.",
+      "source_file_sha256": "be915047eb2f57825cf7f60b2bbc4d383ea107fefbdcc73dc13549d280ef64ec"
+    },
+    {
+      "id": "encoded-capacity-policy-classification",
+      "path": "src/lib/miden/recovery/journal.ts",
+      "before": "        const plaintext = serialize(next, capacityError);",
+      "after": "        const plaintext = serialize(next);",
+      "suites": ["src/lib/miden/back/vault.test.ts"],
+      "pattern": "^Vault storage continuity Task4C3I2 refuses encoded journal byte capacity before initializing an SDK marker$",
+      "expected_assertion": "Vault storage continuity Task4C3I2 refuses encoded journal byte capacity before initializing an SDK marker",
+      "prediction": "The encoded plaintext limit still refuses the fitting raw-byte input, but serialize constructs a fresh Error which onFailure misclassifies as unavailable storage instead of ordinary healthy capacity refusal.",
+      "expected_functional_assertion": "vault.test.ts:6122 expect(getStorageHealth().status).toBe('healthy')",
+      "source_reason": "The fixture explicitly proves raw bytes below2MiB and serialized plaintext above2MiB at6112-6113. Count validation passes. serialize at31-35 uses the supplied capacityError identity or creates a new Error; omitting its second argument makes update catch at281 invoke onFailure. This changes classification while preserving refusal, prior evidence and marker-before-write guards.",
+      "source_file_sha256": "be915047eb2f57825cf7f60b2bbc4d383ea107fefbdcc73dc13549d280ef64ec"
+    }
+  ],
+  "harness_sha256": "b6ccd14bf91683c16333efa88638662b57a22d174ec15ce023e10c8cffcd730b",
+  "test_source_sha256": {
+    "src/lib/miden/back/vault.test.ts": "6e6632af99f04ca7fc8e0948c5058510de988fe6d5c84b5343989a4aeaf24329"
+  },
+  "baseline_evidence": {
+    "status": "Controller must accept exact-source I2 green before dispatch; no passing gate inferred here",
+    "per_mutant_requirement": "exactly one existing passing functional baseline, then intended ordinary expect failure/runtime0 and source restoration"
+  },
+  "excluded_probes": [
+    {
+      "id": "suppress-provider-onFailure",
+      "status": "unproven/redundant; excluded from executable mutant list",
+      "proposed_before": "      if (error !== capacityError) this.onFailure(error);",
+      "proposed_after": "      if (error !== capacityError) void error;",
+      "selected_test": "Vault storage continuity Task4C3 acquisition refuses quota failure before SDK acceptance",
+      "reason": "fixture.run at vault.test.ts:5344-5345 calls the actual importNoteBytes wrapper, whose catch at miden-client-interface.ts:1245-1247 independently reports the unchanged QuotaExceededError. Suppressing journal onFailure does not remove this second health latch. Direct journal.test.ts provider-failure cases116-139 construct the default no-op callback at49 and assert rejection/readback, not onFailure invocation. No existing isolated callback contract or direct Vault.retainRecoveryEntries quota case was identified. No extra classifier is masked and no new test is added solely to increase mutant count."
+    }
+  ],
+  "scope_limits": [
+    "Three source-bound predictions only; none executed locally or claimed killed.",
+    "No generic provider-quota callback kill claim; excluded probe reason is recorded once.",
+    "Source restoration is required by the unchanged CI harness; no product or assertion files are changed during preparation.",
+    "No broader marker/liveness, full95, native/browser, review or integration acceptance is inferred."
+  ]
+}
