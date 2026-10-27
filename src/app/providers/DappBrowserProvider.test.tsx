@@ -1926,3 +1926,33 @@ describe('native permission-denied toast reporting', () => {
     expect(mockReportUserVisibleError).not.toHaveBeenCalled();
   });
 });
+
+describe('Task5 cache provider ownership', () => {
+  it('a cold preview read completed after unmount cannot populate the shared memory store', async () => {
+    let finish!: (data: string) => void;
+    mockLoadPersistedSessions.mockResolvedValueOnce([
+      {
+        id: 'dapp-retired-preview',
+        url: 'https://dapp.invalid/',
+        origin: 'https://dapp.invalid',
+        title: 'Disposable dApp',
+        favicon: null,
+        openedAt: 1,
+        parkedAt: 2
+      }
+    ]);
+    mockReadSnapshotFromDisk.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finish = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockReadSnapshotFromDisk).toHaveBeenCalledWith('dapp-retired-preview'));
+    hook.unmount();
+    await act(async () => {
+      finish('data:image/jpeg;base64,RETIRED');
+    });
+    expect(mockSnapshotSetRaw).not.toHaveBeenCalled();
+  });
+});
