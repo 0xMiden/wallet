@@ -1,0 +1,51 @@
+name: Issue1948 frozen mutation proof
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  mutations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 81f3b2f96f5b9b2580435d7c46168a166e4658ca
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind frozen source and preserve test harness
+        run: |
+          mkdir -p proof/harness
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          test "$(git rev-parse "$GITHUB_SHA^")" = 81f3b2f96f5b9b2580435d7c46168a166e4658ca
+          echo "$GITHUB_SHA" | tee proof/workflow-sha.txt
+          git rev-parse HEAD | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD)" = 81f3b2f96f5b9b2580435d7c46168a166e4658ca
+          test "$(git rev-parse HEAD^{tree})" = bb2bab0b07c6f5f957559d5b8abe74ec738b5e27
+          git show "$GITHUB_SHA:.github/ci/issue1948-mutations/manifest.json" > proof/harness/manifest.json
+          git show "$GITHUB_SHA:.github/ci/issue1948-mutations/run.py" > proof/harness/run.py
+      - name: Install frozen dependencies
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Verify baselines and kill predicted mutations
+        timeout-minutes: 11
+        run: |
+          set -o pipefail
+          python3 proof/harness/run.py --manifest proof/harness/manifest.json --output proof/results 2>&1 | tee proof/mutations.log
+      - name: Verify original source restored
+        if: always()
+        run: git diff --exit-code -- src
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-proof-task4c3-mutations-f
+          path: proof/

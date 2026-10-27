@@ -1,0 +1,125 @@
+{
+  "source": "81f3b2f96f5b9b2580435d7c46168a166e4658ca",
+  "source_tree": "bb2bab0b07c6f5f957559d5b8abe74ec738b5e27",
+  "per_mutant_budget_seconds": 90,
+  "total_budget_seconds": 600,
+  "mutants": [
+    {
+      "id": "await-independent-sink",
+      "path": "src/lib/miden/recovery/note-acquisition.ts",
+      "before": "      await sink(notes, network, check);",
+      "after": "      void sink(notes, network, check);",
+      "suites": [
+        "src/lib/miden/back/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ operation\\-bound\\ acquisition\\ reverse\\ IPC\\ awaits\\ the\\ captured\\ preadoption\\ sink\\ before\\ acknowledging\\ the\\ live\\ operation$",
+      "expected_assertion": "Task4C3F operation-bound acquisition reverse IPC awaits the captured preadoption sink before acknowledging the live operation",
+      "prediction": "ACK is delivered while the deliberately deferred independent sink remains unresolved.",
+      "expected_functional_assertion": "expect(reply).not.toHaveBeenCalled() at main.test.ts:1822",
+      "source_reason": "The retainer returns immediately when await is removed; the sink has already been called, but its pending promise is no longer awaited. Other liveness checks are still healthy and cannot replace the missing await.",
+      "source_file_sha256": "5519edb800f312d863356bf632429e759a31f41440eca62f249e7758356d49af"
+    },
+    {
+      "id": "captured-sink-identity",
+      "path": "src/lib/miden/recovery/note-acquisition.ts",
+      "before": "      if (!sink || installedSink !== sink) throw new StorageUnavailableError();",
+      "after": "      if (!sink) throw new StorageUnavailableError();",
+      "suites": [
+        "src/lib/miden/back/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ operation\\-bound\\ acquisition\\ reverse\\ IPC\\ refuses\\ a\\ replaced\\ sink\\ binding$",
+      "expected_assertion": "Task4C3F operation-bound acquisition reverse IPC refuses a replaced sink binding",
+      "prediction": "The captured old sink is invoked and a positive ACK becomes possible after the active sink was replaced.",
+      "expected_functional_assertion": "expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id })) at1877, or old sink not-called at1878",
+      "source_reason": "The test retains an existing captured sink, installs a different one, and keeps operation/network/health live; identity is the relevant refusal guard, not missing sink.",
+      "source_file_sha256": "5519edb800f312d863356bf632429e759a31f41440eca62f249e7758356d49af"
+    },
+    {
+      "id": "exact-offscreen-sender-url",
+      "path": "src/lib/miden/back/main.ts",
+      "before": "      if (sender.url !== chrome.runtime.getURL('offscreen.html') || typeof m.op_id !== 'string') return false;",
+      "after": "      if (typeof m.op_id !== 'string') return false;",
+      "suites": [
+        "src/lib/miden/back/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ operation\\-bound\\ acquisition\\ reverse\\ IPC\\ refuses\\ own\\ UI\\ before\\ the\\ sink$",
+      "expected_assertion": "Task4C3F operation-bound acquisition reverse IPC refuses own UI before the sink",
+      "prediction": "A same-extension popup with a valid operation is routed instead of refused before retention.",
+      "expected_functional_assertion": "expect(routed).toBe(false) at1843",
+      "source_reason": "Own UI has the correct extension id, so the earlier sender.id guard does not mask removal of exact offscreen URL checking.",
+      "source_file_sha256": "c5790cebff6066a3322a3db97921d99cc36acd5e02062586fda2059d7f745925"
+    },
+    {
+      "id": "late-ack-operation-liveness",
+      "path": "src/lib/miden/back/miden-client-proxy.ts",
+      "before": "    if (!op || !op.started || inFlight.get(msg.op_id) !== op) throw new Error('Acquisition operation ended');",
+      "after": "    if (!op || !op.started) throw new Error('Acquisition operation ended');",
+      "suites": [
+        "src/lib/miden/back/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ operation\\-bound\\ acquisition\\ reverse\\ IPC\\ refuses\\ a\\ late\\ retention\\ acknowledgement\\ after\\ its\\ operation\\ settled$",
+      "expected_assertion": "Task4C3F operation-bound acquisition reverse IPC refuses a late retention acknowledgement after its operation settled",
+      "prediction": "After the held sink resumes, the captured started op is accepted despite removal from inFlight and a success ACK is sent.",
+      "expected_functional_assertion": "expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id })) at1975",
+      "source_reason": "takeInFlight:464-469 deletes the map entry but leaves the captured op.started true. The selected test settles only after retention began, so the separate if(!op) entry guard cannot reject the captured object.",
+      "source_file_sha256": "91f697da4ad3504628c44f69dedd4f0f37d4b261c74af352d81f7afe70c885c7"
+    },
+    {
+      "id": "acquisition-epoch-envelope",
+      "path": "src/lib/miden/back/miden-client-proxy.ts",
+      "before": "      msg.epoch !== op.acquisition.epoch ||",
+      "after": "      false ||",
+      "suites": [
+        "src/lib/miden/back/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ operation\\-bound\\ acquisition\\ reverse\\ IPC\\ refuses\\ wrong\\ epoch\\ as\\ ordinary\\ input\\ without\\ writing\\ or\\ poisoning\\ health$",
+      "expected_assertion": "Task4C3F operation-bound acquisition reverse IPC refuses wrong epoch as ordinary input without writing or poisoning health",
+      "prediction": "The wrong message epoch is accepted under a still-healthy current operation and reaches the sink.",
+      "expected_functional_assertion": "negative ACK at1909 or sink-not-called at1910",
+      "source_reason": "The test changes only the message epoch. assertStorageHealthy(op.acquisition.epoch) still passes for the real captured epoch, so it is not a redundant check for the message mismatch.",
+      "source_file_sha256": "91f697da4ad3504628c44f69dedd4f0f37d4b261c74af352d81f7afe70c885c7"
+    },
+    {
+      "id": "wrong-operation-ack",
+      "path": "src/offscreen/main.ts",
+      "before": "          !('op_id' in response) ||\n          response.op_id !== context.op_id",
+      "after": "          !('op_id' in response) ||\n          false",
+      "suites": [
+        "src/offscreen/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ offscreen\\ acquired\\-file\\ acknowledgement\\ refuses\\ a\\ wrong\\ operation\\ retention\\ response\\ before\\ SDK\\ import$",
+      "expected_assertion": "Task4C3F offscreen acquired-file acknowledgement refuses a wrong operation retention response before SDK import",
+      "prediction": "A structurally valid positive ACK carrying another operation id permits SDK import.",
+      "expected_functional_assertion": "expect(f.imported).not.toHaveBeenCalled() at6506",
+      "source_reason": "The supplied wrong-operation response contains ok:true and an op_id property; remaining shape/hold/epoch checks pass and do not enforce response correlation.",
+      "source_file_sha256": "67fbf4f30abe539c131bb0e1d4a1fef99cee6fe4824f141995f13bc913e695b2"
+    },
+    {
+      "id": "preflight-before-decode",
+      "path": "src/lib/miden/recovery/note-acquisition.ts",
+      "before": "  preflightAcquiredNotes(value);\n  const decoded: unknown = fromSerializable(value);",
+      "after": "  const decoded: unknown = fromSerializable(value);",
+      "suites": [
+        "src/lib/miden/back/main.test.ts"
+      ],
+      "pattern": "^Task4C3F\\ operation\\-bound\\ acquisition\\ reverse\\ IPC\\ Task4C3F2\\ refuses\\ excessive\\ count\\ before\\ generic\\ decoding\\ or\\ sink\\ mutation$",
+      "expected_assertion": "Task4C3F operation-bound acquisition reverse IPC Task4C3F2 refuses excessive count before generic decoding or sink mutation",
+      "prediction": "Generic fromSerializable is invoked on the excessive-count input even though later validation still refuses it.",
+      "expected_functional_assertion": "expect(decoding).not.toHaveBeenCalled() at1949",
+      "source_reason": "This targets the explicit decode-order assertion, not a fabricated acceptance prediction. The postdecode count guard remains, but cannot undo the forbidden generic decoder invocation.",
+      "source_file_sha256": "5519edb800f312d863356bf632429e759a31f41440eca62f249e7758356d49af"
+    }
+  ],
+  "baseline_evidence": {
+    "run": 40455300464,
+    "selected_passed": 22,
+    "selected_failed": 0,
+    "runtime_suite_errors": 0,
+    "result_sha256": "dbda5f2da64e998704eab63854c57fe2f771dc10c7e5069cbd237beb8c564679"
+  },
+  "scope_limits": [
+    "Predictions only; no mutation executed locally.",
+    "Seven guards only; no standalone network/RPC, every malformed preflight branch, foreign-id or hold-eviction kill claimed.",
+    "Each CI run must baseline exactly one existing passing test, then observe intended expect failure with runtime0 and restore source."
+  ]
+}
