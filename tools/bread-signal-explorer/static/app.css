@@ -311,6 +311,20 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 22px 0 72
 .how ol { padding-left: 18px; }
 .how li + li { margin-top: 6px; }
 
+.export {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 25;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 16px;
+  background: var(--copper);
+  color: #1a120c;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.export:hover { filter: brightness(1.08); }
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 30; }
 .drawer {
   position: fixed;
