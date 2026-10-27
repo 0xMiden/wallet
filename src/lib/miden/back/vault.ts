@@ -108,6 +108,7 @@ import {
   verifyFinancialRecoveryEntries
 } from '../recovery/financial';
 import { readGuardianRecoveryAccount } from '../recovery/guardian-state';
+import { RecoveryDataFileError, type RecoveryDataImportResult } from '../recovery/external-file';
 import { isRecoveryJournalIntegrityFailure, RecoveryJournal } from '../recovery/journal';
 import { withRecoveryStorageLock } from '../recovery/lock';
 import { withRetainedNoteReceipt } from '../recovery/native-note-receipt';
@@ -1557,6 +1558,24 @@ export class Vault {
   static async hasPasswordProtector(): Promise<boolean> {
     const passwordVaultKey = await getPlain<string>(VAULT_KEY_PASSWORD_STORAGE_KEY);
     return !!passwordVaultKey;
+  }
+
+  static async exportRecoveryData(
+    _filePassword: string,
+    _credential?: string,
+    _assertCurrent: () => void = () => {}
+  ): Promise<string> {
+    throw new RecoveryDataFileError('unavailable');
+  }
+
+  static async importRecoveryData(
+    _content: string,
+    _filePassword: string,
+    _expectedEpoch: number,
+    _credential?: string,
+    _assertCurrent: () => void = () => {}
+  ): Promise<RecoveryDataImportResult> {
+    throw new RecoveryDataFileError('unavailable');
   }
 
   /** Verify the configured protector without constructing or adopting another vault. */
