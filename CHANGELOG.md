@@ -2,6 +2,7 @@
 
 ## 1.17.9 (TBD)
 
+- [FIX][all] Transaction confirmations name a note from its standard script, so a fee sponsorship, swap, mint, or burn is no longer shown as another script.
 - [FIX][all] Use ordinary field paste for mainnet codes on extension and desktop without starting an unsupported native clipboard read; retain the native Paste action on mobile.
 
 ## 1.17.8 (2026-10-27)
