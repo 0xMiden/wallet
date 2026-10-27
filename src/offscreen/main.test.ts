@@ -6534,3 +6534,105 @@ describe('Task4C3F offscreen acquired-file acknowledgement', () => {
     }
   });
 });
+
+describe('Task4C3G5 offscreen canonical recovery option', () => {
+  async function fixture() {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    const { toSerializable } = await import('lib/miden/recovery/serialization');
+    const family: import('lib/miden/recovery/types').RecoveryNoteEntry = {
+      kind: 'note',
+      id: '34'.repeat(32),
+      detailsId: '34'.repeat(32),
+      noteFile: new Uint8Array([19, 48, 80]),
+      provenance: 'input',
+      format: 'details',
+      candidates: [{ id: '12'.repeat(32), noteFile: new Uint8Array([19, 48, 81]), provenance: 'input', format: 'full' }]
+    };
+    const snapshot = {
+      generation: 'sdk-route',
+      accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+      notes: [],
+      canonicalNotes: [
+        {
+          familyId: family.id,
+          id: '12'.repeat(32),
+          detailsId: family.detailsId,
+          noteFile: new Uint8Array([19, 48, 81])
+        }
+      ]
+    };
+    const read = jest.fn(async (_accounts: string[], _include: boolean, assertLive: () => void) => {
+      assertLive();
+      return snapshot;
+    });
+    const { MidenClientInterface } = jest.requireMock('lib/miden/sdk/miden-client-interface');
+    MidenClientInterface.createForRecovery = jest.fn(
+      async (capability: import('lib/miden/storage-health').StorageRecoveryCapability) => {
+        health.assertStorageRecoveryAllowed(capability);
+        return { readStorageContinuity: read };
+      }
+    );
+    const request = (families: unknown) => ({
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: 'canonical-route-operation',
+      deadline_ms: 1000,
+      method: 'readStorageContinuity',
+      argsB64: [encodeArg(['retained']), encodeArg(false), encodeArg([]), encodeArg(toSerializable(families))],
+      endpoints: SW_ENDPOINTS,
+      recoveryAccess: { epoch: health.getStorageHealth().epoch, expiresAt: Date.now() + 1000 }
+    });
+    return { family, snapshot, read, request, health, toSerializable };
+  }
+
+  it('forwards the bounded canonical families under the actual recovery capability and hold', async () => {
+    const { family, snapshot, read, request, toSerializable } = await fixture();
+    const reply = jest.fn();
+    capturedListener!(request([family]), { id: 'wallet-extension' }, reply);
+    await flush();
+    expect(read).toHaveBeenCalledWith(['retained'], false, expect.any(Function), [], [family]);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    const response: unknown = reply.mock.calls[0]?.[0];
+    if (typeof response !== 'object' || response === null) throw new Error('Missing canonical response');
+    const encoded: unknown = Reflect.get(response, 'resultB64');
+    if (typeof encoded !== 'string') throw new Error('Missing canonical response bytes');
+    expect(JSON.parse(Buffer.from(encoded, 'base64').toString())).toEqual(toSerializable(snapshot));
+  });
+
+  it.each(['families', 'candidate bytes'])(
+    'refuses malformed canonical %s before invoking the SDK reader',
+    async invalid => {
+      const { family, read, request, health } = await fixture();
+      const families = invalid === 'families' ? Array.from({ length: 5 }, () => family) : [family];
+      const message = request(families);
+      if (invalid === 'candidate bytes') {
+        const raw = {
+          ...family,
+          noteFile: [19, 48, 80],
+          candidates: [{ id: '12'.repeat(32), provenance: 'input', noteFile: [999] }]
+        };
+        message.argsB64[3] = encodeArg([raw]);
+      }
+      const reply = jest.fn();
+      capturedListener!(message, { id: 'wallet-extension' }, reply);
+      await flush();
+      expect(read).not.toHaveBeenCalled();
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+      expect(health.getStorageHealth().status).toBe('healthy');
+    }
+  );
+
+  it('keeps the existing foreign sender refusal for canonical recovery reads', async () => {
+    const { family, read, request, health } = await fixture();
+    const reply = jest.fn();
+    capturedListener!(request([family]), { id: 'foreign-extension' }, reply);
+    await flush();
+    expect(read).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: 'Unauthorized recovery read' }));
+    expect(health.getStorageHealth().status).toBe('healthy');
+  });
+});

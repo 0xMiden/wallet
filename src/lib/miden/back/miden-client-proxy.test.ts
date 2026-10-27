@@ -4561,3 +4561,139 @@ it('a deadline and late valid execution payload cannot decorate the abort or its
     jest.useRealTimers();
   }
 });
+
+describe('Task4C3G5 canonical recovery read routing', () => {
+  function material() {
+    const family: import('../recovery/types').RecoveryNoteEntry = {
+      kind: 'note',
+      id: '34'.repeat(32),
+      detailsId: '34'.repeat(32),
+      noteFile: new Uint8Array([19, 48, 80]),
+      provenance: 'input',
+      format: 'details',
+      candidates: [{ id: '12'.repeat(32), noteFile: new Uint8Array([19, 48, 81]), provenance: 'input', format: 'full' }]
+    };
+    const canonical = {
+      familyId: family.id,
+      id: '12'.repeat(32),
+      detailsId: family.detailsId,
+      noteFile: new Uint8Array([19, 48, 81])
+    };
+    return {
+      family,
+      canonical,
+      snapshot: {
+        generation: 'sdk-route',
+        accounts: [{ accountId: 'retained', nonce: '4', commitment: 'state-4' }],
+        notes: [],
+        canonicalNotes: [canonical]
+      }
+    };
+  }
+
+  async function offscreenRead(change: 'none' | 'foreign family' | 'extra field' | 'oversized' = 'none') {
+    const { midenClientProxy } = await loadProxy(true);
+    const health = await import('lib/miden/storage-health');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    const { toSerializable } = await import('../recovery/serialization');
+    const data = material();
+    if (change === 'foreign family') data.canonical.familyId = '56'.repeat(32);
+    if (change === 'extra field') Reflect.set(data.canonical, 'authenticated', true);
+    if (change === 'oversized') data.canonical.noteFile = new Uint8Array(2 * 1024 * 1024 + 1);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (envelope: { op_id: string }) => ({
+      ok: true,
+      op_id: envelope.op_id,
+      resultB64: Buffer.from(JSON.stringify(toSerializable(data.snapshot))).toString('base64'),
+      durationMs: 0
+    }));
+    const addListener = fakeChrome.runtime.onMessage.addListener.getMockImplementation();
+    let signalReady = () => {};
+    const registered = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Canonical route ready listener was not registered')), 1000);
+      signalReady = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+    fakeChrome.runtime.onMessage.addListener.mockImplementation((listener: OnMessageListener) => {
+      addListener(listener);
+      signalReady();
+    });
+    const pending = Promise.resolve(
+      Reflect.apply(midenClientProxy.readStorageContinuity, midenClientProxy, [
+        ['retained'],
+        false,
+        undefined,
+        [],
+        [data.family]
+      ])
+    ).then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    await registered;
+    expect(fakeChrome.runtime.onMessage.addListener).toHaveBeenCalled();
+    fireReady();
+    return { data, outcome: await pending, health, toSerializable };
+  }
+
+  it('forwards canonical families through the actual inline proxy under its caller hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const health = await import('lib/miden/storage-health');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    const { withWasmClientLock, getCurrentWasmLockHold } = await import('lib/miden/sdk/miden-client');
+    const data = material();
+    let observedHold: unknown;
+    const read = jest.fn(async (_accounts: string[], _include: boolean, assertLive: () => void) => {
+      assertLive();
+      observedHold = getCurrentWasmLockHold();
+      return data.snapshot;
+    });
+    G.__px.getMidenClient.mockResolvedValue({ readStorageContinuity: read });
+    let callerHold: unknown;
+    const result = await withWasmClientLock(async hold => {
+      callerHold = hold;
+      return Reflect.apply(midenClientProxy.readStorageContinuity, midenClientProxy, [
+        ['retained'],
+        false,
+        undefined,
+        [],
+        [data.family]
+      ]);
+    });
+    expect(read).toHaveBeenCalledWith(['retained'], false, expect.any(Function), [], [data.family]);
+    expect(result).toEqual(data.snapshot);
+    expect(observedHold).toBe(callerHold);
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('serializes the canonical family option in the existing offscreen operation', async () => {
+    const { data, outcome, toSerializable } = await offscreenRead();
+    expect(outcome.error).toBeUndefined();
+    const envelope = fakeChrome.runtime.sendMessage.mock.calls.find(
+      ([message]: [{ method?: string }]) => message.method === 'readStorageContinuity'
+    )?.[0];
+    expect(envelope?.argsB64.map(decodeArg)).toEqual([['retained'], false, [], toSerializable([data.family])]);
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+
+  it('preserves canonical full bytes in the owned offscreen response', async () => {
+    const { data, outcome } = await offscreenRead();
+    expect(outcome).toEqual({ value: data.snapshot, error: undefined });
+  });
+
+  const refusedResponses: Array<'foreign family' | 'extra field' | 'oversized'> = [
+    'foreign family',
+    'extra field',
+    'oversized'
+  ];
+  it.each(refusedResponses)('refuses a %s canonical response without changing storage health', async change => {
+    const { outcome, health } = await offscreenRead(change);
+    expect(outcome.error).toBeDefined();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+});
