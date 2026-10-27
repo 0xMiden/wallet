@@ -1014,7 +1014,7 @@ describe('Task5 availability recovery navigation', () => {
       const view = renderAt(pathname, ready);
       mockMiden = { ...mockMiden, storageAvailability, state: { ...mockMiden.state, storageAvailability } };
       view.rerender(<PageRouter />);
-      expect(screen.getByTestId('developer-settings')).toBeInTheDocument();
+      expect(screen.queryByTestId('developer-settings')).toBeInTheDocument();
       expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
       expect(view.container.querySelectorAll('[data-page-layer]')).toHaveLength(0);
     }
