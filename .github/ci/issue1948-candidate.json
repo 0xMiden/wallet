@@ -1,0 +1,66 @@
+{
+  "base": "7cbd4c536a7c1603a294ab63a568d31bfbf40d37",
+  "patch": "docs/superpowers/task-4c3-green-6-combined.patch",
+  "sha256": "86b54d9ecfa6c2cbbfe1ad0838210af36176d9f488ec875e60d12cdc455ddf34",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/back/main.ts",
+      "sha256": "c5790cebff6066a3322a3db97921d99cc36acd5e02062586fda2059d7f745925"
+    },
+    {
+      "path": "src/lib/miden/back/miden-client-proxy.ts",
+      "sha256": "91f697da4ad3504628c44f69dedd4f0f37d4b261c74af352d81f7afe70c885c7"
+    },
+    {
+      "path": "src/lib/miden/back/offscreen-codec.ts",
+      "sha256": "961186bbebf382a50245bdf46bc103f3a410362a68fa6dbd43c746aecb522156"
+    },
+    {
+      "path": "src/lib/miden/recovery/note-acquisition.ts",
+      "sha256": "c420fe6575052443e10bcad951295a88e02abb8abbb22a3f4ecc385a883d2dec"
+    },
+    {
+      "path": "src/lib/miden/sdk/miden-client-interface.recovery.test.ts",
+      "sha256": "3e0e42cd3bc8554caefcf6b77228fe8cb9e3af46aa0cebfd1e51bd95f0d06a93"
+    },
+    {
+      "path": "src/lib/miden/sdk/miden-client-interface.ts",
+      "sha256": "c8626abacbe71c087e36d9a5e7b11b54dcbd439df769a30abbb3a79c3150dae8"
+    },
+    {
+      "path": "src/offscreen/main.ts",
+      "sha256": "67fbf4f30abe539c131bb0e1d4a1fef99cee6fe4824f141995f13bc913e695b2"
+    }
+  ],
+  "commands": [
+    "yarn tsc --noEmit",
+    "yarn eslint src/lib/miden/back/main.test.ts src/lib/miden/back/main.ts src/lib/miden/back/miden-client-proxy.ts src/lib/miden/back/offscreen-codec.ts src/lib/miden/back/vault.test.ts src/lib/miden/recovery/note-acquisition.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/sdk/miden-client-interface.ts src/offscreen/main.test.ts src/offscreen/main.ts --max-warnings=0",
+    "yarn jest --runTestsByPath src/lib/miden/recovery/sdk-restore.test.ts src/lib/miden/recovery/candidate-wire.test.ts src/lib/miden/recovery/retirement.test.ts src/lib/miden/recovery/journal.test.ts src/lib/miden/recovery/sdk-snapshot.test.ts src/lib/miden/recovery/capture.test.ts src/lib/miden/recovery/restore.test.ts src/lib/miden/recovery/receipt-lifecycle.test.ts --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/back/main.test.ts src/offscreen/main.test.ts --maxWorkers=2 --json --outputFile=proof/results-2.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/back/miden-client-proxy.test.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts --maxWorkers=2 --json --outputFile=proof/results-3.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/back/vault.test.ts --maxWorkers=2 --json --outputFile=proof/results-4.json --no-coverage"
+  ],
+  "purpose": "CoherentF+publicE4:13complete affected suites expected1040cases88/345/248/359,currenttypes/lint;fullVault plus all F/E regressions. Older offscreen/proxy timeout cases included for bounded diagnosis, no unchanged retry/skip. No fullcoverage/nativehook/Gclaim.",
+  "expected_group_cases": [
+    88,
+    345,
+    248,
+    359
+  ],
+  "expected_group_filtered": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "closureFiles": {
+    "src/lib/miden/back/main.test.ts": "0c9cdebdb30a8f47c121387441f01108dcad1d0368983a6f43908105aa71bf2a",
+    "src/offscreen/main.test.ts": "af51600a50e47b9c2218b274d51d45755a6423f578e9f897c4b100b5ff6e3950",
+    "src/lib/miden/back/vault.test.ts": "e8b9697c357b4a2805e6753f54f04c2a3a2fda6edf1a1be36a4e68607221f55c"
+  },
+  "component_patch_sha256": [
+    "6b129af378c162dd56e97309b18c9bc7848fdee72e18f00b76287480ce984542",
+    "b146ee11627e34fb9ac1a40f120624960c54c7992b710a31f250b8a3ae03b626",
+    "a117aac2eb4dfc847dd0623cbd36c59822c34048cef778494c24786860116141"
+  ]
+}
