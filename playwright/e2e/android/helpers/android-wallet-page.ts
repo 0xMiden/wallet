@@ -509,8 +509,6 @@ export class AndroidWalletPage implements WalletPage {
         `return true;`
     );
   }
-
-
 }
 
 function sleep(ms: number): Promise<void> {
