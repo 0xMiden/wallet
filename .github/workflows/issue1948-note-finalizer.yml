@@ -1,0 +1,61 @@
+name: Issue1948 passive generated SDK NoteFile finalizer evidence
+on:
+  push:
+    branches: ['ci/1948-note-finalizer-*']
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 730b0fdc0ce86cf2af809d2aa2d6e349adeb65ea
+          path: wallet
+          persist-credentials: false
+      - name: bind
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-note-finalizer/run.py bind 2>&1 | tee proof/stage-bind.log
+      - name: metadata
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-note-finalizer/run.py metadata 2>&1 | tee proof/stage-metadata.log
+      - name: restore
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-note-finalizer/run.py restore 2>&1 | tee proof/stage-restore.log
+      - name: extract
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-note-finalizer/run.py extract 2>&1 | tee proof/stage-extract.log
+      - name: Preserve frozen sources and all42 assets after any failure
+        if: always() && hashFiles('proof/dist-before.json') != ''
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-note-finalizer/run.py preserve 2>&1 | tee proof/final-preservation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-note-finalizer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            proof/
+            !proof/sdk-dist.zip
+          if-no-files-found: error
