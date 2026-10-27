@@ -1844,5 +1844,6 @@
   "recoveryDataNetwork": "This recovery data belongs to a different network.",
   "recoveryDataAccount": "This recovery data does not match the retained wallet accounts.",
   "recoveryDataUnavailable": "Verified recovery data is not available.",
-  "recoveryDataDefaultFileName": "Recovery Data"
+  "recoveryDataDefaultFileName": "Recovery Data",
+  "recoveryDataReadFailed": "The selected recovery file could not be read. Choose it again and try again."
 }

@@ -27,11 +27,14 @@ type FileErrorKey = Extract<
   | 'recoveryDataVersion'
   | 'recoveryDataSize'
   | 'recoveryDataNetwork'
+  | 'recoveryDataReadFailed'
   | 'recoveryDataAccount'
   | 'recoveryDataUnavailable'
 >;
 
 function fileError(error: unknown): FileErrorKey | undefined {
+  if (error instanceof Error && (error.name === 'StorageUnavailableError' || error.name === 'StorageContinuityError'))
+    return 'recoveryDataUnavailable';
   const message = error instanceof Error ? error.message : '';
   switch (message) {
     case 'RecoveryDataFile:password':
@@ -151,7 +154,7 @@ export const RecoveryDataFlow: React.FC<RecoveryDataFlowProps> = ({ mode, onClos
         if (!current()) return;
         reader.current = undefined;
         setReading(false);
-        setError('recoveryDataMalformed');
+        setError('recoveryDataReadFailed');
       };
       next.readAsText(selected);
     },
