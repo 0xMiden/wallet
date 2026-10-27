@@ -1,0 +1,45 @@
+{
+  "approved_target_lock_changes": {},
+  "checks": [
+    {
+      "argv": [
+        "yarn",
+        "tsc",
+        "--noEmit"
+      ],
+      "kind": "type",
+      "name": "types",
+      "timeout_seconds": 600
+    },
+    {
+      "argv": [
+        "yarn",
+        "jest",
+        "--runTestsByPath",
+        "src/lib/miden/sdk/miden-client-interface.recovery.test.ts",
+        "src/lib/miden/sdk/store-clients.test.ts",
+        "--maxWorkers=2",
+        "--json",
+        "--outputFile=compatibility-results.json"
+      ],
+      "expected_count": 93,
+      "kind": "test",
+      "name": "sdk-recovery-and-factories",
+      "results_json": "compatibility-results.json",
+      "timeout_seconds": 600
+    }
+  ],
+  "package_sha256": {
+    "@miden-sdk/miden-sdk": "90ab279019f48ff41beefae89f48cbf903600b5bcb1a362f944094e709c7f8fb",
+    "@miden-sdk/react": "dae046f97d54bafa0d298982b94e4dd642fbfe121769ecb21a04280ae89bb8e2",
+    "@miden-sdk/vite-plugin": "ab0de5991cda8e80ed6c0fb3e6177a54a813709ec9d68620b791f1d989a0f3b6"
+  },
+  "phase": "fd524-wallet-compatibility-baseline",
+  "proof_paths": [
+    ".github/workflows/issue1948-sdk-injection.yml",
+    ".github/ci/issue1948-sdk-injection.py",
+    ".github/ci/issue1948-sdk-injection-inputs.json"
+  ],
+  "wallet_source": "455425c0cf2718a115f16d2ec973df76c7416b29",
+  "wallet_tree": "84fb92047458d4414d736530909712872bd59a1c"
+}
