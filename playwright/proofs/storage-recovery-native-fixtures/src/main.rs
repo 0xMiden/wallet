@@ -10,6 +10,7 @@ use miden_client::rpc::generated::rpc::{GetAccountResponse, GetBlockHeaderByNumb
 use miden_client::testing::MockChain;
 use miden_client::utils::Deserializable;
 use miden_client::Word;
+use miden_objects::DecodeMessageExt;
 use prost::Message;
 
 const MAX_CHAIN_BYTES: u64 = 16 * 1024 * 1024;
