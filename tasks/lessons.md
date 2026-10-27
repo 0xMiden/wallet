@@ -99,3 +99,5 @@ When a browser debugging connection is unavailable, inspect the requested browse
 ## Swap amount locators during loading
 
 Quote loading removes the derived amount input while keeping the opposite input mounted. A global first/nth locator can then edit the wrong side. Scope each amount locator to the existing pay/receive container and cover the missing-input state in its behavioral regression.
+
+- For #1945 and #1949, the user stopped Council and plan gates. Complete remaining fixes directly, self-review, and preserve ordinary automated CI acceptance without restarting panels.

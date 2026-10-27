@@ -444,3 +444,5 @@ Accepted limits: a fee above the attester's operator ceiling leaves a burn unpai
 it reads `Payout delayed`; a mint transaction carrying two payouts to the recipient is
 skipped, so a batched payout reads `Payout delayed` too; pruned RPC history can leave an
 old row unscanned; Circle can be slow. Reviewer agents must treat these as known limits, not blocking defects.
+
+Game Coin sale discovery keeps one endpoint/config-scoped scan, with separate bounded historical and newer-block continuations. Each call reads at most eight note bodies, revalidates its remembered live sale first, and shares concurrent same-scope discovery. Scope changes invalidate pending results.

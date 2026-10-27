@@ -220,10 +220,8 @@ export function readChainTip(): Promise<number> {
 const MAX_TAG_SYNC_CALLS = 64;
 
 /**
- * The ids of the committed notes under `tag` in blocks `fromBlock` to `toBlock`, newest block first, with the block
- * that included each. The node's note sync answers at most one block of matches per call, so this walks the range
- * with one call per matching block; a range with more than `MAX_TAG_SYNC_CALLS` matching blocks is left unfinished
- * and rejects, since a listing that silently stops early would hide the newest notes.
+ * The ids of committed notes under `tag` in the inclusive block range, newest first. The SDK paginates
+ * syncNotes internally; the outer loop handles any remaining range and refuses an incomplete listing.
  */
 export async function listCommittedNoteIdsByTag(
   tag: number,
