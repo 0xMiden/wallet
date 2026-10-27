@@ -6770,13 +6770,17 @@ describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
       ...(contextChange === 'untrusted permission field' ? { trusted: true } : {})
     };
     if (contextChange === 'wrong network') context.scope.network = 'foreign:rpc';
-    const request = callReq({
+    const request = {
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      deadline_ms: 1000,
+      endpoints: SW_ENDPOINTS,
       op_id: 'retained-recovery-operation',
       method: 'restoreStorageRecovery',
       argsB64: [encodeArg(command), encodeArg(context)],
       recoveryAccess: { epoch: incident.epoch, expiresAt: Date.now() + (expired ? -1 : 4000) },
       storageHealth: incident
-    });
+    };
     const reply = jest.fn();
     expect(capturedListener?.(request, { id: 'wallet-extension' }, reply)).toBe(true);
     await flush();
