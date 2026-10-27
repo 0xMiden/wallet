@@ -6295,6 +6295,7 @@ describe('Vault storage continuity', () => {
           keys.accounts,
           accounts.map(account => ({
             ...account,
+            type: WalletType.Guardian,
             hdIndex: account.hdIndex ?? 0,
             authScheme: account.authScheme ?? 'ecdsa'
           }))
