@@ -58,6 +58,8 @@ const memoryStore: Record<string, any> = {};
 const mockStorageSets: string[][] = [];
 let retainedStorageKey: string | undefined;
 let mockBeforeRecoveryWrite: (() => Promise<void>) | undefined;
+let mockBeforeStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
+let mockAfterStorageWrite: ((items: Record<string, unknown>) => Promise<void>) | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -68,7 +70,9 @@ jest.mock('lib/platform/storage-adapter', () => ({
     set: async (items: Record<string, any>) => {
       if (Object.keys(items).some(key => /^miden_recovery_v1_[01]$/.test(key))) await mockBeforeRecoveryWrite?.();
       mockStorageSets.push(Object.keys(items));
+      if (mockBeforeStorageWrite) await mockBeforeStorageWrite(items);
       Object.assign(memoryStore, items);
+      if (mockAfterStorageWrite) await mockAfterStorageWrite(items);
     },
     remove: async (keys: string[]) => {
       for (const k of keys) {
@@ -6405,6 +6409,227 @@ describe('Vault storage continuity', () => {
     live = false;
     await expect(pending).rejects.toThrow('retired recovery import');
     expect(await vault.readRecoveryJournal()).toEqual(retained);
+  });
+
+  it('Task5 last-good export preserves an authenticated subset after retained Guardian account growth', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const baselinePassword = crypto.randomUUID();
+    await expect(
+      Vault.exportRecoveryData(baselinePassword, credential).then(content =>
+        decryptRecoveryDataFile(content, baselinePassword)
+      )
+    ).resolves.toEqual(retained);
+    const accounts = await fetchAndDecryptOne<WalletAccount[]>(keys.accounts, fixtureKey);
+    const first = accounts[0];
+    if (!first) throw new Error('Missing retained Guardian fixture');
+    await encryptAndSaveMany(
+      [[keys.accounts, [...accounts, { ...first, publicKey: crypto.randomUUID(), hdIndex: first.hdIndex + 1 }]]],
+      fixtureKey
+    );
+    markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    const incident = getStorageHealth();
+    const filePassword = crypto.randomUUID();
+    vault.retire();
+    await expect(
+      Vault.exportRecoveryData(filePassword, credential).then(content => decryptRecoveryDataFile(content, filePassword))
+    ).resolves.toEqual(retained);
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 last-good export refuses an authenticated journal account absent from retained custody', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained?.accounts[0]) throw new Error('Missing verified recovery fixture');
+    const baselinePassword = crypto.randomUUID();
+    await expect(
+      Vault.exportRecoveryData(baselinePassword, credential).then(content =>
+        decryptRecoveryDataFile(content, baselinePassword)
+      )
+    ).resolves.toEqual(retained);
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    await new RecoveryJournal(fixtureKey, getStorageProvider()).update(() => ({
+      ...retained,
+      accounts: [...retained.accounts, { ...retained.accounts[0]!, accountId: crypto.randomUUID() }]
+    }));
+    markStorageUnavailable('journal', { backend: 'independent', operation: 'mutate' });
+    const incident = getStorageHealth();
+    await expect(Vault.exportRecoveryData(crypto.randomUUID(), credential)).rejects.toThrow('RecoveryDataFile:account');
+    expect(getStorageHealth()).toEqual(incident);
+  });
+
+  it('Task5 recovery Vault keeps a truly idempotent import healthy only after real primary continuity verification', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(retained, filePassword);
+    const health = getStorageHealth();
+    const writesBefore = mockStorageSets.length;
+    const verify = jest.fn((capability: import('../storage-health').StorageRecoveryCapability) =>
+      vault.verifyStorageContinuity(false, capability)
+    );
+    await expect(
+      Vault.importRecoveryData(content, filePassword, health.epoch, credential, undefined, verify)
+    ).resolves.toMatchObject({ imported: true });
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(mockStorageSets.slice(writesBefore)).toEqual([]);
+    expect(await vault.readRecoveryJournal()).toEqual(retained);
+    expect(getStorageHealth()).toEqual(health);
+  });
+
+  it('Task5 recovery Vault quarantines a new authenticated floor without SDK generation writes', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const sdkWrites = initializeGeneration.mock.calls.length;
+    const result = await Vault.importRecoveryData(content, filePassword, health.epoch, credential);
+    expect(result).toMatchObject({ imported: true, quarantinedEpoch: health.epoch + 1 });
+    expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    expect(initializeGeneration).toHaveBeenCalledTimes(sdkWrites);
+    const { RecoveryJournal } = await import('../recovery/journal');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+  });
+
+  it('Task5 recovery Vault refuses a healthy no-op exception when primary verification does not pass', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(retained, filePassword);
+    const health = getStorageHealth();
+    await expect(
+      Vault.importRecoveryData(content, filePassword, health.epoch, credential, undefined, async () => false)
+    ).resolves.toMatchObject({ imported: true, quarantinedEpoch: health.epoch + 1 });
+    expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+  });
+
+  it('Task5 recovery Vault quarantines new durable evidence even when later continuity-floor persistence rejects', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const floorStorageKey = Buffer.from(
+      await crypto.subtle.digest('SHA-256', Buffer.from(ck('recoverycontinuity'), 'utf-8'))
+    ).toString('hex');
+    expect(typeof memoryStore[floorStorageKey]).toBe('string');
+    const floorFailure = new Error('Injected continuity-floor write refusal');
+    let floorWrites = 0;
+    mockBeforeStorageWrite = async items => {
+      if (Object.prototype.hasOwnProperty.call(items, floorStorageKey)) {
+        floorWrites++;
+        throw floorFailure;
+      }
+    };
+    const epoch = getStorageHealth().epoch;
+    const sdkWrites = initializeGeneration.mock.calls.length;
+    try {
+      const pending = Vault.importRecoveryData(content, filePassword, epoch, credential);
+      await pending.then(
+        () => undefined,
+        () => undefined
+      );
+      expect(floorWrites).toBe(1);
+      await expect(pending).rejects.toBe(floorFailure);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+      expect(initializeGeneration).toHaveBeenCalledTimes(sdkWrites);
+    } finally {
+      mockBeforeStorageWrite = undefined;
+    }
+  });
+
+  it('Task5 recovery Vault quarantines new durable evidence when an accepted pointer outlives its capability', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const epoch = getStorageHealth().epoch;
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+    let acceptedPointers = 0;
+    mockAfterStorageWrite = async items => {
+      if (Object.prototype.hasOwnProperty.call(items, 'miden_recovery_v1_active')) {
+        acceptedPointers++;
+        clock.mockReturnValue(now + 5001);
+      }
+    };
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, epoch, credential)).rejects.toThrow(
+        'StorageUnavailableError'
+      );
+      expect(acceptedPointers).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect((await new RecoveryJournal(fixtureKey, getStorageProvider()).read())?.accounts).toEqual(incoming.accounts);
+      expect(getStorageHealth()).toMatchObject({ status: 'unavailable', reason: 'continuity', operation: 'import' });
+    } finally {
+      mockAfterStorageWrite = undefined;
+      clock.mockRestore();
+    }
+  });
+
+  it('Task5 recovery Vault leaves an ordinary cancellation before journal publication healthy', async () => {
+    const credential = await recoveryFileCustody();
+    expect(await vault.verifyStorageContinuity()).toBe(true);
+    const retained = await vault.readRecoveryJournal();
+    if (!retained) throw new Error('Missing verified recovery fixture');
+    const incoming = {
+      ...retained,
+      accounts: retained.accounts.map(account => ({ ...account, nonce: (BigInt(account.nonce) + 1n).toString() }))
+    };
+    const filePassword = crypto.randomUUID();
+    const content = await independentRecoveryFile(incoming, filePassword);
+    const health = getStorageHealth();
+    const cancellation = new DOMException('Cancelled', 'AbortError');
+    let attemptedWrites = 0;
+    mockBeforeStorageWrite = async items => {
+      if (Object.keys(items).some(key => key.startsWith('miden_recovery_v1_'))) {
+        attemptedWrites++;
+        throw cancellation;
+      }
+    };
+    try {
+      await expect(Vault.importRecoveryData(content, filePassword, health.epoch, credential)).rejects.toBe(
+        cancellation
+      );
+      expect(attemptedWrites).toBe(1);
+      const { RecoveryJournal } = await import('../recovery/journal');
+      const { getStorageProvider } = await import('lib/platform/storage-adapter');
+      expect(await new RecoveryJournal(fixtureKey, getStorageProvider()).read()).toEqual(retained);
+      expect(getStorageHealth()).toEqual(health);
+    } finally {
+      mockBeforeStorageWrite = undefined;
+    }
   });
 
   it('Task4C3P brands an actual Vault journal readback mismatch before native adoption', async () => {

@@ -1633,8 +1633,7 @@ export class Vault {
           if (
             !snapshot ||
             snapshot.scope.network !== network ||
-            snapshot.accounts.length !== accounts.length ||
-            accounts.some(account => !snapshot.accounts.some(floor => floor.accountId === account.publicKey))
+            snapshot.accounts.some(floor => !accounts.some(account => account.publicKey === floor.accountId))
           )
             throw new RecoveryDataFileError('account');
           const content = await encryptRecoveryDataFile(snapshot, filePassword, check);
@@ -1678,129 +1677,160 @@ export class Vault {
     const incoming = await decryptRecoveryDataFile(content, filePassword, check);
     check();
     if (incoming.scope.network !== network) throw new RecoveryDataFileError('network');
-    const result = await withStorageRecoveryAccess(expectedEpoch, Date.now() + 5000, capability =>
-      getAccountsWriteQueue().add(async () => {
-        const allowed = () => {
-          check();
-          assertStorageRecoveryAllowed(capability);
-        };
-        allowed();
-        const accounts = await Vault.recoveryDataAccounts(key, allowed);
-        const binding = Vault.recoveryDataBinding(accounts);
-        const assertBinding = async () => {
+    let journalMutationAccepted = false;
+    let failed = false;
+    const quarantineAcceptedEvidence = () => {
+      const health = getStorageHealth();
+      if (
+        journalMutationAccepted &&
+        health.status === 'healthy' &&
+        health.epoch === expectedEpoch &&
+        `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}` === network
+      )
+        markStorageUnavailable('continuity', { backend: 'independent', operation: 'import' });
+    };
+    try {
+      const result = await withStorageRecoveryAccess(expectedEpoch, Date.now() + 5000, capability =>
+        getAccountsWriteQueue().add(async () => {
+          const allowed = () => {
+            check();
+            assertStorageRecoveryAllowed(capability);
+          };
           allowed();
-          if (Vault.recoveryDataBinding(await Vault.recoveryDataAccounts(key, allowed)) !== binding)
-            throw new StorageUnavailableError();
+          const accounts = await Vault.recoveryDataAccounts(key, allowed);
+          const binding = Vault.recoveryDataBinding(accounts);
+          const assertBinding = async () => {
+            allowed();
+            if (Vault.recoveryDataBinding(await Vault.recoveryDataAccounts(key, allowed)) !== binding)
+              throw new StorageUnavailableError();
+            allowed();
+          };
+          const provider = getStorageProvider();
+          const journal = new RecoveryJournal(
+            key,
+            {
+              get: keys => provider.get(keys),
+              set: async items => {
+                await provider.set(items);
+                journalMutationAccepted = true;
+                // A timed-out provider write can still settle after the caller has returned.
+                if (failed) quarantineAcceptedEvidence();
+              }
+            },
+            assertBinding
+          );
+          const retained = await journal.read();
           allowed();
-        };
-        const journal = new RecoveryJournal(key, getStorageProvider(), assertBinding);
-        const retained = await journal.read();
-        allowed();
-        let floor: RecoveryJournalSnapshot | undefined;
-        try {
-          floor = validateJournal(await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, key));
-        } catch (error) {
-          if (!(error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND)) throw error;
-        }
-        allowed();
-        if (retained && floor && !sameRecoveryFields(retained.scope, floor.scope)) throw new StorageContinuityError();
-        const target = await Repo.openWalletRecoveryStore(capability);
-        let marker: ReturnType<typeof validateWalletGeneration> | undefined;
-        try {
-          const value: unknown = await target.table('metadata').get('generation');
+          let floor: RecoveryJournalSnapshot | undefined;
+          try {
+            floor = validateJournal(await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, key));
+          } catch (error) {
+            if (!(error instanceof Error && error.message === STORAGE_ITEM_NOT_FOUND)) throw error;
+          }
           allowed();
-          if (value !== undefined) marker = validateWalletGeneration(value);
-        } finally {
-          target.close();
-        }
-        const observed = await withWasmClientLock(
-          async hold => {
+          if (retained && floor && !sameRecoveryFields(retained.scope, floor.scope)) throw new StorageContinuityError();
+          const target = await Repo.openWalletRecoveryStore(capability);
+          let marker: ReturnType<typeof validateWalletGeneration> | undefined;
+          try {
+            const value: unknown = await target.table('metadata').get('generation');
             allowed();
-            const value = await midenClientProxy.readStorageContinuity(
-              accounts.map(account => account.publicKey),
-              false,
-              capability
-            );
-            assertWasmHoldCurrent(hold, 'after imported recovery scope read');
-            allowed();
-            return value;
-          },
-          { label: 'recovery-data-scope' }
-        );
-        allowed();
-        const trusted = retained?.scope ?? floor?.scope;
-        const scope = trusted ?? {
-          network,
-          walletGeneration: marker?.generation ?? crypto.randomUUID(),
-          sdkGeneration: observed.generation ?? crypto.randomUUID()
+            if (value !== undefined) marker = validateWalletGeneration(value);
+          } finally {
+            target.close();
+          }
+          const observed = await withWasmClientLock(
+            async hold => {
+              allowed();
+              const value = await midenClientProxy.readStorageContinuity(
+                accounts.map(account => account.publicKey),
+                false,
+                capability
+              );
+              assertWasmHoldCurrent(hold, 'after imported recovery scope read');
+              allowed();
+              return value;
+            },
+            { label: 'recovery-data-scope' }
+          );
+          allowed();
+          const trusted = retained?.scope ?? floor?.scope;
+          const scope = trusted ?? {
+            network,
+            walletGeneration: marker?.generation ?? crypto.randomUUID(),
+            sdkGeneration: observed.generation ?? crypto.randomUUID()
+          };
+          if (
+            scope.network !== network ||
+            (marker && marker.origin !== 'fresh' && marker.generation !== scope.walletGeneration) ||
+            (observed.generation !== null && observed.generation !== scope.sdkGeneration)
+          )
+            throw new StorageContinuityError();
+          const accountIds = accounts.map(account => account.publicKey);
+          const baseline = floor
+            ? {
+                ...floor,
+                ...mergeExternalRecoveryData({ ...floor, entries: [] }, { scope, accountIds }, retained),
+                sequence: Math.max(floor.sequence, retained?.sequence ?? 1)
+              }
+            : retained;
+          const merged = mergeExternalRecoveryData(incoming, { scope, accountIds }, baseline);
+          const changed =
+            !retained ||
+            retained.sequence < (floor?.sequence ?? 0) ||
+            !marker ||
+            marker.origin === 'fresh' ||
+            marker.generation !== scope.walletGeneration ||
+            observed.generation !== scope.sdkGeneration ||
+            !sameRecoveryFields(merged, {
+              scope: retained.scope,
+              accounts: retained.accounts,
+              entries: retained.entries
+            });
+          const snapshot = changed
+            ? await journal.update(() => merged, [], {
+                minimumSequence: (floor?.sequence ?? 0) + 1,
+                capability
+              })
+            : retained;
+          allowed();
+          const readback = await journal.read();
+          allowed();
+          if (!snapshot || !sameRecoveryFields(readback, snapshot)) throw new StorageContinuityError();
+          const nextFloor = { ...snapshot, entries: [] };
+          if (!floor || !sameRecoveryFields(floor, nextFloor)) {
+            await withRecoveryStorageLock(async () => {
+              await assertBinding();
+              await encryptAndSaveMany([[recoveryContinuityStrgKey, nextFloor]], key, allowed);
+              allowed();
+              const verified = validateJournal(await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, key));
+              allowed();
+              if (!sameRecoveryFields(verified, nextFloor)) throw new StorageContinuityError();
+            });
+          }
+          allowed();
+          await restoreWalletRecoveryGeneration(snapshot, capability);
+          await assertBinding();
+          const primaryVerified =
+            !changed && getStorageHealth().status === 'healthy' && verifyNoop ? await verifyNoop(capability) : false;
+          allowed();
+          return { snapshot, changed, primaryVerified };
+        })
+      );
+      check();
+      if (getStorageHealth().status === 'healthy' && (result.changed || !result.primaryVerified)) {
+        markStorageUnavailable('continuity', { backend: 'independent', operation: 'import' });
+        return {
+          imported: true,
+          retainedEntries: result.snapshot.entries.length,
+          quarantinedEpoch: getStorageHealth().epoch
         };
-        if (
-          scope.network !== network ||
-          (marker && marker.origin !== 'fresh' && marker.generation !== scope.walletGeneration) ||
-          (observed.generation !== null && observed.generation !== scope.sdkGeneration)
-        )
-          throw new StorageContinuityError();
-        const accountIds = accounts.map(account => account.publicKey);
-        const baseline = floor
-          ? {
-              ...floor,
-              ...mergeExternalRecoveryData({ ...floor, entries: [] }, { scope, accountIds }, retained),
-              sequence: Math.max(floor.sequence, retained?.sequence ?? 1)
-            }
-          : retained;
-        const merged = mergeExternalRecoveryData(incoming, { scope, accountIds }, baseline);
-        const changed =
-          !retained ||
-          retained.sequence < (floor?.sequence ?? 0) ||
-          !marker ||
-          marker.origin === 'fresh' ||
-          marker.generation !== scope.walletGeneration ||
-          observed.generation !== scope.sdkGeneration ||
-          !sameRecoveryFields(merged, {
-            scope: retained.scope,
-            accounts: retained.accounts,
-            entries: retained.entries
-          });
-        const snapshot = changed
-          ? await journal.update(() => merged, [], {
-              minimumSequence: (floor?.sequence ?? 0) + 1,
-              capability
-            })
-          : retained;
-        allowed();
-        const readback = await journal.read();
-        allowed();
-        if (!snapshot || !sameRecoveryFields(readback, snapshot)) throw new StorageContinuityError();
-        const nextFloor = { ...snapshot, entries: [] };
-        if (!floor || !sameRecoveryFields(floor, nextFloor)) {
-          await withRecoveryStorageLock(async () => {
-            await assertBinding();
-            await encryptAndSaveMany([[recoveryContinuityStrgKey, nextFloor]], key, allowed);
-            allowed();
-            const verified = validateJournal(await fetchAndDecryptOne<unknown>(recoveryContinuityStrgKey, key));
-            allowed();
-            if (!sameRecoveryFields(verified, nextFloor)) throw new StorageContinuityError();
-          });
-        }
-        allowed();
-        await restoreWalletRecoveryGeneration(snapshot, capability);
-        await assertBinding();
-        const primaryVerified =
-          !changed && getStorageHealth().status === 'healthy' && verifyNoop ? await verifyNoop(capability) : false;
-        allowed();
-        return { snapshot, changed, primaryVerified };
-      })
-    );
-    check();
-    if (getStorageHealth().status === 'healthy' && (result.changed || !result.primaryVerified)) {
-      markStorageUnavailable('continuity', { backend: 'independent', operation: 'import' });
-      return {
-        imported: true,
-        retainedEntries: result.snapshot.entries.length,
-        quarantinedEpoch: getStorageHealth().epoch
-      };
+      }
+      return { imported: true, retainedEntries: result.snapshot.entries.length };
+    } catch (error) {
+      failed = true;
+      quarantineAcceptedEvidence();
+      throw error;
     }
-    return { imported: true, retainedEntries: result.snapshot.entries.length };
   }
 
   /** Verify the configured protector without constructing or adopting another vault. */
