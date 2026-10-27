@@ -1817,5 +1817,14 @@
   "storageRecoveryWorking": "Checking retained wallet data...",
   "storageRecoveryFailed": "The check could not finish. Wallet actions remain paused.",
   "storageRecoveryIncomplete": "Storage has not been verified. Wallet actions remain paused.",
-  "storageRecoveryProgress": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$."
+  "storageRecoveryProgress": "Accounts verified: $verifiedAccounts$ of $expectedAccounts$. Inputs verified: $verifiedInputs$ of $expectedInputs$.",
+  "saveRecoveryDataFile": "Save encrypted recovery data",
+  "recoveryDataExporting": "Preparing your recovery data file...",
+  "recoveryDataExportFailedTitle": "Could not save recovery data",
+  "recoveryDataExportFailedDesc": "The recovery data file could not be delivered. Try again before relying on this copy.",
+  "recoveryDataExportedTitle1": "Recovery data",
+  "recoveryDataExportedTitle2": "saved",
+  "recoveryDataExportedDesc1": "Keep this encrypted file outside this device and keep its password safe.",
+  "recoveryDataExportedDesc2": "This file does not contain your signing keys or recovery phrase.",
+  "recoveryDataExportedDesc3": "Restore signer access separately, then import this data and check wallet storage before retrying transactions."
 }
