@@ -770,7 +770,8 @@ export function createProbeController(effects) {
     }
     return result;
   };
-  return { run, cleanup };
+  const inspect = async () => ({ inspection: 'blocked', reason: 'unavailable' });
+  return { run, cleanup, inspect };
 }
 
 export function createLocalProbeEffects(env) {

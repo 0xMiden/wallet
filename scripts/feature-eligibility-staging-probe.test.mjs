@@ -1439,3 +1439,43 @@ for (const [field, value] of [
     assert.equal((await createProbeController(f.effects).cleanup(manifest())).cleanup, 'blocked');
     assert.equal(deleted(f).length, 0);
   });
+
+
+async function inspectionFixture(mutateRemote) {
+  const f = fixture({
+    mutateRemote,
+    api(path, method) {
+      if (method === 'DELETE') throw new Error('retained inspection fixture');
+    }
+  });
+  await createProbeController(f.effects).run(identity);
+  f.events.length = 0;
+  f.calls.length = 0;
+  return f;
+}
+
+test('inspection verifies the exact retained owner using five GETs without cleanup or exercise', async () => {
+  const f = await inspectionFixture();
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.deepEqual(result, { inspection: 'verified', reason: 'complete' });
+  assert.equal(f.events.filter(event => event[0] === 'api').length, 5);
+  assert.ok(f.events.filter(event => event[0] === 'api').every(event => event[1] === 'GET'));
+  assert.equal(deployed(f).length, 0);
+  assert.equal(f.calls.length, 0);
+});
+
+test('inspection keeps canonical null observability blocked with the original ownership diagnostic', async () => {
+  const f = await inspectionFixture(remote => { remote.scriptSettings.observability = null; });
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.equal(result.inspection, 'blocked');
+  assert.equal(result.reason, 'ownership_mismatch');
+  assert.deepEqual(result.ownershipCheck, { gate: 'script_observability', form: 'null' });
+  assert.equal(deleted(f).length, 0);
+});
+
+test('inspection rejects untrusted provenance before any provider request', async () => {
+  const f = fixture({ context: { ref: 'refs/heads/untrusted' } });
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch' });
+  assert.equal(f.events.length, 0);
+});
