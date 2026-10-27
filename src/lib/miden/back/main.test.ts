@@ -1739,13 +1739,16 @@ describe('Task4C3F operation-bound acquisition reverse IPC', () => {
       'lib/miden-chain/effective-endpoints'
     );
     const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy');
-    const prover = await import('./offscreen-prover');
     const { toSerializable } = await import('../recovery/serialization');
     await health.initializeStorageHealth();
     expect(health.getStorageHealth().status).toBe('healthy');
     await endpoints.loadEndpointOverrides();
     const originalEndpoints = endpoints.getEndpointState();
-    const ensure = jest.spyOn(prover, 'ensureOffscreenDocument').mockResolvedValue(undefined);
+    const offscreenDescriptor = Object.getOwnPropertyDescriptor(chrome, 'offscreen');
+    Object.defineProperty(chrome, 'offscreen', {
+      configurable: true,
+      value: { hasDocument: async () => true, createDocument: jest.fn(), closeDocument: jest.fn() }
+    });
     let finish: (value: unknown) => void = () => undefined;
     let sent = false;
     const send = jest.spyOn(chrome.runtime, 'sendMessage').mockImplementation(
@@ -1788,7 +1791,8 @@ describe('Task4C3F operation-bound acquisition reverse IPC', () => {
       acquisition.uninstallNoteAcquisitionSink(sink);
       endpoints.adoptEndpointState(originalEndpoints);
       send.mockRestore();
-      ensure.mockRestore();
+      if (offscreenDescriptor) Object.defineProperty(chrome, 'offscreen', offscreenDescriptor);
+      else Reflect.deleteProperty(chrome, 'offscreen');
     };
     return { acquisition, health, endpoints, sink, message, invoke, stop, restore };
   }
