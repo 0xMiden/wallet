@@ -1,29 +1,25 @@
 import { ITransactionStatus } from '../db/types';
+import { receiptSnapshot } from './testing/provider-receipts';
 import { mergeExternalRecoveryData } from './external-import';
-import type { RecoveryTransactionRow } from './transaction-record';
+import { validateRecoveryReceipt, type RecoveryTransactionRow } from './transaction-record';
 import type { RecoveryJournalSnapshot } from './types';
 
-const scope = {
-  network: 'testnet:https://node.invalid',
-  walletGeneration: 'current-wallet',
-  sdkGeneration: 'current-sdk'
-};
-const binding = { scope, accountIds: ['account-a'] };
+const providerFixture = receiptSnapshot();
+const providerReceipt = providerFixture.entries[0];
+if (providerReceipt?.kind !== 'receipt') throw new Error('Missing provider receipt fixture');
 const row: RecoveryTransactionRow = {
-  id: 'external-tx',
-  accountId: 'account-a',
-  type: 'send',
+  ...validateRecoveryReceipt(providerReceipt.row),
   status: ITransactionStatus.Unconfirmed,
-  initiatedAt: 1,
-  displayIcon: 'SEND',
   restoredFromBackup: false,
   restoredFromJournal: true
 };
+const scope = { ...providerFixture.scope, walletGeneration: 'current-wallet', sdkGeneration: 'current-sdk' };
+const binding = { scope, accountIds: [row.accountId] };
 const file = (): RecoveryJournalSnapshot => ({
   version: 1,
   sequence: 7,
   scope: { ...scope, walletGeneration: 'lost-wallet', sdkGeneration: 'lost-sdk' },
-  accounts: [{ accountId: 'account-a', nonce: '4', commitment: 'state-4' }],
+  accounts: [{ accountId: row.accountId, nonce: '4', commitment: 'state-4' }],
   entries: [
     {
       kind: 'transaction',
@@ -64,12 +60,12 @@ describe('Task5 recovery external provenance', () => {
       version: 1,
       sequence: 20,
       scope,
-      accounts: [{ accountId: 'account-a', nonce: '6', commitment: 'state-6' }],
+      accounts: [{ accountId: row.accountId, nonce: '6', commitment: 'state-6' }],
       entries: [
         {
           kind: 'transaction',
           id: 'local-uncertain',
-          accountId: 'account-a',
+          accountId: row.accountId,
           requestBytes: new Uint8Array([9]),
           mayHaveSubmitted: true,
           evidence: { transactionId: 'local-chain-id' }
@@ -115,7 +111,7 @@ describe('Task5 recovery external provenance', () => {
     const retained = {
       ...file(),
       scope,
-      accounts: [{ accountId: 'account-a', nonce: '4', commitment: 'other-state-4' }]
+      accounts: [{ accountId: row.accountId, nonce: '4', commitment: 'other-state-4' }]
     };
     expect(() => mergeExternalRecoveryData(file(), binding, retained)).toThrow('RecoveryDataFile:account');
   });
