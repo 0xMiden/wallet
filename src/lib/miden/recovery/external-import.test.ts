@@ -39,8 +39,16 @@ const file = (): RecoveryJournalSnapshot => ({
 });
 
 describe('Task5 recovery external provenance', () => {
-  it('clamps both transaction and receipt flags before rebinding to current physical stores', () => {
-    const imported = mergeExternalRecoveryData(file(), binding);
+  it('clamps both transaction and receipt flags before rebinding to current physical stores', async () => {
+    const pending = Promise.resolve().then(() => mergeExternalRecoveryData(file(), binding));
+    await expect(pending).resolves.toMatchObject({
+      scope,
+      entries: [
+        { kind: 'transaction', row: { restoredFromBackup: true } },
+        { kind: 'receipt', row: { restoredFromBackup: true } }
+      ]
+    });
+    const imported = await pending;
     expect(imported.scope).toEqual(scope);
     expect(imported.entries).toHaveLength(2);
     for (const entry of imported.entries) {
@@ -51,7 +59,7 @@ describe('Task5 recovery external provenance', () => {
     }
   });
 
-  it('keeps stronger local account floors and unresolved local evidence intact', () => {
+  it('keeps stronger local account floors and unresolved local evidence intact', async () => {
     const retained: RecoveryJournalSnapshot = {
       version: 1,
       sequence: 20,
@@ -68,19 +76,26 @@ describe('Task5 recovery external provenance', () => {
         }
       ]
     };
-    const merged = mergeExternalRecoveryData(file(), binding, retained);
+    const pending = Promise.resolve().then(() => mergeExternalRecoveryData(file(), binding, retained));
+    await expect(pending).resolves.toMatchObject({
+      accounts: retained.accounts,
+      entries: expect.arrayContaining(retained.entries)
+    });
+    const merged = await pending;
     expect(merged.accounts).toEqual(retained.accounts);
     expect(merged.entries).toEqual(expect.arrayContaining(retained.entries));
     expect(merged.entries).toHaveLength(3);
   });
 
-  it('does not replace a surviving local row or its local provenance with a file collision', () => {
+  it('does not replace a surviving local row or its local provenance with a file collision', async () => {
     const retained = { ...file(), scope, entries: file().entries };
     const changed = file();
     const first = changed.entries[0];
     if (first?.kind !== 'transaction') throw new Error('missing transaction fixture');
     first.requestBytes = new Uint8Array([8, 8]);
-    const merged = mergeExternalRecoveryData(changed, binding, retained);
+    const pending = Promise.resolve().then(() => mergeExternalRecoveryData(changed, binding, retained));
+    await expect(pending).resolves.toMatchObject({ entries: retained.entries });
+    const merged = await pending;
     expect(merged.entries).toEqual(retained.entries);
   });
 

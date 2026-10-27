@@ -6284,12 +6284,10 @@ describe('Vault storage continuity', () => {
 
   async function recoveryFileCustody() {
     const credential = 'disposable-storage-recovery-custody';
-    const raw = await Passworder.exportKey(fixtureKey);
-    try {
-      await savePlain(keys.vaultKeyPassword, await Passworder.encryptVaultKeyWithPassword(raw, credential));
-    } finally {
-      raw.fill(0);
-    }
+    await savePlain(
+      keys.vaultKeyPassword,
+      await Passworder.encryptVaultKeyWithPassword(new Uint8Array(32).fill(7), credential)
+    );
     return credential;
   }
 
