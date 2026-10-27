@@ -44,7 +44,7 @@ let databaseSequence = 0;
 let importedState: number | undefined;
 function record(state = 2, commitment = 'details-a') {
   return {
-    details: () => ({ commitment }),
+    details: () => ({ commitment, free: () => {} }),
     state: () => state,
     isAuthenticated: () => state === 2 || state === 6,
     isInclusionPending: () => state === 0 || state === 1,
@@ -54,7 +54,8 @@ function record(state = 2, commitment = 'details-a') {
     toInputNote: () => {
       if (state === 0) throw new Error('Expected record has no metadata');
       return {};
-    }
+    },
+    free: () => {}
   };
 }
 let records: ReturnType<typeof record>[];
@@ -74,6 +75,11 @@ const client: RecoverySdkWriter = {
     insert: jest.fn()
   },
   notes: {
+    listPage: jest.fn().mockImplementation(async () => ({
+      notes: records.filter(item => [0, 1, 2, 4, 5].includes(item.state())),
+      nextCursor: records.length > 0 ? '0x' + '11'.repeat(32) : null,
+      exhausted: true
+    })),
     list: jest.fn().mockImplementation(async (query?: { ids?: string[]; status?: string }) => {
       if (query?.ids) return records.filter(item => query.ids?.includes(item.id()?.toString() ?? ''));
       if (query?.status) {

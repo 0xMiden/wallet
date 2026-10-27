@@ -47,7 +47,10 @@ function reader(): RecoverySdkReader {
         to_commitment: () => ({ toHex: () => 'state-3', free: () => {} })
       })
     },
-    notes: { list: jest.fn().mockResolvedValue([]) },
+    notes: {
+      list: jest.fn().mockResolvedValue([]),
+      listPage: jest.fn().mockResolvedValue({ notes: [], nextCursor: null, exhausted: true })
+    },
     storeIdentifier: jest.fn().mockImplementation(async () => db.name)
   };
 }
@@ -61,31 +64,47 @@ it('counts only pinned unspent states before reading note bodies', async () => {
   );
   expect(await countRetainedInputNotes(db.name)).toBe(5);
 });
-it('refuses an oversized baseline before SDK note-body materialization', async () => {
+it('refuses an oversized private baseline without unbounded SDK note-body materialization', async () => {
   await db
     .table('inputNotes')
     .bulkAdd(Array.from({ length: 257 }, (_, i) => ({ detailsCommitment: `${i}`, stateDiscriminant: 0 })));
   const client = reader();
+  const records = Array.from({ length: 257 }, (_, index) => ({
+    metadata: () => ({ noteType: () => 0, free: () => {} }),
+    details: () => ({ free: () => {} }),
+    id: () => ({ toString: () => `0x${index.toString(16).padStart(64, '0')}`, free: () => {} }),
+    toInputNote: () => ({ free: () => {} }),
+    free: () => {}
+  }));
+  const listPage = jest
+    .fn()
+    .mockResolvedValueOnce({ notes: records.slice(0, 128), nextCursor: '0x' + '11'.repeat(32), exhausted: false })
+    .mockResolvedValueOnce({ notes: records.slice(128, 256), nextCursor: '0x' + '22'.repeat(32), exhausted: false })
+    .mockResolvedValueOnce({ notes: records.slice(256), nextCursor: '0x' + '33'.repeat(32), exhausted: true });
+  client.notes.listPage = listPage;
   await expect(readSdkRecoverySnapshot(client, ['retained'], true, () => {})).rejects.toThrow('capacity');
   expect(client.notes.list).not.toHaveBeenCalled();
+  expect(listPage).toHaveBeenCalledTimes(3);
   const health = await import('../storage-health');
   await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
 });
 it('retains metadata-less private bodies through details-only files', async () => {
   const client = reader();
-  client.notes.list = jest
-    .fn()
-    .mockResolvedValue([])
-    .mockResolvedValueOnce([
+  client.notes.listPage = jest.fn().mockResolvedValueOnce({
+    notes: [
       {
         metadata: () => undefined,
-        details: () => ({}),
+        details: () => ({ free: () => {} }),
         id: () => undefined,
         toInputNote: () => {
           throw new Error('partial');
-        }
+        },
+        free: () => {}
       }
-    ]);
+    ],
+    nextCursor: '0x' + '11'.repeat(32),
+    exhausted: true
+  });
   const result = await readSdkRecoverySnapshot(client, ['retained'], true, () => {});
   expect(result.notes).toEqual([
     { kind: 'note', id: 'partial-details', noteFile: new Uint8Array([3, 4]), provenance: 'input', format: 'details' }

@@ -14,17 +14,16 @@ import type { RecoveryAccountExpectation, RecoveryNoteEntry } from './types';
 import { isRecoveryNote, validateJournal } from './validation';
 import { assertCanonicalNotesWire, assertRetainedNotesWire, assertSdkRecoverySnapshotWire } from './wire-preflight';
 import { noteDetailsCommitment } from '../sdk/note-details-commitment';
-import { markStorageUnavailable } from '../storage-health';
+import { monotonicNowMs } from '../sync-backoff';
 
 export interface RecoverySdkReader {
   settings: Pick<MidenClient['settings'], 'get' | 'set'>;
   accounts: Pick<MidenClient['accounts'], 'get'>;
-  notes: Pick<MidenClient['notes'], 'list'>;
+  notes: Pick<MidenClient['notes'], 'list'> & Partial<Pick<MidenClient['notes'], 'listPage'>>;
   storeIdentifier: MidenClient['storeIdentifier'];
 }
 
 function refuseNoteCapacity(): never {
-  markStorageUnavailable('journal', { backend: 'independent', operation: 'validate' });
   throw new Error('Recovery journal note capacity exceeded');
 }
 
@@ -111,6 +110,84 @@ export function countRetainedInputNotes(databaseName: string): Promise<number> {
   });
 }
 
+async function readNoteBaseline(
+  client: RecoverySdkReader,
+  generation: string | null,
+  assertCurrent: () => void
+): Promise<RecoveryNoteEntry[]> {
+  if (!client.notes.listPage) throw new Error('Recovery baseline paging is unsupported');
+  const checkGeneration = async () => {
+    assertCurrent();
+    const current = await readSdkGeneration(client);
+    assertCurrent();
+    if (current !== generation) throw new Error('Recovery baseline generation changed');
+  };
+  const notes: RecoveryNoteEntry[] = [];
+  let bytes = 0;
+  let cursor: string | undefined;
+  for (let pages = 0; pages < 128; pages++) {
+    assertCurrent();
+    const page = await client.notes.listPage({
+      states: ['expected', 'unverified', 'committed', 'processing'],
+      limit: 128,
+      ...(cursor === undefined ? {} : { afterDetailsCommitment: cursor })
+    });
+    try {
+      assertCurrent();
+      await checkGeneration();
+      if (
+        page.notes.length > 128 ||
+        (page.nextCursor !== null &&
+          (!/^0x[0-9a-f]{64}$/.test(page.nextCursor) ||
+            (cursor !== undefined &&
+              page.nextCursor <= cursor &&
+              !(page.exhausted && page.notes.length === 0 && page.nextCursor === cursor)))) ||
+        (page.nextCursor === null && (cursor !== undefined || !page.exhausted || page.notes.length > 0))
+      )
+        throw new Error('Recovery baseline cursor did not advance');
+      for (const record of page.notes) {
+        assertCurrent();
+        const metadata = record.metadata();
+        try {
+          if (metadata?.noteType() === NoteType.Public) continue;
+        } finally {
+          metadata?.free();
+        }
+        const details = record.details();
+        const identifier = record.id();
+        try {
+          const id = identifier?.toString() ?? noteDetailsCommitment(details);
+          let file: NoteFile;
+          let format: 'full' | 'details' = 'full';
+          try {
+            file = NoteFile.fromInputNote(record.toInputNote());
+          } catch {
+            file = NoteFile.fromNoteDetails(details);
+            format = 'details';
+          }
+          try {
+            const noteFile = file.serialize();
+            bytes += noteFile.byteLength;
+            if (bytes > JOURNAL_MAX_BYTES || notes.length >= JOURNAL_MAX_ENTRIES) refuseNoteCapacity();
+            notes.push({ kind: 'note', id, noteFile: noteFile.slice(), provenance: 'input', format });
+          } finally {
+            file.free();
+          }
+        } finally {
+          identifier?.free();
+          details.free();
+        }
+      }
+      assertCurrent();
+      if (page.exhausted) return notes;
+      cursor = page.nextCursor ?? undefined;
+    } finally {
+      for (const record of page.notes) record.free();
+    }
+  }
+  throw new Error('Recovery baseline page limit exceeded');
+}
+
 export async function readSdkRecoverySnapshot(
   client: RecoverySdkReader,
   accountIds: string[],
@@ -119,6 +196,11 @@ export async function readSdkRecoverySnapshot(
   retainedNotes: RecoveryNoteEntry[] = [],
   canonicalNoteFamilies: RecoveryNoteEntry[] = []
 ): Promise<SdkRecoverySnapshot> {
+  const deadline = includeNotes ? monotonicNowMs() + 5000 : undefined;
+  const check = () => {
+    assertCurrent();
+    if (deadline !== undefined && monotonicNowMs() >= deadline) throw new Error('Recovery baseline deadline exceeded');
+  };
   assertCanonicalNoteRequest(canonicalNoteFamilies);
   if (
     accountIds.length === 0 ||
@@ -127,59 +209,21 @@ export async function readSdkRecoverySnapshot(
   )
     throw new StorageContinuityError();
   const generation = await readSdkGeneration(client);
-  assertCurrent();
+  check();
   const accounts: RecoveryAccountExpectation[] = [];
   for (const accountId of accountIds) {
     const account = await client.accounts.get(accountId);
-    assertCurrent();
+    check();
     if (!account) throw new StorageContinuityError();
     const commitment = account.to_commitment();
     accounts.push({ accountId, nonce: account.nonce().asInt().toString(), commitment: commitment.toHex() });
     commitment.free();
   }
-  const notes: RecoveryNoteEntry[] = [];
-  if (includeNotes) {
-    const databaseName = await client.storeIdentifier();
-    assertCurrent();
-    const count = await countRetainedInputNotes(databaseName).catch(() => {
-      throw new StorageContinuityError();
-    });
-    assertCurrent();
-    if (count > JOURNAL_MAX_ENTRIES) refuseNoteCapacity();
-    let bytes = 0;
-    for (const status of ['expected', 'unverified', 'committed', 'processing']) {
-      if (status !== 'expected' && status !== 'unverified' && status !== 'committed' && status !== 'processing')
-        continue;
-      const records = await client.notes.list({ status });
-      assertCurrent();
-      for (const record of records) {
-        const metadata = record.metadata();
-        if (metadata && metadata.noteType() !== NoteType.Private) continue;
-        const details = record.details();
-        const id = record.id()?.toString() ?? noteDetailsCommitment(details);
-        let file: NoteFile;
-        let format: 'full' | 'details' = 'full';
-        try {
-          file = NoteFile.fromInputNote(record.toInputNote());
-        } catch {
-          file = NoteFile.fromNoteDetails(details);
-          format = 'details';
-        }
-        try {
-          const noteFile = file.serialize();
-          bytes += noteFile.byteLength;
-          if (bytes > JOURNAL_MAX_BYTES || notes.length >= JOURNAL_MAX_ENTRIES) refuseNoteCapacity();
-          notes.push({ kind: 'note', id, noteFile, provenance: 'input', format });
-        } finally {
-          file.free();
-        }
-      }
-    }
-  }
+  const notes = includeNotes ? await readNoteBaseline(client, generation, check) : [];
   if (retainedNotes.length > JOURNAL_MAX_ENTRIES) throw new StorageContinuityError();
   for (const retained of retainedNotes) {
     if (retained.provenance !== 'input') continue;
-    assertCurrent();
+    check();
     const file = NoteFile.deserialize(retained.noteFile);
     try {
       const full = file.note();
@@ -189,7 +233,7 @@ export async function readSdkRecoverySnapshot(
       const id = file.noteId()?.toString();
       if (id) {
         const records = await client.notes.list({ ids: [id] });
-        assertCurrent();
+        check();
         if (records.length !== 1) throw new StorageContinuityError();
         assertRetainedInputRecord(records[0]!, commitment, full !== undefined);
       } else {
@@ -208,12 +252,17 @@ export async function readSdkRecoverySnapshot(
       file.free();
     }
   }
-  assertCurrent();
+  check();
+  if (includeNotes) {
+    const current = await readSdkGeneration(client);
+    check();
+    if (current !== generation) throw new Error('Recovery baseline generation changed');
+  }
   if (canonicalNoteFamilies.length > 0) {
-    const canonicalNotes = await readCanonicalNoteFamilies(client, canonicalNoteFamilies, assertCurrent);
-    assertCurrent();
+    const canonicalNotes = await readCanonicalNoteFamilies(client, canonicalNoteFamilies, check);
+    check();
     if ((await readSdkGeneration(client)) !== generation) throw new StorageContinuityError();
-    assertCurrent();
+    check();
     return { generation, accounts, notes, canonicalNotes };
   }
   return { generation, accounts, notes };
