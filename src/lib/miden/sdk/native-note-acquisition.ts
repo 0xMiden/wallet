@@ -1,6 +1,6 @@
 import { NoteAcquisitionRetentionError, type NoteAcquisitionOptions } from '@miden-sdk/miden-sdk/lazy';
 
-import { assertWasmHoldCurrent, getCurrentWasmLockHold } from './miden-client';
+import { assertWasmHoldCurrent, getCurrentWasmLockHold, type WasmLockHold } from './miden-client';
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from '../recovery/journal';
 import { captureNoteAcquisitionRetainer } from '../recovery/note-acquisition';
 import type { RecoveryNoteEntry } from '../recovery/types';
@@ -19,7 +19,17 @@ function u32(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
 }
 
-function copyCandidate(value: unknown): RecoveryNoteEntry[] {
+interface NativeBatch {
+  count: number;
+  nextIndex: number;
+  bytes: number;
+  pending: boolean;
+}
+
+function copyCandidate(
+  value: unknown,
+  claimBatch: (operationId: string, index: number, count: number, bytes: number) => void
+): RecoveryNoteEntry[] {
   if (
     !record(value) ||
     Object.keys(value).some(
@@ -68,6 +78,7 @@ function copyCandidate(value: unknown): RecoveryNoteEntry[] {
       !word(metadata.attachmentsCommitment))
   )
     throw new Error('Invalid native note metadata');
+  claimBatch(value.operationId, value.batchIndex, value.batchCount, value.noteFileBytes.byteLength);
   if (value.variant === 'noteId') {
     if (
       !word(value.noteId) ||
@@ -101,6 +112,7 @@ function copyCandidate(value: unknown): RecoveryNoteEntry[] {
 }
 
 export function nativeNoteAcquisition(network: string, ownsClient: () => boolean): NoteAcquisitionOptions {
+  const batchesByHold = new WeakMap<WasmLockHold, Map<string, NativeBatch>>();
   return {
     noteAcquisitionLimits: {
       maxNotes: JOURNAL_MAX_ENTRIES,
@@ -122,13 +134,40 @@ export function nativeNoteAcquisition(network: string, ownsClient: () => boolean
         assertStorageHealthy(epoch);
       };
       check();
-      const notes = copyCandidate(candidate);
+      let claimedBatch: NativeBatch | undefined;
+      const notes = copyCandidate(candidate, (operationId, index, count, bytes) => {
+        let batches = batchesByHold.get(hold);
+        if (!batches) {
+          batches = new Map();
+          batchesByHold.set(hold, batches);
+        }
+        let batch = batches.get(operationId);
+        if (!batch) {
+          if (index !== 0 || batches.size >= JOURNAL_MAX_ENTRIES) throw new Error('Invalid native note batch start');
+          batch = { count, nextIndex: 0, bytes: 0, pending: false };
+          batches.set(operationId, batch);
+        }
+        if (
+          batch.pending ||
+          batch.count !== count ||
+          batch.nextIndex !== index ||
+          batch.bytes + bytes > JOURNAL_MAX_BYTES
+        )
+          throw new Error('Invalid native note batch continuation');
+        batch.bytes += bytes;
+        batch.pending = true;
+        claimedBatch = batch;
+      });
       let retentionFailure: unknown;
       try {
         await retain(notes, network, check, error => {
           retentionFailure = error;
         });
         check();
+        if (claimedBatch) {
+          claimedBatch.nextIndex += 1;
+          claimedBatch.pending = false;
+        }
       } catch (error) {
         assertOwner();
         const health = getStorageHealth();
