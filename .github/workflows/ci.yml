@@ -60,6 +60,8 @@ jobs:
 
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
 
       - name: Build chrome
         uses: borales/actions-yarn@v4
@@ -67,6 +69,7 @@ jobs:
           cmd: build:chrome
         env:
           MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
 
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
@@ -79,3 +82,9 @@ jobs:
 
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
+
+  native-toolbar:
+    uses: ./.github/workflows/native-toolbar.yml
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit

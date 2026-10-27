@@ -2,7 +2,7 @@ import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+import { annotateCrash, snapshotCrashDiagnostics, withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import { MultisigService, ProposalChainSyncError } from './index';
 
@@ -159,11 +159,20 @@ it('names the signer facts beside the step on a Guardian authentication refusal,
   const loaded = await service();
   loaded.authFacts = facts;
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(refusal);
-  expect(snapshotCrashDiagnostics(refusal)).toEqual({ proposalStep: 'proposal_create', ...facts });
+  expect(snapshotCrashDiagnostics(refusal)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched',
+    ...facts
+  });
   const other = privateFailure();
   mockConsumeProposal.mockRejectedValueOnce(other);
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(other);
-  expect(snapshotCrashDiagnostics(other)).toEqual({ proposalStep: 'proposal_create' });
+  expect(snapshotCrashDiagnostics(other)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched'
+  });
 });
 
 it('names the signer facts on a Guardian authentication refusal while signing, for either signing path', async () => {
@@ -197,7 +206,11 @@ it('names the consume proposal rejection without wrapping the original Error', a
   mockConsumeProposal.mockRejectedValueOnce(error);
   const loaded = await service();
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(error);
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched'
+  });
 });
 
 it('keeps a reclaim build failure before persistence or proposal creation', async () => {
@@ -313,3 +326,102 @@ describe('a rebased custom proposal (Sentry BREAD-WALLET-35)', () => {
     });
   });
 });
+
+it.each([
+  ['LegacyConsumeNotesNoteMissingError', 'consume_notes_legacy_note_missing', 'consume_note_missing'],
+  ['ConsumeNoteNotAuthenticatedError', 'consume_notes_note_not_authenticated', 'consume_note_authentication'],
+  ['ConsumeNotesMetadataOversizeError', 'consume_notes_metadata_oversize', 'consume_metadata_oversize'],
+  ['MultisigAuthArgsMissingError', 'multisig_auth_args_missing', 'multisig_auth_args_missing'],
+  ['BoundBlockNotDeclaredError', 'bound_block_not_declared', 'bound_block_not_declared'],
+  ['TransactionSummaryLayoutError', 'transaction_summary_layout_unsupported', 'summary_layout_unsupported']
+])('observes only the actual consume rejection family %s without changing the SDK call', async (name, code, family) => {
+  const loaded = await service();
+  const ids = ['private-note'];
+  const error = Object.assign(new Error('failed to get input note: private-canary'), { name, code });
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(ids)).rejects.toBe(error);
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+  expect(mockConsumeProposal).toHaveBeenCalledWith(ids);
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: family
+  });
+});
+
+it('does not carry a reused consume rejection observation into later signing', async () => {
+  const loaded = await service();
+  const error = new Error('failed to get account: private');
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(['private'])).rejects.toBe(error);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalCreateFamily', 'sdk_account_read');
+  mockSignProposal.mockRejectedValueOnce(error);
+  await loaded.signAndCreateTransactionRequest('private-proposal').catch(() => {});
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('proposalCreateFamily');
+  const { snapshotProposalCreateDiagnostics } = await import('lib/telemetry/proposal-create-diagnostics');
+  expect(snapshotProposalCreateDiagnostics(error)).toBeUndefined();
+});
+
+it('clears an earlier inline proving observation when the same Error is rejected by creation', async () => {
+  const { annotateGuardianProving } = await import('lib/telemetry/guardian-proving-diagnostics');
+  const error = new Error('failed to get account: private');
+  annotateGuardianProving(error, { guardianProvingSubstep: 'prove_local' });
+  const loaded = await service();
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(['private'])).rejects.toBe(error);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalCreateFamily', 'sdk_account_read');
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('guardianProvingSubstep');
+});
+
+it('rebinds a reused signing rejection to the next actual consume-creation boundary', async () => {
+  const loaded = await service();
+  const error = new Error('failed to get account: private');
+  mockSignProposal.mockRejectedValueOnce(error);
+  await expect(loaded.signAndCreateTransactionRequest('private-proposal')).rejects.toBe(error);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalStep', 'proposal_sign');
+  const ids = ['private-note'];
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(loaded.createConsumeNotesProposal(ids)).rejects.toBe(error);
+  expect(mockSignProposal).toHaveBeenCalledTimes(1);
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+  expect(mockConsumeProposal).toHaveBeenCalledWith(ids);
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'sdk_account_read'
+  });
+});
+
+it('keeps current innermost creation evidence while an older outer boundary propagates the rejection', async () => {
+  const loaded = await service();
+  const error = new Error('failed to get account: private');
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  await expect(withProposalStep('sign_lock', () => loaded.createConsumeNotesProposal(['private-note']))).rejects.toBe(
+    error
+  );
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'sdk_account_read'
+  });
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+});
+
+it.each(['proposal_sign', 'proposal_create'] as const)(
+  'replaces the complete stale %s group when a new consume rejection is observed',
+  async proposalStep => {
+    const loaded = await service();
+    const error = new Error('failed to get account: private');
+    annotateCrash(error, { proposalStep, proposalGuard: 'hot_key_missing', securityChange: 'switch-guardian' });
+    mockConsumeProposal.mockRejectedValueOnce(error);
+    await expect(
+      withProposalStep('sign_lock', () => loaded.createConsumeNotesProposal(['private-note']), 'replace-hot-key')
+    ).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      proposalStep: 'proposal_create',
+      proposalCreateApi: 'consume_notes',
+      proposalCreateFamily: 'sdk_account_read'
+    });
+    expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+  }
+);

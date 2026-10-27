@@ -3,6 +3,7 @@ import path from 'path';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 
+import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from './constants';
 import { submissionFeedback } from './submission-feedback';
 
 const en = require('../../../../public/_locales/en/en.json') as Record<string, string>;
@@ -169,5 +170,20 @@ describe('submissionFeedback (#1689)', () => {
       expect(en[key]).toEqual(expect.any(String));
       expect(en[key]).not.toMatch(/vpn|geofenc|geographic|funds were lost|lost your funds/i);
     }
+  });
+});
+
+it.each([
+  [REMOTE_PROVER_FAILED_ERROR, 'prover_at_submit'],
+  [GUARDIAN_OUTAGE, 'guardian_unanswered'],
+  [DEADLINE, 'grpc_unknown'],
+  [TRANSACTION_STUCK_ERROR, 'no_answer']
+])('retains the selected existing unanswered branch', (error, branch) => {
+  const feedback = submissionFeedback(row({ error }));
+  expect(feedback).toMatchObject({
+    kind: 'unanswered',
+    messageKey: 'submissionUnanswered',
+    details: error,
+    submissionFeedbackBranch: branch
   });
 });

@@ -11,6 +11,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { ClearFieldButton, Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { clearFieldValue } from 'lib/ui/clear-field';
@@ -32,6 +33,7 @@ export interface SelectRecipientProps {
   address: string;
   isValidAddress: boolean;
   error?: string;
+  errorDiagnostics?: UiEvidenceInput;
   /**
    * Chain detected from the typed address. `ethereum` offers the cross-chain
    * destination networks; `miden` is same-chain, so Miden is its only network.
@@ -67,6 +69,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   address,
   isValidAddress,
   error,
+  errorDiagnostics,
   chain,
   network,
   networks,
@@ -83,7 +86,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
-  useUserVisibleError(isUserErrorId(error) ? error : null, 'inline');
+  useUserVisibleError(
+    isUserErrorId(error) ? error : null,
+    'inline',
+    undefined,
+    error === 'invalidMidenAccountId' ? errorDiagnostics : undefined
+  );
   const reduceMotion = useReducedMotion();
   const transition = reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE };
   // Collapses/expands a block's height so the content under it slides instead of jumping.
@@ -143,7 +151,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       title={t('sendTo')}
       footer={
         <Button
-          title={t('confirm')}
+          title={t('continue')}
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}

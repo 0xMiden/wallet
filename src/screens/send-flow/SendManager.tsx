@@ -27,6 +27,11 @@ import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import {
+  snapshotRecipientValidation,
+  validateUiEvidence,
+  type RecipientValidationStage
+} from 'lib/telemetry/ui-producer-diagnostics';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
 import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
@@ -836,23 +841,23 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // chain, and a well-formed address for a different Miden network gets its own
   // message instead of failing later in the transaction pipeline.
   const recipientErrorKey = useCallback(
-    (raw: string): string | null => {
+    (raw: string): { key: string; stage?: RecipientValidationStage } | null => {
       const trimmed = raw.trim();
       if (!trimmed) return null;
       if (detectAddressChain(trimmed) === 'ethereum') {
-        return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
+        return isValidEthereumAddress(trimmed) ? null : { key: 'invalidEthereumAddress' };
       }
       // Self-send guard: a P2IDE to yourself consumes through the kernel's
       // target branch, so recall semantics are meaningless and auto-consume
       // would claim it right back. Block it at entry, before the decode check —
       // it's the more specific message for the account's own address.
-      if (sameWalletAccountId(trimmed, publicKey)) return 'cannotSendToSelf';
+      if (sameWalletAccountId(trimmed, publicKey)) return { key: 'cannotSendToSelf' };
       try {
         isValidMidenAddress(trimmed);
       } catch (error) {
         return error instanceof MidenAddressError && error.reason === 'wrong-network'
-          ? 'midenAddressWrongNetwork'
-          : 'invalidMidenAccountId';
+          ? { key: 'midenAddressWrongNetwork' }
+          : { key: 'invalidMidenAccountId', stage: snapshotRecipientValidation(error) ?? 'validator_exception' };
       }
       return null;
     },
@@ -861,9 +866,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const applyRecipientValidation = useCallback(
     (address: string) => {
-      const errorKey = recipientErrorKey(address);
-      if (errorKey) {
-        setError('recipientAddress', { type: 'manual', message: errorKey });
+      const result = recipientErrorKey(address);
+      if (result) {
+        setError('recipientAddress', {
+          type: 'manual',
+          message: result.key,
+          types: result.stage ? { recipientValidationStage: result.stage } : {}
+        });
       } else {
         clearErrors('recipientAddress');
       }
@@ -901,7 +910,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Surface a scan error (from either scan path) on the recipient field.
   const applyScanError = useCallback(
     (errorKey: string) => {
-      setError('recipientAddress', { type: 'manual', message: errorKey });
+      setError('recipientAddress', { type: 'manual', message: errorKey, types: {} });
     },
     [setError]
   );
@@ -1072,6 +1081,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
+              errorDiagnostics={validateUiEvidence(errors.recipientAddress?.message, 'inline', {
+                kind: 'recipient_validation',
+                recipientValidationStage: errors.recipientAddress?.types?.recipientValidationStage
+              })}
               chain={chain}
               network={displayedNetwork}
               recipientName={selectedContact?.name}

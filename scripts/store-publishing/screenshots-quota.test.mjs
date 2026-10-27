@@ -530,3 +530,31 @@ test('mixed complete pending and failed uploads keep originals until exact journ
   assert.equal(c.calls.filter(x => x.method === 'POST').length, 6, 'only the failed reservation is replaced');
   await assertCanonical(c);
 });
+
+test('POST-only operations recover the owned tenth slot before replacing any baseline image', async () => {
+  const c = fixture(9);
+  const request = c.client.request;
+  c.client.request = async (method, path, options) => {
+    const response = await request(method, path, options);
+    if (method === 'GET' && response.data?.type === 'appScreenshots') response.data.attributes.uploadOperations = [];
+    return response;
+  };
+  c.setFault('bytes');
+  await assert.rejects(syncScreenshots(c.client, c.options()), /partial/);
+  assert.equal(c.sets.get('large').length, 10);
+  const owned = c.journal().groups[0].owned[0].assetId;
+  const before = c.calls.length;
+  await assertCanonical(c);
+  const writes = c.calls.slice(before).filter(call => call.method !== 'GET');
+  assert.deepEqual(
+    { method: writes[0].method, path: writes[0].path },
+    { method: 'DELETE', path: `/v1/appScreenshots/${owned}` }
+  );
+  assert.equal(writes[1].method, 'POST');
+  assert.equal(
+    writes.filter(call => call.method === 'DELETE' && call.path === `/v1/appScreenshots/${owned}`).length,
+    1
+  );
+  assert.ok(!JSON.stringify(c.journal()).includes('uploadOperations'));
+  assert.ok(c.maximum() <= 10);
+});

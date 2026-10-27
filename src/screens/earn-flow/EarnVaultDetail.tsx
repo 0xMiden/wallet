@@ -84,7 +84,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           {loadFailed && (
             <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
           )}
-          <FeatureUnavailableNotice availability={earnDeposit} />
+          <FeatureUnavailableNotice feature="earnDeposit" availability={earnDeposit} />
           {/* One reason at a time: when Earn deposits are down, that notice already says why Deposit is off. */}
           {earnDeposit.state !== 'unavailable' && (
             <EarnVaultClosedNotice canOpen={vault.canOpen} depositsEnabled={vault.depositsEnabled} />

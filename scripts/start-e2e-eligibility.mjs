@@ -22,6 +22,14 @@ export function fixtureEnvironment(env) {
     throw new Error('Unsupported E2E fixture networks');
   }
   const args = ['--port', '8551', '--networks', selected.join(',')];
+  const prelaunch = env.E2E_FIXTURE_PRELAUNCH_TESTNET;
+  if (prelaunch !== undefined && prelaunch !== 'true' && prelaunch !== 'false') {
+    throw new Error('Unsupported E2E prelaunch fixture setting');
+  }
+  if (prelaunch === 'true') {
+    if (network !== 'testnet' || selected.length !== 1) throw new Error('Prelaunch fixture requires testnet');
+    args.push('--prelaunch-testnet');
+  }
   let configUrl = BASE_URL;
   if (env.MIDEN_REMOTE_CONFIG_URL) {
     const source = new URL(env.MIDEN_REMOTE_CONFIG_URL);
@@ -33,6 +41,7 @@ export function fixtureEnvironment(env) {
     if (sourceUrl !== BASE_URL) {
       args.push('--source', sourceUrl);
       if (local) {
+        if (prelaunch === 'true') throw new Error('Prelaunch fixture cannot use a direct loopback policy source');
         // Existing hermetic suites start their changing config server after the build.
         args.push('--lazy-source');
         configUrl = sourceUrl;

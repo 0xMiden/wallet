@@ -1,8 +1,8 @@
 diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
-index 623a132..e82437e 100644
+index a2d0d60..4dccc7a 100644
 --- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
 +++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
-@@ -65,6 +65,7 @@ export async function runWithdrawAction(rt, params) {
+@@ -68,6 +68,7 @@ export async function runWithdrawAction(rt, params) {
          });
      }
      return rt.solveMultipleIntents(legs, {
@@ -11,7 +11,7 @@ index 623a132..e82437e 100644
          forceAtomic: params.forceAtomic,
          onExecutionStatus: params.onExecutionStatus,
 diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts
-index 0117828..d9813ac 100644
+index a2ba139..f57a693 100644
 --- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts
 +++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.d.ts
 @@ -49,7 +49,7 @@ export declare class EpochIntentSDK {
@@ -24,7 +24,7 @@ index 0117828..d9813ac 100644
      setupGaslessWallet(params: {
          chainId: number;
 diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js
-index f5e09fd..6d14324 100644
+index bce657e..ee17d2a 100644
 --- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js
 +++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/epoch-intent-sdk.js
 @@ -96,9 +96,9 @@ export class EpochIntentSDK {
@@ -91,10 +91,10 @@ index c0401df..a340500 100644
          if (!response.ok) {
              const errorData = (await response
 diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
-index 10b657c..ce761c1 100644
+index 2970b05..94237ba 100644
 --- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
 +++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
-@@ -346,7 +346,20 @@ export interface MultiIntentBatch {
+@@ -347,7 +347,20 @@ export interface MultiIntentBatch {
      calls: BatchCall[];
      allocationRequests: CompactRequest[];
  }
@@ -115,7 +115,7 @@ index 10b657c..ce761c1 100644
      /** Force gasless relay. Default: shouldUseGaslessRelay(walletClient) (local signer). */
      gasless?: boolean;
      /** User-paid atomic-batch override; default derives from resolveWalletBatchStrategy. */
-@@ -421,6 +434,8 @@ export interface WithdrawActionParams {
+@@ -422,6 +435,8 @@ export interface WithdrawActionParams {
  }
  /** Execution options — shared by every {@link ActionType}. */
  export interface ExecuteActionOptions {
@@ -124,3 +124,17 @@ index 10b657c..ce761c1 100644
      /**
       * Relayer pays the gas. Requires a LOCAL signer that is already 7702-delegated
       * (see `setupSmartAccount`); injected wallets must use `false`.
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/constants.js
+@@ -32,8 +32,8 @@
+     external: "0xb1AfC1092c40d32f72AD065c93f6d27843458b95",
+     protocolInteraction: "0xf1afC1092c40d32F72Ad065C93f6D27843458B95",
+ };
+-export { COMPACT_ABI } from "./abis/compact";
+-export { ERC20_ABI } from "./abis/erc20";
++export { COMPACT_ABI } from "./abis/compact.js";
++export { ERC20_ABI } from "./abis/erc20.js";
+ export const MIDEN_VIRTUAL_CHAIN_ID = 999999999;
+ /** Output-address sentinel: an EVM→Miden intent has no EVM output token. */
+ export const EVM_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";

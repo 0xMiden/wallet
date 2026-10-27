@@ -1,13 +1,23 @@
 # Changelog
 
-## 1.17.8 (TBD)
+## 1.17.8 (2026-10-27)
+
+- [FIX][extension] Bridge-IN reviews identify Bread's Chrome extension origin and show route-specific wallet actions or quoted transaction targets; connection metadata names the wallet actions and remains isolated from native sessions, with deposited Compact collateral guidance in every shipped language (#1934).
 
 - Preserve bounded staging-probe preflight failures without claiming unverified cleanup.
 
 ### Changes
 
-- [CHANGE][all] Transaction confirmations show the available input and output notes as an account flow, with verified note types, fee notes, named storage-slot changes and explicit gaps for partial note data (#1936).
+- [FIX][all] The Send recipient step says Continue before choosing the amount, while the final review keeps its Send Payment or Send publicly action; mock E2E and UI smoothness use an explicit prelaunch testnet fixture so the published launch clock cannot switch their synthetic onboarding to Mainnet.
+- [FIX][all] Center the Arcade game-details button within the sheet while preserving its maximum width and mobile safe-area spacing.
 - [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
+- [FIX][all] Shed eligibility floods before durable objects and cache decisions per colo while preserving the global query budget.
+- [FIX][extension] Bread uses the sidebar by default, keeps onboarding in a full page, and uses the popup only when sidebar setup is unavailable.
+- [CHANGE][all] Transaction confirmations show the available input and output notes as an account flow, with verified note types, fee notes, named storage-slot changes and explicit gaps for partial note data (#1936).
+
+- [CHANGE][all] Existing unavailable-feature, unanswered-submission, retry and recipient-validation reports retain closed producer decisions without private inputs or inferred outcomes.
+- [CHANGE][all] Failed transaction reports retain closed proposal, inline proving, queue admission, deadline progress, reaper timestamp and proof-wait availability observations without private transaction data.
+- [CHANGE][all] The wallet uses the Epoch intents SDK 2.0.1, which reads the allocator's service configuration (allocator, arbiter and Compact addresses, lock tag, compact expiry, Miden recall buffer) from its `/health` route instead of compiled constants, and the E2E fake allocators serve that shape; Earn positions refresh every 10 s while on screen and again on return, sharing a rolling ten-request window with the catalogue fallback; larger owner lists finish across later windows.
 
 - [CHANGE][ci] Retain closed failed ownership-check evidence for exact-manifest staging-probe cleanup without changing deletion guards.
 
@@ -17,6 +27,7 @@
 - [FIX][all] The wallet opens at once instead of waiting on a full-screen eligibility check, keeps Earn and Swap off until the check allows them, and stays open with them off when the check fails; the failure report says why it failed (#1894, #1897).
 - [CHANGE][all] Failed transaction reports distinguish reached Guardian signing operations and locally observed execution authentication facts without sending request data.
 - [FIX][ios] Prepare future release screenshots automatically with quota-aware, resumable draft replacement while preserving the submitted 1.17.7 listing (#1906).
+- [CHANGE][all] Arcade's Buy more GC is live on mainnet: the Coins page finds the seller's public PSWAP sale note by its tag, prices the GC amount the user enters (1 GC by default) from the note's own terms against the USDCx balance, and queues a consume row whose fee-aware fill request is built on the node's copy of the note in the Guardian proposal's hold.
 - [CHANGE][ci] Add a trusted-main manual staging probe for isolated eligibility rate-limit bindings with bounded synthetic traffic and manifest-bound cleanup; account support remains unproven until live evidence (#1894).
 
 - [CHANGE][ci] Store screenshots are versioned with ordered checksums and PR eligibility checks; mobile publishing verifies the approved release assets and synchronizes screenshots only through an explicit action.
