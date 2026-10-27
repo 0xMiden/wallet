@@ -5292,20 +5292,29 @@ describe('Vault storage continuity', () => {
       toFelts: () => [],
       free: () => {}
     });
-    const metadata = () => ({ noteType: () => 0, tag: () => ({ asU32: () => 7, free: () => {} }), free: () => {} });
-    const id = () => ({ toString: () => noteId, free: () => {} });
-    sdk.NoteFile.deserialize.mockReturnValue({
-      noteId: id,
-      note: () => ({ ...details, metadata, id }),
-      noteDetails: () => undefined,
-      noteType: () => 'NoteWithProof',
-      noteTag: () => undefined,
-      afterBlockNum: () => undefined,
-      inclusionProof: () => ({ location: () => ({ blockNum: () => 10, free: () => {} }), free: () => {} }),
-      nullifier: () => '0x' + '56'.repeat(32),
-      serialize: () => noteFile.slice(),
-      free: () => {}
-    });
+    const useCandidate = (
+      bytes: Uint8Array,
+      { identity = noteId, detailsOnly = false, tag = 7, afterBlock = 10 } = {}
+    ) => {
+      const metadata = () => ({ noteType: () => 0, tag: () => ({ asU32: () => tag, free: () => {} }), free: () => {} });
+      const id = () => ({ toString: () => identity, free: () => {} });
+      sdk.NoteFile.deserialize.mockReturnValue({
+        noteId: () => (detailsOnly ? undefined : id()),
+        note: () => (detailsOnly ? undefined : { ...details, metadata, id }),
+        noteDetails: () => (detailsOnly ? details : undefined),
+        noteType: () => (detailsOnly ? 'NoteDetails' : 'NoteWithProof'),
+        noteTag: () => (detailsOnly ? { asU32: () => tag, free: () => {} } : undefined),
+        afterBlockNum: () => (detailsOnly ? afterBlock : undefined),
+        inclusionProof: () =>
+          detailsOnly
+            ? undefined
+            : { location: () => ({ blockNum: () => afterBlock, free: () => {} }), free: () => {} },
+        nullifier: () => (detailsOnly ? undefined : '0x' + '56'.repeat(32)),
+        serialize: () => bytes.slice(),
+        free: () => {}
+      });
+    };
+    useCandidate(noteFile);
     const imported = jest.fn(async () => noteId);
     const { MidenClientInterface } = await import('../sdk/miden-client-interface');
     const client: import('../sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
@@ -5319,7 +5328,9 @@ describe('Vault storage continuity', () => {
       noteFile,
       noteId,
       imported,
-      run: () => getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importNoteBytes(noteFile, hold))),
+      useCandidate,
+      run: (bytes = noteFile) =>
+        getAccountsWriteQueue().add(() => withWasmClientLock(hold => client.importNoteBytes(bytes, hold))),
       restore: () => {
         hash.mockRestore();
         sdk.NoteFile.deserialize.mockReset();
@@ -5407,6 +5418,117 @@ describe('Vault storage continuity', () => {
       expect(fixture.imported).not.toHaveBeenCalled();
       expect(await vault.readRecoveryJournal()).toEqual(before);
       expect(getStorageHealth().status).toBe(failure === 'retired sink' ? 'healthy' : 'unavailable');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['full same-id', 'full spelling alias', 'expected alias'])(
+    'Task4C3B rejected %s preserves the last good body and proof',
+    async variant => {
+      const fixture = await acquisition();
+      try {
+        await fixture.run();
+        const before = await vault.readRecoveryJournal();
+        const candidate = new Uint8Array([19, 48, 8, 254]);
+        fixture.useCandidate(candidate, {
+          identity: variant === 'full spelling alias' ? fixture.noteId.slice(2).toUpperCase() : fixture.noteId,
+          detailsOnly: variant === 'expected alias',
+          tag: 7,
+          afterBlock: 0
+        });
+        fixture.imported.mockRejectedValueOnce(new Error('Note inclusion proof does not match the chain'));
+        await expect(fixture.run(candidate)).rejects.toThrow('Note inclusion proof does not match the chain');
+        expect(getStorageHealth().status).toBe('healthy');
+        expect(await vault.readRecoveryJournal()).toEqual(before);
+      } finally {
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3B an unchanged duplicate import writes no independent storage', async () => {
+    const fixture = await acquisition();
+    try {
+      await fixture.run();
+      const before = await vault.readRecoveryJournal();
+      mockStorageSets.length = 0;
+      await expect(fixture.run()).resolves.toBe(fixture.noteId);
+      expect(mockStorageSets).toEqual([]);
+      expect(await vault.readRecoveryJournal()).toEqual(before);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each(['completion', 'provider failure'])(
+    'Task4C3B retiring a pending acquisition prevents late %s from acknowledging or poisoning health',
+    async outcome => {
+      const fixture = await acquisition();
+      let release = () => {};
+      let reached = () => {};
+      const paused = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const entered = new Promise<void>(resolve => {
+        reached = resolve;
+      });
+      mockBeforeRecoveryWrite = async () => {
+        reached();
+        await paused;
+        if (outcome === 'provider failure') throw new DOMException('retired write failed', 'QuotaExceededError');
+      };
+      const pending = fixture.run().then(
+        () => 'accepted',
+        () => 'refused'
+      );
+      try {
+        await Promise.race([entered, pending]);
+        vault.retire();
+        release();
+        expect(await pending).toBe('refused');
+        expect(fixture.imported).not.toHaveBeenCalled();
+        expect(getStorageHealth().status).toBe('healthy');
+      } finally {
+        release();
+        await pending;
+        fixture.restore();
+      }
+    }
+  );
+
+  it('Task4C3B the current preadoption sink survives retirement of the previous vault', async () => {
+    const fixture = await acquisition();
+    const current = new Vault(fixtureKey);
+    vault.retire();
+    try {
+      await expect(fixture.run()).resolves.toBe(fixture.noteId);
+      expect((await current.readRecoveryJournal())?.entries).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'note', noteFile: fixture.noteFile })])
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      current.retire();
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3B unknown expected notes retain original bytes and details identity before SDK acceptance', async () => {
+    const fixture = await acquisition();
+    const expected = new Uint8Array([7, 11, 19, 48]);
+    fixture.useCandidate(expected, { detailsOnly: true, tag: 71, afterBlock: 19 });
+    let atImport: import('../recovery/types').RecoveryJournalSnapshot | undefined;
+    fixture.imported.mockImplementation(async () => {
+      atImport = await vault.readRecoveryJournal();
+      return '34'.repeat(32);
+    });
+    try {
+      await expect(fixture.run(expected)).resolves.toBe('34'.repeat(32));
+      expect(atImport?.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'note', id: '34'.repeat(32), noteFile: expected, format: 'details' })
+        ])
+      );
     } finally {
       fixture.restore();
     }
