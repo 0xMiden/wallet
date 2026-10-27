@@ -20,6 +20,8 @@ import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { EncryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, DecryptedWalletFile } from 'screens/shared';
 
 export interface ExportFileCompleteProps {
+  preparedContent?: string;
+  fileKind?: 'wallet' | 'recovery-data';
   onGoBack: () => void;
   onDone: () => void;
   filePassword: string;
