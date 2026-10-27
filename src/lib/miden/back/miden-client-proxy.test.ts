@@ -33,6 +33,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     NetworkId: { testnet: () => 'testnet' },
     Account: { deserialize: (...a: any[]) => g.__px.accountDeserialize(...a) },
     NoteFile: { deserialize: (bytes: Uint8Array) => g.__px.retainedNoteFileDeserialize(bytes) },
+    FeltArray: class {
+      constructor(readonly elements: unknown[]) {}
+    },
     Poseidon2: { hashElements: () => g.__px.retainedDetailsCommitment() },
     // Slice 5: the flag-on offscreen consume re-hydrates the serialized
     // TransactionResult on the SW side.

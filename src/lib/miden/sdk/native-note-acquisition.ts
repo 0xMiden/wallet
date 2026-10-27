@@ -169,7 +169,7 @@ export function nativeNoteAcquisition(
           claimedBatch.pending = false;
         }
       };
-      if (acknowledgeRetainedNativeNote(getClient(), hold, candidate)) {
+      if (await acknowledgeRetainedNativeNote(getClient(), hold, candidate)) {
         assertOwner();
         acknowledgeBatch();
         return;

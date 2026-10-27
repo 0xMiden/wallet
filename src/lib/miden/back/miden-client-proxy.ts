@@ -19,7 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { assertCanonicalNoteRequest } from 'lib/miden/recovery/canonical-note-readback';
-import type { RetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
+import { prepareOffscreenRetainedNoteReceipt, type RetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
 import { captureNoteAcquisitionRetainer, decodeAcquiredNotes } from 'lib/miden/recovery/note-acquisition';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
@@ -357,6 +357,7 @@ interface InFlightOp {
     epoch: number;
     network: string;
     endpoints: EndpointState;
+    receipt?: ReturnType<typeof prepareOffscreenRetainedNoteReceipt>;
   };
   /** Resolve the caller's promise with the raw `resultB64` (or `null`). */
   resolveResult: (resultB64: string | null) => void;
@@ -654,7 +655,8 @@ async function dispatchOp(
   args: unknown[],
   deadlineMs: number | null,
   critical: boolean,
-  recoveryCapability?: StorageRecoveryCapability
+  recoveryCapability?: StorageRecoveryCapability,
+  recoveryReceipt?: ReturnType<typeof prepareOffscreenRetainedNoteReceipt>
 ): Promise<string | null> {
   const retainAcquisition = captureNoteAcquisitionRetainer();
   const recoveryHold = recoveryCapability ? getCurrentWasmLockHold() : undefined;
@@ -671,6 +673,7 @@ async function dispatchOp(
     if (!recoveryHold || !recoveryEndpoints) throw new Error('Storage recovery requires a current owner');
     assertWasmHoldCurrent(recoveryHold, 'offscreen recovery readiness');
     retainAcquisition.assertSinkCurrent();
+    recoveryReceipt?.assertCurrent();
     if (recoveryNetwork !== getEffectiveNetworkName() || !sameEndpointState(recoveryEndpoints, getEndpointState()))
       throw new Error('Storage recovery scope changed');
   };
@@ -727,7 +730,8 @@ async function dispatchOp(
         retain: retainAcquisition,
         epoch: storageEpoch,
         network: acquisitionNetwork,
-        endpoints: acquisitionEndpoints
+        endpoints: acquisitionEndpoints,
+        receipt: recoveryReceipt
       },
       resolveResult: resolve,
       reject,
@@ -877,7 +881,10 @@ export async function handleOffscreenNoteAcquisition(
   const op = inFlight.get(msg.op_id);
   const check = () => {
     if (!op || !op.started || inFlight.get(msg.op_id) !== op) throw new Error('Acquisition operation ended');
-    assertStorageHealthy(op.acquisition.epoch);
+    if (op.acquisition.receipt) {
+      op.acquisition.retain.assertSinkCurrent();
+      op.acquisition.receipt.assertCurrent();
+    } else assertStorageHealthy(op.acquisition.epoch);
     if (
       msg.epoch !== op.acquisition.epoch ||
       msg.network !== op.acquisition.network ||
@@ -889,6 +896,11 @@ export async function handleOffscreenNoteAcquisition(
     check();
     if (!op) throw new Error('Acquisition operation ended');
     const notes = decodeAcquiredNotes(msg.notes);
+    if (op.acquisition.receipt) {
+      op.acquisition.receipt.acknowledge(notes);
+      check();
+      return { ok: true, op_id: msg.op_id };
+    }
     const assertRetained = await op.acquisition.retain(notes, op.acquisition.network, check);
     assertRetained();
     return { ok: true, op_id: msg.op_id };
@@ -1191,7 +1203,21 @@ export const midenClientProxy = {
         receipt
       );
     } else {
-      await dispatchOp(newOpId(), 'restoreStorageRecovery', [toSerializable(command)], 5000, false, capability);
+      let prepared: ReturnType<typeof prepareOffscreenRetainedNoteReceipt> | undefined;
+      if (receipt) {
+        if (command.kind !== 'note') throw new Error('Invalid retained note recovery');
+        await getWasmOrThrow();
+        prepared = prepareOffscreenRetainedNoteReceipt(receipt, capability, command.note, command.accountId);
+      }
+      await dispatchOp(
+        newOpId(),
+        'restoreStorageRecovery',
+        [toSerializable(command), prepared?.context],
+        5000,
+        false,
+        capability,
+        prepared
+      );
     }
     assertStorageRecoveryAllowed(capability);
   },

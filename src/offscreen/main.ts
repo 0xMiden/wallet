@@ -84,6 +84,7 @@ import type {
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { captureRecoveryNotes } from 'lib/miden/recovery/capture';
+import { withRemoteRetainedNoteReceipt } from 'lib/miden/recovery/native-note-receipt';
 import {
   installNoteAcquisitionSink,
   uninstallNoteAcquisitionSink,
@@ -91,7 +92,7 @@ import {
 } from 'lib/miden/recovery/note-acquisition';
 import { decodeCanonicalNoteFamilies, decodeRetainedRecoveryNotes } from 'lib/miden/recovery/sdk-snapshot';
 import { toSerializable } from 'lib/miden/recovery/serialization';
-import type { RecoveryCapture } from 'lib/miden/recovery/types';
+import type { RecoveryCapture, RecoveryNoteEntry } from 'lib/miden/recovery/types';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
 import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
@@ -145,6 +146,7 @@ import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } 
 import {
   adoptEndpointState,
   getEffectiveNetworkName,
+  getEffectiveRpcUrl,
   sameEndpointState,
   type EndpointState
 } from 'lib/miden-chain/effective-endpoints';
@@ -606,6 +608,7 @@ type DispatchFn = (
  */
 type DispatchContext = {
   readonly recoveryCapability?: StorageRecoveryCapability;
+  acknowledgeRetainedNote?: (note: RecoveryNoteEntry) => Promise<void>;
   readonly op_id: string;
   /**
    * Non-nullable on purpose. `handleCall` is the only producer and builds it
@@ -698,14 +701,31 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     return new TextEncoder().encode(JSON.stringify(toSerializable(result)));
   },
-  restoreStorageRecovery: async (context, client, value: unknown) => {
-    if (!context.recoveryCapability) throw new Error('Missing storage recovery capability');
+  restoreStorageRecovery: async (context, client, value: unknown, retained: unknown) => {
+    const capability = context.recoveryCapability;
+    if (!capability) throw new Error('Missing storage recovery capability');
     const { decodeSdkRecoveryCommand } = await import('lib/miden/recovery/sdk-restore');
-    assertStorageRecoveryAllowed(context.recoveryCapability);
+    assertStorageRecoveryAllowed(capability);
     assertWasmHoldCurrent(context.hold, 'before storage reconstruction');
-    await client.restoreStorageRecovery(decodeSdkRecoveryCommand(value), context.recoveryCapability, () =>
-      assertWasmHoldCurrent(context.hold, 'during storage reconstruction')
-    );
+    const command = decodeSdkRecoveryCommand(value);
+    const check = () => {
+      assertWasmHoldCurrent(context.hold, 'during storage reconstruction');
+      if (context.settled || client.isDisposed) throw new Error('Recovery operation ended');
+    };
+    if (retained !== undefined) {
+      if (command.kind !== 'note' || !context.acknowledgeRetainedNote)
+        throw new Error('Invalid retained recovery operation');
+      await withRemoteRetainedNoteReceipt(
+        retained,
+        command.note,
+        command.accountId,
+        capability,
+        `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+        check,
+        context.acknowledgeRetainedNote,
+        receipt => client.restoreStorageRecovery(command, capability, check, receipt)
+      );
+    } else await client.restoreStorageRecovery(command, capability, check);
     return null;
   },
   initializeStorageGeneration: async (
@@ -1691,20 +1711,19 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false, recoveryCapability: capability };
       const acquisitionNetwork = getEffectiveNetworkName();
       const acquisitionEndpoints = msg.endpoints;
-      const acquisitionSink: NoteAcquisitionSink = async (notes, network, assertSource) => {
-        const check = () => {
-          assertSource();
-          assertWasmHoldCurrent(hold, 'offscreen note acquisition');
-          assertStorageHealthy(healthEpoch);
-          if (
-            context.settled ||
-            client.isDisposed ||
-            network !== acquisitionNetwork ||
-            !adoptedEndpoints ||
-            !sameEndpointState(acquisitionEndpoints, adoptedEndpoints)
-          )
-            throw new Error('Acquisition operation changed');
-        };
+      const assertAcquisitionOwner = (network: string) => {
+        assertWasmHoldCurrent(hold, 'offscreen note acquisition');
+        if (
+          context.settled ||
+          client.isDisposed ||
+          network !== acquisitionNetwork ||
+          getEffectiveNetworkName() !== acquisitionNetwork ||
+          !adoptedEndpoints ||
+          !sameEndpointState(acquisitionEndpoints, adoptedEndpoints)
+        )
+          throw new Error('Acquisition operation changed');
+      };
+      const acknowledgeAcquisition = async (notes: RecoveryNoteEntry[], network: string, check: () => void) => {
         check();
         const response: unknown = await withRpcTimeout(
           () =>
@@ -1730,6 +1749,23 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         )
           throw new Error('Acquisition retention was refused');
       };
+      const acquisitionSink: NoteAcquisitionSink = async (notes, network, assertSource) => {
+        const check = () => {
+          assertSource();
+          assertAcquisitionOwner(network);
+          assertStorageHealthy(healthEpoch);
+        };
+        await acknowledgeAcquisition(notes, network, check);
+      };
+      if (capability) {
+        context.acknowledgeRetainedNote = async note => {
+          const check = () => {
+            assertStorageRecoveryAllowed(capability);
+            assertAcquisitionOwner(acquisitionNetwork);
+          };
+          await acknowledgeAcquisition([note], acquisitionNetwork, check);
+        };
+      }
       installNoteAcquisitionSink(acquisitionSink);
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
