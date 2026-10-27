@@ -48,7 +48,8 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 };
 const mockEnv = { popup: false, fullPage: false };
 type TestStorageAvailability = StorageHealth | { status: 'pending' };
-const healthyAvailability: TestStorageAvailability = { status: 'healthy', epoch: 0 };
+const createHealthyAvailability = (): TestStorageAvailability => ({ status: 'healthy', epoch: 0 });
+const healthyAvailability = createHealthyAvailability();
 const retainedAccount: WalletAccount = {
   publicKey: 'retained-account',
   name: 'Retained account',

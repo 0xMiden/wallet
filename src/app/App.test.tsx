@@ -146,7 +146,8 @@ jest.mock('lib/woozie', () => ({
   Provider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
 }));
 
-const healthyAvailability: StorageHealth = { status: 'healthy', epoch: 0 };
+const createHealthyAvailability = (): StorageHealth => ({ status: 'healthy', epoch: 0 });
+const healthyAvailability = createHealthyAvailability();
 const retainedAccount: WalletAccount = {
   publicKey: 'retained-account',
   name: 'Retained account',
