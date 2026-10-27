@@ -1,6 +1,7 @@
 import { NoteFile, NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
+import { recoveryNoteUsage } from './note-candidates';
 import { fromSerializable } from './serialization';
 import type { RecoveryCapture, RecoveryNoteEntry } from './types';
 import { isRecoveryNote } from './validation';
@@ -56,9 +57,11 @@ export function decodeRecoveryCapture(value: unknown): RecoveryCapture {
     requestBytes.length === 0 ||
     !Array.isArray(notes) ||
     notes.length > JOURNAL_MAX_ENTRIES ||
-    !notes.every(isRecoveryNote) ||
-    requestBytes.length + notes.reduce((total, note) => total + note.noteFile.length, 0) > JOURNAL_MAX_BYTES
+    !notes.every(isRecoveryNote)
   )
+    throw new Error('Invalid recovery capture');
+  const usage = recoveryNoteUsage(notes);
+  if (usage.count > JOURNAL_MAX_ENTRIES || requestBytes.length + usage.bytes > JOURNAL_MAX_BYTES)
     throw new Error('Invalid recovery capture');
   return { requestBytes, notes };
 }

@@ -1,3 +1,4 @@
+import { recoveryNoteMaterials } from './note-candidates';
 import { withRecoveryReadTurn } from './read-turn';
 import { resolveRecoveryDebit } from './retry-transition';
 import { validateRecoveryReceipt } from './transaction-record';
@@ -109,10 +110,26 @@ export async function retireRecoveryNotes(context: RecoveryRetirementContext): P
         for (const note of notes) {
           try {
             check();
-            const identity = await context.reads.identity(note);
-            check();
-            if (!identity || !identity.nullifier || !Number.isSafeInteger(identity.fromBlock) || identity.fromBlock < 0)
-              continue;
+            let identity: { nullifier: string; fromBlock: number } | undefined;
+            for (const material of recoveryNoteMaterials(note)) {
+              const candidate = await context.reads.identity({ ...material, kind: 'note' });
+              check();
+              if (
+                !candidate ||
+                !candidate.nullifier ||
+                !Number.isSafeInteger(candidate.fromBlock) ||
+                candidate.fromBlock < 0 ||
+                (identity && identity.nullifier !== candidate.nullifier)
+              ) {
+                identity = undefined;
+                break;
+              }
+              identity = {
+                nullifier: candidate.nullifier,
+                fromBlock: Math.min(identity?.fromBlock ?? candidate.fromBlock, candidate.fromBlock)
+              };
+            }
+            if (!identity) continue;
             if (note.scan) {
               const anchor = await context.reads.header(note.scan.anchorBlock);
               check();

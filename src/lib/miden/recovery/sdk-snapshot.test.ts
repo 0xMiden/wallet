@@ -11,7 +11,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteType: { Private: 0, Public: 1 },
   NoteFile: {
     deserialize: () => ({
-      noteDetails: () => ({}),
+      noteDetails: () => undefined,
+      note: () => ({}),
       noteId: () => ({ toString: () => 'missing-input' }),
       free: () => {}
     }),

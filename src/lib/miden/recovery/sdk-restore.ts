@@ -2,9 +2,11 @@ import { NoteFile, type MidenClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { restoreRetainedGuardianAccount, type RecoveryAccountMaterial } from './account-restore';
 import { StorageContinuityError } from './continuity';
-import { JOURNAL_MAX_BYTES } from './journal';
+import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
+import { recoveryNoteUsage } from './note-candidates';
 import {
   initializeSdkGeneration,
+  assertRetainedInputRecord,
   readSdkGeneration,
   readSdkRecoverySnapshot,
   type RecoverySdkReader
@@ -39,11 +41,17 @@ export async function restoreSdkRecovery(
     await initializeSdkGeneration(client, command.generation, old, assertCurrent);
   } else {
     const note = command.note;
-    if (!isRecoveryNote(note) || note.noteFile.length > JOURNAL_MAX_BYTES || note.provenance !== 'input')
+    if (
+      !isRecoveryNote(note) ||
+      recoveryNoteUsage([note]).bytes > JOURNAL_MAX_BYTES ||
+      recoveryNoteUsage([note]).count > JOURNAL_MAX_ENTRIES ||
+      note.provenance !== 'input'
+    )
       throw new StorageContinuityError();
     const file = NoteFile.deserialize(note.noteFile);
     try {
-      const details = file.noteDetails() ?? file.note();
+      const full = file.note();
+      const details = file.noteDetails() ?? full;
       if (!details) throw new StorageContinuityError();
       const commitment = noteDetailsCommitment(details);
       const id = file.noteId()?.toString();
@@ -52,7 +60,7 @@ export async function restoreSdkRecovery(
         assertCurrent();
         if (existing.length > 1) throw new StorageContinuityError();
         if (existing.length === 1) {
-          if (noteDetailsCommitment(existing[0]!.details()) !== commitment) throw new StorageContinuityError();
+          assertRetainedInputRecord(existing[0]!, commitment, full !== undefined);
           return;
         }
       }
@@ -82,7 +90,8 @@ export function decodeSdkRecoveryCommand(value: unknown): SdkRecoveryCommand {
     const accountId: unknown = Reflect.get(decoded, 'accountId');
     if (
       !isRecoveryNote(note) ||
-      note.noteFile.length > JOURNAL_MAX_BYTES ||
+      recoveryNoteUsage([note]).bytes > JOURNAL_MAX_BYTES ||
+      recoveryNoteUsage([note]).count > JOURNAL_MAX_ENTRIES ||
       typeof accountId !== 'string' ||
       accountId.length > 2048
     )

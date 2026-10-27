@@ -9,6 +9,18 @@ export function recoveryNoteMaterials(note: RecoveryNoteEntry): RecoveryNoteCand
   return [material(note), ...(note.candidates ?? [])];
 }
 
+export function recoveryNoteUsage(notes: readonly RecoveryNoteEntry[]): { count: number; bytes: number } {
+  let count = 0;
+  let bytes = 0;
+  for (const note of notes) {
+    for (const candidate of recoveryNoteMaterials(note)) {
+      count++;
+      bytes += candidate.noteFile.byteLength;
+    }
+  }
+  return { count, bytes };
+}
+
 export function retainNoteCandidates(previous: RecoveryNoteEntry, incoming: RecoveryNoteEntry): RecoveryNoteEntry {
   const retained = recoveryNoteMaterials(previous);
   for (const candidate of recoveryNoteMaterials(incoming)) {

@@ -1,13 +1,14 @@
-import { type MidenClient, NoteFile, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { type MidenClient, type InputNoteRecord, InputNoteState, NoteFile, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { fromSerializable } from './serialization';
-import { isRecoveryNote, validateJournal } from './validation';
-import { markStorageUnavailable } from '../storage-health';
 import { StorageContinuityError } from './continuity';
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
 import { withRecoveryStorageLock } from './lock';
+import { recoveryNoteUsage } from './note-candidates';
+import { fromSerializable } from './serialization';
 import type { RecoveryAccountExpectation, RecoveryNoteEntry } from './types';
+import { isRecoveryNote, validateJournal } from './validation';
 import { noteDetailsCommitment } from '../sdk/note-details-commitment';
+import { markStorageUnavailable } from '../storage-health';
 
 export interface RecoverySdkReader {
   settings: Pick<MidenClient['settings'], 'get' | 'set'>;
@@ -26,6 +27,19 @@ export interface SdkRecoverySnapshot {
   generation: string | null;
   accounts: RecoveryAccountExpectation[];
   notes: RecoveryNoteEntry[];
+}
+
+export function assertRetainedInputRecord(
+  record: InputNoteRecord,
+  detailsCommitment: string,
+  requireAuthentication: boolean
+): void {
+  if (
+    noteDetailsCommitment(record.details()) !== detailsCommitment ||
+    record.state() === InputNoteState.Invalid ||
+    (requireAuthentication && !record.isAuthenticated())
+  )
+    throw new StorageContinuityError();
 }
 
 export async function readSdkGeneration(client: RecoverySdkReader): Promise<string | null> {
@@ -159,15 +173,16 @@ export async function readSdkRecoverySnapshot(
     assertCurrent();
     const file = NoteFile.deserialize(retained.noteFile);
     try {
-      const details = file.noteDetails() ?? file.note();
+      const full = file.note();
+      const details = file.noteDetails() ?? full;
       if (!details) throw new StorageContinuityError();
       const commitment = noteDetailsCommitment(details);
       const id = file.noteId()?.toString();
       if (id) {
         const records = await client.notes.list({ ids: [id] });
         assertCurrent();
-        if (records.length !== 1 || noteDetailsCommitment(records[0]!.details()) !== commitment)
-          throw new StorageContinuityError();
+        if (records.length !== 1) throw new StorageContinuityError();
+        assertRetainedInputRecord(records[0]!, commitment, full !== undefined);
       } else {
         const match = notes.some(note => {
           const candidate = NoteFile.deserialize(note.noteFile);
@@ -213,12 +228,9 @@ export function decodeSdkRecoverySnapshot(value: unknown): SdkRecoverySnapshot {
 export function decodeRetainedRecoveryNotes(value: unknown): RecoveryNoteEntry[] {
   if (value === undefined) return [];
   const decoded: unknown = fromSerializable(value);
-  if (
-    !Array.isArray(decoded) ||
-    decoded.length > JOURNAL_MAX_ENTRIES ||
-    !decoded.every(isRecoveryNote) ||
-    decoded.reduce((size, note) => size + note.noteFile.byteLength, 0) > JOURNAL_MAX_BYTES
-  )
+  if (!Array.isArray(decoded) || decoded.length > JOURNAL_MAX_ENTRIES || !decoded.every(isRecoveryNote))
     throw new StorageContinuityError();
+  const usage = recoveryNoteUsage(decoded);
+  if (usage.count > JOURNAL_MAX_ENTRIES || usage.bytes > JOURNAL_MAX_BYTES) throw new StorageContinuityError();
   return decoded;
 }
