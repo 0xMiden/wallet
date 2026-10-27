@@ -367,6 +367,15 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   return {
     ...base,
     NoteType: { Private: 0, Public: 1 },
+    InputNoteState: {
+      Expected: 0,
+      Unverified: 1,
+      Committed: 2,
+      Invalid: 3,
+      ProcessingAuthenticated: 4,
+      ConsumedAuthenticatedLocal: 6,
+      ConsumedExternal: 8
+    },
     NoteFile: { deserialize: jest.fn(), fromInputNote: jest.fn() },
     Note: Object.assign(base.Note, { deserialize: jest.fn() }),
     InputNote: { authenticated: jest.fn(), unauthenticated: jest.fn() },
@@ -5343,6 +5352,369 @@ describe('Vault storage continuity', () => {
       }
     };
   }
+
+  async function canonicalAcquisition({ distinctExport = false, conflictingCandidate = false, state = 2 } = {}) {
+    const fixture = await acquisition();
+    const expectedBytes = new Uint8Array([19, 48, 80]);
+    const canonicalBytes = new Uint8Array([19, 48, 81]);
+    const candidateBytes = distinctExport ? new Uint8Array([19, 48, 82]) : canonicalBytes;
+    const detailsId = '34'.repeat(32);
+    const canonicalId = '12'.repeat(32);
+    const files = new Map<string, ReturnType<typeof fixture.setCandidate>>();
+    const remember = (bytes: Uint8Array, options = {}) => {
+      const file = fixture.setCandidate(bytes, options);
+      files.set(Array.from(bytes).join(','), file);
+      return file;
+    };
+    remember(expectedBytes, { detailsOnly: true, tag: 71, afterBlock: 7 });
+    await fixture.run(expectedBytes);
+    remember(candidateBytes, { tag: 72, afterBlock: 19 });
+    await fixture.run(candidateBytes);
+    const conflictBytes = new Uint8Array([19, 48, 83]);
+    if (conflictingCandidate) {
+      remember(conflictBytes, { identity: '0x' + 'ab'.repeat(32), tag: 73, afterBlock: 23 });
+      await fixture.run(conflictBytes);
+    }
+    const canonicalFile = remember(canonicalBytes, { tag: 72, afterBlock: 19 });
+    const sdk = jest.requireMock<{
+      NoteFile: { deserialize: jest.Mock; fromInputNote: jest.Mock };
+    }>('@miden-sdk/miden-sdk/lazy');
+    sdk.NoteFile.deserialize.mockImplementation((bytes: Uint8Array) => {
+      const file = files.get(Array.from(bytes).join(','));
+      if (!file) throw new Error('Unknown fixture NoteFile');
+      return file;
+    });
+    sdk.NoteFile.fromInputNote.mockImplementation(() => canonicalFile);
+    const record = () => ({
+      details: () => {
+        const details = canonicalFile.note();
+        if (!details) throw new Error('Missing canonical fixture body');
+        return details;
+      },
+      id: canonicalFile.noteId,
+      state: () => state,
+      isAuthenticated: () => state === 2 || state === 4 || state === 6,
+      isConsumed: () => state === 6,
+      isInclusionPending: () => state === 1,
+      metadata: () => canonicalFile.note()?.metadata(),
+      inclusionProof: canonicalFile.inclusionProof,
+      nullifier: canonicalFile.nullifier,
+      toInputNote: () => ({ free: () => {} }),
+      free: () => {}
+    });
+    const list = jest.fn().mockImplementation(async () => [record()]);
+    const settings = { get: jest.fn().mockImplementation(async () => generation), set: jest.fn() };
+    const accounts = {
+      get: jest.fn().mockResolvedValue({
+        nonce: () => ({ asInt: () => 4n }),
+        to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+      }),
+      insert: jest.fn()
+    };
+    Reflect.set(fixture.client.client, 'notes', { import: fixture.imported, list });
+    Reflect.set(fixture.client.client, 'settings', settings);
+    Reflect.set(fixture.client.client, 'accounts', accounts);
+    const { getCurrentWasmLockHold, assertWasmHoldCurrent } = await import('../sdk/miden-client');
+    readSnapshot.mockImplementation(async (accountIds, includeNotes, _capability, retained = [], families = []) => {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('Canonical fixture requires the actual reconciliation hold');
+      return Reflect.apply(fixture.client.readStorageContinuity, fixture.client, [
+        accountIds,
+        includeNotes,
+        () => assertWasmHoldCurrent(hold, 'during canonical fixture readback'),
+        retained,
+        families
+      ]);
+    });
+    const reads = {
+      dispose: jest.fn(),
+      identity: jest.fn().mockResolvedValue(undefined),
+      header: jest.fn().mockResolvedValue(undefined),
+      scan: jest.fn().mockResolvedValue([]),
+      node: {
+        blockCommitment: jest.fn().mockResolvedValue(undefined),
+        account: jest.fn().mockResolvedValue({ ok: false, pruned: false, timedOut: false }),
+        noteInclusions: jest.fn().mockResolvedValue(new Map()),
+        nullifierHeight: jest.fn().mockResolvedValue(undefined)
+      }
+    };
+    jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockResolvedValue(reads);
+    fixture.imported.mockClear();
+    const savedFamily = async (owner = vault) => {
+      const snapshot = await owner.readRecoveryJournal();
+      const note = snapshot?.entries.find(entry => entry.kind === 'note' && entry.detailsId === detailsId);
+      if (!snapshot || note?.kind !== 'note') throw new Error('Missing retained canonical fixture family');
+      return { snapshot, note };
+    };
+    return {
+      ...fixture,
+      expectedBytes,
+      canonicalBytes,
+      candidateBytes,
+      conflictBytes,
+      detailsId,
+      canonicalId,
+      canonicalFile,
+      record,
+      list,
+      settings,
+      accounts,
+      reads,
+      savedFamily,
+      restore: () => {
+        fixture.restore();
+        sdk.NoteFile.fromInputNote.mockReset();
+        jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockReset();
+      }
+    };
+  }
+
+  it('Task4C3G3 reorders an exact candidate into a full primary and restores it after encrypted restart', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      const after = await fixture.savedFamily();
+      expect(after.note).toMatchObject({ id: fixture.canonicalId, noteFile: fixture.canonicalBytes, format: 'full' });
+      expect(after.note.candidates).toEqual([
+        expect.objectContaining({ id: fixture.detailsId, noteFile: fixture.expectedBytes, format: 'details' })
+      ]);
+      expect(journalNoteBodies(after.snapshot)).toHaveLength(journalNoteBodies(before.snapshot).length);
+      expect(after.snapshot).toMatchObject({ scope: before.snapshot.scope, accounts: before.snapshot.accounts });
+      expect(after.snapshot.sequence).toBe(before.snapshot.sequence + 1);
+      expect(fixture.list).toHaveBeenCalledWith({ detailsCommitments: [`0x${fixture.detailsId}`] });
+      expect(fixture.imported).not.toHaveBeenCalled();
+      const restarted = new Vault(fixtureKey);
+      const persisted = await fixture.savedFamily(restarted);
+      expect(persisted.snapshot).toEqual(after.snapshot);
+      let restored = false;
+      const imported = jest.fn().mockImplementation(async (file: { serialize: () => Uint8Array }) => {
+        expect(file.serialize()).toEqual(fixture.canonicalBytes);
+        restored = true;
+      });
+      const { restoreSdkRecovery } = await import('../recovery/sdk-restore');
+      const { withWasmClientLock, assertWasmHoldCurrent } = await import('../sdk/miden-client');
+      await withWasmClientLock(hold =>
+        restoreSdkRecovery(
+          {
+            settings: fixture.settings,
+            accounts: fixture.accounts,
+            notes: {
+              import: imported,
+              list: jest.fn().mockImplementation(async () => (restored ? [fixture.record()] : []))
+            },
+            storeIdentifier: jest.fn()
+          },
+          { kind: 'note', note: persisted.note, accountId: 'retained' },
+          () => assertWasmHoldCurrent(hold, 'during canonical primary reconstruction')
+        )
+      );
+      expect(imported).toHaveBeenCalledTimes(1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 retains every older body when the authenticated export adds distinct required material', async () => {
+    const fixture = await canonicalAcquisition({ distinctExport: true });
+    const before = await fixture.savedFamily();
+    try {
+      await vault.reconcileStorageRecovery();
+      const after = await fixture.savedFamily();
+      expect(after.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(journalNoteBodies(after.snapshot)).toEqual(
+        expect.arrayContaining([...journalNoteBodies(before.snapshot), fixture.canonicalBytes])
+      );
+      expect(journalNoteBodies(after.snapshot)).toHaveLength(journalNoteBodies(before.snapshot).length + 1);
+      expect(after.snapshot.sequence).toBe(before.snapshot.sequence + 1);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 preserves a conflicting candidate while upgrading the authenticated primary', async () => {
+    const fixture = await canonicalAcquisition({ conflictingCandidate: true });
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      const after = await fixture.savedFamily();
+      expect(after.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(after.note.candidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ noteFile: fixture.expectedBytes }),
+          expect.objectContaining({ noteFile: fixture.conflictBytes })
+        ])
+      );
+      expect(journalNoteBodies(after.snapshot)).toHaveLength(journalNoteBodies(before.snapshot).length);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 repeats canonical readback without another journal generation', async () => {
+    const fixture = await canonicalAcquisition();
+    try {
+      await vault.reconcileStorageRecovery();
+      const first = await fixture.savedFamily();
+      expect(first.note.noteFile).toEqual(fixture.canonicalBytes);
+      const writes = mockStorageSets.length;
+      await vault.reconcileStorageRecovery();
+      expect((await fixture.savedFamily()).snapshot).toEqual(first.snapshot);
+      expect(mockStorageSets.length).toBe(writes);
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it.each([1, 3])('Task4C3G3 leaves state %s unresolved without changing retained evidence or health', async state => {
+    const fixture = await canonicalAcquisition({ state });
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 refuses a distinct canonical export at global material capacity without losing the primary', async () => {
+    const fixture = await canonicalAcquisition({ distinctExport: true });
+    try {
+      await vault.retainRecoveryEntries(
+        Array.from({ length: 253 }, (_, index) => ({
+          kind: 'note',
+          id: `g-capacity-${index}`,
+          noteFile: new Uint8Array([97, index]),
+          provenance: 'input'
+        }))
+      );
+      const before = await fixture.savedFamily();
+      expect(journalNoteBodies(before.snapshot)).toHaveLength(256);
+      await expect(vault.reconcileStorageRecovery()).rejects.toThrow();
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 refuses stale canonical replacement when candidate evidence changes during the SDK read', async () => {
+    const fixture = await canonicalAcquisition();
+    let release = () => {};
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const atRead = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    fixture.list.mockImplementationOnce(async () => {
+      entered();
+      await pending;
+      return [fixture.record()];
+    });
+    const outcome = vault.reconcileStorageRecovery().then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    try {
+      expect(await Promise.race([atRead.then(() => true), outcome.then(() => false)])).toBe(true);
+      const before = await fixture.savedFamily();
+      const lateBytes = new Uint8Array([19, 48, 84]);
+      await vault.retainRecoveryEntries([
+        {
+          ...before.note,
+          candidates: [
+            ...(before.note.candidates ?? []),
+            {
+              id: fixture.canonicalId,
+              detailsId: fixture.detailsId,
+              noteFile: lateBytes,
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        }
+      ]);
+      const current = await fixture.savedFamily();
+      release();
+      expect((await outcome).error).toBeDefined();
+      expect((await fixture.savedFamily()).snapshot).toEqual(current.snapshot);
+      expect(journalNoteBodies(current.snapshot)).toContainEqual(lateBytes);
+      expect(current.note.noteFile).toEqual(fixture.expectedBytes);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await outcome;
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 preserves pending aliases and transaction receipt evidence after the primary ID changes', async () => {
+    const fixture = await canonicalAcquisition();
+    try {
+      await vault.reconcileStorageRecovery();
+      const promoted = await fixture.savedFamily();
+      expect(promoted.note.id).toBe(fixture.canonicalId);
+      await Repo.transactions.put({
+        id: 'g-pending',
+        accountId: 'retained',
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        inputNoteIds: [fixture.detailsId, fixture.canonicalId],
+        outputNoteIds: [],
+        heldNoteIds: [fixture.detailsId],
+        noteDelivery: 'pending'
+      });
+      await vault.retainTransactionRecovery('g-pending', { requestBytes: new Uint8Array([9]), notes: [] });
+      const receipt = oneClickReceiptRow();
+      receipt.id = 'g-receipt';
+      receipt.accountId = 'retained';
+      receipt.extraInputs.oneClick.accountId = 'retained';
+      await Repo.transactions.put(receipt);
+      installProviderReceiptBackend((value, epoch) => vault.checkpointProviderReceipt(value, epoch));
+      await checkpointProviderReceipt(receipt);
+      const before = await fixture.savedFamily();
+      const pendingRow = await Repo.transactions.get('g-pending');
+      const receiptRow = await Repo.transactions.get('g-receipt');
+      fixture.reads.identity.mockClear().mockResolvedValue({ nullifier: '56'.repeat(32), fromBlock: 19 });
+      fixture.reads.header.mockResolvedValue('canonical-header');
+      fixture.reads.scan.mockResolvedValue([{ nullifier: '56'.repeat(32), block: 19 }]);
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      const after = await fixture.savedFamily();
+      expect(after.snapshot.entries).toEqual(before.snapshot.entries);
+      expect(await Repo.transactions.get('g-pending')).toEqual(pendingRow);
+      expect(await Repo.transactions.get('g-receipt')).toEqual(receiptRow);
+      expect(fixture.reads.identity).not.toHaveBeenCalled();
+      expect(fixture.reads.scan).not.toHaveBeenCalled();
+      expect(journalNoteBodies(after.snapshot)).toContainEqual(fixture.expectedBytes);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G3 latches a real canonical primary write quota while preserving the last readable generation', async () => {
+    const fixture = await canonicalAcquisition();
+    const before = await fixture.savedFamily();
+    mockBeforeRecoveryWrite = async () => {
+      throw new DOMException('Independent store full', 'QuotaExceededError');
+    };
+    try {
+      await expect(vault.reconcileStorageRecovery()).rejects.toThrow();
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+    } finally {
+      fixture.restore();
+    }
+  });
 
   async function guardianAcquisition(withProof = true) {
     const fixture = await acquisition();
