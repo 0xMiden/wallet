@@ -1,12 +1,15 @@
+import type { NoteFile } from '@miden-sdk/miden-sdk/lazy';
 import Dexie from 'dexie';
 
 import { restoreSdkRecovery, decodeSdkRecoveryCommand, type RecoverySdkWriter } from './sdk-restore';
 import type { RecoveryNoteEntry } from './types';
 
+const mockConsumedNoteFiles = new WeakSet<object>();
+
 function mockNoteFile(bytes: Uint8Array) {
   const expected = bytes[0] === 2 || bytes[0] === 4;
   const details = { commitment: 'details-a' };
-  return {
+  const file = {
     noteDetails: () => (expected ? details : undefined),
     note: () => (expected ? undefined : details),
     noteId: () => (expected ? undefined : { toString: () => 'note-a', free: () => {} }),
@@ -14,8 +17,11 @@ function mockNoteFile(bytes: Uint8Array) {
     noteTag: () => (expected ? { asU32: () => (bytes[0] === 2 ? 71 : 0), free: () => {} } : undefined),
     afterBlockNum: () => (expected ? (bytes[0] === 2 ? 19 : 0) : undefined),
     serialize: () => bytes.slice(),
-    free: () => {}
+    free: jest.fn(() => {
+      if (mockConsumedNoteFiles.has(file)) throw new Error('SDK note file handle was consumed');
+    })
   };
+  return file;
 }
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -126,6 +132,72 @@ it('imports a retained input file and verifies its body before acknowledging the
   expect(records).toHaveLength(1);
   expect(client.notes.import).toHaveBeenCalledTimes(1);
 });
+
+it.each(['accepted', 'rejected'])(
+  'Task4C3O preserves the %s import outcome after SDK consumes the note file handle',
+  async outcome => {
+    const refusal = new Error('SDK import refused the retained note');
+    let transferred: NoteFile | undefined;
+    let inspected: NoteFile | undefined;
+    jest.mocked(client.notes.import).mockImplementationOnce(async file => {
+      transferred = file;
+      mockConsumedNoteFiles.add(file);
+      if (outcome === 'rejected') throw refusal;
+      records = [record(2)];
+      await db.table('inputNotes').put({ detailsCommitment: 'details-a', stateDiscriminant: 2 });
+      return 'note-a';
+    });
+    const result = await restoreSdkRecovery(
+      client,
+      { kind: 'note', note, accountId: 'retained' },
+      () => {},
+      async (file, importNote) => {
+        inspected = file;
+        return importNote();
+      }
+    ).then(
+      () => 'restored',
+      (error: unknown) => error
+    );
+    expect(result).toBe(outcome === 'accepted' ? 'restored' : refusal);
+    expect(transferred).not.toBe(inspected);
+    expect(inspected?.free).toHaveBeenCalledTimes(1);
+    expect(transferred?.free).not.toHaveBeenCalled();
+    expect(client.notes.import).toHaveBeenCalledTimes(1);
+    expect(records.map(item => item.isAuthenticated())).toEqual(outcome === 'accepted' ? [true] : []);
+    expect(client.settings.set).not.toHaveBeenCalled();
+  }
+);
+
+it.each(['acquire refusal', 'async facade refusal'])(
+  'Task4C3O preserves %s and releases the untransferred inspection handle',
+  async scenario => {
+    const refusal = new Error('Before native ownership transfer');
+    let inspected: NoteFile | undefined;
+    if (scenario === 'async facade refusal')
+      jest.mocked(client.notes.import).mockImplementationOnce(async () => {
+        throw refusal;
+      });
+    const result = await restoreSdkRecovery(
+      client,
+      { kind: 'note', note, accountId: 'retained' },
+      () => {},
+      async (file, importNote) => {
+        inspected = file;
+        if (scenario === 'acquire refusal') throw refusal;
+        return importNote();
+      }
+    ).then(
+      () => 'restored',
+      (error: unknown) => error
+    );
+    expect(result).toBe(refusal);
+    expect(inspected?.free).toHaveBeenCalledTimes(1);
+    expect(client.notes.import).toHaveBeenCalledTimes(scenario === 'acquire refusal' ? 0 : 1);
+    expect(records).toEqual([]);
+    expect(client.settings.set).not.toHaveBeenCalled();
+  }
+);
 
 it('preserves a matching already consumed record without importing it again', async () => {
   records = [record(6)];

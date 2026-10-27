@@ -52,6 +52,9 @@ export async function restoreSdkRecovery(
       throw new StorageContinuityError();
     const file = NoteFile.deserialize(note.noteFile);
     try {
+      const importBytes = file.serialize().slice();
+      if (importBytes.byteLength === 0 || importBytes.byteLength > JOURNAL_MAX_BYTES)
+        throw new StorageContinuityError();
       const full = file.note();
       const details = file.noteDetails() ?? full;
       if (!details) throw new StorageContinuityError();
@@ -67,8 +70,13 @@ export async function restoreSdkRecovery(
         }
       }
       assertCurrent();
-      if (acquire) await acquire(file, () => client.notes.import(file));
-      else await client.notes.import(file);
+      const importNote = () => {
+        assertCurrent();
+        // The async SDK owns this separate handle, including native refusal.
+        return client.notes.import(NoteFile.deserialize(importBytes));
+      };
+      if (acquire) await acquire(file, importNote);
+      else await importNote();
       assertCurrent();
       await readSdkRecoverySnapshot(client, [command.accountId], !id, assertCurrent, [note]);
     } finally {
