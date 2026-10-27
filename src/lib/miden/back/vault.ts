@@ -1540,6 +1540,16 @@ export class Vault {
     }
   }
 
+  static async hasRetainedCustody(): Promise<boolean> {
+    const [accounts, mnemonic, password, hardware] = await Promise.all([
+      isStored(accountsStrgKey),
+      isStored(mnemonicStrgKey),
+      getPlain<unknown>(VAULT_KEY_PASSWORD_STORAGE_KEY),
+      getPlain<unknown>(VAULT_KEY_HARDWARE_STORAGE_KEY)
+    ]);
+    return accounts || mnemonic || password !== undefined || hardware !== undefined;
+  }
+
   static async isExist() {
     const stored = await isStored(checkStrgKey);
     return stored;
