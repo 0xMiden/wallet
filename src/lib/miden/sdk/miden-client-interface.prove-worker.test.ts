@@ -8,6 +8,7 @@
  * Imports are dynamic and per test so the interface, the lock and the transport slot
  * all come from one fresh module registry.
  */
+import { nativeStorageCapability, nativeStorageWasm } from '../../../../__mocks__/nativeStorageCapability';
 import { ConsumeTransaction, SendTransaction, SwapTransaction, type StageDetail } from '../db/types';
 import { type ConsumableNote, NoteTypeEnum } from '../types';
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
@@ -88,6 +89,7 @@ function buildHarness() {
     })
   };
   const fakeClient = {
+    storeIdentifier: jest.fn(() => 'test-store'),
     transactions: {
       executeRequest,
       submitProven,
@@ -129,6 +131,7 @@ type Harness = ReturnType<typeof buildHarness>;
 
 function sdkLazyMock(harness: Harness, newRemoteProver: jest.Mock = jest.fn(() => 'remote')) {
   return {
+    ...nativeStorageCapability(),
     MidenClient: { create: jest.fn(async () => harness.fakeClient) },
     NoteFile: { deserialize: jest.fn() },
     AccountFile: { deserialize: jest.fn() },
@@ -144,6 +147,7 @@ function sdkLazyMock(harness: Harness, newRemoteProver: jest.Mock = jest.fn(() =
     },
     ProvenTransaction: { deserialize: jest.fn((bytes: Uint8Array) => ({ proofBytes: Array.from(bytes) })) },
     getWasmOrThrow: jest.fn(async () => ({
+      ...nativeStorageWasm(),
       AccountId: { fromHex: jest.fn((id: string) => id), fromBech32: jest.fn((id: string) => id) },
       NoteType: { Public: 'public', Private: 'private' },
       ProvenTransaction: { deserialize: jest.fn((bytes: Uint8Array) => ({ proofBytes: Array.from(bytes) })) }
