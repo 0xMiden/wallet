@@ -4451,7 +4451,7 @@
   },
   "standardNoteLabel": {
     "message": "$name$ note",
-    "englishSource": "(untranslated)",
+    "englishSource": "$name$ note",
     "placeholders": {
       "name": {
         "content": "$1"

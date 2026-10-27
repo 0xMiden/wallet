@@ -984,6 +984,7 @@
   "P2ID": "note sobre P2ID",
   "P2IDE": "note de P2IDE",
   "PSWAP": "note de PSWAP",
+  "standardNoteLabel": "$name$ note",
   "otherNoteScript": "Otras notes de guion",
   "unknownNoteScript": "El script «Note» no está disponible",
   "noteSender": "Creado por",
