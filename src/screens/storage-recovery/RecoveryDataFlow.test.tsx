@@ -10,7 +10,7 @@ import type { ExportFilePasswordProps } from 'screens/encrypted-file-flow/Export
 import { RecoveryDataFlow } from './RecoveryDataFlow';
 import { RecoveryDataSettings } from './RecoveryDataSettings';
 
-let mockPlatform: 'extension' | 'desktop' = 'extension';
+let mockPlatform: import('lib/auth/strict-action-authentication').StrictAuthenticationPlatform = 'extension';
 let mockReady = true;
 const mockExport = jest.fn<Promise<string>, [string, number, string, string | undefined]>();
 const mockImport = jest.fn<
