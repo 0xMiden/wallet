@@ -355,8 +355,11 @@ describe('GC purchase spending-limit admission', () => {
       [{ faucetId: 'native-faucet', amount: 60_000_000n }],
       expect.any(Number)
     );
+    const inserted = await Repo.transactions.get(id);
     expect(await initiateGcPurchaseTransaction(ACCOUNT, quote, false, auth)).toBe(id);
     expect(await Repo.transactions.count()).toBe(1);
+    expect(await Repo.transactions.get(id)).toEqual(inserted);
+    expect(resolveSpendsUsd).toHaveBeenCalledTimes(1);
   });
 
   it('does not redeem the same authorization for a fresh retry after failure', async () => {
@@ -384,9 +387,25 @@ describe('GC purchase spending-limit admission', () => {
 
   it('does not value or stamp an ordinary incoming consume', async () => {
     await saveLimit();
-    const id = await initiateConsumeNotesTransaction(ACCOUNT, [note('ordinary-incoming')], false, true);
+    const { committedId: id } = await queueConsumeNotes(ACCOUNT, [note('ordinary-incoming')], false, true);
+    expect(await Repo.transactions.get(id)).toMatchObject({ type: 'consume' });
     expect((await Repo.transactions.get(id))?.spentUsd).toBeUndefined();
     expect(resolveSpendsUsd).not.toHaveBeenCalled();
+  });
+
+  it('enforces a cap created between the price probe and the insert lock', async () => {
+    await saveLimit();
+    jest.mocked(resolveSpendsUsd).mockResolvedValue(60_000_000n);
+    const read = jest.spyOn(Repo.spendingLimits, 'get').mockResolvedValueOnce(undefined);
+    try {
+      await expect(initiateGcPurchaseTransaction(ACCOUNT, quote, false)).rejects.toBeInstanceOf(
+        SpendingLimitAuthorizationRequiredError
+      );
+      expect(await Repo.transactions.count()).toBe(0);
+      expect(resolveSpendsUsd).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it('keeps the no-cap purchase path independent of pricing', async () => {
