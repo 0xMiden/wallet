@@ -118,6 +118,41 @@ const matchingItem = () => ({
   relationships: { appStoreVersion: ref('appStoreVersions', 'version-1') }
 });
 
+function lostSubmitAcknowledgement(error = new Error('Store API request failed'), change = () => {}) {
+  let submitted = false;
+  const f = fixture();
+  f.state.respond = (method, url, init) => {
+    if (method === 'PATCH' && url.pathname === '/v1/reviewSubmissions/review-1') {
+      submitted = true;
+      f.state.reviews[0].attributes.state = 'WAITING_FOR_REVIEW';
+      f.version.attributes.appStoreState = 'WAITING_FOR_REVIEW';
+      f.state.items[0].attributes = { state: 'READY_FOR_REVIEW' };
+      change(f);
+      throw error;
+    }
+    if (submitted && method === 'GET' && url.pathname === '/v1/reviewSubmissions/review-1')
+      return { data: f.state.reviews[0] };
+    if (submitted && f.afterSubmit) return f.afterSubmit(method, url, init);
+  };
+  return { ...f, error };
+}
+
+test('lost final submit acknowledgement is reconciled by exact persisted review without mutation replay', async () => {
+  const f = lostSubmitAcknowledgement();
+  const result = await submit(f.client, { ...options, releasePolicy: 'after-approval' });
+  assert.equal(result.state, 'WAITING_FOR_REVIEW');
+  assert.equal(result.reviewSubmissionId, 'review-1');
+  assert.equal(result.submissionRequested, true);
+  assert.equal(result.submissionReconciled, true);
+  assert.equal(result.autoReleaseAfterApproval, true);
+  assert.equal(result.published, false);
+  const finalPatch = f.calls.findIndex(c => c.path === '/v1/reviewSubmissions/review-1' && c.method === 'PATCH');
+  assert.ok(finalPatch >= 0);
+  assert.ok(f.calls.slice(finalPatch + 1).length > 0);
+  assert.ok(f.calls.slice(finalPatch + 1).every(c => c.method === 'GET'));
+  assert.equal(f.calls.filter(c => c.method === 'PATCH' && c.path === '/v1/reviewSubmissions/review-1').length, 1);
+});
+
 test('status validates the app identity and reports actual version/build state without mutations', async () => {
   const { client, calls } = fixture();
   const result = await status(client, options);
