@@ -1,0 +1,33 @@
+name: Issue1948 consume original auth4 functional evidence
+on:
+  push:
+    branches: ['ci/1948-auth4-consumer-*']
+permissions:
+  contents: read
+jobs:
+  consume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify retained original four-case browser evidence without execution
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 controller/.github/ci/issue1948-auth4-consumer/consume.py 2>&1 | tee evidence/consume.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-auth4-consumer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/
+            !evidence/original.zip
+            small-proof/
+          if-no-files-found: error
