@@ -28,6 +28,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  toolbar-diagnostic:
+    uses: ./.github/workflows/native-toolbar.yml
+
   test:
     name: Feature eligibility service tests
     runs-on: ubuntu-latest

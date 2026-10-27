@@ -31,6 +31,9 @@ for (const theme of ['light', 'dark'] as const) {
         ignoreDefaultArgs: ['--disable-extensions']
       });
     let context = await launch();
+    const diagnostics: unknown[] = [];
+    let readNativeState: ((label: string) => Promise<void>) | undefined;
+    let activations = 0;
     const capture = async (name: string) => {
       await new Promise(resolve =>
         setTimeout(resolve, name.includes('onboarding') || name.includes('closed') ? 250 : 7000)
@@ -48,12 +51,35 @@ for (const theme of ['light', 'dark'] as const) {
       );
       if (!Array.isArray(value) || value.length !== 2 || !value.every(item => Number.isInteger(item)))
         throw new Error('Native toolbar bounds invalid');
+      diagnostics.push({ kind: 'native-click', sequence: ++activations, at: Date.now(), coordinates: value });
       execFileSync('xdotool', ['mousemove', String(value[0]), String(value[1]), 'click', '1'], {
         timeout: 10000
       });
     };
     try {
       let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+      readNativeState = async label => {
+        try {
+          const readback = await worker.evaluate(async () => {
+            const [popup, behavior, preferences, contexts] = await Promise.all([
+              chrome.action.getPopup({}),
+              chrome.sidePanel.getPanelBehavior(),
+              chrome.storage.local.get(['sidepanel_mode']),
+              chrome.runtime.getContexts({})
+            ]);
+            return {
+              popup,
+              behavior,
+              sidepanelMode: preferences.sidepanel_mode,
+              contexts: contexts.map(item => ({ type: item.contextType, documentUrl: item.documentUrl })),
+              observation: Reflect.get(globalThis, '__toolbarPanelObservation')
+            };
+          });
+          diagnostics.push({ kind: 'readback', label, at: Date.now(), readback });
+        } catch {
+          diagnostics.push({ kind: 'readback', label, at: Date.now(), diagnosticReadFailed: true });
+        }
+      };
       const observePanel = () =>
         worker.evaluate(() => {
           const state = { open: false, opened: 0, closed: 0 };
@@ -166,8 +192,10 @@ for (const theme of ['light', 'dark'] as const) {
         await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
         await chrome.action.setPopup({ popup: 'popup.html' });
       });
+      await readNativeState('legacy-popup-configured');
       activate();
       await expect.poll(() => worker.evaluate(() => chrome.action.getPopup({}))).toBe('');
+      await readNativeState('legacy-popup-cleared');
       execFileSync('xdotool', ['key', 'Escape'], { timeout: 10000 });
       await expect
         .poll(() =>
@@ -176,7 +204,9 @@ for (const theme of ['light', 'dark'] as const) {
           )
         )
         .toBe(0);
+      await readNativeState('before-final-native-click');
       activate();
+      await readNativeState('after-final-native-click');
       await expect.poll(panelCount).toBe(1);
       await capture('legacy-popup-recovered-on-later-action');
       await worker.evaluate(async () => {
@@ -243,9 +273,13 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(panelCount).toBe(1);
       await capture('native-action-after-worker-stop-and-wake');
     } catch (error) {
+      await readNativeState?.('failure');
       await capture('failure-browser');
       throw error;
     } finally {
+      const body = JSON.stringify({ theme, diagnostics }, null, 2);
+      console.log('TOOLBAR_DIAGNOSTIC ' + body);
+      await testInfo.attach('toolbar-readback-diagnostic', { body, contentType: 'application/json' });
       await context.close();
       rmSync(root, { recursive: true, force: true });
     }
