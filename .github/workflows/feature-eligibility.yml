@@ -6,6 +6,7 @@ on:
       - 'services/feature-eligibility/**'
       - 'scripts/feature-eligibility-deploy-source.mjs'
       - 'scripts/feature-eligibility-staging-probe*'
+      - 'scripts/feature-eligibility-staging-inspect*'
       - '.github/workflows/**'
       - '.github/actions/start-eligibility-fixture/**'
       - 'scripts/feature-eligibility-fixture*'
@@ -37,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
+      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
       - name: Verify store publishing and production artifact guards
         run: node --test scripts/store-publishing/*.test.mjs
       - name: Verify store artifact archive inspection

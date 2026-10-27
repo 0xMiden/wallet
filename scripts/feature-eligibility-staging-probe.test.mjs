@@ -739,7 +739,7 @@ test('staging workflow exposes only fixed operation and prior-run coordinates wi
     [...inputs.matchAll(/^      ([a-z_]+):/gm)].map(match => match[1]),
     ['operation', 'cleanup_run_id', 'cleanup_attempt']
   );
-  assert.match(inputs, /options: \[probe, cleanup\]/);
+  assert.match(inputs, /options: \[probe, cleanup, inspect\]/);
   assert.equal(section(workflow, '\npermissions:\n', '\nconcurrency:'), '  contents: read\n  actions: read\n');
   assert.match(workflow, /group: feature-eligibility-staging-probe/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -751,6 +751,8 @@ test('staging workflow exposes only fixed operation and prior-run coordinates wi
     'CLOUDFLARE_ACCOUNT_ID',
     'CLOUDFLARE_ACCOUNT_ID',
     'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_API_TOKEN'
@@ -1440,7 +1442,6 @@ for (const [field, value] of [
     assert.equal(deleted(f).length, 0);
   });
 
-
 async function inspectionFixture(mutateRemote) {
   const f = fixture({
     mutateRemote,
@@ -1465,7 +1466,9 @@ test('inspection verifies the exact retained owner using five GETs without clean
 });
 
 test('inspection keeps canonical null observability blocked with the original ownership diagnostic', async () => {
-  const f = await inspectionFixture(remote => { remote.scriptSettings.observability = null; });
+  const f = await inspectionFixture(remote => {
+    remote.scriptSettings.observability = null;
+  });
   const result = await createProbeController(f.effects).inspect(manifest(f));
   assert.equal(result.inspection, 'blocked');
   assert.equal(result.reason, 'ownership_mismatch');
@@ -1478,4 +1481,43 @@ test('inspection rejects untrusted provenance before any provider request', asyn
   const result = await createProbeController(f.effects).inspect(manifest(f));
   assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch' });
   assert.equal(f.events.length, 0);
+});
+
+for (const [name, mutateRemote] of [
+  [
+    'binding owner',
+    remote => {
+      remote.settings.bindings[0].text = 'different-owner';
+    }
+  ],
+  [
+    'worker content',
+    remote => {
+      remote.bytes = 'different-source';
+    }
+  ],
+  [
+    'enabled canonical logs',
+    remote => {
+      remote.scriptSettings.observability.logs.enabled = true;
+    }
+  ]
+])
+  test(`inspection blocks changed ${name} without cleanup or exercise`, async () => {
+    const f = await inspectionFixture(mutateRemote);
+    const result = await createProbeController(f.effects).inspect(manifest(f));
+    assert.equal(result.inspection, 'blocked');
+    assert.equal(result.reason, 'ownership_mismatch');
+    assert.ok(result.ownershipCheck);
+    assert.equal(deleted(f).length, 0);
+    assert.equal(deployed(f).length, 0);
+    assert.equal(f.calls.length, 0);
+  });
+
+test('inspection rejects the wrong configured account before reading script metadata', async () => {
+  const f = await inspectionFixture();
+  f.effects.environment.CLOUDFLARE_ACCOUNT_ID = 'other-account';
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.deepEqual(result, { inspection: 'blocked', reason: 'auth' });
+  assert.deepEqual(f.events, [['api', 'GET', '/account']]);
 });

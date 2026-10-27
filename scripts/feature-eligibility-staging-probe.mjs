@@ -770,7 +770,23 @@ export function createProbeController(effects) {
     }
     return result;
   };
-  const inspect = async () => ({ inspection: 'blocked', reason: 'unavailable' });
+  const inspect = async manifest => {
+    let ownershipCheck;
+    try {
+      await validManifest(manifest);
+      await authenticate();
+      const present = await owned(manifest, check => {
+        ownershipCheck = check;
+      });
+      return { inspection: present ? 'verified' : 'absent', reason: 'complete' };
+    } catch (error) {
+      return {
+        inspection: 'blocked',
+        reason: reasonOf(error),
+        ...(ownershipCheck ? { ownershipCheck } : {})
+      };
+    }
+  };
   return { run, cleanup, inspect };
 }
 

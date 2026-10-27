@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- [CHANGE][ci] Inspect the original eligibility staging probe through bounded authenticated GET requests and sanitized ownership evidence without changing cleanup guards.
+
 ## 1.17.8 (2026-10-27)
 
 - [FIX][extension] Bridge-IN reviews identify Bread's Chrome extension origin and show route-specific wallet actions or quoted transaction targets; connection metadata names the wallet actions and remains isolated from native sessions, with deposited Compact collateral guidance in every shipped language (#1934).
