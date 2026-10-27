@@ -97,3 +97,81 @@ jobs:
           .github/workflows/ui-smoothness.yml
           .github/workflows/feature-eligibility.yml
           .github/workflows/probe-feature-eligibility.yml
+
+  ct-synthetic-scrubber-proof:
+    name: Offline closed diagnostic scrubber proof
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install hash-pinned binary reference engine
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/ct-proof-requirements.txt" <<'REQUIREMENTS'
+          sentry-relay==0.10.1 --hash=sha256:3325ef78796553ddb921c9f392d8c5b2b48a0698e95dc2b0ef55d767c66f7160
+          cffi==2.0.0 --hash=sha256:3e17ed538242334bf70832644a32a7aae3d83b57567f9fd60a26257e992b79ba
+          pycparser==2.23 --hash=sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934
+          REQUIREMENTS
+          python -m pip install --only-binary=:all: --no-deps --require-hashes -r "$RUNNER_TEMP/ct-proof-requirements.txt"
+      - name: Test public fixed vocabulary with no event submission
+        shell: bash
+        run: |
+          python - <<'PYTHON'
+          import hashlib
+          import importlib.metadata
+          import json
+          from pathlib import Path
+          import re
+          import socket
+          from unittest.mock import patch
+          from sentry_relay.processing import convert_datascrubbing_config, pii_strip_event
+
+          source = Path("src/lib/miden/sdk/proposal-create-error-family.ts").read_bytes()
+          assert hashlib.sha256(source).hexdigest() == "856ee2c5c9fe0b5c83fcfb33c6b8fbe25bd33f37da8c691f7d6f91fa24d1f7c9"
+          families = re.findall(r"'([^']+)'", source.decode().split("export const PROPOSAL_CREATE_FAMILIES = [", 1)[1].split("] as const", 1)[0])
+          assert len(families) == 13 and len(set(families)) == 13
+          expected_filtered = {"consume_note_authentication", "multisig_auth_args_missing", "sdk_auth_header_read"}
+          settings = {"scrubData": True, "scrubDefaults": True, "scrubIpAddresses": False, "excludeFields": [], "sensitiveFields": []}
+          results = []
+          def forbid_network(*args, **kwargs):
+              raise AssertionError("Offline synthetic engine test must not open a socket")
+          with patch.object(socket, "socket", forbid_network), patch.object(socket, "create_connection", forbid_network):
+              config = convert_datascrubbing_config(settings)
+              for family in families:
+                  event = {"message": "synthetic diagnostic proof", "contexts": {"walletDiagnostics": {"proposalCreateApi": "consume_notes", "proposalCreateFamily": family}}}
+                  result = pii_strip_event(config, event)
+                  fields = result["contexts"]["walletDiagnostics"]
+                  assert fields["proposalCreateApi"] == "consume_notes"
+                  expected = "[Filtered]" if family in expected_filtered else family
+                  assert fields["proposalCreateFamily"] == expected, (family, fields)
+                  metadata = result.get("_meta", {}).get("contexts", {}).get("walletDiagnostics", {}).get("proposalCreateFamily", {}).get("", {})
+                  if family in expected_filtered:
+                      assert any(r[0] == "@password:filter" and r[1] == "s" for r in metadata.get("rem", [])), metadata
+                  results.append({"kind": "proposal_family", "synthetic_input": family, "output": fields["proposalCreateFamily"], "api_preserved": True, "metadata": metadata})
+              for stage in ["declared_network", "genesis_header"]:
+                  event = {"message": "synthetic diagnostic proof", "contexts": {"walletDiagnostics": {"backupNetworkFailureStage": stage}}}
+                  result = pii_strip_event(config, event)
+                  assert result["contexts"]["walletDiagnostics"]["backupNetworkFailureStage"] == stage
+                  results.append({"kind": "backup_stage", "synthetic_input": stage, "output": stage})
+              event = {"message": "synthetic diagnostic proof", "contexts": {"proof": {"password": "synthetic_canary", "access_token": "synthetic_canary", "ordinary": "synthetic_canary", "neutral": "synthetic_auth_marker"}}}
+              result = pii_strip_event(config, event)["contexts"]["proof"]
+              assert result["password"] == "[Filtered]"
+              assert result["access_token"] == "[Filtered]"
+              assert result["neutral"] == "[Filtered]"
+              assert result["ordinary"] == "synthetic_canary"
+              results.append({"kind": "privacy_canaries", "sensitive_key_scrubbed": True, "token_key_scrubbed": True, "sensitive_value_scrubbed": True, "ordinary_preserved": True})
+          report = {"synthetic_only": True, "offline": True, "reference_engine": importlib.metadata.version("sentry-relay"), "vocabulary_sha256": hashlib.sha256(source).hexdigest(), "cases": len(results), "results": results, "limitations": ["Reference engine version does not establish SaaS server version", "No real event or filtered value was supplied or reconstructed", "This proof does not replace client privacy validation"]}
+          Path("ct-scrubber-engine-proof.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, indent=2))
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ct-synthetic-scrubber-proof
+          path: ct-scrubber-engine-proof.json
+          retention-days: 7
