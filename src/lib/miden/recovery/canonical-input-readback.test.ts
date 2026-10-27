@@ -214,3 +214,41 @@ describe('Task4C3G authenticated input readback', () => {
     expect(getStorageHealth().status).toBe('healthy');
   });
 });
+
+describe('Task4C3G2 canonical request limits', () => {
+  it.each(['families', 'materials', 'bytes'])('refuses excess %s before SDK lookup or export', async limit => {
+    const { client, notes } = reader();
+    const retained = family();
+    const families =
+      limit === 'families'
+        ? Array.from({ length: 5 }, (_, index) => ({ ...family(), id: String(index).padStart(64, '0') }))
+        : [retained];
+    if (limit === 'materials') {
+      retained.candidates = Array.from({ length: 256 }, () => ({
+        id: noteId,
+        detailsId,
+        noteFile: canonicalBytes.slice(),
+        provenance: 'input',
+        format: 'full'
+      }));
+    }
+    if (limit === 'bytes') retained.noteFile = new Uint8Array(2 * 1024 * 1024);
+    const before = families.map(entry => ({
+      ...entry,
+      noteFile: entry.noteFile.slice(),
+      candidates: entry.candidates?.map(candidate => ({ ...candidate, noteFile: candidate.noteFile.slice() }))
+    }));
+    await expect(
+      Reflect.apply(readSdkRecoverySnapshot, undefined, [client, ['retained'], false, () => undefined, [], families])
+    ).rejects.toThrow('Recovery canonical note request exceeds limits');
+    expect(notes.list).not.toHaveBeenCalled();
+    expect(mockToInputNote).not.toHaveBeenCalled();
+    expect(mockExportInput).not.toHaveBeenCalled();
+    expect(notes.import).not.toHaveBeenCalled();
+    expect(notes.export).not.toHaveBeenCalled();
+    expect(notes.listPage).not.toHaveBeenCalled();
+    expect(client.storeIdentifier).not.toHaveBeenCalled();
+    expect(families).toEqual(before);
+    expect(getStorageHealth().status).toBe('healthy');
+  });
+});
