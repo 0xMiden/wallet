@@ -328,7 +328,6 @@ export async function runCodecCase({ build, useWorker, scenario }) {
     phase = 'cleanup';
     await client.waitForIdle();
     client.terminate();
-    await client.waitForIdle();
     client = undefined;
     return { ok: true, phase: 'complete', checks, digests };
   } catch {
@@ -336,8 +335,8 @@ export async function runCodecCase({ build, useWorker, scenario }) {
   } finally {
     active?.release.resolve();
     if (client) {
-      client.terminate();
       await client.waitForIdle().catch(() => {});
+      client.terminate();
     }
     if (bootstrap) {
       bootstrap.terminate();
