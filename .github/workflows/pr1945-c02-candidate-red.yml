@@ -1,0 +1,30 @@
+name: PR1945 C02 candidate fixture-corrected red proof
+on:
+  push:
+    branches: ['ci/pr1945-c02-candidate-*']
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Record exact regression source
+        run: git rev-parse HEAD HEAD^{tree}
+      - name: Expected functional failures on the unchanged production source
+        run: |
+          mkdir -p /tmp/pr1945-regression
+          set -o pipefail
+          yarn jest --runTestsByPath src/app/templates/ArcadeAllowance.test.tsx src/lib/miden/spending-limits/policy.test.ts src/lib/miden/transaction/initiate.held-claims.test.ts --maxWorkers=2 --no-coverage --json --outputFile=/tmp/pr1945-regression/results.json 2>&1 | tee /tmp/pr1945-regression/output.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr1945-c02-candidate-red
+          path: /tmp/pr1945-regression/
+          if-no-files-found: error
+          retention-days: 7

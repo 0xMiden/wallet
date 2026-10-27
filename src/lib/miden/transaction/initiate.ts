@@ -53,8 +53,14 @@ import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
-import { SpendingLimitAuthorization } from '../spending-limits/types';
+import {
+  admitOutgoingTransaction,
+  hasSpendingLimits,
+  queueOutgoingTransaction,
+  resolveOutgoingSpendUsd,
+  spendsOf
+} from '../spending-limits/queue';
+import { SpendingLimitAuthorization, SpendingLimitPriceUnavailableError } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import {
   ClaimFeeContext,
@@ -366,7 +372,8 @@ export interface GcPurchaseQuote {
 export const initiateGcPurchaseTransaction = async (
   accountId: string,
   quote: GcPurchaseQuote,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> =>
   (
     await queueConsumeRows(
@@ -400,7 +407,14 @@ export const initiateGcPurchaseTransaction = async (
           }
         };
       },
-      'arcade_gc_purchase'
+      'arcade_gc_purchase',
+      undefined,
+      undefined,
+      undefined,
+      {
+        spends: [{ faucetId: quote.payFaucetId, amount: quote.fillAmount }],
+        authorization: spendingLimitAuthorization
+      }
     )
   ).committedId;
 
@@ -611,7 +625,8 @@ const queueConsumeRows = async (
   // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
   canSign?: () => boolean,
   feeContext?: ClaimFeeContext,
-  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>,
+  outgoing?: { spends: readonly IConsumedAssetTotal[]; authorization?: SpendingLimitAuthorization }
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -633,7 +648,12 @@ const queueConsumeRows = async (
       ? await readClaimFeeContext(accountId)
       : { vaultFeeAsset: null, nativeAssetId: null, verificationBaseFee: null });
 
-  return await Repo.db.transaction('rw', Repo.transactions, async () => {
+  let outgoingPrice: bigint | SpendingLimitPriceUnavailableError | undefined;
+  if (outgoing !== undefined && mayWrite && (await hasSpendingLimits(accountId))) {
+    outgoingPrice = await resolveOutgoingSpendUsd(outgoing.spends);
+  }
+  const tables = outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions] : [Repo.transactions];
+  const insertRows = async (): Promise<ConsumeNotesQueueResult | undefined> => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
@@ -752,10 +772,16 @@ const queueConsumeRows = async (
       return { committedId: blockingId!, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
     }
 
+    // A cap created after the price probe needs a value before admission. Leave the lock and
+    // resolve it, then run dedup again in the new write transaction before admitting any row.
+    if (outgoing !== undefined && outgoingPrice === undefined && (await hasSpendingLimits(accountId))) {
+      return undefined;
+    }
+
     const ahead = await getClaimFeeAhead(accountId);
     const feeRefusedNoteIds: string[] = [];
     const createdIds: string[] = [];
-    // No await between the check and the write it guards.
+    // Incoming claims keep the signing check adjacent to the write; purchases are admitted under the same lock.
     const insert = async (rowNotes: ConsumableNote[]): Promise<void> => {
       const feeNotes = claimFeeNotes(rowNotes, feeNotesById);
       const [decision] = claimFeeDecisions(
@@ -772,7 +798,11 @@ const queueConsumeRows = async (
       const row = newRow(rowNotes);
       row.feeAdmission = decision?.admission;
       if (canSign && !canSign()) throw new ClaimInsertRefusedError();
-      await Repo.transactions.add(row);
+      const admitted =
+        outgoing === undefined
+          ? row
+          : await admitOutgoingTransaction(row, outgoing.spends, outgoingPrice, outgoing.authorization, nowSec);
+      await Repo.transactions.add(admitted);
       createdIds.push(row.id);
       for (const note of rowNotes) coveringTxIdByNoteId.set(note.id, row.id);
       // Keep the original facts: no earlier row's fee is charged against a later row.
@@ -800,7 +830,11 @@ const queueConsumeRows = async (
     const committedId = createdIds[0] ?? blockingId;
     if (committedId === null) throw new ClaimFeeRefusedError();
     return { committedId, coveringTxIdByNoteId, feeRefusedNoteIds };
-  });
+  };
+  const result = await Repo.db.transaction('rw', tables, insertRows);
+  if (result !== undefined) return result;
+  outgoingPrice = await resolveOutgoingSpendUsd(outgoing!.spends);
+  return (await Repo.db.transaction('rw', tables, insertRows))!;
 };
 
 /** {@link queueConsumeNotes}, for the callers that need only the committed row id. */
