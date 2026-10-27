@@ -158,7 +158,10 @@ const mockSettingsUpdated = jest.fn();
 const mockCurrentAccountUpdated = jest.fn();
 
 // Mock store state
-let mockStoreState: { inited: boolean; status: WalletStatus; vault: typeof mockVault | null } = {
+let mockStoreState: import('lib/shared/types').WalletState & {
+  inited: boolean;
+  vault: typeof mockVault | null;
+} = {
   vault: null,
   inited: true,
   status: WalletStatus.Ready,
