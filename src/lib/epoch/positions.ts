@@ -5,6 +5,9 @@ import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remot
 import { withRequestTimeout } from 'lib/remote-json';
 
 import type { EarnVaultInfo } from './pools-read';
+import { notePositionsRequests, positionsBudgetDelayMs, POSITIONS_LIMIT } from './positions-budget';
+
+export { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
 
 export type { EarnVaultInfo };
 
@@ -165,26 +168,6 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
 
 // A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
 const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
-
-const positionsStarts: number[] = [];
-const POSITIONS_WINDOW_MS = 60_000;
-const POSITIONS_LIMIT = 10;
-
-export function positionsBudgetDelayMs(count: number): number {
-  if (!Number.isInteger(count) || count < 1 || count > POSITIONS_LIMIT) {
-    throw new RangeError('Positions request count must be between 1 and 10');
-  }
-  const now = Date.now();
-  while (positionsStarts.length && now - positionsStarts[0]! >= POSITIONS_WINDOW_MS) positionsStarts.shift();
-  const excess = positionsStarts.length + count - POSITIONS_LIMIT;
-  return excess <= 0 ? 0 : Math.max(0, positionsStarts[excess - 1]! + POSITIONS_WINDOW_MS - now);
-}
-
-export function notePositionsRequests(count: number): boolean {
-  if (positionsBudgetDelayMs(count) > 0) return false;
-  positionsStarts.push(...Array<number>(count).fill(Date.now()));
-  return true;
-}
 
 /**
  * Fetch lending positions for ONE EVM owner address. Never rejects: on any

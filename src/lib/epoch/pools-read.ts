@@ -5,7 +5,7 @@ import type { EarnMarket } from 'lib/remote-config/values';
 import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
-import { notePositionsRequests, positionsBudgetDelayMs } from './positions';
+import { notePositionsRequests, positionsBudgetDelayMs } from './positions-budget';
 
 /**
  * The raw reader of the Earn vault catalogue. The catalogue is the `/pools` route of Epoch's positions service:
