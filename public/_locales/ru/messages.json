@@ -4449,6 +4449,15 @@
     "message": "note PSWAP",
     "englishSource": "PSWAP note"
   },
+  "standardNoteLabel": {
+    "message": "$name$ note",
+    "englishSource": "$name$ note",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "otherNoteScript": {
     "message": "Другой скрипт note",
     "englishSource": "Other note script"

@@ -6,7 +6,11 @@ import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
 import { TransactionNoteFlow } from './TransactionNoteFlow';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, vars?: { name?: string }) => (vars?.name ? `${key}:${vars.name}` : key)
+  })
+}));
 jest.mock('utils/string', () => ({ truncateAddress: (value: string) => `short:${value.slice(0, 5)}` }));
 jest.mock('lib/miden/metadata/fetch', () => ({ fetchTokenMetadata: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://rpc.example' }));
@@ -22,8 +26,8 @@ it('shows a zero-input flow into the account and exact output note labels', () =
         inputs: [],
         outputs: [
           { id: 'fee-id', kind: 'fee', visibility: 'public', assets: [] },
-          { id: 'payment-id', kind: 'p2id', visibility: 'private', assets: [] },
-          { id: 'swap-id', kind: 'pswap', visibility: 'unknown' }
+          { id: 'payment-id', kind: 'P2ID', visibility: 'private', assets: [] },
+          { id: 'swap-id', kind: 'PSWAP', visibility: 'unknown' }
         ]
       }}
     />
@@ -39,13 +43,33 @@ it('shows a zero-input flow into the account and exact output note labels', () =
   expect(screen.getByText('noteDetailsUnavailable')).toBeInTheDocument();
 });
 
+it('names a standard note from StandardNote and calls a tx fee note the transaction fee', () => {
+  render(
+    <TransactionNoteFlow
+      flow={{
+        inputCount: 0,
+        inputs: [],
+        outputs: [
+          { id: 'sponsor', kind: 'FEE_SPONSORSHIP', visibility: 'public', assets: [] },
+          { id: 'tx-fee', kind: 'TX_FEE', visibility: 'public', assets: [] },
+          { id: 'swap', kind: 'SWAP', visibility: 'public', assets: [] }
+        ]
+      }}
+    />
+  );
+  expect(screen.getByText('standardNoteLabel:Fee sponsorship')).toBeInTheDocument();
+  expect(screen.getByText('transactionFeeNote')).toBeInTheDocument();
+  expect(screen.getByText('standardNoteLabel:SWAP')).toBeInTheDocument();
+  expect(screen.getByText(/outputNotesIncludingFee/)).toBeInTheDocument();
+});
+
 it('shows multiple inputs, unknown scripts and unlisted input details without claiming no inputs', () => {
   render(
     <TransactionNoteFlow
       flow={{
         inputCount: 3,
         inputs: [
-          { id: 'in-1', kind: 'p2ide', visibility: 'public', assets: [] },
+          { id: 'in-1', kind: 'P2IDE', visibility: 'public', assets: [] },
           { id: 'in-2', kind: 'custom', visibility: 'unknown', assets: [] }
         ],
         outputs: []
@@ -105,7 +129,7 @@ it('does not show an old asset label while a different note asset resolves', asy
     inputCount: 0,
     inputs: [],
     outputs: [
-      { id: 'note', kind: 'p2id' as const, visibility: 'public' as const, assets: [{ faucetId: 'faucet', amount }] }
+      { id: 'note', kind: 'P2ID' as const, visibility: 'public' as const, assets: [{ faucetId: 'faucet', amount }] }
     ]
   });
   const { rerender } = render(<TransactionNoteFlow account="account" flow={flow(1n)} />);

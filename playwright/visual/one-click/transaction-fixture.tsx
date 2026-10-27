@@ -20,7 +20,7 @@ const flow: NoteFlow = {
   outputs: [
     {
       id: `0x${'11'.repeat(32)}`,
-      kind: 'p2id',
+      kind: 'P2ID',
       visibility: 'public',
       sender: account,
       assets: [{ faucetId: eth, amount: 1_000_000_000_000_000n }],
@@ -28,7 +28,7 @@ const flow: NoteFlow = {
     },
     {
       id: `0x${'22'.repeat(32)}`,
-      kind: 'pswap',
+      kind: 'PSWAP',
       visibility: 'private',
       assets: [{ faucetId: usdcx, amount: 252n }],
       nfts: []
