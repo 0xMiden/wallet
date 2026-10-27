@@ -202,15 +202,26 @@ export class RecoveryJournal {
 
   async update(
     change: (current: RecoveryJournalSnapshot | undefined) => RecoveryJournalData,
-    committedRetries: readonly string[] = []
+    committedRetries: readonly string[] = [],
+    recoveryFloor?: { minimumSequence: number; capability: StorageRecoveryCapability }
   ): Promise<RecoveryJournalSnapshot> {
+    if (recoveryFloor) {
+      assertStorageRecoveryAllowed(recoveryFloor.capability);
+      if (!Number.isSafeInteger(recoveryFloor.minimumSequence) || recoveryFloor.minimumSequence < 1)
+        throw new Error('Invalid recovery journal floor');
+    }
+    const assertCurrent = async () => {
+      if (recoveryFloor) assertStorageRecoveryAllowed(recoveryFloor.capability);
+      await this.assertCurrent();
+      if (recoveryFloor) assertStorageRecoveryAllowed(recoveryFloor.capability);
+    };
     const capacityError = new Error('Recovery journal capacity exceeded');
     try {
       return await withRecoveryStorageLock(async () => {
-        await this.assertCurrent();
+        await assertCurrent();
         const { snapshot: previous, slot, degraded } = await this.readCurrent();
         if (degraded) throw new Error('Recovery journal requires repair');
-        await this.assertCurrent();
+        await assertCurrent();
         const proposed = change(previous);
         if (previous && JSON.stringify(previous.scope) !== JSON.stringify(proposed.scope))
           throw new Error('Recovery scope changed');
@@ -271,22 +282,27 @@ export class RecoveryJournal {
           ...proposed,
           entries: merged,
           version: 1,
-          sequence: (previous?.sequence ?? 0) + 1
+          sequence: Math.max((previous?.sequence ?? 0) + 1, recoveryFloor?.minimumSequence ?? 1)
         });
         const plaintext = serialize(next, capacityError);
-        if (previous && serialize({ ...next, sequence: previous.sequence }) === serialize(previous)) return previous;
+        if (
+          previous &&
+          (!recoveryFloor || recoveryFloor.minimumSequence <= previous.sequence) &&
+          serialize({ ...next, sequence: previous.sequence }) === serialize(previous)
+        )
+          return previous;
         const encrypted = await Passworder.encryptJson(JSON.parse(plaintext), this.key);
-        await this.assertCurrent();
+        await assertCurrent();
         const nextSlot = 1 - slot;
         const key = SLOT_KEYS[nextSlot]!;
         await this.storage.set({ [key]: encrypted });
-        await this.assertCurrent();
+        await assertCurrent();
         const readback = await this.storage.get([key]);
         const verified = await this.decrypt(readback[key]);
         if (serialize(verified) !== plaintext) throw integrityFailure('Recovery journal readback mismatch');
-        await this.assertCurrent();
+        await assertCurrent();
         await this.storage.set({ [POINTER_KEY]: { slot: nextSlot, sequence: next.sequence } });
-        await this.assertCurrent();
+        await assertCurrent();
         return verified;
       });
     } catch (error) {
