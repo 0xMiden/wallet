@@ -37,6 +37,7 @@ on:
       - 'docs/**'
       - 'scripts/build-e2e-gallery.mjs'
       - '.github/workflows/pages.yml'
+      - 'tools/bread-signal-explorer/static/**'
   workflow_dispatch:
 
 permissions:
@@ -122,6 +123,14 @@ jobs:
             echo "::endgroup::"
           done
           echo "staged jobs:"; ls -1 _e2e_stage 2>/dev/null || echo "  (none)"
+
+      - name: Publish Bread Signal Explorer at /signal
+        env:
+          SIGNAL_API: https://bread-signal.wiktor-s-e3d.workers.dev
+        run: |
+          mkdir -p _site/signal
+          cp -R tools/bread-signal-explorer/static/. _site/signal/
+          printf 'window.SIGNAL_API=%s;\n' "$(node -e 'process.stdout.write(JSON.stringify(process.env.SIGNAL_API))')" > _site/signal/config.js
 
       - name: Build E2E gallery into /e2e
         run: |
