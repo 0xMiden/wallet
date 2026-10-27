@@ -304,7 +304,7 @@ function safeReceipt(value: unknown, scenario: (typeof cases)[number]) {
 }
 for (const scenario of cases) {
   test(scenario.id, async ({ page, context }, testInfo) => {
-    const diagnostic = await installMatrixProgress(page, scenario.id);
+    const diagnostic = await installMatrixProgress(page, scenario.id, root);
     try {
       let blockedNonAsset = false;
       let observedWorkerMode = '';
