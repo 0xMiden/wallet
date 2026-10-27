@@ -269,7 +269,7 @@ jest.mock('app/templates/VerifySeedPhraseFlow', () => ({
   default: () => <div data-testid="verify-seed-flow" />
 }));
 jest.mock('screens/storage-recovery/RecoveryDataSettings', () => ({
-  RecoveryDataSettings: () => <div data-testid="recovery-data-settings" />
+  RecoveryDataSettings: mockLayoutPage('recovery-data-settings')
 }));
 
 jest.mock('screens/encrypted-file-flow/EncryptedFileManager', () => ({
