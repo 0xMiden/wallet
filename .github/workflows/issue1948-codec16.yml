@@ -1,0 +1,85 @@
+name: Issue1948 immutable SDK codec16 proof
+on:
+  push:
+    branches: ['ci/1948-codec16-*']
+permissions:
+  contents: read
+jobs:
+  codec16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SDK_CODEC_DIST_ROOT: ${{ github.workspace }}/sdk-dist
+      SDK_CODEC_RESULT_FILE: ${{ github.workspace }}/proof/results.json
+      SDK_CODEC_OUTPUT_DIR: ${{ github.workspace }}/proof/test-results
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 3c5c68403550aa4da60bf51b27b5cefaf2310a83
+          path: wallet
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: bind
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py bind 2>&1 | tee proof/stage-bind.log
+      - name: metadata
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py metadata 2>&1 | tee proof/stage-metadata.log
+      - name: restore
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py restore 2>&1 | tee proof/stage-restore.log
+      - name: install
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py install 2>&1 | tee proof/stage-install.log
+      - name: browser-install
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py browser-install 2>&1 | tee proof/stage-browser-install.log
+      - name: run
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py run 2>&1 | tee proof/stage-run.log
+      - name: verify
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          python3 controller/.github/ci/issue1948-codec16/run.py verify 2>&1 | tee proof/stage-verify.log
+      - name: Preserve frozen sources and all42 assets after any failure
+        if: always() && hashFiles('proof/dist-before.json') != ''
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 controller/.github/ci/issue1948-codec16/run.py preserve 2>&1 | tee proof/final-preservation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controller-codec16-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            proof/
+            !proof/sdk-dist.zip
+          if-no-files-found: error
