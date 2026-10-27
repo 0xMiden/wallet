@@ -601,15 +601,15 @@ export async function getRealmReaderClient(): Promise<WasmWebClient> {
           `(generation ${cached.generation} at ${hostOf(cached.rpcUrl)})`
         : '')
   );
-  const storeName = await nativeStorageName(rpcUrl);
   const ownsReader = () =>
     wasmClientGeneration() === generation &&
     getEffectiveRpcUrl() === rpcUrl &&
     getEffectiveFeeFaucetId() === feeFaucetId;
-  assertStorageHealthy(storageEpoch);
-  if (!ownsReader()) throw new Error('SDK reader owner replaced');
   let active = true;
-  const client: Promise<WasmWebClient> = Promise.resolve().then(() => {
+  const client: Promise<WasmWebClient> = Promise.resolve().then(async () => {
+    assertStorageHealthy(storageEpoch);
+    if (!ownsReader()) throw new Error('SDK reader owner replaced');
+    const storeName = await nativeStorageName(rpcUrl);
     assertStorageHealthy(storageEpoch);
     if (!ownsReader()) throw new Error('SDK reader owner replaced');
     return WasmWebClient.createClient(

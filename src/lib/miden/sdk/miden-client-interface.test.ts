@@ -3,7 +3,12 @@ import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/h
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { WasmLockHold } from './miden-client';
-import { nativeStorageCapability, nativeStorageWasm } from './test-fixtures/nativeStorageCapability';
+import {
+  nativeStorageCapability,
+  nativeStorageWasm,
+  noteAcquisitionPrimitives,
+  noteFileFixture
+} from './test-fixtures/nativeStorageCapability';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
 // The shared native-HTTP recorder (guardian/__mocks__/native-http), the instance the code under test imported.
@@ -19,7 +24,9 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 
 describe('MidenClientInterface', () => {
+  const acquisitionCleanup: Array<() => void> = [];
   afterEach(() => {
+    for (const cleanup of acquisitionCleanup.splice(0)) cleanup();
     jest.resetModules();
     jest.clearAllMocks();
   });
@@ -39,6 +46,29 @@ describe('MidenClientInterface', () => {
   async function underWasmHold<T>(operation: () => Promise<T>): Promise<T> {
     const { withWasmClientLock } = await import('./miden-client');
     return withWasmClientLock(operation);
+  }
+
+  async function installFixtureNoteSink() {
+    const { installNoteAcquisitionSink, uninstallNoteAcquisitionSink } = await import('../recovery/note-acquisition');
+    const retained = new Map<string, Uint8Array>();
+    const sink: import('../recovery/note-acquisition').NoteAcquisitionSink = async (notes, network, assertCurrent) => {
+      assertCurrent();
+      expect(network).toBe('localnet');
+      for (const note of notes) retained.set(note.id, note.noteFile.slice());
+      assertCurrent();
+    };
+    installNoteAcquisitionSink(sink);
+    acquisitionCleanup.push(() => uninstallNoteAcquisitionSink(sink));
+    return retained;
+  }
+
+  async function importUnderWasmHold(client: MidenClientInterfaceType, bytes: Uint8Array) {
+    const { getCurrentWasmLockHold } = await import('./miden-client');
+    return underWasmHold(async () => {
+      const hold = getCurrentWasmLockHold();
+      if (!hold) throw new Error('The fixture import requires its current WASM hold');
+      return client.importNoteBytes(bytes, hold);
+    });
   }
 
   const fakeTransactionResult = {
@@ -196,8 +226,9 @@ describe('MidenClientInterface', () => {
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       ...nativeStorageCapability(),
+      ...noteAcquisitionPrimitives(),
       MidenClient: { create: createMock, createMock: jest.fn() },
-      NoteFile: { deserialize: jest.fn(() => ({})) },
+      NoteFile: { deserialize: jest.fn(() => noteFileFixture()) },
       AccountFile: { deserialize: jest.fn(() => ({})) },
       NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
       NoteType: { Private: 'Private', Public: 'Public' },
@@ -301,7 +332,9 @@ describe('MidenClientInterface', () => {
     // smoke a few methods
     await client.createMidenWallet('on-chain' as any, new Uint8Array([4]));
     await client.importPublicMidenWalletFromSeed(new Uint8Array([5]));
-    await client.importNoteBytes(new Uint8Array([1, 2]), NO_HOLD);
+    const retainedNotes = await installFixtureNoteSink();
+    await importUnderWasmHold(client, new Uint8Array([1, 2]));
+    expect(retainedNotes.size).toBe(1);
     await client.getInputNoteDetails();
     await client.getConsumableNotes('id');
     await client.exportNote('note', {} as any);
@@ -3901,6 +3934,7 @@ describe('MidenClientInterface', () => {
       noteDeserialize: jest.Mock;
       fromExpectedNote?: jest.Mock;
     }) {
+      jest.dontMock('./miden-client');
       const fakeMidenClient = buildFakeMidenClient();
       const importMock = fakeMidenClient.notes.import as jest.Mock;
       // Only `fromExpectedNote` is exposed: `fromNoteDetails` is the
@@ -3922,9 +3956,14 @@ describe('MidenClientInterface', () => {
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...nativeStorageCapability(),
+        ...noteAcquisitionPrimitives(),
         NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: jest.fn(async () => fakeMidenClient) },
-        NoteFile: { deserialize: sdk.noteFileDeserialize, fromExpectedNote },
+        NoteFile: {
+          deserialize: sdk.noteFileDeserialize,
+          fromExpectedNote: (details: unknown, tag: unknown, afterBlockNum: number) =>
+            noteFileFixture(fromExpectedNote(details, tag, afterBlockNum))
+        },
         Note: { deserialize: sdk.noteDeserialize },
         NoteDetails: NoteDetailsCtor,
         AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -3966,15 +4005,17 @@ describe('MidenClientInterface', () => {
         seed: new Uint8Array([1, 2, 3]),
         insertKeyCallback: jest.fn()
       });
-      return { client, importMock, fromExpectedNote, NoteDetailsCtor };
+      const retainedNotes = await installFixtureNoteSink();
+      return { client, importMock, fromExpectedNote, NoteDetailsCtor, retainedNotes };
     }
 
     it('imports serialized NoteFile bytes directly without touching the Note fallback', async () => {
-      const noteFileDeserialize = jest.fn(() => ({ kind: 'notefile' }));
+      const noteFileDeserialize = jest.fn(() => noteFileFixture({ kind: 'notefile' }));
       const noteDeserialize = jest.fn();
-      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+      const { client, importMock, retainedNotes } = await setup({ noteFileDeserialize, noteDeserialize });
 
-      await client.importNoteBytes(new Uint8Array([1, 2]), NO_HOLD);
+      await importUnderWasmHold(client, new Uint8Array([1, 2]));
+      expect(retainedNotes.size).toBe(1);
 
       expect(noteFileDeserialize).toHaveBeenCalled();
       expect(noteDeserialize).not.toHaveBeenCalled();
@@ -3992,13 +4033,14 @@ describe('MidenClientInterface', () => {
       };
       const noteDeserialize = jest.fn(() => fakeNote);
       const fromExpectedNote = jest.fn((details: any, tag: any) => ({ kind: 'wrapped', details, tag }));
-      const { client, importMock, NoteDetailsCtor } = await setup({
+      const { client, importMock, NoteDetailsCtor, retainedNotes } = await setup({
         noteFileDeserialize,
         noteDeserialize,
         fromExpectedNote
       });
 
-      await client.importNoteBytes(new Uint8Array([9, 9, 9]), NO_HOLD);
+      await importUnderWasmHold(client, new Uint8Array([9, 9, 9]));
+      expect(retainedNotes.size).toBe(1);
 
       expect(noteDeserialize).toHaveBeenCalled();
       // NoteDetails built from the note's assets + recipient, then wrapped.
@@ -4027,9 +4069,13 @@ describe('MidenClientInterface', () => {
         recipient: jest.fn(() => 'note-recipient'),
         metadata
       }));
-      const { client, importMock, fromExpectedNote } = await setup({ noteFileDeserialize, noteDeserialize });
+      const { client, importMock, fromExpectedNote, retainedNotes } = await setup({
+        noteFileDeserialize,
+        noteDeserialize
+      });
 
-      await client.importNoteBytes(new Uint8Array([9, 9, 9]), NO_HOLD);
+      await importUnderWasmHold(client, new Uint8Array([9, 9, 9]));
+      expect(retainedNotes.size).toBe(1);
 
       expect(metadata).toHaveBeenCalled();
       const [, tagArg, afterBlockArg] = fromExpectedNote.mock.calls[0]!;

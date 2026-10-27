@@ -6209,7 +6209,7 @@ describe('Vault storage continuity', () => {
     expect(getStorageHealth().status).toBe('healthy');
   });
 
-  async function nativeRecoveryReceipt() {
+  async function nativeRecoveryReceipt({ foreignCallback = false } = {}) {
     let storageTail = Promise.resolve();
     Object.defineProperty(navigator, 'locks', {
       configurable: true,
@@ -6285,10 +6285,9 @@ describe('Vault storage continuity', () => {
     const wait = new Promise<void>(resolve => {
       release = resolve;
     });
-    const { nativeNoteAcquisition } = await import('../sdk/native-note-acquisition');
-    const gate = nativeNoteAcquisition('testnet', () => !fixture.client.isDisposed).beforeNoteAcquisition;
-    if (!gate) throw new Error('Missing native acquisition callback');
+    let gate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionOptions['beforeNoteAcquisition'];
     const delivered = jest.fn(async (candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate) => {
+      if (!gate) throw new Error('Missing factory acquisition callback');
       await gate(candidate);
     });
     fixture.imported.mockClear();
@@ -6336,6 +6335,31 @@ describe('Vault storage continuity', () => {
     Reflect.set(fixture.client.client, 'notes', { import: fixture.imported, list, listPage });
     Reflect.set(fixture.client.client, 'settings', settings);
     Reflect.set(fixture.client.client, 'accounts', accounts);
+    const { getEffectiveRpcUrl } = await import('lib/miden-chain/effective-endpoints');
+    const sdkFactory = jest.requireMock<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+    const native = await sdkFactory.getWasmOrThrow();
+    const storeName = native.resolveStoreName(getEffectiveRpcUrl(), undefined);
+    const primarySdk = fixture.client.client;
+    Reflect.set(
+      primarySdk,
+      'storeIdentifier',
+      jest.fn(async () => storeName)
+    );
+    Reflect.set(primarySdk, 'terminate', jest.fn());
+    const previousCreate: unknown = Reflect.get(sdkFactory.MidenClient, 'create');
+    const create = jest.fn(async (_options: Parameters<typeof sdkFactory.MidenClient.create>[0]) => primarySdk);
+    Reflect.set(sdkFactory.MidenClient, 'create', create);
+    const { MidenClientInterface } = await import('../sdk/miden-client-interface');
+    fixture.client = await MidenClientInterface.create({ useWorker: false });
+    gate = create.mock.calls[0]?.[0]?.beforeNoteAcquisition;
+    let callbackClient = fixture.client;
+    if (foreignCallback) {
+      const foreignSdk = Object.assign({}, primarySdk, { terminate: jest.fn() });
+      create.mockResolvedValueOnce(foreignSdk);
+      callbackClient = await MidenClientInterface.create({ useWorker: false });
+      gate = create.mock.calls[1]?.[0]?.beforeNoteAcquisition;
+    }
+    if (!gate) throw new Error('Missing protected factory callback fixture');
     mockRecoveryClient = fixture.client;
     readSnapshot.mockRestore();
     generation = null;
@@ -6355,6 +6379,7 @@ describe('Vault storage continuity', () => {
       accounts,
       progress,
       nestedBefore,
+      callbackClient,
       adopted: () => adopted,
       beforeGate: (operation: () => Promise<void>) => {
         beforeGate = operation;
@@ -6366,6 +6391,10 @@ describe('Vault storage continuity', () => {
       cleanup: async () => {
         release();
         mockRecoveryClient = undefined;
+        fixture.client.free();
+        if (callbackClient !== fixture.client) callbackClient.free();
+        if (previousCreate === undefined) Reflect.deleteProperty(sdkFactory.MidenClient, 'create');
+        else Reflect.set(sdkFactory.MidenClient, 'create', previousCreate);
         sdk.NoteFile.fromInputNote.mockReset();
         if (previousExport) sdk.NoteFile.fromInputNote.mockImplementation(previousExport);
         fixture.restore();
@@ -6422,6 +6451,29 @@ describe('Vault storage continuity', () => {
       }
     }
   );
+
+  it('Task4C3M2 refuses another protected client callback during the primary restore', async () => {
+    const f = await nativeRecoveryReceipt({ foreignCallback: true });
+    f.release();
+    try {
+      expect(f.callbackClient).not.toBe(f.client);
+      expect(f.callbackClient.client).not.toBe(f.client.client);
+      expect(f.callbackClient.isDisposed).toBe(false);
+      expect(f.client.isDisposed).toBe(false);
+      expect(await f.recover()).toBe(false);
+      expect(f.delivered).toHaveBeenCalledTimes(1);
+      expect(f.adopted()).toBe(false);
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(await vault.readRecoveryJournal()).toEqual(f.before);
+      expect(await fetchAndDecryptOne<unknown>(ck('recoverycontinuity'), fixtureKey)).toEqual(f.floor);
+      expect(await Repo.metadata.get('generation')).toEqual(f.marker);
+      expect(f.progress.at(-1)?.phase).toBe('notes');
+      expect(getStorageHealth().status).toBe('unavailable');
+      expect(Reflect.get(globalThis, '__vaultTestLockNested') ?? 0).toBe(f.nestedBefore);
+    } finally {
+      await f.cleanup();
+    }
+  });
 
   it('Task4C3M detects an out-of-band journal sequence change before recovery completion', async () => {
     const f = await nativeRecoveryReceipt();
