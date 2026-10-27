@@ -352,12 +352,6 @@ const dwellForError = () => {
     jest.advanceTimersByTime(1);
   });
 };
-const expectDisplayReport = (id: string, surface: string) => {
-  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
-  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
-  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
-};
-
 describe('initial render / drop zone', () => {
   it('renders the localized heading, upload icon, choose-from-device trigger and hidden input', () => {
     const { container } = renderScreen();
@@ -1250,7 +1244,13 @@ describe('user-visible error reporting', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     dwellForError();
-    expectDisplayReport(id, 'field');
+    const diagnostics =
+      id === 'encryptedWalletFileWrongNetwork'
+        ? [{ kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' }]
+        : [];
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith(id, 'field', ...diagnostics);
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
   });
   it.each(['declared_network', 'genesis_header'])(
     'reports only the closed %s rejection stage from the real password field',

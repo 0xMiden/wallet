@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 // every screen, and the barrel's module graph evaluates ahead of a suite's own module
 // mock factories — Developer settings reads `MIDEN_NETWORK_NAME` out of one of them.
 import { ReactComponent as EyeOffIcon } from 'app/icons/v2/eye-off.svg';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
@@ -39,6 +40,7 @@ type SharedFieldAttrs = Omit<
 export interface TextFieldProps extends SharedFieldAttrs {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   value?: string;
   defaultValue?: string;
   onChange?: (event: React.ChangeEvent<TextFieldElement>) => void;
@@ -153,6 +155,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       hint,
       error,
       errorId: userErrorId,
+      errorDiagnostics,
       errorTestId,
       multiline,
       size = 'md',
@@ -182,7 +185,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     },
     forwardedRef
   ) => {
-    useUserVisibleError(error ? userErrorId : null, 'field');
+    useUserVisibleError(error ? userErrorId : null, 'field', undefined, errorDiagnostics);
     const autoId = useId();
     const fieldId = id ?? autoId;
     const hintId = `${fieldId}-hint`;

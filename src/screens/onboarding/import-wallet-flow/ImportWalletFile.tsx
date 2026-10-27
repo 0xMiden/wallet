@@ -47,7 +47,7 @@ type WalletFile = Omit<EncryptedWalletFile, 'salt'> & {
   salt: Record<string, number> | number[];
 };
 
-type ImportError = 'wrong-password' | 'malformed' | 'unsupported' | 'wrong-network' | 'restore';
+type ImportError = 'wrong-password' | 'malformed' | 'unsupported' | 'declared-network' | 'genesis-header' | 'restore';
 
 // A backup carries two base64 database dumps, so the ceiling is generous; it
 // exists to stop an unrelated or hostile file from being decoded and parsed on
@@ -173,7 +173,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         onSubmit(payload);
       } catch (error) {
         console.error('Wallet restore failed:', error);
-        if (current()) setImportError(error instanceof WrongNetworkBackupError ? 'wrong-network' : 'restore');
+        if (current()) setImportError(error instanceof WrongNetworkBackupError ? 'genesis-header' : 'restore');
       }
     };
 
@@ -221,7 +221,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             error instanceof UnsupportedBackupVersionError
               ? 'unsupported'
               : error instanceof WrongNetworkBackupError
-                ? 'wrong-network'
+                ? 'declared-network'
                 : 'malformed'
           );
         }
@@ -321,7 +321,8 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     'wrong-password': 'incorrectPassword',
     malformed: 'encryptedWalletFileMalformed',
     unsupported: 'encryptedWalletFileUnsupportedVersion',
-    'wrong-network': 'encryptedWalletFileWrongNetwork',
+    'declared-network': 'encryptedWalletFileWrongNetwork',
+    'genesis-header': 'encryptedWalletFileWrongNetwork',
     restore: 'encryptedWalletFileRestoreFailed'
   };
   const errorId = importError ? errorIds[importError] : null;
@@ -333,7 +334,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         ? t('encryptedWalletFileMalformed')
         : importError === 'unsupported'
           ? t('encryptedWalletFileUnsupportedVersion')
-          : importError === 'wrong-network'
+          : importError === 'declared-network' || importError === 'genesis-header'
             ? t('encryptedWalletFileWrongNetwork')
             : importError === 'restore'
               ? t('encryptedWalletFileRestoreFailed')
@@ -417,6 +418,15 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             placeholder="********"
             error={errorCaption && errorCaption !== PASSWORD_ERROR_CAPTION ? errorCaption : undefined}
             errorId={errorId}
+            errorDiagnostics={
+              importError === 'declared-network' || importError === 'genesis-header'
+                ? {
+                    kind: 'backup_network_failure',
+                    backupNetworkFailureStage:
+                      importError === 'declared-network' ? 'declared_network' : 'genesis_header'
+                  }
+                : undefined
+            }
           />
         )}
       </OnboardingStepLayout>
