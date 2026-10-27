@@ -10,6 +10,15 @@ import { OneClickReview } from '../../../src/screens/swap-flow/OneClickReview';
 import type { OneClickAsset, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
 import type { OneClickNetworkOption } from '../../../src/screens/swap-flow/OneClickPickers';
 
+const TransactionFixture = React.lazy(() =>
+  import('./transaction-fixture')
+    .then(module => ({ default: module.TransactionFixture }))
+    .catch(error => {
+      console.error('Transaction fixture import failed:', String(error), JSON.stringify(error, Object.getOwnPropertyNames(error ?? {})));
+      throw error;
+    })
+);
+
 const miden: OneClickAsset = {
   assetId: 'miden:usdcx',
   blockchain: 'miden',
@@ -134,6 +143,14 @@ function BridgeReviewFixture({ kind }: { kind: string }) {
 
 function App() {
   const params = new URLSearchParams(location.search);
+  if (params.has('tx')) {
+    return (
+      <TransactionFixture
+        surface={params.get('tx') === 'asset' ? 'asset' : 'modal'}
+        variant={params.has('partial') ? 'partial' : 'main'}
+      />
+    );
+  }
   const bridge = params.get('bridge');
   if (bridge) return <BridgeReviewFixture kind={bridge} />;
   const review = params.has('review');
