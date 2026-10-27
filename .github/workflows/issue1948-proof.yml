@@ -1,0 +1,51 @@
+name: Issue1948 frozen storage proof
+on:
+  push:
+    branches:
+      - 'ci/1948-proof-*'
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ee3e5b59ab688d056c35ded09274fd982b404b81
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Bind source
+        run: |
+          mkdir -p proof
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          test "$(git rev-parse "$GITHUB_SHA^")" = ee3e5b59ab688d056c35ded09274fd982b404b81
+          echo "$GITHUB_SHA" | tee proof/workflow-sha.txt
+          git rev-parse HEAD | tee proof/source-sha.txt
+          test "$(git rev-parse HEAD)" = ee3e5b59ab688d056c35ded09274fd982b404b81
+          test "$(git rev-parse HEAD^{tree})" = 1e621936c9aaee193eb4128229c08c602f9eca70
+      - name: Install frozen dependencies
+        id: install
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          yarn install --frozen-lockfile --network-timeout 120000 2>&1 | tee proof/install.log
+      - name: Run functional storage regressions
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -o pipefail
+          yarn jest --runTestsByPath src/lib/miden/recovery/canonical-input-readback.test.ts --testNamePattern=Task4C3G2 --maxWorkers=2 --json --outputFile=proof/results.json 2>&1 | tee proof/tests.log
+      - name: Report executed counts
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('proof/results.json'));const n=x.numPassedTests+x.numFailedTests;console.log(JSON.stringify({executed:n,passed:x.numPassedTests,failed:x.numFailedTests,pending:x.numPendingTests,runtime:x.numRuntimeErrorTestSuites}));if(n!==3)process.exit(1);for(const s of x.testResults)for(const a of s.assertionResults)if(a.status!=='pending')console.log(a.status+': '+a.fullName)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-proof-task4c3-canonical-reader-bounds-red-v7b
+          path: proof/
