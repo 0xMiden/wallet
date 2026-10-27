@@ -1633,8 +1633,7 @@ export class Vault {
           if (
             !snapshot ||
             snapshot.scope.network !== network ||
-            snapshot.accounts.length !== accounts.length ||
-            accounts.some(account => !snapshot.accounts.some(floor => floor.accountId === account.publicKey))
+            snapshot.accounts.some(floor => !accounts.some(account => account.publicKey === floor.accountId))
           )
             throw new RecoveryDataFileError('account');
           const content = await encryptRecoveryDataFile(snapshot, filePassword, check);
