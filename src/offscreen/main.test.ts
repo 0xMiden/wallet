@@ -72,6 +72,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
     getWasmOrThrow: (...a: any[]) => g.__off.getWasmOrThrow(...a),
+    NoteType: { Private: 0, Public: 1 },
+    NoteFile: { deserialize: (bytes: Uint8Array) => g.__off.deserializeAcquiredNoteFile(bytes) },
+    FeltArray: class {
+      constructor(readonly elements: unknown[]) {}
+    },
+    Poseidon2: {
+      hashElements: () => ({ toHex: () => 'cd'.repeat(32), toFelts: () => [1, 2, 3, 4] })
+    },
     Address: {
       fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
     },
@@ -6376,4 +6384,153 @@ describe('actual execution producer through offscreen encoder, proxy, cancellati
       }
     }
   );
+});
+
+describe('Task4C3F offscreen acquired-file acknowledgement', () => {
+  async function fixture() {
+    await loadModule();
+    const { MidenClientInterface } = jest.requireActual<typeof import('lib/miden/sdk/miden-client-interface')>(
+      'lib/miden/sdk/miden-client-interface'
+    );
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const health = await import('lib/miden/storage-health');
+    const bytes = new Uint8Array([19, 48, 62]);
+    const noteId = 'ab'.repeat(32);
+    const body = {
+      metadata: () => ({ noteType: () => 0, free: () => undefined }),
+      recipient: () => ({ digest: () => ({ toFelts: () => [1, 2, 3, 4] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => undefined
+    };
+    const file = {
+      note: () => body,
+      noteDetails: () => undefined,
+      noteId: () => ({ toString: () => noteId, free: () => undefined }),
+      serialize: () => bytes.slice()
+    };
+    G.__off.deserializeAcquiredNoteFile = jest.fn(() => file);
+    const imported = jest.fn(async () => noteId);
+    const client: import('lib/miden/sdk/miden-client-interface').MidenClientInterface = Reflect.construct(
+      MidenClientInterface,
+      [{ notes: { import: imported } }, endpoints.getEffectiveNetworkName()]
+    );
+    G.__off.clientImportNoteBytes.mockImplementation(
+      (input: Uint8Array, hold: import('lib/miden/sdk/miden-client').WasmLockHold) =>
+        client.importNoteBytes(input, hold)
+    );
+    let acknowledge: (reply: unknown) => void = () => undefined;
+    const acquisitionMessages: unknown[] = [];
+    G.chrome.runtime.sendMessage.mockImplementation((message: { type?: string }) => {
+      if (message.type === 'OFFSCREEN_NOTE_ACQUISITION') {
+        acquisitionMessages.push(message);
+        return new Promise(resolve => {
+          acknowledge = resolve;
+        });
+      }
+      return Promise.resolve(message.type === OFFSCREEN_STORAGE_HEALTH ? { status: 'healthy', epoch: 0 } : undefined);
+    });
+    const reply = jest.fn();
+    const request = {
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: 'acquisition-operation',
+      method: 'importNoteBytes',
+      argsB64: [encodeArg(bytes)],
+      deadline_ms: 1000,
+      storageHealth: { status: 'healthy', epoch: 0 },
+      endpoints: { override: null, feeFaucetId: undefined }
+    };
+    expect(capturedListener?.(request, {}, reply)).toBe(true);
+    await flush();
+    return {
+      bytes,
+      noteId,
+      imported,
+      health,
+      reply,
+      request,
+      acquisitionMessages,
+      acknowledge: (response: unknown) => acknowledge(response)
+    };
+  }
+
+  it('retains the exact generated file through its operation before SDK import and success reply', async () => {
+    const f = await fixture();
+    try {
+      expect(f.acquisitionMessages).toEqual([
+        expect.objectContaining({
+          target: 'sw',
+          type: 'OFFSCREEN_NOTE_ACQUISITION',
+          op_id: f.request.op_id,
+          epoch: 0,
+          notes: [
+            {
+              kind: 'note',
+              id: f.noteId,
+              detailsId: 'cd'.repeat(32),
+              noteFile: Array.from(f.bytes),
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        })
+      ]);
+      expect(f.imported).not.toHaveBeenCalled();
+      expect(f.reply).not.toHaveBeenCalled();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.imported).toHaveBeenCalledTimes(1);
+      expect(G.__off.deserializeAcquiredNoteFile).toHaveBeenCalledWith(f.bytes);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true, op_id: f.request.op_id }));
+    } finally {
+      f.acknowledge({ ok: false, op_id: f.request.op_id });
+      await flush();
+    }
+  });
+
+  it.each(['refused', 'missing', 'wrong operation'])(
+    'refuses a %s retention response before SDK import',
+    async response => {
+      const f = await fixture();
+      try {
+        expect(f.acquisitionMessages).toHaveLength(1);
+        f.acknowledge(
+          response === 'missing'
+            ? undefined
+            : {
+                ok: response !== 'refused',
+                op_id: response === 'wrong operation' ? 'other-operation' : f.request.op_id
+              }
+        );
+        await flush();
+        expect(f.imported).not.toHaveBeenCalled();
+        expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.request.op_id }));
+        expect(f.health.getStorageHealth().status).toBe('healthy');
+      } finally {
+        f.acknowledge({ ok: false, op_id: f.request.op_id });
+        await flush();
+      }
+    }
+  );
+
+  it('rejects a late retention ACK after its WASM hold was evicted', async () => {
+    const f = await fixture();
+    try {
+      expect(f.acquisitionMessages).toHaveLength(1);
+      const mutex = jest.requireMock('lib/miden/sdk/miden-client');
+      mutex.__evictHolder();
+      await flush();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.imported).not.toHaveBeenCalled();
+      expect(f.reply).toHaveBeenCalledTimes(1);
+      expect(f.reply).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: false, op_id: f.request.op_id, errorName: 'WasmClientPoisonedError' })
+      );
+      expect(f.health.getStorageHealth().status).toBe('healthy');
+    } finally {
+      f.acknowledge({ ok: false, op_id: f.request.op_id });
+      await flush();
+    }
+  });
 });

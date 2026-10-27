@@ -146,6 +146,7 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides(),
   // The delivery sweep's pass reads it; without it every pass throws and leaves no idle finding to test.
   isNoteTransportConfigured: () => true
@@ -1717,5 +1718,216 @@ describe('scoped offscreen native identity relay', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(reply).toHaveBeenCalledWith({ ok: false });
     warn.mockRestore();
+  });
+});
+
+describe('Task4C3F operation-bound acquisition reverse IPC', () => {
+  type Sink = import('../recovery/note-acquisition').NoteAcquisitionSink;
+  const note: import('../recovery/types').RecoveryNoteEntry = {
+    kind: 'note',
+    id: 'ab'.repeat(32),
+    detailsId: 'cd'.repeat(32),
+    noteFile: new Uint8Array([19, 48, 61]),
+    provenance: 'input',
+    format: 'full'
+  };
+
+  async function fixture() {
+    const acquisition = await import('../recovery/note-acquisition');
+    const health = await import('../storage-health');
+    const endpoints = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+      'lib/miden-chain/effective-endpoints'
+    );
+    const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy');
+    const prover = await import('./offscreen-prover');
+    const { toSerializable } = await import('../recovery/serialization');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    await endpoints.loadEndpointOverrides();
+    const originalEndpoints = endpoints.getEndpointState();
+    const ensure = jest.spyOn(prover, 'ensureOffscreenDocument').mockResolvedValue(undefined);
+    let finish: (value: unknown) => void = () => undefined;
+    let sent = false;
+    const send = jest.spyOn(chrome.runtime, 'sendMessage').mockImplementation(
+      () =>
+        new Promise(resolve => {
+          sent = true;
+          finish = resolve;
+        })
+    );
+    const sink = jest.fn<ReturnType<Sink>, Parameters<Sink>>(async (_notes, _network, assertCurrent) => {
+      assertCurrent();
+    });
+    acquisition.installNoteAcquisitionSink(sink);
+    const running = proxy.__test.dispatchCritical('importNoteBytes', [note.noteFile], null);
+    const settled = running.promise.catch(() => null);
+    for (let index = 0; index < 20 && !sent; index++) await flushStorage();
+    expect(sent).toBe(true);
+    expect(proxy.__test.inFlightOpIds()).toContain(running.op_id);
+    proxy.markOpStarted(running.op_id);
+    const message = {
+      target: 'sw',
+      type: 'OFFSCREEN_NOTE_ACQUISITION',
+      op_id: running.op_id,
+      network: endpoints.getEffectiveNetworkName(),
+      epoch: health.getStorageHealth().epoch,
+      notes: toSerializable([note])
+    };
+    const sender = { id: OWN_EXTENSION_ID, url: chrome.runtime.getURL('offscreen.html') };
+    const invoke = (payload: unknown = message, origin: chrome.runtime.MessageSender = sender) => {
+      const reply = jest.fn();
+      const routed = capturedRuntimeListeners[0]?.(payload, origin, reply);
+      return { routed, reply };
+    };
+    const stop = async () => {
+      finish({ ok: true, op_id: running.op_id, resultB64: null });
+      await settled;
+    };
+    const restore = async () => {
+      await stop();
+      acquisition.uninstallNoteAcquisitionSink(sink);
+      endpoints.adoptEndpointState(originalEndpoints);
+      send.mockRestore();
+      ensure.mockRestore();
+    };
+    return { acquisition, health, endpoints, sink, message, invoke, stop, restore };
+  }
+
+  it('awaits the captured preadoption sink before acknowledging the live operation', async () => {
+    const f = await fixture();
+    let release: () => void = () => undefined;
+    f.sink.mockImplementationOnce(async (_notes, _network, assertCurrent) => {
+      assertCurrent();
+      await new Promise<void>(resolve => {
+        release = resolve;
+      });
+      assertCurrent();
+    });
+    try {
+      const { routed, reply } = f.invoke();
+      await flushStorage();
+      expect(routed).toBe(true);
+      expect(f.sink).toHaveBeenCalledWith([note], f.message.network, expect.any(Function));
+      expect(reply).not.toHaveBeenCalled();
+      release();
+      await flushStorage();
+      expect(reply).toHaveBeenCalledWith({ ok: true, op_id: f.message.op_id });
+    } finally {
+      release();
+      await f.restore();
+    }
+  });
+
+  it.each(['own UI', 'foreign extension', 'missing sender'])('refuses %s before the sink', async origin => {
+    const f = await fixture();
+    try {
+      const sender =
+        origin === 'own UI'
+          ? { id: OWN_EXTENSION_ID, url: chrome.runtime.getURL('popup.html') }
+          : origin === 'foreign extension'
+            ? { id: 'other-extension', url: chrome.runtime.getURL('offscreen.html') }
+            : {};
+      const { routed, reply } = f.invoke(f.message, sender);
+      await flushStorage();
+      expect(routed).toBe(false);
+      expect(reply).not.toHaveBeenCalled();
+      expect(f.sink).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth().status).toBe('healthy');
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it.each(['settled operation', 'replaced sink', 'changed RPC'])('refuses a %s binding', async change => {
+    const f = await fixture();
+    const replacement = jest.fn<ReturnType<Sink>, Parameters<Sink>>(async () => undefined);
+    try {
+      if (change === 'settled operation') await f.stop();
+      if (change === 'replaced sink') f.acquisition.installNoteAcquisitionSink(replacement);
+      if (change === 'changed RPC')
+        f.endpoints.adoptEndpointState({
+          override: {
+            networkName: f.message.network,
+            rpcUrl: 'https://changed-rpc.example',
+            proverUrl: '',
+            noteTransportUrl: '',
+            faucetUrl: '',
+            faucetApiUrl: '',
+            explorerUrl: '',
+            guardianUrl: '',
+            allowNoGuardian: false,
+            presetName: 'custom'
+          },
+          feeFaucetId: undefined
+        });
+      const { routed, reply } = f.invoke();
+      await flushStorage();
+      expect(routed).toBe(true);
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id }));
+      expect(f.sink).not.toHaveBeenCalled();
+      expect(replacement).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth().status).toBe('healthy');
+    } finally {
+      f.acquisition.uninstallNoteAcquisitionSink(replacement);
+      await f.restore();
+    }
+  });
+
+  it.each(['wrong epoch', 'wrong network', 'invalid bytes', 'output role', 'nested candidate'])(
+    'refuses %s as ordinary input without writing or poisoning health',
+    async malformed => {
+      const f = await fixture();
+      try {
+        const wireNote = { ...note, noteFile: [19, 48, 61] };
+        const payload = {
+          ...f.message,
+          ...(malformed === 'wrong epoch' ? { epoch: f.message.epoch + 1 } : {}),
+          ...(malformed === 'wrong network' ? { network: 'other-network' } : {}),
+          notes: [
+            {
+              ...wireNote,
+              ...(malformed === 'invalid bytes' ? { noteFile: [256] } : {}),
+              ...(malformed === 'output role' ? { provenance: 'output' } : {}),
+              ...(malformed === 'nested candidate' ? { candidates: [wireNote] } : {})
+            }
+          ]
+        };
+        const { routed, reply } = f.invoke(payload);
+        await flushStorage();
+        expect(routed).toBe(true);
+        expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id }));
+        expect(f.sink).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth().status).toBe('healthy');
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it('refuses a late retention acknowledgement after its operation settled', async () => {
+    const f = await fixture();
+    let release: () => void = () => undefined;
+    f.sink.mockImplementationOnce(async (_notes, _network, assertCurrent) => {
+      assertCurrent();
+      await new Promise<void>(resolve => {
+        release = resolve;
+      });
+      assertCurrent();
+    });
+    try {
+      const { routed, reply } = f.invoke();
+      await flushStorage();
+      expect(routed).toBe(true);
+      expect(f.sink).toHaveBeenCalledTimes(1);
+      expect(reply).not.toHaveBeenCalled();
+      await f.stop();
+      release();
+      await flushStorage();
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.message.op_id }));
+      expect(f.health.getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await f.restore();
+    }
   });
 });
