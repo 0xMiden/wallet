@@ -1,18 +1,18 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
-import type { StorageAvailability } from 'lib/miden/storage-health';
-import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import type { TokenMetadataOverride, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
+import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   SpendingLimitAssessment,
   SpendingLimitConfiguration,
   SpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
+import type { StorageAvailability } from 'lib/miden/storage-health';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {

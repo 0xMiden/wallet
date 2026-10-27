@@ -1,11 +1,11 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
-import type { StorageAvailability } from 'lib/miden/storage-health';
 import type { StorageRecoveryResult } from 'lib/miden/recovery/types';
 import type {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
   SerializedSpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
+import type { StorageAvailability } from 'lib/miden/storage-health';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { TelemetryEvent } from 'lib/telemetry/types';

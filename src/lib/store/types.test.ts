@@ -68,6 +68,7 @@ describe('lib/store/types', () => {
   describe('state slices', () => {
     it('WalletSlice accepts a fully-populated core wallet state', () => {
       const slice: WalletSlice = {
+        storageAvailability: { status: 'healthy', epoch: 0 },
         status: WalletStatus.Ready,
         accounts: [],
         currentAccount: null,
@@ -86,6 +87,7 @@ describe('lib/store/types', () => {
     it('WalletSlice accepts every WalletStatus and a boolean ownMnemonic', () => {
       for (const status of [WalletStatus.Idle, WalletStatus.Locked, WalletStatus.Ready]) {
         const slice: WalletSlice = {
+          storageAvailability: { status: 'healthy', epoch: 0 },
           status,
           accounts: [],
           currentAccount: null,

@@ -42,8 +42,8 @@ import * as Woozie from 'lib/woozie';
 import '../i18n';
 
 import ConfirmPage from './ConfirmPage';
-import { StorageRecoveryPage } from './StorageRecoveryPage';
 import { RuntimeSupportGate } from './RuntimeSupportGate';
+import { StorageRecoveryPage } from './StorageRecoveryPage';
 import { WalletAccessGate } from './WalletAccessGate';
 // Lock-up checks are extension-only (uses webextension-polyfill)
 if (isExtension()) {
@@ -102,7 +102,7 @@ const App: FC<AppProps> = ({ env }) => {
                       (transform + transient border-radius/overflow, all managed
                       by vaul). Must wrap the whole app surface. */}
                       <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
-                        <StorageAvailabilityBoundary confirmWindow={env.confirmWindow}>
+                        <StorageAvailabilityBoundary confirmWindow={env.confirmWindow === true}>
                           <SeedBackupGate>
                             <Dialogs />
                             {isExtension() && <PinExtensionPrompt />}

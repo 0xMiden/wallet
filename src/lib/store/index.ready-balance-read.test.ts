@@ -30,7 +30,14 @@ jest.mock('lib/intercom/client', () => ({
   createIntercomClient: jest.fn(() => ({ request: jest.fn(), subscribe: jest.fn(() => () => {}) }))
 }));
 
-const account = { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+const account: WalletAccount = {
+  publicKey: 'pk1',
+  name: 'Account 1',
+  isPublic: true,
+  type: WalletType.Guardian,
+  hdIndex: 0,
+  authScheme: 'ecdsa'
+};
 const readyState = {
   storageAvailability: { status: 'healthy', epoch: 0 },
   status: WalletStatus.Ready,

@@ -19,13 +19,13 @@ export const StorageRecoveryPage: React.FC = () => {
   const epoch = storageAvailability?.status === 'unavailable' ? storageAvailability.epoch : undefined;
 
   useEffect(() => {
-    generation.current++;
+    const owner = ++generation.current;
     activeAttempt.current = false;
     setBusy(false);
     setResult(undefined);
     setFailed(false);
     return () => {
-      generation.current++;
+      generation.current = owner + 1;
     };
   }, [epoch]);
 
