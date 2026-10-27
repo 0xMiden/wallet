@@ -407,6 +407,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const epochFlow = useEpochStore(s => s.flow);
   const epochQuote = useEpochStore(s => s.quote);
   const epochError = useEpochStore(s => s.error);
+  const compactWatchClosed = useEpochStore(s => s.compactWatchClosed);
   const quoteEVMToMiden = useEpochStore(s => s.quoteEVMToMiden);
   const executeEVMToMiden = useEpochStore(s => s.executeEVMToMiden);
   const poll = useEpochStore(s => s.poll);
@@ -866,12 +867,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [allocatorUrl, confirmSettled, debouncedAmount, requote, resetEpoch, route, token]);
 
   useEffect(() => {
-    if (epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
+    if (compactWatchClosed || epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
     const id = setInterval(() => {
       poll().catch(err => console.error('[EvmBridgeDepositScreen] poll failed', err));
     }, 3000);
     return () => clearInterval(id);
-  }, [epochFlow, epochStatus, poll]);
+  }, [compactWatchClosed, epochFlow, epochStatus, poll]);
 
   const handleAmountChange = useCallback((value?: string) => {
     if (confirming.current) return;
