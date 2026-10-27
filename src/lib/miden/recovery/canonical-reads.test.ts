@@ -100,6 +100,38 @@ it('keeps metadata-only output and mismatched retained identities regardless of 
   expect(mockScan).not.toHaveBeenCalled();
 });
 
+it('Task4C3G6 encodes the normalized nullifier for the exact native Word parser before RPC scanning', async () => {
+  const sdk = jest.requireMock<{
+    Word: { fromHex: (hex: string) => { toU64s: () => bigint[]; free: () => void } };
+  }>('@miden-sdk/miden-sdk/lazy');
+  const fromHex = jest.spyOn(sdk.Word, 'fromHex').mockImplementation(hex => {
+    if (hex.length !== 66 || !hex.startsWith('0x')) throw new Error('InvalidLength');
+    return { toU64s: () => [0n, 0n, 0n, 0x5656565656565656n], free: mockFree };
+  });
+  const nullifier = '56'.repeat(32);
+  mockScan.mockResolvedValue([
+    {
+      nullifier: () => ({ toHex: () => `0x${nullifier}`, free: mockFree }),
+      blockNum: () => 19,
+      free: mockFree
+    }
+  ]);
+  const reads = await createRecoveryCanonicalReads();
+  try {
+    const outcome = await reads.scan(nullifier, 19).then(
+      updates => ({ updates, error: undefined }),
+      (error: unknown) => ({ updates: undefined, error })
+    );
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.updates).toEqual([{ nullifier, block: 19 }]);
+    expect(fromHex).toHaveBeenCalledWith(`0x${nullifier}`);
+    expect(mockScan).toHaveBeenCalledWith(new Uint16Array([0x5656]), 19, 19);
+  } finally {
+    reads.dispose();
+    fromHex.mockRestore();
+  }
+});
+
 it('holds the real outstanding RPC across a fresh reader and rejects its late continuation', async () => {
   let release = () => {};
   const pending = new Promise<void>(resolve => {

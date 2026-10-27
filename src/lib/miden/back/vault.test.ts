@@ -5724,6 +5724,243 @@ describe('Vault storage continuity', () => {
     }
   });
 
+  async function canonicalRetirement({ conflictingCandidate = false } = {}) {
+    const fixture = await canonicalAcquisition({ conflictingCandidate });
+    await vault.reconcileStorageRecovery();
+    const actual = jest.requireActual<typeof import('../recovery/canonical-reads')>('../recovery/canonical-reads');
+    const sdk = jest.requireMock<{ RpcClient: jest.Mock; Word: object }>('@miden-sdk/miden-sdk/lazy');
+    const rpcImplementation = sdk.RpcClient.getMockImplementation();
+    const wordDescriptor = Object.getOwnPropertyDescriptor(sdk.Word, 'fromHex');
+    const word = jest.fn((_hex: string) => ({
+      toU64s: () => [0n, 0n, 0n, 0x5656565656565656n],
+      free: jest.fn()
+    }));
+    Object.defineProperty(sdk.Word, 'fromHex', { configurable: true, value: word });
+    const headerValue = (commitment = 'aa'.repeat(32)) => ({
+      commitment: () => ({ toHex: () => `0x${commitment}`, free: jest.fn() }),
+      free: jest.fn()
+    });
+    const header = jest.fn().mockImplementation(async () => headerValue());
+    const update = (nullifier = '56'.repeat(32)) => ({
+      nullifier: () => ({ toHex: () => `0x${nullifier}`, free: jest.fn() }),
+      blockNum: () => 19,
+      free: jest.fn()
+    });
+    const scan = jest.fn().mockImplementation(async () => [update()]);
+    const free = jest.fn();
+    sdk.RpcClient.mockImplementation(() => ({
+      getBlockHeaderByNumber: header,
+      syncNullifiers: scan,
+      free
+    }));
+    jest.mocked(CanonicalReads.createRecoveryCanonicalReads).mockImplementation(actual.createRecoveryCanonicalReads);
+    return {
+      ...fixture,
+      header,
+      headerValue,
+      scan,
+      update,
+      word,
+      free,
+      restore: () => {
+        fixture.restore();
+        sdk.RpcClient.mockReset();
+        if (rpcImplementation) sdk.RpcClient.mockImplementation(rpcImplementation);
+        if (wordDescriptor) Object.defineProperty(sdk.Word, 'fromHex', wordDescriptor);
+        else Reflect.deleteProperty(sdk.Word, 'fromHex');
+      }
+    };
+  }
+
+  it('Task4C3G6 retires the authenticated family and its old Expected body after exact canonical consumption', async () => {
+    const fixture = await canonicalRetirement();
+    const before = await fixture.savedFamily();
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 1 });
+      const after = await vault.readRecoveryJournal();
+      expect(after?.entries).toEqual(before.snapshot.entries.filter(entry => entry !== before.note));
+      expect(after).toMatchObject({ scope: before.snapshot.scope, accounts: before.snapshot.accounts });
+      expect(after?.sequence).toBe(before.snapshot.sequence + 1);
+      expect(fixture.scan).toHaveBeenCalledWith(new Uint16Array([0x5656]), 19, 19);
+      expect(fixture.header).toHaveBeenNthCalledWith(1, 19, false);
+      expect(fixture.header).toHaveBeenNthCalledWith(2, 19, false);
+      expect(fixture.free).toHaveBeenCalledTimes(1);
+      expect(fixture.imported).not.toHaveBeenCalled();
+      expect(await new Vault(fixtureKey).readRecoveryJournal()).toEqual(after);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 keeps every family body when the scanned full nullifier differs despite a matching prefix', async () => {
+    const fixture = await canonicalRetirement();
+    const before = await fixture.savedFamily();
+    fixture.scan.mockResolvedValue([fixture.update('56'.repeat(31) + '57')]);
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect(fixture.scan).toHaveBeenCalledTimes(1);
+      const after = await fixture.savedFamily();
+      expect(journalNoteBodies(after.snapshot)).toEqual(journalNoteBodies(before.snapshot));
+      expect(after.note).toMatchObject({
+        noteFile: fixture.canonicalBytes,
+        scan: { nextBlock: 20, anchorBlock: 19, anchor: 'aa'.repeat(32) }
+      });
+      expect(after.snapshot.entries.filter(entry => entry.kind !== 'note')).toEqual(
+        before.snapshot.entries.filter(entry => entry.kind !== 'note')
+      );
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 refuses a consumption result when the exact scanned block header changes', async () => {
+    const fixture = await canonicalRetirement();
+    const before = await fixture.savedFamily();
+    fixture.header
+      .mockResolvedValueOnce(fixture.headerValue())
+      .mockResolvedValueOnce(fixture.headerValue('bb'.repeat(32)));
+    try {
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect(fixture.scan).toHaveBeenCalledTimes(1);
+      expect(fixture.header).toHaveBeenCalledTimes(2);
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 preserves a conflicting full note ID even when its fixture has the same nullifier', async () => {
+    const fixture = await canonicalRetirement({ conflictingCandidate: true });
+    const before = await fixture.savedFamily();
+    try {
+      expect(before.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(journalNoteBodies(before.snapshot)).toContainEqual(fixture.conflictBytes);
+      expect(fixture.scan).not.toHaveBeenCalled();
+      expect(fixture.header).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 quarantines an unreadable candidate without deleting it or vetoing the authenticated primary', async () => {
+    const fixture = await canonicalRetirement();
+    try {
+      const initial = await fixture.savedFamily();
+      const unreadableBytes = new Uint8Array([19, 48, 85]);
+      await vault.retainRecoveryEntries([
+        {
+          ...initial.note,
+          candidates: [
+            ...(initial.note.candidates ?? []),
+            {
+              id: fixture.canonicalId,
+              detailsId: fixture.detailsId,
+              noteFile: unreadableBytes,
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        }
+      ]);
+      const before = await fixture.savedFamily();
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(before.note.noteFile).toEqual(fixture.canonicalBytes);
+      expect(journalNoteBodies(before.snapshot)).toContainEqual(unreadableBytes);
+      expect(fixture.scan).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 preserves a promoted family referenced only by its old Expected alias in pending evidence', async () => {
+    const fixture = await canonicalRetirement();
+    try {
+      await Repo.transactions.put({
+        id: 'g6-pending',
+        accountId: 'retained',
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: 1,
+        displayIcon: 'SEND',
+        mayHaveSubmitted: true,
+        inputNoteIds: [fixture.detailsId],
+        outputNoteIds: [],
+        heldNoteIds: [fixture.detailsId],
+        noteDelivery: 'pending'
+      });
+      await vault.retainTransactionRecovery('g6-pending', { requestBytes: new Uint8Array([9]), notes: [] });
+      const before = await fixture.savedFamily();
+      const row = await Repo.transactions.get('g6-pending');
+      expect(await vault.reconcileStorageRecovery()).toEqual({ reconciled: 0, retired: 0 });
+      expect((await fixture.savedFamily()).snapshot).toEqual(before.snapshot);
+      expect(await Repo.transactions.get('g6-pending')).toEqual(row);
+      expect(fixture.scan).not.toHaveBeenCalled();
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      fixture.restore();
+    }
+  });
+
+  it('Task4C3G6 refuses stale family deletion after a candidate arrives during the canonical RPC', async () => {
+    const fixture = await canonicalRetirement();
+    let release = () => {};
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const atScan = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    fixture.scan.mockImplementationOnce(async () => {
+      entered();
+      await pending;
+      return [fixture.update()];
+    });
+    const outcome = vault.reconcileStorageRecovery().then(
+      value => ({ value, error: undefined }),
+      (error: unknown) => ({ value: undefined, error })
+    );
+    try {
+      expect(await Promise.race([atScan.then(() => true), outcome.then(() => false)])).toBe(true);
+      const before = await fixture.savedFamily();
+      const lateBytes = new Uint8Array([19, 48, 86]);
+      await vault.retainRecoveryEntries([
+        {
+          ...before.note,
+          candidates: [
+            ...(before.note.candidates ?? []),
+            {
+              id: fixture.canonicalId,
+              detailsId: fixture.detailsId,
+              noteFile: lateBytes,
+              provenance: 'input',
+              format: 'full'
+            }
+          ]
+        }
+      ]);
+      const current = await fixture.savedFamily();
+      release();
+      expect((await outcome).value?.retired ?? 0).toBe(0);
+      expect((await fixture.savedFamily()).snapshot).toEqual(current.snapshot);
+      expect(journalNoteBodies(current.snapshot)).toContainEqual(lateBytes);
+      expect(journalNoteBodies(current.snapshot)).toContainEqual(fixture.expectedBytes);
+      expect(getStorageHealth().status).toBe('healthy');
+    } finally {
+      release();
+      await outcome;
+      fixture.restore();
+    }
+  });
+
   async function guardianAcquisition(withProof = true) {
     const fixture = await acquisition();
     const noteFile = new Uint8Array([19, 48, withProof ? 41 : 42, 253]);
