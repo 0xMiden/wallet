@@ -218,3 +218,19 @@ describe('capture invalidation', () => {
     expect(getSnapshot('reopened')).toBe('data:image/jpeg;base64,NEW');
   });
 });
+
+describe('Task5 cache mobile preview memory', () => {
+  it('refuses an oversized captured preview and leaves the favicon fallback available', async () => {
+    clearAllSnapshots();
+    mockSnapshot.mockResolvedValueOnce({ data: `data:image/jpeg;base64,${'A'.repeat(524_288)}` });
+    await expect(captureSnapshot('dapp-large')).resolves.toBeNull();
+    expect(getSnapshot('dapp-large')).toBeUndefined();
+  });
+
+  it('bounds raw rehydrated previews as well as native captures', () => {
+    clearAllSnapshots();
+    for (let index = 0; index < 9; index++) snapshotStoreInternals.setRaw(`dapp-${index}`, DATA_URL);
+    expect(getSnapshot('dapp-0')).toBeUndefined();
+    expect(getSnapshot('dapp-8')).toBe(DATA_URL);
+  });
+});

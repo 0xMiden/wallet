@@ -22,6 +22,28 @@
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 
 const SNAPSHOT_DIR = 'miden-dapp-snapshots';
+export const SNAPSHOT_MAX_BYTES = 524_288;
+export const SNAPSHOT_MAX_FILES = 8;
+export const SNAPSHOTS_MAX_BYTES = 4_194_304;
+const encoder = new TextEncoder();
+
+async function reserveSnapshot(path: string, bytes: number): Promise<void> {
+  const listing = await Filesystem.readdir({ path: SNAPSHOT_DIR, directory: Directory.Cache });
+  const files = listing.files
+    .filter(file => file.type === 'file' && /^[a-zA-Z0-9._-]+\.txt$/.test(file.name))
+    .map(file => ({ ...file, path: `${SNAPSHOT_DIR}/${file.name}` }))
+    .filter(file => file.path !== path)
+    .sort((left, right) => (left.mtime || 0) - (right.mtime || 0) || left.name.localeCompare(right.name));
+  let count = files.length;
+  let total = files.reduce((sum, file) => sum + file.size, 0);
+  for (const file of files) {
+    if (count < SNAPSHOT_MAX_FILES && total + bytes <= SNAPSHOTS_MAX_BYTES && file.size <= SNAPSHOT_MAX_BYTES) continue;
+    await Filesystem.deleteFile({ path: file.path, directory: Directory.Cache });
+    count--;
+    total -= file.size;
+  }
+  if (count >= SNAPSHOT_MAX_FILES || total + bytes > SNAPSHOTS_MAX_BYTES) throw new Error('Preview cache unavailable');
+}
 let persistence = Promise.resolve();
 
 // Directory-wide ordering also makes clear-all wait for outstanding mkdir/write operations.
@@ -71,10 +93,14 @@ export function writeSnapshotToDisk(sessionId: string, dataUrl: string): Promise
 }
 
 async function writeSnapshot(sessionId: string, dataUrl: string): Promise<void> {
+  const bytes = encoder.encode(dataUrl).byteLength;
+  if (bytes > SNAPSHOT_MAX_BYTES) return;
   try {
     await ensureDir();
+    const path = pathFor(sessionId);
+    await reserveSnapshot(path, bytes);
     await Filesystem.writeFile({
-      path: pathFor(sessionId),
+      path,
       data: dataUrl,
       directory: Directory.Cache,
       encoding: Encoding.UTF8
@@ -91,6 +117,11 @@ export function readSnapshotFromDisk(sessionId: string): Promise<string | null> 
 
 async function readSnapshot(sessionId: string): Promise<string | null> {
   try {
+    const stat = await Filesystem.stat({ path: pathFor(sessionId), directory: Directory.Cache });
+    if (stat.type !== 'file' || !Number.isFinite(stat.size) || stat.size < 0 || stat.size > SNAPSHOT_MAX_BYTES) {
+      await removeSnapshot(sessionId);
+      return null;
+    }
     const result = await Filesystem.readFile({
       path: pathFor(sessionId),
       directory: Directory.Cache,
@@ -107,7 +138,7 @@ async function readSnapshot(sessionId: string): Promise<string | null> {
     // `Encoding.UTF8`: those bytes are unrelated to a dataURL and would
     // feed the bubble an invalid `background: url(…)`, leaving it as a
     // featureless white circle until the next fresh park cycle.
-    if (!data.startsWith('data:')) {
+    if (!data.startsWith('data:') || encoder.encode(data).byteLength > SNAPSHOT_MAX_BYTES) {
       // Try to delete the stale file so we stop re-reading it every
       // rehydrate; best-effort, not fatal if it fails.
       await removeSnapshot(sessionId);

@@ -11,6 +11,7 @@ export interface StrictActionAuthenticationDependencies {
   getPlatform: () => StrictAuthenticationPlatform;
   loadProtectors: () => Promise<StrictAuthenticationProtectors>;
   verify: (credential?: string) => Promise<void>;
+  perform?: (credential?: string) => Promise<void>;
 }
 
 export interface StrictActionAuthenticationChallenge {
@@ -52,7 +53,9 @@ export const createStrictActionAuthenticationController = (dependencies: StrictA
               const selectedMethod = await method;
               if (generation !== challengeGeneration || selectedMethod === undefined) return 'cancelled';
               if (selectedMethod !== 'hardware' && !pendingCredential) return 'cancelled';
-              await dependencies.verify(selectedMethod === 'hardware' ? undefined : pendingCredential);
+              await (dependencies.perform ?? dependencies.verify)(
+                selectedMethod === 'hardware' ? undefined : pendingCredential
+              );
               return generation === challengeGeneration ? 'authenticated' : 'cancelled';
             } catch {
               return 'cancelled';
