@@ -84,7 +84,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
     },
     NetworkId: { testnet: () => 'testnet' },
-    InputNoteState: { ConsumedAuthenticatedLocal: 'local-auth', ConsumedUnauthenticatedLocal: 'local-unauth' },
+    InputNoteState: {
+      Invalid: 3,
+      ConsumedAuthenticatedLocal: 'local-auth',
+      ConsumedUnauthenticatedLocal: 'local-unauth'
+    },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -6634,5 +6638,264 @@ describe('Task4C3G5 offscreen canonical recovery option', () => {
     expect(read).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: 'Unauthorized recovery read' }));
     expect(health.getStorageHealth().status).toBe('healthy');
+  });
+});
+
+describe('Task4C3N2 offscreen retained primary acknowledgement', () => {
+  async function fixture({ contextChange = '', expired = false } = {}) {
+    await loadModule();
+    G.chrome.runtime.id = 'wallet-extension';
+    const health = await import('lib/miden/storage-health');
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { nativeNoteAcquisition } = await import('lib/miden/sdk/native-note-acquisition');
+    const actual = jest.requireActual<typeof import('lib/miden/sdk/miden-client-interface')>(
+      'lib/miden/sdk/miden-client-interface'
+    );
+    const mocked = jest.requireMock<typeof import('lib/miden/sdk/miden-client-interface')>(
+      'lib/miden/sdk/miden-client-interface'
+    );
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    const bytes = new Uint8Array([19, 48, 121]);
+    const canonicalBytes = new Uint8Array([19, 48, 122]);
+    const noteId = 'ab'.repeat(32);
+    const detailsId = 'cd'.repeat(32);
+    const sender = '0x' + '11'.repeat(15);
+    const body = {
+      metadata: () => ({
+        sender: () => ({ toString: () => sender, free: () => {} }),
+        noteType: () => 0,
+        tag: () => ({ asU32: () => 7, free: () => {} }),
+        free: () => {}
+      }),
+      recipient: () => ({ digest: () => ({ toFelts: () => [1, 2, 3, 4] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => {}
+    };
+    const file = {
+      note: () => body,
+      noteDetails: () => undefined,
+      noteId: () => ({ toString: () => '0x' + noteId, free: () => {} }),
+      nullifier: () => '0x' + 'ef'.repeat(32),
+      noteTag: () => undefined,
+      afterBlockNum: () => undefined,
+      serialize: () => canonicalBytes.slice(),
+      free: () => {}
+    };
+    G.__off.deserializeAcquiredNoteFile = jest.fn(() => file);
+    let adopted = false;
+    let generation = 'retained-sdk';
+    let gate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionOptions['beforeNoteAcquisition'];
+    const candidate: import('@miden-sdk/miden-sdk/lazy').NoteAcquisitionCandidate = {
+      operationId: 'offscreen-native-import',
+      noteFileBytes: canonicalBytes,
+      variant: 'committed',
+      source: 'import',
+      batchIndex: 0,
+      batchCount: 1,
+      noteId: '0x' + noteId,
+      detailsCommitment: '0x' + detailsId,
+      nullifier: '0x' + 'ef'.repeat(32),
+      metadata: { sender, noteType: 0, tag: 7, attachmentsCommitment: '0x' + '77'.repeat(32) },
+      tag: 7
+    };
+    const imported = jest.fn(async () => {
+      if (!gate) throw new Error('Missing protected import callback fixture');
+      await gate(candidate);
+      adopted = true;
+      return '0x' + noteId;
+    });
+    const list = jest.fn(async () =>
+      adopted ? [{ details: () => body, state: () => 2, isAuthenticated: () => true, free: () => {} }] : []
+    );
+    const settings = {
+      get: jest.fn(async () => generation),
+      set: jest.fn(async (_key: string, value: string) => {
+        generation = value;
+      })
+    };
+    const sdkClient = {
+      notes: { import: imported, list },
+      settings,
+      accounts: {
+        get: jest.fn(async () => ({
+          nonce: () => ({ asInt: () => 4n }),
+          to_commitment: () => ({ toHex: () => 'state-4', free: () => {} })
+        }))
+      },
+      terminate: jest.fn()
+    };
+    const client: import('lib/miden/sdk/miden-client-interface').MidenClientInterface = Reflect.apply(
+      actual.MidenClientInterface.fromClient,
+      actual.MidenClientInterface,
+      [sdkClient, endpoints.getEffectiveNetworkName()]
+    );
+    gate = nativeNoteAcquisition(
+      endpoints.getEffectiveNetworkName(),
+      () => !client.isDisposed,
+      () => sdkClient
+    ).beforeNoteAcquisition;
+    mocked.MidenClientInterface.createForRecovery = jest.fn(async capability => {
+      health.assertStorageRecoveryAllowed(capability);
+      return client;
+    });
+    let acknowledge: (value: unknown) => void = () => {};
+    const messages: unknown[] = [];
+    G.chrome.runtime.sendMessage.mockImplementation((message: { type?: string }) => {
+      if (message.type === 'OFFSCREEN_NOTE_ACQUISITION') {
+        messages.push(message);
+        return new Promise(resolve => {
+          acknowledge = resolve;
+        });
+      }
+      return Promise.resolve(message.type === OFFSCREEN_STORAGE_HEALTH ? health.getStorageHealth() : undefined);
+    });
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const incident = health.getStorageHealth();
+    const command = {
+      kind: 'note',
+      note: { kind: 'note', id: noteId, detailsId, noteFile: Array.from(bytes), provenance: 'input', format: 'full' },
+      accountId: 'retained-account'
+    };
+    const context = {
+      scope: {
+        network: `${endpoints.getEffectiveNetworkName()}:${endpoints.getEffectiveRpcUrl()}`,
+        walletGeneration: 'retained-wallet',
+        sdkGeneration: contextChange === 'wrong SDK generation' ? 'foreign-sdk' : 'retained-sdk'
+      },
+      sequence: 7,
+      accountId: 'retained-account',
+      primaryId: contextChange === 'foreign primary' ? 'aa'.repeat(32) : noteId,
+      detailsId,
+      ...(contextChange === 'untrusted permission field' ? { trusted: true } : {})
+    };
+    if (contextChange === 'wrong network') context.scope.network = 'foreign:rpc';
+    const request = callReq({
+      op_id: 'retained-recovery-operation',
+      method: 'restoreStorageRecovery',
+      argsB64: [encodeArg(command), encodeArg(context)],
+      recoveryAccess: { epoch: incident.epoch, expiresAt: Date.now() + (expired ? -1 : 4000) },
+      storageHealth: incident
+    });
+    const reply = jest.fn();
+    expect(capturedListener?.(request, { id: 'wallet-extension' }, reply)).toBe(true);
+    await flush();
+    return {
+      client,
+      bytes,
+      canonicalBytes,
+      imported,
+      list,
+      settings,
+      messages,
+      request,
+      reply,
+      health,
+      incident,
+      adopted: () => adopted,
+      acknowledge: (value: unknown) => acknowledge(value),
+      restore: async () => {
+        acknowledge({ ok: false, op_id: request.op_id });
+        await flush();
+        client.free();
+      }
+    };
+  }
+
+  it('waits for the live backend receipt ACK before SDK adoption or a success reply', async () => {
+    const f = await fixture();
+    try {
+      expect(f.messages).toEqual([
+        expect.objectContaining({
+          type: 'OFFSCREEN_NOTE_ACQUISITION',
+          op_id: f.request.op_id,
+          epoch: f.incident.epoch,
+          notes: [expect.objectContaining({ noteFile: Array.from(f.canonicalBytes) })]
+        })
+      ]);
+      expect(f.canonicalBytes).not.toEqual(f.bytes);
+      expect(f.adopted()).toBe(false);
+      expect(f.reply).not.toHaveBeenCalled();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.adopted()).toBe(true);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true, op_id: f.request.op_id }));
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it.each(['refused', 'missing', 'wrong operation'])(
+    'refuses a %s backend receipt response before adoption',
+    async response => {
+      const f = await fixture();
+      try {
+        expect(f.messages).toHaveLength(1);
+        f.acknowledge(
+          response === 'missing'
+            ? undefined
+            : {
+                ok: response !== 'refused',
+                op_id: response === 'wrong operation' ? 'foreign-operation' : f.request.op_id
+              }
+        );
+        await flush();
+        expect(f.adopted()).toBe(false);
+        expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.request.op_id }));
+        expect(f.settings.set).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth()).toEqual(f.incident);
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it('refuses a late positive receipt ACK after the actual client retires', async () => {
+    const f = await fixture();
+    try {
+      expect(f.messages).toHaveLength(1);
+      f.client.markPoisoned();
+      f.acknowledge({ ok: true, op_id: f.request.op_id });
+      await flush();
+      expect(f.adopted()).toBe(false);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false, op_id: f.request.op_id }));
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it.each(['untrusted permission field', 'wrong SDK generation', 'wrong network', 'foreign primary'])(
+    'refuses %s before entering SDK import',
+    async contextChange => {
+      const f = await fixture({ contextChange });
+      try {
+        expect(f.imported).not.toHaveBeenCalled();
+        expect(f.messages).toHaveLength(0);
+        expect(f.adopted()).toBe(false);
+        expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+        expect(f.settings.set).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth()).toEqual(f.incident);
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it('refuses an expired recovery capability before SDK import or a receipt request', async () => {
+    const f = await fixture({ expired: true });
+    try {
+      expect(f.imported).not.toHaveBeenCalled();
+      expect(f.messages).toHaveLength(0);
+      expect(f.adopted()).toBe(false);
+      expect(f.reply).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+      expect(f.settings.set).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
   });
 });

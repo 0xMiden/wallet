@@ -32,6 +32,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     NetworkId: { testnet: () => 'testnet' },
     Account: { deserialize: (...a: any[]) => g.__px.accountDeserialize(...a) },
+    NoteFile: { deserialize: (bytes: Uint8Array) => g.__px.retainedNoteFileDeserialize(bytes) },
+    Poseidon2: { hashElements: () => g.__px.retainedDetailsCommitment() },
     // Slice 5: the flag-on offscreen consume re-hydrates the serialized
     // TransactionResult on the SW side.
     TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
@@ -4695,5 +4697,219 @@ describe('Task4C3G5 canonical recovery read routing', () => {
     expect(outcome.error).toBeDefined();
     expect(health.getStorageHealth().status).toBe('healthy');
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('Task4C3N offscreen retained-note receipt authority', () => {
+  async function fixture({ registered = true } = {}) {
+    const proxy = await loadProxy(true);
+    const health = await import('../storage-health');
+    const acquisition = await import('../recovery/note-acquisition');
+    const { withRetainedNoteReceipt } = await import('../recovery/native-note-receipt');
+    const { toSerializable } = await import('../recovery/serialization');
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const core = jest.requireActual<typeof import('../sdk/miden-client')>('../sdk/miden-client');
+    await health.initializeStorageHealth();
+    expect(health.getStorageHealth().status).toBe('healthy');
+    docExists = true;
+    const retainedBytes = new Uint8Array([19, 48, 111]);
+    const canonicalBytes = new Uint8Array([19, 48, 112]);
+    const note: import('../recovery/types').RecoveryNoteEntry = {
+      kind: 'note',
+      id: 'ab'.repeat(32),
+      detailsId: 'cd'.repeat(32),
+      noteFile: retainedBytes,
+      provenance: 'input',
+      format: 'full'
+    };
+    const body = {
+      metadata: () => ({
+        sender: () => ({ toString: () => '0x' + '11'.repeat(15), free: () => {} }),
+        noteType: () => 0,
+        tag: () => ({ asU32: () => 7, free: () => {} }),
+        free: () => {}
+      }),
+      recipient: () => ({ digest: () => ({ toFelts: () => [] }) }),
+      assets: () => ({ assets: () => [] }),
+      free: () => {}
+    };
+    G.__px.retainedNoteFileDeserialize = jest.fn(() => ({
+      note: () => body,
+      noteDetails: () => undefined,
+      noteId: () => ({ toString: () => '0x' + note.id, free: () => {} }),
+      nullifier: () => '0x' + 'ef'.repeat(32),
+      noteTag: () => undefined,
+      afterBlockNum: () => undefined,
+      serialize: () => canonicalBytes.slice(),
+      free: () => {}
+    }));
+    G.__px.retainedDetailsCommitment = jest.fn(() => ({
+      toHex: () => '0x' + note.detailsId,
+      toFelts: () => [],
+      free: () => {}
+    }));
+    const snapshot: import('../recovery/types').RecoveryJournalSnapshot = {
+      version: 1,
+      sequence: 7,
+      scope: {
+        network: `${endpoints.getEffectiveNetworkName()}:${endpoints.getEffectiveRpcUrl()}`,
+        walletGeneration: 'retained-wallet',
+        sdkGeneration: 'retained-sdk'
+      },
+      accounts: [{ accountId: 'retained-account', nonce: '4', commitment: 'state-4' }],
+      entries: [note]
+    };
+    const sink = jest.fn<
+      ReturnType<import('../recovery/note-acquisition').NoteAcquisitionSink>,
+      Parameters<import('../recovery/note-acquisition').NoteAcquisitionSink>
+    >(async () => {});
+    acquisition.installNoteAcquisitionSink(sink);
+    health.markStorageUnavailable('continuity', { backend: 'sdk', operation: 'validate' });
+    const incident = health.getStorageHealth();
+    let current = true;
+    let opId: string | undefined;
+    let finish: (response: unknown) => void = () => {};
+    fakeChrome.runtime.sendMessage.mockImplementation((message: unknown) => {
+      if (typeof message !== 'object' || message === null || Reflect.get(message, 'type') !== 'OFFSCREEN_CALL')
+        return Promise.resolve(undefined);
+      const id: unknown = Reflect.get(message, 'op_id');
+      if (typeof id === 'string') opId = id;
+      return new Promise(resolve => {
+        finish = resolve;
+      });
+    });
+    const originalHold: unknown = G.__px.inlineHold;
+    const running = core.withWasmClientLock(async hold => {
+      G.__px.inlineHold = hold;
+      try {
+        await health.withStorageRecoveryAccess(incident.epoch, Date.now() + 5000, capability => {
+          const command = {
+            kind: 'note',
+            note,
+            accountId: 'retained-account'
+          } satisfies import('../recovery/sdk-restore').SdkRecoveryCommand;
+          if (!registered) return proxy.midenClientProxy.restoreStorageRecovery(command, capability);
+          return withRetainedNoteReceipt(
+            snapshot,
+            note,
+            command.accountId,
+            capability,
+            () => {
+              health.assertStorageRecoveryAllowed(capability);
+              core.assertWasmHoldCurrent(hold, 'offscreen receipt fixture');
+              if (!current) throw new Error('Receipt owner retired');
+            },
+            receipt => proxy.midenClientProxy.restoreStorageRecovery(command, capability, receipt)
+          );
+        });
+      } finally {
+        G.__px.inlineHold = originalHold;
+      }
+    });
+    const settled = running.then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    for (let index = 0; index < 20 && opId === undefined; index++) await flush();
+    expect(typeof opId).toBe('string');
+    if (!opId) throw new Error('Recovery dispatch fixture did not reach the bridge');
+    const operationId = opId;
+    expect(proxy.__test.inFlightOpIds()).toContain(operationId);
+    proxy.markOpStarted(operationId);
+    const message: Parameters<typeof proxy.handleOffscreenNoteAcquisition>[0] = {
+      op_id: operationId,
+      epoch: incident.epoch,
+      network: endpoints.getEffectiveNetworkName(),
+      notes: toSerializable([{ ...note, noteFile: canonicalBytes }])
+    };
+    const stop = async () => {
+      finish({ ok: true, op_id: operationId, resultB64: null });
+      await settled;
+    };
+    return {
+      proxy,
+      health,
+      incident,
+      sink,
+      message,
+      canonicalBytes,
+      retainedBytes,
+      retire: () => {
+        current = false;
+      },
+      stop,
+      restore: async () => {
+        await stop();
+        acquisition.uninstallNoteAcquisitionSink(sink);
+        await health.resetStorageHealthForLifecycle(health.getStorageHealth().epoch);
+      }
+    };
+  }
+
+  it('acknowledges exact canonical retained bytes for its live recovery operation without a fresh write', async () => {
+    const f = await fixture();
+    try {
+      expect(f.canonicalBytes).not.toEqual(f.retainedBytes);
+      expect(await f.proxy.handleOffscreenNoteAcquisition(f.message)).toEqual({ ok: true, op_id: f.message.op_id });
+      expect(f.sink).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it('refuses a second acknowledgement on the same retained receipt', async () => {
+    const f = await fixture();
+    try {
+      expect(await f.proxy.handleOffscreenNoteAcquisition(f.message)).toEqual({ ok: true, op_id: f.message.op_id });
+      expect(await f.proxy.handleOffscreenNoteAcquisition(f.message)).toEqual({ ok: false, op_id: f.message.op_id });
+      expect(f.sink).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
+  });
+
+  it.each(['missing authority', 'changed bytes', 'foreign family', 'wrong epoch', 'wrong network', 'retired owner'])(
+    'refuses %s without fresh write authority or health reset',
+    async change => {
+      const f = await fixture({ registered: change !== 'missing authority' });
+      try {
+        const message = { ...f.message };
+        if (change === 'changed bytes' || change === 'foreign family') {
+          message.notes = [
+            {
+              kind: 'note',
+              id: (change === 'foreign family' ? 'aa' : 'ab').repeat(32),
+              detailsId: 'cd'.repeat(32),
+              noteFile: change === 'changed bytes' ? [19, 48, 113] : Array.from(f.canonicalBytes),
+              provenance: 'input',
+              format: 'full'
+            }
+          ];
+        }
+        if (change === 'wrong epoch') message.epoch = f.incident.epoch + 1;
+        if (change === 'wrong network') message.network = 'other-network';
+        if (change === 'retired owner') f.retire();
+        expect(await f.proxy.handleOffscreenNoteAcquisition(message)).toEqual({ ok: false, op_id: f.message.op_id });
+        expect(f.sink).not.toHaveBeenCalled();
+        expect(f.health.getStorageHealth()).toEqual(f.incident);
+      } finally {
+        await f.restore();
+      }
+    }
+  );
+
+  it('refuses a late acknowledgement after its operation and receipt have ended', async () => {
+    const f = await fixture();
+    try {
+      await f.stop();
+      expect(f.proxy.__test.inFlightOpIds()).not.toContain(f.message.op_id);
+      expect(await f.proxy.handleOffscreenNoteAcquisition(f.message)).toEqual({ ok: false, op_id: f.message.op_id });
+      expect(f.sink).not.toHaveBeenCalled();
+      expect(f.health.getStorageHealth()).toEqual(f.incident);
+    } finally {
+      await f.restore();
+    }
   });
 });
