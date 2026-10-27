@@ -18,6 +18,7 @@ export interface RecoveryNoteEntry {
   kind: 'note';
   id: string;
   accountId?: string;
+  detailsId?: string;
   noteFile: Uint8Array;
   provenance: 'input' | 'output';
   format?: 'full' | 'details';

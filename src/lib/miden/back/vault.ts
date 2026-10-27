@@ -112,6 +112,7 @@ import { withRecoveryStorageLock } from '../recovery/lock';
 import {
   installNoteAcquisitionSink,
   isNoteAcquisitionSinkInstalled,
+  sameAcquiredNote,
   uninstallNoteAcquisitionSink,
   type NoteAcquisitionSink
 } from '../recovery/note-acquisition';
@@ -480,10 +481,17 @@ export class Vault {
         previous.scope.walletGeneration !== marker.generation
       )
         throw new StorageUnavailableError();
-      return { ...previous, entries: notes };
+      // Import has not authenticated this candidate. Keep the earlier body and its proof/hints for the same identity.
+      const entries = notes.filter(
+        note => !previous.entries.some(retained => retained.kind === 'note' && sameAcquiredNote(retained, note))
+      );
+      return { ...previous, entries };
     });
     check();
-    await this.saveRecoveryContinuity(snapshot, epoch, check);
+    const floor = await this.readRecoveryContinuity(epoch);
+    check();
+    if (JSON.stringify(toSerializable(floor)) !== JSON.stringify(toSerializable({ ...snapshot, entries: [] })))
+      await this.saveRecoveryContinuity(snapshot, epoch, check);
     check();
   }
 

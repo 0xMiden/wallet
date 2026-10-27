@@ -101,8 +101,9 @@ function evidence(value: unknown): value is SubmitEvidenceFields {
 export function isRecoveryNote(value: unknown): value is RecoveryNoteEntry {
   if (!record(value) || !text(value.id) || value.kind !== 'note') return false;
   return (
-    keys(value, ['kind', 'id', 'accountId', 'noteFile', 'provenance', 'format', 'scan']) &&
+    keys(value, ['kind', 'id', 'accountId', 'detailsId', 'noteFile', 'provenance', 'format', 'scan']) &&
     (value.accountId === undefined || text(value.accountId)) &&
+    (value.detailsId === undefined || (typeof value.detailsId === 'string' && /^[0-9a-f]{64}$/.test(value.detailsId))) &&
     value.noteFile instanceof Uint8Array &&
     value.noteFile.length > 0 &&
     (value.provenance === 'input' || value.provenance === 'output') &&

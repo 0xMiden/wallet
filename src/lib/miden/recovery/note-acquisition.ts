@@ -3,7 +3,7 @@ import { type NoteFile, NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { JOURNAL_MAX_BYTES } from './journal';
 import type { RecoveryNoteEntry } from './types';
 import { isRecoveryNote } from './validation';
-import { noteDetailsCommitment } from '../sdk/note-details-commitment';
+import { normalizedCommitment, noteDetailsCommitment } from '../sdk/note-details-commitment';
 import { StorageUnavailableError } from '../storage-health';
 
 export type NoteAcquisitionSink = (
@@ -30,14 +30,17 @@ export function isNoteAcquisitionSinkInstalled(sink: NoteAcquisitionSink): boole
 export function captureAcquiredNote(file: NoteFile): RecoveryNoteEntry[] {
   const note = file.note();
   const details = file.noteDetails();
+  const metadata = note?.metadata();
+  const identifier = file.noteId();
   try {
-    if (note?.metadata().noteType() === NoteType.Public) return [];
-    if (!note && !details) return [];
-    const id = file.noteId()?.toString() ?? (details && noteDetailsCommitment(details));
-    if (!id) throw new Error('Acquired note identity unavailable');
+    if (metadata?.noteType() === NoteType.Public) return [];
+    const body = note ?? details;
+    if (!body) return [];
+    const detailsId = noteDetailsCommitment(body);
     const entry: RecoveryNoteEntry = {
       kind: 'note',
-      id,
+      id: identifier ? normalizedCommitment(identifier.toString()) : detailsId,
+      detailsId,
       noteFile: file.serialize().slice(),
       provenance: 'input',
       format: note ? 'full' : 'details'
@@ -46,9 +49,22 @@ export function captureAcquiredNote(file: NoteFile): RecoveryNoteEntry[] {
       throw new Error('Invalid acquired note');
     return [entry];
   } finally {
+    identifier?.free();
+    metadata?.free();
     note?.free();
     details?.free();
   }
+}
+
+export function sameAcquiredNote(left: RecoveryNoteEntry, right: RecoveryNoteEntry): boolean {
+  const leftId = normalizedCommitment(left.id);
+  const rightId = normalizedCommitment(right.id);
+  return (
+    leftId === rightId ||
+    leftId === right.detailsId ||
+    left.detailsId === rightId ||
+    (left.detailsId !== undefined && left.detailsId === right.detailsId)
+  );
 }
 
 export async function retainAcquiredNotes(
@@ -63,6 +79,11 @@ export async function retainAcquiredNotes(
   };
   check();
   if (!sink) throw new StorageUnavailableError();
-  await sink(notes, network, check);
+  try {
+    await sink(notes, network, check);
+  } catch (error) {
+    check();
+    throw error;
+  }
   check();
 }
