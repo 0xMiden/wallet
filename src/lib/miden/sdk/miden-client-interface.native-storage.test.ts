@@ -34,7 +34,9 @@ async function fixture({ brand = true, gate = true } = {}) {
   class RetentionFailure extends Error {}
   if (!gate) Reflect.deleteProperty(NativeWebClient.prototype, 'installNoteAcquisitionGate');
   const sdkClient = {
-    storeIdentifier: jest.fn(async () => STORE_NAME),
+    storeIdentifier: jest.fn(async () =>
+      process.env.MIDEN_USE_MOCK_CLIENT === 'true' ? 'mock_client_db' : STORE_NAME
+    ),
     notes: { import: jest.fn(async () => undefined) },
     accounts: { get: jest.fn(async () => undefined) },
     sync: jest.fn(async () => undefined),
@@ -333,8 +335,8 @@ async function retainedCallbackFixture() {
   installNoteAcquisitionSink(sink);
   const queueAdd = jest.spyOn(getAccountsWriteQueue(), 'add');
   f.getWasmOrThrow.mockClear();
-  const invoke = (candidate: unknown) =>
-    withWasmClientLock(async () => {
+  const invoke = (candidate: unknown) => {
+    const operation = withWasmClientLock(async () => {
       const callback = field(f.create.mock.calls[0]?.[0], 'beforeNoteAcquisition');
       const result: unknown =
         typeof callback === 'function'
@@ -343,7 +345,9 @@ async function retainedCallbackFixture() {
       expect(result).toBeInstanceOf(Promise);
       const outcome: unknown = await result;
       return typeof callback === 'function' ? 'acknowledged' : outcome;
-    }).catch((error: unknown) => error);
+    });
+    return operation.catch((error: unknown) => error);
+  };
   return {
     ...f,
     client,
