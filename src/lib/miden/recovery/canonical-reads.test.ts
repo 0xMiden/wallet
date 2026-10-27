@@ -123,7 +123,7 @@ it('Task4C3G6 encodes the normalized nullifier for the exact native Word parser 
       (error: unknown) => ({ updates: undefined, error })
     );
     expect(outcome.error).toBeUndefined();
-    expect(outcome.updates).toEqual([{ nullifier, block: 19 }]);
+    expect(outcome.updates).toEqual([{ nullifier: `0x${nullifier}`, block: 19 }]);
     expect(fromHex).toHaveBeenCalledWith(`0x${nullifier}`);
     expect(mockScan).toHaveBeenCalledWith(new Uint16Array([0x5656]), 19, 19);
   } finally {

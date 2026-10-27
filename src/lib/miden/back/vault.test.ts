@@ -5804,7 +5804,7 @@ describe('Vault storage continuity', () => {
       expect(journalNoteBodies(after.snapshot)).toEqual(journalNoteBodies(before.snapshot));
       expect(after.note).toMatchObject({
         noteFile: fixture.canonicalBytes,
-        scan: { nextBlock: 20, anchorBlock: 19, anchor: 'aa'.repeat(32) }
+        scan: { nextBlock: 20, anchorBlock: 19, anchor: '0x' + 'aa'.repeat(32) }
       });
       expect(after.snapshot.entries.filter(entry => entry.kind !== 'note')).toEqual(
         before.snapshot.entries.filter(entry => entry.kind !== 'note')
