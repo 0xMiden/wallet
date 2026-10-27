@@ -1,18 +1,25 @@
-import React, { useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasBalanceSnapshotForNetwork } from 'lib/miden/balance-snapshot';
 import { useTokensMetadata } from 'lib/miden/front/assets';
 import { useAllBalances } from 'lib/miden/front/balance';
 import { useAccount, useAllNetworks } from 'lib/miden/front/ready';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import {
+  isSpendingLimitPriceUnavailable,
+  type SpendingLimitAuthorization,
+  spendingLimitAssessmentFromError
+} from 'lib/miden/spending-limits/types';
 import { initiateGcPurchaseTransaction, type GcPurchaseQuote } from 'lib/miden/transaction/initiate';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 
 import { ArcadeGcPurchaseDrawer } from './arcade/ArcadeGcPurchaseDrawer';
@@ -32,20 +39,56 @@ export const ArcadeAllowance: React.FC = () => {
   const [reviewing, setReviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
+    Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { quote: GcPurchaseQuote }
+  >();
+  const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  useEffect(() => {
+    if (spendingLimitChallenge === undefined) return;
+    const accountId = spendingLimitChallenge.assessment?.accountId ?? spendingLimitChallenge.unpriced?.accountId;
+    if (accountId !== account.publicKey) setSpendingLimitChallenge(undefined);
+  }, [account.publicKey, spendingLimitChallenge]);
   // The USDCx a purchase is paid from, read off the same balance rows as the GC.
   const payRow = purchase.sale
     ? data.find(row => sameWalletAccountId(row.tokenId, purchase.sale?.payFaucetId ?? ''))
     : undefined;
   const payBalance = hasBalanceSnapshotForNetwork(data, networkId) ? BigInt(payRow?.balanceBaseUnits ?? '0') : null;
-  const confirmPurchase = async (quote: GcPurchaseQuote) => {
+  const confirmPurchase = async (quote: GcPurchaseQuote, authorization?: SpendingLimitAuthorization) => {
+    if (submitting) return;
+    if (authorization !== undefined && authorization.accountId !== account.publicKey) {
+      setSpendingLimitChallenge(undefined);
+      return;
+    }
     setSubmitting(true);
     setPurchaseError(null);
     try {
-      const txId = await initiateGcPurchaseTransaction(account.publicKey, quote, isDelegateProofEnabled());
+      const txId = await initiateGcPurchaseTransaction(account.publicKey, quote, isDelegateProofEnabled(), authorization);
       if (isExtension()) requestSWTransactionProcessing();
       setReviewing(false);
       navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
     } catch (error) {
+      const spends = [{ faucetId: quote.payFaucetId, amount: quote.fillAmount }];
+      const assessment = spendingLimitAssessmentFromError(error);
+      if (assessment !== undefined) {
+        if (assessment.accountId === account.publicKey) {
+          setSpendingLimitChallenge({ assessment, spends, quote });
+        }
+        return;
+      }
+      try {
+        if (isSpendingLimitPriceUnavailable(error)) {
+          const configuration = await readSpendingLimit(account.publicKey);
+          if (configuration !== undefined) {
+            setSpendingLimitChallenge({
+              unpriced: { accountId: account.publicKey, spends, revision: configuration.revision },
+              quote
+            });
+            return;
+          }
+        }
+      } catch (challengeError) {
+        console.error(challengeError);
+      }
       setPurchaseError(error instanceof Error ? error.message : String(error));
     } finally {
       setSubmitting(false);
@@ -100,6 +143,17 @@ export const ArcadeAllowance: React.FC = () => {
         error={purchaseError}
         onConfirm={confirmPurchase}
       />
+      {spendingLimitChallenge !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
+          unpriced={spendingLimitChallenge.unpriced}
+          onResult={authorization => {
+            setSpendingLimitChallenge(undefined);
+            if (authorization !== undefined) void confirmPurchase(spendingLimitChallenge.quote, authorization);
+          }}
+        />
+      )}
     </>
   );
 };
