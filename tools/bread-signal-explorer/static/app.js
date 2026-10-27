@@ -723,11 +723,82 @@ function renderDrawer(snap) {
   if (state.issue) document.getElementById(`issue-${state.issue}`)?.scrollIntoView({ block: 'nearest' })
 }
 
+function mdCell(value) {
+  return String(value ?? '').replace(/\|/g, '/').replace(/\s+/g, ' ').trim()
+}
+
+function exportMarkdown(snap) {
+  const issues = snap.issues
+  const sentry = issues.filter((issue) => issue.inSentry)
+  const events = sentry.reduce((sum, issue) => sum + issue.events, 0)
+  const buckets = tally(issues, 'bucket')
+  const lines = [
+    '# Bread Signal Explorer',
+    '',
+    `Generated ${snap.generatedAt}. Period ${snap.period}. Project ${snap.project}.`,
+    '',
+    'Sentry folds events into one report. Reports that share a proven cause are one cluster. A cluster is open while any report is still waiting, missing evidence, ready, in progress, or regressed. Closed means the crash ledger finished with it. Sentry may still list that report as unresolved.',
+    '',
+    '## Queue',
+    '',
+    `- Open reports: ${sentry.length}`,
+    `- Events: ${events}`,
+    `- Ledger-only reports: ${snap.counts.ledgerOnly}`,
+  ]
+  if (snap.meta.orchestrator?.model) {
+    lines.push(`- Last logged in orchestrator: ${snap.meta.orchestrator.model} (last active: ${snap.meta.orchestrator.active || 'unknown'})`)
+  }
+  lines.push('', '## Where the work stands', '')
+  for (const [id, label] of STATUS) {
+    if (!buckets.get(id)) continue
+    lines.push(`- ${label}: ${buckets.get(id)}`)
+  }
+  lines.push('', '## Releases', '', '| Release | Events | Seen | Still open | Closed | Introduced |', '| --- | ---: | ---: | ---: | ---: | ---: |')
+  for (const release of snap.releases) {
+    const stats = releaseStats(snap, release)
+    lines.push(`| ${mdCell(release.version)} | ${release.events || 0} | ${stats.seen || 0} | ${stats.split ? stats.open : ''} | ${stats.split ? stats.closed : ''} | ${release.newGroups || 0} |`)
+  }
+  const clusters = buildClusters(issues)
+  lines.push('', '## Clusters', '')
+  for (const area of buildAreas(clusters)) {
+    lines.push(`### ${area.label}`, '')
+    lines.push('| Cluster | Events | Reports | Open | Kind |', '| --- | ---: | ---: | --- | --- |')
+    for (const cluster of area.clusters) {
+      const caption = captionFor(cluster.label)
+      const name = [caption.kicker, caption.text].filter(Boolean).join(' — ') || cluster.label
+      lines.push(`| ${mdCell(name)} | ${cluster.events} | ${cluster.reports} | ${cluster.open ? 'yes' : 'no'} | ${cluster.kind === 'work' ? 'same cause' : 'same message'} |`)
+    }
+    lines.push('')
+  }
+  lines.push('## Reports', '', '| Key | Area | What | Events | Status | Seen in | Closed during |', '| --- | --- | --- | ---: | --- | --- | --- |')
+  for (const issue of issues) {
+    const caption = captionFor(issue.title)
+    const what = [caption.kicker, caption.text].filter(Boolean).join(' — ')
+    lines.push(`| ${mdCell(issue.key)} | ${mdCell(issue.areaLabel)} | ${mdCell(what)} | ${issue.events} | ${mdCell(issue.bucket)} | ${mdCell(issue.seenIn.join(', '))} | ${mdCell(issue.closedDuring || '')} |`)
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
+function downloadMarkdown(snap) {
+  const text = exportMarkdown(snap)
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const day = String(snap.generatedAt || '').slice(0, 10) || 'export'
+  link.href = url
+  link.download = `bread-signal-${day}.md`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function renderScope(snap) {
   const button = document.getElementById('refresh')
   button.disabled = state.refreshing
   button.textContent = state.refreshing ? 'Refreshing' : 'Refresh'
   const scope = document.getElementById('scope')
+  const exportButton = document.getElementById('export')
+  if (exportButton) exportButton.hidden = !snap
   if (!snap) {
     scope.textContent = 'Reading the queue'
     return
@@ -899,6 +970,10 @@ document.getElementById('scrim').addEventListener('click', () => {
   state.cluster = null
   state.issue = null
   renderDrawer(state.snap)
+})
+
+document.getElementById('export').addEventListener('click', () => {
+  if (state.snap) downloadMarkdown(state.snap)
 })
 
 document.getElementById('refresh').addEventListener('click', async () => {
