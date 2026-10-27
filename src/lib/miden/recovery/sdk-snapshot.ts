@@ -1,5 +1,10 @@
 import { type MidenClient, type InputNoteRecord, InputNoteState, NoteFile, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
+import {
+  assertCanonicalNoteRequest,
+  readCanonicalNoteFamilies,
+  type CanonicalNoteReadback
+} from './canonical-note-readback';
 import { StorageContinuityError } from './continuity';
 import { JOURNAL_MAX_BYTES, JOURNAL_MAX_ENTRIES } from './journal';
 import { withRecoveryStorageLock } from './lock';
@@ -27,6 +32,7 @@ export interface SdkRecoverySnapshot {
   generation: string | null;
   accounts: RecoveryAccountExpectation[];
   notes: RecoveryNoteEntry[];
+  canonicalNotes?: CanonicalNoteReadback[];
 }
 
 export function assertRetainedInputRecord(
@@ -109,8 +115,10 @@ export async function readSdkRecoverySnapshot(
   accountIds: string[],
   includeNotes: boolean,
   assertCurrent: () => void,
-  retainedNotes: RecoveryNoteEntry[] = []
+  retainedNotes: RecoveryNoteEntry[] = [],
+  canonicalNoteFamilies: RecoveryNoteEntry[] = []
 ): Promise<SdkRecoverySnapshot> {
+  assertCanonicalNoteRequest(canonicalNoteFamilies);
   if (
     accountIds.length === 0 ||
     accountIds.length > 256 ||
@@ -200,6 +208,13 @@ export async function readSdkRecoverySnapshot(
     }
   }
   assertCurrent();
+  if (canonicalNoteFamilies.length > 0) {
+    const canonicalNotes = await readCanonicalNoteFamilies(client, canonicalNoteFamilies, assertCurrent);
+    assertCurrent();
+    if ((await readSdkGeneration(client)) !== generation) throw new StorageContinuityError();
+    assertCurrent();
+    return { generation, accounts, notes, canonicalNotes };
+  }
   return { generation, accounts, notes };
 }
 
