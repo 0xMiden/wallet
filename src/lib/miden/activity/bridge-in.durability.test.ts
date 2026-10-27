@@ -4,7 +4,7 @@ import { SharedEarnLocks, deferred } from 'lib/epoch/testing/earn-locks';
 import { IBridgeInInfo, IConsumedNote, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getProviderReceiptBackend, installProviderReceiptBackend } from 'lib/miden/recovery/receipt-backend';
 import { fromSerializable } from 'lib/miden/recovery/serialization';
-import { validateRecoveryReceipt } from 'lib/miden/recovery/transaction-record';
+import { projectRecoveryTransaction, validateRecoveryReceipt } from 'lib/miden/recovery/transaction-record';
 import * as Repo from 'lib/miden/repo';
 import { assertStorageHealthy } from 'lib/miden/storage-health';
 
@@ -788,7 +788,9 @@ const retainedReceipts = new Map<string, ReturnType<typeof validateRecoveryRecei
 async function acknowledgeSyntheticReceipt(value: unknown, expectedEpoch: number): Promise<void> {
   assertStorageHealthy(expectedEpoch);
   const row = validateRecoveryReceipt(fromSerializable(value));
-  expect(await Repo.transactions.get(row.id)).toMatchObject(row);
+  const persisted = await Repo.transactions.get(row.id);
+  if (!persisted) throw new Error('Synthetic receipt owner requires a persisted row');
+  expect(projectRecoveryTransaction(persisted)).toMatchObject(row);
   assertStorageHealthy(expectedEpoch);
   retainedReceipts.set(row.id, row);
 }
