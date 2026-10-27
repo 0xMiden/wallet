@@ -4,6 +4,8 @@ import type { Page } from '@playwright/test';
 import { openImportTypeScreen } from '../e2e/helpers/onboarding-entry';
 import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 
+export { openImportTypeScreen as openTelemetryImportType };
+
 /** The seed this suite imports. Known, so it doubles as a leak sentinel. */
 export const SEED_WORDS =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
