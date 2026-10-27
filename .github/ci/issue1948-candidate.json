@@ -1,0 +1,35 @@
+{
+  "base": "53b5c7c303dcfcbd08a8b0782d915126cc988794",
+  "patch": "docs/superpowers/task-4c3-green-5.patch",
+  "sha256": "6dbd49b3ac194a437a566864223db4fed283e967e6a27ca3b3d5ea3e56d3833e",
+  "sourceFiles": [
+    {
+      "path": "src/lib/miden/sdk/miden-client-interface.ts",
+      "sha256": "ca51de6b57a995e3e580f60c2c780168a9d9fd571655980030f6472895a3c4bf"
+    },
+    {
+      "path": "src/lib/miden/sdk/miden-client-interface.recovery.test.ts",
+      "sha256": "efb716e6e34b87f9863151bcdbe4e20bbab3e5f3d2506dc2312d83682f32cc0d"
+    }
+  ],
+  "commands": [
+    "yarn tsc --noEmit",
+    "yarn eslint src/lib/miden/sdk/miden-client-interface.ts src/lib/miden/sdk/miden-client-interface.recovery.test.ts src/lib/miden/back/vault.test.ts --max-warnings=0",
+    "yarn jest --runTestsByPath src/lib/miden/back/vault.test.ts --testNamePattern=Task4C3E --maxWorkers=2 --json --outputFile=proof/results-1.json --no-coverage",
+    "yarn jest --runTestsByPath src/lib/miden/sdk/miden-client-interface.recovery.test.ts --maxWorkers=2 --json --outputFile=proof/results-2.json --no-coverage"
+  ],
+  "purpose": "Guardian generated-file retention9regressions and complete53recoverycases,currenttypes/lint,expected62. FullVault deferred coherent F gate; no fullacquisition/SDK/coverage claim.",
+  "original_manifest_sha256": "8c1855c5a2156b1d4b12752931f371c95abbb6987a52c3a97cc850faa45c2598",
+  "closureFiles": {
+    "src/lib/miden/back/vault.test.ts": "d27362f835545b0bf5d1b42e7e2017f0ab2a232d7678af0b7ddb586c44ec525b"
+  },
+  "expected_group_cases": [
+    9,
+    53
+  ],
+  "expected_group_filtered": [
+    347,
+    0
+  ],
+  "declared_scope": "Vault356total:9selected E cases and347explicitly filtered; complete recovery53,zero skips. FullVault in next coherent gate."
+}
